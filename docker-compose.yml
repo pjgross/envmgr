@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Primary database
+  postgres:
+    image: postgres:15-alpine
+    container_name: envmgr-postgres
+    environment:
+      POSTGRES_DB: envmgr
+      POSTGRES_USER: envmgr
+      POSTGRES_PASSWORD: envmgr_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U envmgr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Neo4j - Graph database for topology
+  neo4j:
+    image: neo4j:5-community
+    container_name: envmgr-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/envmgr_dev_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p envmgr_dev_password 'RETURN 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: envmgr-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ - Message queue for events
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: envmgr-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: envmgr
+      RABBITMQ_DEFAULT_PASS: envmgr_dev_password
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (uncomment after backend is set up)
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: envmgr-backend
+  #   environment:
+  #     DATABASE_URL: postgresql://envmgr:envmgr_dev_password@postgres:5432/envmgr
+  #     NEO4J_URI: bolt://neo4j:7687
+  #     NEO4J_USER: neo4j
+  #     NEO4J_PASSWORD: envmgr_dev_password
+  #     REDIS_URL: redis://redis:6379
+  #     RABBITMQ_URL: amqp://envmgr:envmgr_dev_password@rabbitmq:5672
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - ./backend:/app
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     neo4j:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend (uncomment after frontend is set up)
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: envmgr-frontend
+  #   ports:
+  #     - "5173:5173"
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   environment:
+  #     VITE_API_URL: http://localhost:8000
+  #   command: npm run dev -- --host
+
+volumes:
+  postgres-data:
+  neo4j-data:
+  neo4j-logs:
+  redis-data:
+  rabbitmq-data:
+
+networks:
+  default:
+    name: envmgr-network
