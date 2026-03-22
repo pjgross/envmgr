@@ -64,7 +64,7 @@ async def get_current_user(
     token = credentials.credentials
     payload = decode_access_token(token)
     
-    user_id: int = payload.get("sub")
+    user_id: int = int(payload.get("sub"))
     tenant_id: int = payload.get("tenant_id")
     
     if user_id is None or tenant_id is None:

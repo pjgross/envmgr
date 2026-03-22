@@ -117,9 +117,9 @@ async def login(
             detail="User account is inactive",
         )
     
-    # Create access token
+    # Create access token (sub must be a string per RFC 7519)
     access_token = create_access_token(
-        data={"sub": user.id, "tenant_id": tenant.id}
+        data={"sub": str(user.id), "tenant_id": tenant.id}
     )
     
     return TokenResponse(

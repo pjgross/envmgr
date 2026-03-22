@@ -1,0 +1,148 @@
+# EnvManager - Claude Code Guide
+
+> **Current Phase**: Phase 1 — Environment Inventory + Shared Booking (In Progress)
+> **Requirements**: [docs/requirements.md](docs/requirements.md)
+> **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
+> **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
+> **Roadmap**: [docs/plan.md](docs/plan.md) | **Active tasks**: [docs/phases/phase-1.md](docs/phases/phase-1.md)
+
+EnvManager is a multi-tenant test environment management platform: inventory, booking, change management, CI/CD tracking, DORA metrics, and infrastructure topology visualization.
+
+Stack: FastAPI + PostgreSQL + Neo4j + Redis + **NATS** (backend) / React 18 + TypeScript + MUI + Redux Toolkit (frontend).
+
+---
+
+## Dev Environment
+
+Runs fully containerised on **OrbStack** (macOS). `docker-compose up -d` starts all services locally; OrbStack provides DNS at `<service>.orb.local` for inter-container access.
+
+```bash
+# 1. Start infrastructure (PostgreSQL, Neo4j, Redis, NATS)
+docker-compose up -d
+
+# 2. Run migrations
+cd backend && alembic upgrade head
+
+# 3. Backend (separate terminal)
+cd backend && uvicorn app.main:app --reload
+
+# 4. Frontend (separate terminal)
+cd frontend && npm run dev
+```
+
+| Service | Dev URL | Notes |
+|---------|---------|-------|
+| Frontend | http://localhost:5173 | Vite dev server |
+| Backend API | http://localhost:8000 | FastAPI |
+| API Docs | http://localhost:8000/docs | Swagger UI |
+| Neo4j Browser | http://localhost:7474 | Local Neo4j container |
+| NATS Monitor | http://localhost:8222 | Local NATS container |
+| PostgreSQL | localhost:5432 | Local Postgres container |
+| Redis | localhost:6379 | Local Redis container |
+| Jira | http://localhost:8090 | Dev/testing only — not in prod |
+| GitLab | http://localhost:8929 | Dev/testing only — not in prod |
+| GitLab SSH | localhost:2224 | Dev/testing only — not in prod |
+
+Demo login: `admin` / `admin123` (tenant: `demo`)
+
+---
+
+## Production Deployment
+
+Production runs on **macmini** (Tailscale network). EnvManager's containers are deployed via docker-compose. Several infrastructure services are shared from the macmini host rather than duplicated.
+
+| Service | Source | Prod connection |
+|---------|--------|-----------------|
+| PostgreSQL | EnvManager docker-compose | `localhost:5435` (own container) |
+| Neo4j | **Shared — macmini** | `bolt://macmini:7687` |
+| Redis | EnvManager docker-compose | `localhost:6379` (own container) |
+| NATS | **Shared — macmini** | `nats://macmini:4222` |
+| Grafana | **Shared — macmini** | `http://macmini:3003` |
+| Prometheus | **Shared — macmini** | `http://macmini:9093` |
+| Backend API | EnvManager docker-compose | `http://macmini:8100` |
+| Frontend | EnvManager docker-compose | `http://macmini:5173` (or via Caddy) |
+
+**Neo4j note**: macmini runs Neo4j Community Edition (single database). EnvManager uses dedicated node labels/prefixes to namespace its data within the shared instance. See `docs/architecture.md §11` for details.
+
+Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20copy.md)
+
+---
+
+## Code Conventions
+
+**Python**: PEP 8, type hints, async/await throughout. `snake_case` functions/vars, `PascalCase` classes.
+
+**TypeScript**: Strict mode, explicit types, functional components. `camelCase` functions/vars, `PascalCase` components/types.
+
+**Git**: Branch names like `feature/phase1-environment-crud`. Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`.
+
+---
+
+## Adding a New Feature (checklist)
+
+1. `backend/app/db/models/<entity>.py` — SQLAlchemy model with `tenant_id`
+2. `alembic revision --autogenerate -m "..."` then `alembic upgrade head`
+3. `backend/app/services/<entity>_service.py` — business logic, no HTTP code
+4. `backend/app/api/v1/<entities>.py` — thin endpoints, delegate to service
+5. `frontend/src/services/<entity>Service.ts` — API client
+6. `frontend/src/store/<entity>Slice.ts` — Redux slice with async thunks
+7. `frontend/src/pages/<EntityList>.tsx` — page component using Redux
+
+---
+
+## Common Pitfalls
+
+- **Business logic in API endpoints** — keep endpoints thin, put logic in services
+- **Missing tenant_id filter** — every query on tenant-scoped tables must filter by `tenant_id`
+- **API calls in React components** — use Redux async thunks + service layer instead
+- **Synchronous DB operations** — always use `async/await` with `AsyncSession`
+- **Hard deleting records** — use soft deletes (`deleted_at` timestamp)
+- **Skipping migrations** — always create an Alembic migration for schema changes
+- **Secrets in code** — use environment variables and `.env` files
+
+---
+
+## Quick Reference
+
+```python
+# Database session
+from app.db.base import get_db
+async def my_endpoint(db: AsyncSession = Depends(get_db)): ...
+
+# Auth + tenant context
+from app.core.security import get_current_user
+async def my_endpoint(current_user: User = Depends(get_current_user)):
+    tenant_id = current_user.tenant_id
+
+# Publish event (outbox pattern)
+from app.core.events import publish_event
+await publish_event(event_type="BookingCreated", aggregate_id=booking.id, payload={...})
+```
+
+```typescript
+// Frontend: dispatch async thunk
+const dispatch = useDispatch();
+useEffect(() => { dispatch(fetchEnvironments()); }, []);
+```
+
+---
+
+## Architecture Reference
+
+See [docs/prod architecture.md](docs/prod%20architecture.md) for:
+- Multi-tier architecture diagram
+- Layer responsibilities (API / Service / DB)
+- Multi-tenancy pattern
+- Event-driven architecture & outbox pattern (NATS/JetStream)
+- Database design patterns
+- Frontend state management
+- GitHub-first infrastructure discovery
+- API design standards & response formats
+- Testing strategy
+- Deployment architecture (dev OrbStack + prod macmini)
+
+See [docs/architecture copy.md](docs/architecture%20copy.md) for the macmini host service map (all running Docker services, ports, and endpoints).
+
+---
+
+> **Note**: `GEMINI.md` at the project root is the original Gemini-era guide and is kept as a historical reference. `CLAUDE.md` (this file) is the authoritative guide for Claude Code sessions.
