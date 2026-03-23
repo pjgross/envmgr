@@ -12,6 +12,7 @@ import SystemDetail from './pages/systems/SystemDetail'
 import EnvironmentList from './pages/environments/EnvironmentList'
 import EnvironmentDetail from './pages/environments/EnvironmentDetail'
 import BookingCalendar from './pages/bookings/BookingCalendar'
+import BookingList from './pages/bookings/BookingList'
 import ImportPage from './pages/import/ImportPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import EntityConfig from './pages/admin/EntityConfig'
@@ -64,7 +65,9 @@ function App() {
                     <Route path="/systems/:id" element={<SystemDetail />} />
                     <Route path="/environments" element={<EnvironmentList />} />
                     <Route path="/environments/:id" element={<EnvironmentDetail />} />
-                    <Route path="/bookings" element={<BookingCalendar />} />
+                    <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
+                    <Route path="/bookings/calendar" element={<BookingCalendar />} />
+                    <Route path="/bookings/list" element={<BookingList />} />
                     <Route path="/import" element={<ImportPage />} />
                     <Route
                         path="/admin/config"
