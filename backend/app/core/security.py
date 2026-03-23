@@ -64,14 +64,11 @@ async def get_current_user(
     token = credentials.credentials
     payload = decode_access_token(token)
     
-    user_id: int = int(payload.get("sub"))
+    user_id_raw = payload.get("sub")
     tenant_id: int = payload.get("tenant_id")
-    
-    if user_id is None or tenant_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-        )
+    if user_id_raw is None or tenant_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+    user_id = int(user_id_raw)
     
     # Query user from database
     result = await db.execute(
@@ -124,4 +121,6 @@ class Role:
     VIEWER = "Viewer"
 
 
-require_tenant_admin = lambda: require_role(Role.ADMIN)
+def require_tenant_admin():
+    """Dependency to require tenant admin (Admin role) privileges."""
+    return require_role(Role.ADMIN)

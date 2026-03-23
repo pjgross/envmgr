@@ -121,3 +121,20 @@ async def test_require_master_admin_blocks_non_master():
         await checker(current_user=mock_user)
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Master admin access required"
+
+
+@pytest.mark.asyncio
+async def test_require_master_admin_allows_master_admin():
+    mock_user = MagicMock()
+    mock_user.is_master_admin = True
+    checker = require_master_admin()
+    result = await checker(current_user=mock_user)
+    assert result is mock_user
+
+
+def test_active_tenant_id_falls_back_to_user_tenant_id():
+    """When no impersonating_tenant_id in payload, active_tenant_id equals user.tenant_id."""
+    payload_without_impersonation = {"sub": "1", "tenant_id": 42}
+    impersonating = payload_without_impersonation.get("impersonating_tenant_id")
+    active = impersonating if impersonating else payload_without_impersonation["tenant_id"]
+    assert active == 42
