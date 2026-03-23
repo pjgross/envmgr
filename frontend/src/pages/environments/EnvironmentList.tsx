@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,21 +13,19 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
-  Paper,
   Select,
-  Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
   FormControl,
   InputLabel,
 } from '@mui/material';
+import {
+  DataGrid,
+  GridColDef,
+  GridColumnVisibilityModel,
+  GridValueGetterParams,
+} from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -78,6 +76,26 @@ const emptyForm: EnvFormValues = {
   status: 'active',
 };
 
+function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
+  const key = `environments-list-columns-${userId ?? 'guest'}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return {}
+    return JSON.parse(raw) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
+  const key = `environments-list-columns-${userId ?? 'guest'}`
+  try {
+    localStorage.setItem(key, JSON.stringify(model))
+  } catch {
+    // quota exceeded or storage unavailable — silently skip persistence
+  }
+}
+
 export default function EnvironmentList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
@@ -92,6 +110,11 @@ export default function EnvironmentList() {
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<EnvironmentResponse | null>(null);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
+
+  const user = useSelector((state: RootState) => state.auth.user)
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
+    () => loadColumnModel(user?.id)
+  )
 
   useEffect(() => {
     dispatch(fetchEnvironments());
@@ -112,7 +135,7 @@ export default function EnvironmentList() {
     setDialogOpen(true);
   };
 
-  const openEdit = (env: EnvironmentResponse) => {
+  const openEdit = useCallback((env: EnvironmentResponse) => {
     setEditTarget(env);
     setForm({
       name: env.name,
@@ -123,7 +146,89 @@ export default function EnvironmentList() {
     setCustomFieldValues(env.custom_fields ?? {});
     setFormError('');
     setDialogOpen(true);
-  };
+  }, []);
+
+  const coreColumns = useMemo<GridColDef<EnvironmentResponse>[]>(() => [
+    {
+      field: 'name',
+      headerName: 'Name',
+      flex: 1.5,
+      hideable: false,
+      renderCell: (params) => (
+        <Typography variant="body2" fontWeight="medium">{params.row.name}</Typography>
+      ),
+    },
+    {
+      field: 'environment_type',
+      headerName: 'Type',
+      flex: 1,
+      hideable: false,
+    },
+    {
+      field: 'status',
+      headerName: 'Status',
+      flex: 0.8,
+      hideable: false,
+      renderCell: (params) => (
+        <Chip
+          label={params.row.status}
+          size="small"
+          color={STATUS_COLORS[params.row.status]}
+        />
+      ),
+    },
+    {
+      field: 'created_at',
+      headerName: 'Created',
+      flex: 0.8,
+      hideable: false,
+      valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
+        new Date(params.row.created_at).toLocaleDateString(),
+    },
+    {
+      field: 'actions',
+      headerName: '',
+      width: 100,
+      sortable: false,
+      hideable: false,
+      disableColumnMenu: true,
+      renderCell: (params) => (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Edit">
+            <IconButton size="small" onClick={() => openEdit(params.row)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ),
+    },
+  ], [openEdit, setDeleteTarget])
+
+  const customFieldColumns = useMemo<GridColDef<EnvironmentResponse>[]>(
+    () => customFieldDefs.map((def) => ({
+      field: def.field_key,
+      headerName: def.label,
+      flex: 1,
+      valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
+        params.row.custom_fields?.[def.field_key] ?? '—',
+    } as GridColDef<EnvironmentResponse>)),
+    [customFieldDefs]
+  )
+
+  const columns = useMemo(
+    () => [...coreColumns, ...customFieldColumns],
+    [coreColumns, customFieldColumns]
+  )
+
+  const handleColumnVisibilityChange = useCallback((model: GridColumnVisibilityModel) => {
+    setColumnVisibilityModel(model)
+    saveColumnModel(user?.id, model)
+  }, [user?.id])
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -212,87 +317,18 @@ export default function EnvironmentList() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Created</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && environments.length === 0
-              ? Array.from({ length: 4 }).map((_, i) => (
-                  <TableRow key={i}>
-                    {Array.from({ length: 5 }).map((__, j) => (
-                      <TableCell key={j}><Skeleton /></TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              : filtered.map((env) => (
-                  <TableRow
-                    key={env.id}
-                    hover
-                    sx={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/environments/${env.id}`)}
-                  >
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="medium">
-                        {env.name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {env.environment_type}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={env.status}
-                        size="small"
-                        color={STATUS_COLORS[env.status]}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {new Date(env.created_at).toLocaleDateString()}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => openEdit(env)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => setDeleteTarget(env)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-            {!loading && filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} align="center">
-                  <Typography color="text.secondary" py={3}>
-                    {search || statusFilter !== 'all'
-                      ? 'No environments match your filter.'
-                      : 'No environments yet. Create one!'}
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <DataGrid
+        rows={filtered}
+        columns={columns}
+        loading={loading && environments.length === 0}
+        onRowClick={(params) => navigate(`/environments/${params.row.id}`)}
+        columnVisibilityModel={columnVisibilityModel}
+        onColumnVisibilityModelChange={handleColumnVisibilityChange}
+        pageSizeOptions={[25, 50, 100]}
+        initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+        sx={{ border: 1, borderColor: 'divider' }}
+        disableRowSelectionOnClick
+      />
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
