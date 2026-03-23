@@ -1,5 +1,5 @@
 import { useSelector, useDispatch } from 'react-redux'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import {
     AppBar,
     Toolbar,
@@ -30,7 +30,17 @@ export default function Dashboard() {
                     <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
                         EnvManager
                     </Typography>
-                    <Typography variant="body1" sx={{ mr: 2 }}>
+                    {user?.is_master_admin && (
+                        <Button color="inherit" component={Link} to="/admin/tenants">
+                            Platform Admin
+                        </Button>
+                    )}
+                    {user?.role === 'Admin' && (
+                        <Button color="inherit" component={Link} to="/tenant/users">
+                            Tenant Admin
+                        </Button>
+                    )}
+                    <Typography variant="body1" sx={{ mr: 2, ml: 2 }}>
                         {user?.username} ({user?.role})
                     </Typography>
                     <Button color="inherit" onClick={handleLogout}>

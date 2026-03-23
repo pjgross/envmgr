@@ -7,9 +7,10 @@ const api = axios.create({
     },
 })
 
-// Add auth token to requests
+// Add auth token to requests — impersonation token takes precedence
 api.interceptors.request.use((config) => {
-    const token = localStorage.getItem('token')
+    const impersonationToken = localStorage.getItem('impersonation_token')
+    const token = impersonationToken || localStorage.getItem('token')
     if (token) {
         config.headers.Authorization = `Bearer ${token}`
     }

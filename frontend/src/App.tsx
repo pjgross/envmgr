@@ -3,17 +3,55 @@ import { useSelector } from 'react-redux'
 import { RootState } from './store'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import TenantList from './pages/admin/TenantList'
+import TenantDetail from './pages/admin/TenantDetail'
+import TenantSettings from './pages/tenant/TenantSettings'
+import UserManagement from './pages/tenant/UserManagement'
+import ImpersonationBanner from './components/ImpersonationBanner'
+
+function PrivateRoute({
+    children,
+    requireMasterAdmin = false,
+    requiredRole,
+}: {
+    children: React.ReactNode
+    requireMasterAdmin?: boolean
+    requiredRole?: string
+}) {
+    const { user, isAuthenticated } = useSelector((state: RootState) => state.auth)
+    if (!isAuthenticated) return <Navigate to="/login" replace />
+    if (requireMasterAdmin && !user?.is_master_admin) return <Navigate to="/dashboard" replace />
+    if (requiredRole && user?.role !== requiredRole && !user?.is_master_admin) return <Navigate to="/dashboard" replace />
+    return <>{children}</>
+}
 
 function App() {
     const isAuthenticated = useSelector((state: RootState) => state.auth.isAuthenticated)
 
     return (
         <BrowserRouter>
+            <ImpersonationBanner />
             <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route
                     path="/dashboard"
                     element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />}
+                />
+                <Route
+                    path="/admin/tenants"
+                    element={<PrivateRoute requireMasterAdmin><TenantList /></PrivateRoute>}
+                />
+                <Route
+                    path="/admin/tenants/:tenantId"
+                    element={<PrivateRoute requireMasterAdmin><TenantDetail /></PrivateRoute>}
+                />
+                <Route
+                    path="/tenant/settings"
+                    element={<PrivateRoute requiredRole="Admin"><TenantSettings /></PrivateRoute>}
+                />
+                <Route
+                    path="/tenant/users"
+                    element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>}
                 />
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
             </Routes>
