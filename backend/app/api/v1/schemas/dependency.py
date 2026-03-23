@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -65,7 +65,7 @@ class DependencyVerifyItem(BaseModel):
     to_system_id: int
     to_system_name: str
     dependency_type: DependencyType
-    status: str  # "satisfied" | "mocked" | "missing"
+    status: Literal["satisfied", "mocked", "missing"]
 
 
 class SystemVerifyResult(BaseModel):

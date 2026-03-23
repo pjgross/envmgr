@@ -451,7 +451,7 @@ export default function SystemDetail() {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={dep.dependency_type.replace('_', ' ')}
+                        label={dep.dependency_type.replace(/_/g, ' ')}
                         size="small"
                         variant="outlined"
                       />

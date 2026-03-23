@@ -40,6 +40,13 @@ async def create_system_dependency(
     # Verify from_system belongs to tenant
     await get_system(db, system_id, tenant_id)
 
+    # Self-reference check before any further DB queries
+    if data.to_system_id == system_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A system cannot depend on itself",
+        )
+
     # Verify to_system belongs to tenant
     to_sys_result = await db.execute(
         select(System).where(
@@ -52,13 +59,6 @@ async def create_system_dependency(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Target system not found in this tenant",
-        )
-
-    # Check for self-reference
-    if system_id == data.to_system_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A system cannot depend on itself",
         )
 
     # Check not duplicate

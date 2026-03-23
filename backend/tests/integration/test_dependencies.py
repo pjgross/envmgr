@@ -192,6 +192,28 @@ async def test_system_dep_tenant_isolation(
 
 
 @pytest.mark.asyncio
+async def test_component_dep_tenant_isolation(
+    client: AsyncClient, auth_headers, other_auth_headers
+):
+    """A subsystem from another tenant cannot be used as to_subsystem."""
+    # Create a system + subsystem in tenant A
+    sys_a_id = await _create_system(client, auth_headers, "TenantASysComp")
+    from_sub_id = await _create_subsystem(client, auth_headers, sys_a_id, "TenantASubComp")
+
+    # Create a system + subsystem in tenant B
+    sys_b_id = await _create_system(client, other_auth_headers, "TenantBSysComp")
+    other_to_sub_id = await _create_subsystem(client, other_auth_headers, sys_b_id, "TenantBSubComp")
+
+    # Tenant A tries to reference tenant B's subsystem — should get 404
+    resp = await client.post(
+        f"/api/v1/subsystems/{from_sub_id}/dependencies",
+        headers=auth_headers,
+        json={"to_subsystem_id": other_to_sub_id, "dependency_type": "api_call"},
+    )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
 async def test_component_dependency_crud(client: AsyncClient, auth_headers):
     """Create, list, and delete a component dependency."""
     sys_id = await _create_system(client, auth_headers, "CompSys")

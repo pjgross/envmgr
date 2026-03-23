@@ -453,13 +453,13 @@ export default function EnvironmentDetail() {
                               </TableRow>
                             </TableHead>
                             <TableBody>
-                              {nonSatisfiedItems.map((item, idx) => (
-                                <TableRow key={idx}>
+                              {nonSatisfiedItems.map((item) => (
+                                <TableRow key={`${item.system_name}-${item.to_system_id}`}>
                                   <TableCell>{item.system_name}</TableCell>
                                   <TableCell>{item.to_system_name}</TableCell>
                                   <TableCell>
                                     <Chip
-                                      label={item.dependency_type.replace('_', ' ')}
+                                      label={item.dependency_type.replace(/_/g, ' ')}
                                       size="small"
                                       variant="outlined"
                                     />

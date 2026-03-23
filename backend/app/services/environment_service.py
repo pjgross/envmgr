@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus, EnvironmentSystemStatus
-from app.db.models.system import System
 from app.db.models.dependency import SystemDependency
 from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
 
@@ -143,6 +143,24 @@ async def verify_environment(db: AsyncSession, env_id: int, tenant_id: int) -> d
         row.system_id: row for row in env_sys_rows
     }
 
+    # Pre-load ALL dependencies for all systems in this environment in one query,
+    # eagerly loading to_system so dep.to_system.name requires no extra round-trips.
+    system_ids = list(env_system_map.keys())
+    deps_result = await db.execute(
+        select(SystemDependency)
+        .where(
+            SystemDependency.from_system_id.in_(system_ids),
+            SystemDependency.tenant_id == tenant_id,
+        )
+        .options(selectinload(SystemDependency.to_system))
+    )
+    all_deps: list[SystemDependency] = list(deps_result.scalars().all())
+
+    # Group by from_system_id for O(1) lookup inside the classification loop
+    deps_by_system: dict[int, list[SystemDependency]] = defaultdict(list)
+    for dep in all_deps:
+        deps_by_system[dep.from_system_id].append(dep)
+
     systems_result: list[dict] = []
     total_deps = 0
     satisfied_count = 0
@@ -150,15 +168,7 @@ async def verify_environment(db: AsyncSession, env_id: int, tenant_id: int) -> d
     missing_count = 0
 
     for system_id, env_sys in env_system_map.items():
-        # Load declared dependencies for this system within the tenant
-        dep_result = await db.execute(
-            select(SystemDependency)
-            .where(
-                SystemDependency.from_system_id == system_id,
-                SystemDependency.tenant_id == tenant_id,
-            )
-        )
-        deps: list[SystemDependency] = list(dep_result.scalars().all())
+        deps = deps_by_system[system_id]
 
         verify_items: list[dict] = []
         for dep in deps:
@@ -177,15 +187,8 @@ async def verify_environment(db: AsyncSession, env_id: int, tenant_id: int) -> d
 
             total_deps += 1
 
-            # Resolve to_system name — try from env_system_map first, else query
-            if to_id in env_system_map:
-                to_system_name = env_system_map[to_id].system.name
-            else:
-                sys_result = await db.execute(
-                    select(System).where(System.id == to_id)
-                )
-                sys_obj = sys_result.scalar_one_or_none()
-                to_system_name = sys_obj.name if sys_obj else f"System#{to_id}"
+            # to_system is already eagerly loaded — no extra query needed
+            to_system_name = dep.to_system.name if dep.to_system else f"System#{to_id}"
 
             verify_items.append(
                 {
