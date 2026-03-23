@@ -277,3 +277,30 @@ async def test_get_nonexistent_system(client: AsyncClient, auth_headers):
     """GET /systems/{id} for a non-existent ID returns 404."""
     response = await client.get("/api/v1/systems/999999", headers=auth_headers)
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_subsystem_duplicate_name(client: AsyncClient, auth_headers):
+    """POST /systems/{id}/subsystems with duplicate name returns 409."""
+    # Create parent system
+    sys_resp = await client.post(
+        "/api/v1/systems/",
+        headers=auth_headers,
+        json={"name": "DuplicateSubSystem"},
+    )
+    assert sys_resp.status_code == 201
+    system_id = sys_resp.json()["id"]
+
+    # Create a subsystem
+    await client.post(
+        f"/api/v1/systems/{system_id}/subsystems",
+        headers=auth_headers,
+        json={"name": "DuplicateSub", "description": "first"},
+    )
+    # Try to create another with the same name
+    response = await client.post(
+        f"/api/v1/systems/{system_id}/subsystems",
+        headers=auth_headers,
+        json={"name": "DuplicateSub", "description": "second"},
+    )
+    assert response.status_code == 409

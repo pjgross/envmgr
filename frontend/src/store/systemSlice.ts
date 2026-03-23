@@ -13,6 +13,7 @@ interface SystemState {
   systems: SystemResponse[];
   currentSystem: SystemResponse | null;
   subsystems: SubSystemResponse[];
+  currentSubSystem: SubSystemResponse | null;
   loading: boolean;
   error: string | null;
 }
@@ -21,6 +22,7 @@ const initialState: SystemState = {
   systems: [],
   currentSystem: null,
   subsystems: [],
+  currentSubSystem: null,
   loading: false,
   error: null,
 };
@@ -62,6 +64,13 @@ export const updateSubSystem = createAsyncThunk(
   'system/updateSubSystem',
   ({ systemId, subId, data }: { systemId: number; subId: number; data: SubSystemUpdate }) =>
     systemService.updateSubSystem(systemId, subId, data)
+);
+
+export const fetchSubSystem = createAsyncThunk(
+  'system/fetchSubSystem',
+  async ({ systemId, subId }: { systemId: number; subId: number }) => {
+    return systemService.getSubSystem(systemId, subId);
+  }
 );
 
 export const deleteSubSystem = createAsyncThunk(
@@ -130,6 +139,16 @@ const systemSlice = createSlice({
       .addCase(deleteSystem.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message ?? 'Failed to delete system';
+      })
+      // fetchSubSystem
+      .addCase(fetchSubSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchSubSystem.fulfilled, (state, action) => {
+        state.currentSubSystem = action.payload;
+        state.loading = false;
+      })
+      .addCase(fetchSubSystem.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to fetch subsystem';
       })
       // fetchSubSystems
       .addCase(fetchSubSystems.pending, (state) => { state.loading = true; state.error = null; })
