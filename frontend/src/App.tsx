@@ -13,6 +13,8 @@ import EnvironmentList from './pages/environments/EnvironmentList'
 import EnvironmentDetail from './pages/environments/EnvironmentDetail'
 import BookingCalendar from './pages/bookings/BookingCalendar'
 import ImportPage from './pages/import/ImportPage'
+import AdminLayout from './pages/admin/AdminLayout'
+import EntityConfig from './pages/admin/EntityConfig'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import AppLayout from './components/AppLayout'
 
@@ -64,6 +66,12 @@ function App() {
                     <Route path="/environments/:id" element={<EnvironmentDetail />} />
                     <Route path="/bookings" element={<BookingCalendar />} />
                     <Route path="/import" element={<ImportPage />} />
+                    <Route
+                        path="/admin/config"
+                        element={<PrivateRoute requiredRole="Admin"><AdminLayout /></PrivateRoute>}
+                    >
+                        <Route path=":entityType" element={<EntityConfig />} />
+                    </Route>
                 </Route>
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
             </Routes>

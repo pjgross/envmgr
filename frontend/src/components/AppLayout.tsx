@@ -174,6 +174,18 @@ export default function AppLayout() {
                                 </Tooltip>
                             )
                         })}
+                        {user?.role === 'Admin' && (
+                            <ListItemButton
+                                selected={location.pathname.startsWith('/admin/config')}
+                                onClick={() => navigate('/admin/config/booking')}
+                                sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
+                            >
+                                <ListItemIcon sx={{ minWidth: 36 }}>
+                                    <AdminPanelSettingsIcon />
+                                </ListItemIcon>
+                                <ListItemText primary="Admin" />
+                            </ListItemButton>
+                        )}
                     </List>
                 </Box>
             </Drawer>
