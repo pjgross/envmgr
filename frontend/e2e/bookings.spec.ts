@@ -1,10 +1,10 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 
 const TENANT = 'e2e'
 const USERNAME = 'e2eadmin'
 const PASSWORD = 'e2epassword123'
 
-async function login(page: any) {
+async function login(page: Page) {
   await page.goto('/login')
   await page.getByLabel('Tenant').fill(TENANT)
   await page.getByLabel('Username').fill(USERNAME)
@@ -49,6 +49,10 @@ test('clicking Bookings > List navigates to list view', async ({ page }) => {
   await expect(page).toHaveURL(/\/bookings\/list/)
 })
 
+// Note: bulk approve/reject tests require seeded pending bookings.
+// seed_e2e.py currently seeds only a tenant + user (no bookings),
+// so bulk-action tests are omitted here. Add them when seed data is extended.
+
 // --- List view ---
 
 test('Bookings list renders the data grid', async ({ page }) => {
@@ -81,6 +85,7 @@ test('New Booking button opens the booking form dialog', async ({ page }) => {
 
   await page.getByRole('button', { name: /new booking/i }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('dialog')).toContainText('New Booking')
 })
 
 test('Bookings group auto-expands when navigating directly to /bookings/list', async ({ page }) => {
