@@ -37,7 +37,9 @@ import {
   updateSystem,
   deleteSystem,
 } from '../../store/systemSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { SystemResponse, SystemCreate, SystemUpdate } from '../../types/system';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
 
 interface SystemFormValues {
   name: string;
@@ -52,15 +54,19 @@ export default function SystemCatalog() {
   const navigate = useNavigate();
   const { systems, loading, error } = useSelector((state: RootState) => state.system);
 
+  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['system'] ?? []);
+
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<SystemResponse | null>(null);
   const [form, setForm] = useState<SystemFormValues>(emptyForm);
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<SystemResponse | null>(null);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     dispatch(fetchSystems());
+    dispatch(fetchDefinitions('system'));
   }, [dispatch]);
 
   const filtered = systems.filter((s) =>
@@ -71,6 +77,7 @@ export default function SystemCatalog() {
     setEditTarget(null);
     setForm(emptyForm);
     setFormError('');
+    setCustomFieldValues({});
     setDialogOpen(true);
   };
 
@@ -82,6 +89,7 @@ export default function SystemCatalog() {
       github_repository_url: system.github_repository_url ?? '',
     });
     setFormError('');
+    setCustomFieldValues(system.custom_fields ?? {});
     setDialogOpen(true);
   };
 
@@ -96,6 +104,7 @@ export default function SystemCatalog() {
           name: form.name,
           description: form.description || undefined,
           github_repository_url: form.github_repository_url || undefined,
+          custom_fields: customFieldValues,
         };
         await dispatch(updateSystem({ id: editTarget.id, data })).unwrap();
       } else {
@@ -103,10 +112,12 @@ export default function SystemCatalog() {
           name: form.name,
           description: form.description || undefined,
           github_repository_url: form.github_repository_url || undefined,
+          custom_fields: customFieldValues,
         };
         await dispatch(createSystem(data)).unwrap();
       }
       setDialogOpen(false);
+      setCustomFieldValues({});
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setFormError(message || 'Failed to save system');
@@ -235,7 +246,7 @@ export default function SystemCatalog() {
       </TableContainer>
 
       {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
         <DialogTitle>{editTarget ? 'Edit System' : 'New System'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
@@ -261,9 +272,14 @@ export default function SystemCatalog() {
             fullWidth
             placeholder="https://github.com/org/repo"
           />
+          <CustomFieldsSection
+            definitions={customFieldDefs}
+            values={customFieldValues}
+            onChange={setCustomFieldValues}
+          />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => { setDialogOpen(false); setCustomFieldValues({}); }}>Cancel</Button>
           <Button onClick={handleSave} variant="contained" disabled={loading}>
             {editTarget ? 'Save' : 'Create'}
           </Button>
