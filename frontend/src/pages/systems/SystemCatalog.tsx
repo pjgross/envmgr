@@ -97,13 +97,13 @@ export default function SystemCatalog() {
     [systems, search]
   );
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setEditTarget(null);
     setForm(emptyForm);
     setFormError('');
     setCustomFieldValues({});
     setDialogOpen(true);
-  };
+  }, []);
 
   const openEdit = useCallback((system: SystemResponse) => {
     setEditTarget(system);
