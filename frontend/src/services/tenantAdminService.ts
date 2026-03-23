@@ -15,4 +15,6 @@ export const tenantAdminService = {
     api.patch<UserResponse>(`/tenant/users/${id}/role`, { role }).then(r => r.data),
   deactivateUser: (id: number) =>
     api.post<UserResponse>(`/tenant/users/${id}/deactivate`).then(r => r.data),
+  reactivateUser: (id: number) =>
+    api.post<UserResponse>(`/tenant/users/${id}/reactivate`).then(r => r.data),
 }

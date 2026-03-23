@@ -3,7 +3,7 @@ Seed the master admin user into the dev database.
 
 Run after migrations:
     cd backend
-    DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr uv run python scripts/seed_master_admin.py
+    DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr PYTHONPATH=. uv run python scripts/seed_master_admin.py
 
 Credentials seeded:
     tenant_slug : system
@@ -50,7 +50,7 @@ async def main() -> None:
             user = User(
                 tenant_id=tenant.id,
                 username="masteradmin",
-                email="admin@system.local",
+                email="masteradmin@system.internal",
                 password_hash=get_password_hash("masteradmin123"),
                 role="Admin",
                 is_master_admin=True,

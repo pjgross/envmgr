@@ -4,10 +4,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import require_master_admin, create_access_token
 from app.services import tenant_service, user_admin_service
+from pydantic import BaseModel, Field
 from app.api.v1.schemas import (
     TenantCreate, TenantUpdate, TenantResponse,
-    UserAdminCreate, UserResponse, ImpersonationToken,
+    UserAdminCreate, UserAdminUpdate, UserRoleUpdate, UserResponse, ImpersonationToken,
 )
+
+
+class PasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=8)
 
 router = APIRouter()
 
@@ -76,6 +81,64 @@ async def create_tenant_user(
     current_user=Depends(require_master_admin()),
 ):
     return await user_admin_service.create_user_in_tenant(db, tenant_id, data)
+
+
+@router.patch("/tenants/{tenant_id}/users/{user_id}", response_model=UserResponse)
+async def update_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    data: UserAdminUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_master_admin()),
+):
+    return await user_admin_service.update_user(db, user_id, tenant_id, data)
+
+
+@router.patch("/tenants/{tenant_id}/users/{user_id}/role", response_model=UserResponse)
+async def set_tenant_user_role(
+    tenant_id: int,
+    user_id: int,
+    data: UserRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_master_admin()),
+):
+    return await user_admin_service.set_user_role(db, user_id, tenant_id, data.role)
+
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/deactivate", response_model=UserResponse)
+async def deactivate_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_master_admin()),
+):
+    return await user_admin_service.deactivate_user(db, user_id, tenant_id)
+
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/reactivate", response_model=UserResponse)
+async def reactivate_tenant_user(
+    tenant_id: int,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_master_admin()),
+):
+    return await user_admin_service.reactivate_user(db, user_id, tenant_id)
+
+
+@router.post("/tenants/{tenant_id}/users/{user_id}/reset-password", response_model=UserResponse)
+async def reset_user_password(
+    tenant_id: int,
+    user_id: int,
+    data: PasswordReset,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_master_admin()),
+):
+    from app.core.security import get_password_hash
+    user = await user_admin_service.get_user(db, user_id, tenant_id)
+    user.password_hash = get_password_hash(data.new_password)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.post("/tenants/{tenant_id}/sign-in-as", response_model=ImpersonationToken)

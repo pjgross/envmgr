@@ -84,3 +84,12 @@ async def deactivate_user(
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.deactivate_user(db, user_id, current_user.active_tenant_id)
+
+
+@router.post("/users/{user_id}/reactivate", response_model=UserResponse)
+async def reactivate_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await user_admin_service.reactivate_user(db, user_id, current_user.active_tenant_id)

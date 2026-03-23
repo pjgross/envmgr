@@ -8,6 +8,7 @@ import TenantDetail from './pages/admin/TenantDetail'
 import TenantSettings from './pages/tenant/TenantSettings'
 import UserManagement from './pages/tenant/UserManagement'
 import ImpersonationBanner from './components/ImpersonationBanner'
+import AppLayout from './components/AppLayout'
 
 function PrivateRoute({
     children,
@@ -33,26 +34,25 @@ function App() {
             <ImpersonationBanner />
             <Routes>
                 <Route path="/login" element={<Login />} />
-                <Route
-                    path="/dashboard"
-                    element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />}
-                />
-                <Route
-                    path="/admin/tenants"
-                    element={<PrivateRoute requireMasterAdmin><TenantList /></PrivateRoute>}
-                />
-                <Route
-                    path="/admin/tenants/:tenantId"
-                    element={<PrivateRoute requireMasterAdmin><TenantDetail /></PrivateRoute>}
-                />
-                <Route
-                    path="/tenant/settings"
-                    element={<PrivateRoute requiredRole="Admin"><TenantSettings /></PrivateRoute>}
-                />
-                <Route
-                    path="/tenant/users"
-                    element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>}
-                />
+                <Route element={isAuthenticated ? <AppLayout /> : <Navigate to="/login" />}>
+                    <Route path="/dashboard" element={<Dashboard />} />
+                    <Route
+                        path="/admin/tenants"
+                        element={<PrivateRoute requireMasterAdmin><TenantList /></PrivateRoute>}
+                    />
+                    <Route
+                        path="/admin/tenants/:tenantId"
+                        element={<PrivateRoute requireMasterAdmin><TenantDetail /></PrivateRoute>}
+                    />
+                    <Route
+                        path="/tenant/settings"
+                        element={<PrivateRoute requiredRole="Admin"><TenantSettings /></PrivateRoute>}
+                    />
+                    <Route
+                        path="/tenant/users"
+                        element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>}
+                    />
+                </Route>
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
             </Routes>
         </BrowserRouter>

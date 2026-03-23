@@ -54,14 +54,14 @@ docker-compose up -d
 3. Initialize the database:
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-alembic upgrade head
+uv sync
+uv run alembic upgrade head
+PYTHONPATH=. uv run python scripts/seed_master_admin.py
 ```
 
 4. Start the backend:
 ```bash
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 5. Start the frontend (new terminal):
@@ -82,8 +82,24 @@ npm run dev
 | NATS Monitor | http://localhost:8222 | Message broker |
 | PostgreSQL | localhost:5432 | Direct DB access |
 | Redis | localhost:6379 | Cache |
+| Jira | http://localhost:8090 | Dev/testing only |
+| GitLab | http://localhost:8929 | Dev/testing only |
 
 Demo login: `admin` / `admin123` (tenant: `demo`)
+
+Master admin login: `masteradmin` / `masteradmin123` (tenant: `system`)
+Seed on first run: `cd backend && PYTHONPATH=. uv run python scripts/seed_master_admin.py`
+
+## Admin Management
+
+EnvManager has two admin tiers:
+
+| Role | Tenant | Capabilities |
+|---|---|---|
+| **Master Admin** | `system` | Create/disable tenants, manage users in any tenant, sign in as any tenant |
+| **Tenant Admin** | own tenant | Manage tenant settings and users within their own tenant |
+
+Master admins can use **Sign In As** from the Platform Admin page to get an impersonation token scoped to any tenant — useful for support and testing.
 
 ## Production Deployment
 

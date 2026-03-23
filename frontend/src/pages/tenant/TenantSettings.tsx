@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { Link } from 'react-router-dom'
 import {
   Box,
   Typography,
@@ -8,8 +7,6 @@ import {
   CircularProgress,
   Alert,
   Paper,
-  AppBar,
-  Toolbar,
   TextField,
 } from '@mui/material'
 import { fetchTenantSettings, updateTenantSettings } from '../../store/tenantAdminSlice'
@@ -52,22 +49,7 @@ export default function TenantSettings() {
   }
 
   return (
-    <Box>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Tenant Admin — Settings
-          </Typography>
-          <Button color="inherit" component={Link} to="/dashboard">
-            Dashboard
-          </Button>
-          <Button color="inherit" component={Link} to="/tenant/users">
-            Users
-          </Button>
-        </Toolbar>
-      </AppBar>
-
-      <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3 }}>
         <Typography variant="h5" gutterBottom>Tenant Settings</Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -101,7 +83,6 @@ export default function TenantSettings() {
             </Box>
           </Paper>
         )}
-      </Box>
     </Box>
   )
 }

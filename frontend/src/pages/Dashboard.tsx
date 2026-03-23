@@ -1,55 +1,18 @@
-import { useSelector, useDispatch } from 'react-redux'
-import { useNavigate, Link } from 'react-router-dom'
+import { useSelector } from 'react-redux'
 import {
-    AppBar,
-    Toolbar,
     Typography,
-    Button,
     Container,
     Box,
     Paper,
     Grid,
 } from '@mui/material'
 import { RootState } from '../store'
-import { logout } from '../store/authSlice'
 
 export default function Dashboard() {
-    const dispatch = useDispatch()
-    const navigate = useNavigate()
     const user = useSelector((state: RootState) => state.auth.user)
 
-    const handleLogout = () => {
-        dispatch(logout())
-        navigate('/login')
-    }
-
     return (
-        <Box>
-            <AppBar position="static">
-                <Toolbar>
-                    <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-                        EnvManager
-                    </Typography>
-                    {user?.is_master_admin && (
-                        <Button color="inherit" component={Link} to="/admin/tenants">
-                            Platform Admin
-                        </Button>
-                    )}
-                    {user?.role === 'Admin' && (
-                        <Button color="inherit" component={Link} to="/tenant/users">
-                            Tenant Admin
-                        </Button>
-                    )}
-                    <Typography variant="body1" sx={{ mr: 2, ml: 2 }}>
-                        {user?.username} ({user?.role})
-                    </Typography>
-                    <Button color="inherit" onClick={handleLogout}>
-                        Logout
-                    </Button>
-                </Toolbar>
-            </AppBar>
-
-            <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Container maxWidth="lg" sx={{ mt: 4 }}>
                 <Typography variant="h4" gutterBottom>
                     Dashboard
                 </Typography>
@@ -122,7 +85,6 @@ export default function Dashboard() {
                         <li>Phase 7: Multi-Project Coordination</li>
                     </Box>
                 </Paper>
-            </Container>
-        </Box>
+        </Container>
     )
 }

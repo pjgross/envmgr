@@ -45,6 +45,9 @@ cd frontend && npm run dev
 
 Demo login: `admin` / `admin123` (tenant: `demo`)
 
+Master admin login: `masteradmin` / `masteradmin123` (tenant: `system`)
+Run once to seed: `cd backend && DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr PYTHONPATH=. uv run python scripts/seed_master_admin.py`
+
 ---
 
 ## Production Deployment
@@ -109,10 +112,22 @@ Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20c
 from app.db.base import get_db
 async def my_endpoint(db: AsyncSession = Depends(get_db)): ...
 
-# Auth + tenant context
+# Auth + tenant context (use active_tenant_id — handles impersonation)
 from app.core.security import get_current_user
 async def my_endpoint(current_user: User = Depends(get_current_user)):
-    tenant_id = current_user.tenant_id
+    tenant_id = current_user.active_tenant_id  # NOT .tenant_id
+
+# Require master admin
+from app.core.security import require_master_admin
+async def my_endpoint(current_user=Depends(require_master_admin())): ...
+
+# Require tenant admin (role="Admin")
+from app.core.security import require_tenant_admin
+async def my_endpoint(current_user=Depends(require_tenant_admin())): ...
+
+# Require any specific role
+from app.core.security import require_role, Role
+async def my_endpoint(current_user=Depends(require_role(Role.RELEASE_MANAGER))): ...
 
 # Publish event (outbox pattern)
 from app.core.events import publish_event

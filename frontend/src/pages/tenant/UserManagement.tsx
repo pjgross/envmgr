@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { Link } from 'react-router-dom'
 import {
   Box,
   Typography,
@@ -19,13 +18,12 @@ import {
   DialogActions,
   TextField,
   Paper,
-  AppBar,
-  Toolbar,
   Select,
   MenuItem,
   FormControl,
 } from '@mui/material'
-import { fetchUsers, createUser, setUserRole, deactivateUser } from '../../store/tenantAdminSlice'
+import { fetchUsers, createUser, updateUser, setUserRole, deactivateUser, reactivateUser } from '../../store/tenantAdminSlice'
+import type { UserResponse } from '../../types'
 import type { RootState, AppDispatch } from '../../store'
 
 export default function UserManagement() {
@@ -36,8 +34,13 @@ export default function UserManagement() {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('Member')
+  const [role, setRole] = useState('Viewer')
   const [formError, setFormError] = useState('')
+
+  const [editUser, setEditUser] = useState<UserResponse | null>(null)
+  const [editUsername, setEditUsername] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editError, setEditError] = useState('')
 
   useEffect(() => {
     dispatch(fetchUsers())
@@ -54,10 +57,31 @@ export default function UserManagement() {
       setUsername('')
       setEmail('')
       setPassword('')
-      setRole('Member')
+      setRole('Viewer')
       setFormError('')
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Failed to create user')
+    }
+  }
+
+  const openEdit = (user: UserResponse) => {
+    setEditUser(user)
+    setEditUsername(user.username)
+    setEditEmail(user.email)
+    setEditError('')
+  }
+
+  const handleEditSave = async () => {
+    if (!editUser) return
+    if (!editUsername.trim() || !editEmail.trim()) {
+      setEditError('Username and email are required')
+      return
+    }
+    try {
+      await dispatch(updateUser({ id: editUser.id, data: { username: editUsername.trim(), email: editEmail.trim() } })).unwrap()
+      setEditUser(null)
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update user')
     }
   }
 
@@ -75,23 +99,12 @@ export default function UserManagement() {
     }
   }
 
-  return (
-    <Box>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Tenant Admin — User Management
-          </Typography>
-          <Button color="inherit" component={Link} to="/dashboard">
-            Dashboard
-          </Button>
-          <Button color="inherit" component={Link} to="/tenant/settings">
-            Settings
-          </Button>
-        </Toolbar>
-      </AppBar>
+  const handleReactivate = (id: number) => {
+    dispatch(reactivateUser(id))
+  }
 
-      <Box sx={{ p: 3 }}>
+  return (
+    <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h5">Users</Typography>
           <Button variant="contained" onClick={() => setCreateOpen(true)}>
@@ -126,7 +139,10 @@ export default function UserManagement() {
                           value={user.role}
                           onChange={(e) => handleRoleChange(user.id, e.target.value)}
                         >
-                          <MenuItem value="Member">Member</MenuItem>
+                          <MenuItem value="Viewer">Viewer</MenuItem>
+                          <MenuItem value="Developer">Developer</MenuItem>
+                          <MenuItem value="Test Manager">Test Manager</MenuItem>
+                          <MenuItem value="Release Manager">Release Manager</MenuItem>
                           <MenuItem value="Admin">Admin</MenuItem>
                         </Select>
                       </FormControl>
@@ -139,15 +155,11 @@ export default function UserManagement() {
                       />
                     </TableCell>
                     <TableCell>
-                      {user.is_active && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={() => handleDeactivate(user.id)}
-                        >
-                          Deactivate
-                        </Button>
+                      <Button size="small" variant="outlined" sx={{ mr: 1 }} onClick={() => openEdit(user)}>Edit</Button>
+                      {user.is_active ? (
+                        <Button size="small" variant="outlined" color="error" onClick={() => handleDeactivate(user.id)}>Deactivate</Button>
+                      ) : (
+                        <Button size="small" variant="outlined" color="success" onClick={() => handleReactivate(user.id)}>Reactivate</Button>
                       )}
                     </TableCell>
                   </TableRow>
@@ -161,6 +173,32 @@ export default function UserManagement() {
             </Table>
           </Paper>
         )}
+
+        <Dialog open={Boolean(editUser)} onClose={() => setEditUser(null)} maxWidth="sm" fullWidth>
+          <DialogTitle>Edit User</DialogTitle>
+          <DialogContent>
+            {editError && <Alert severity="error" sx={{ mb: 2 }}>{editError}</Alert>}
+            <TextField
+              label="Username"
+              fullWidth
+              margin="normal"
+              value={editUsername}
+              onChange={(e) => setEditUsername(e.target.value)}
+            />
+            <TextField
+              label="Email"
+              fullWidth
+              margin="normal"
+              type="email"
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setEditUser(null)}>Cancel</Button>
+            <Button variant="contained" onClick={handleEditSave}>Save</Button>
+          </DialogActions>
+        </Dialog>
 
         <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle>Create User</DialogTitle>
@@ -191,7 +229,10 @@ export default function UserManagement() {
             />
             <FormControl fullWidth margin="normal">
               <Select value={role} onChange={(e) => setRole(e.target.value)}>
-                <MenuItem value="Member">Member</MenuItem>
+                <MenuItem value="Viewer">Viewer</MenuItem>
+                <MenuItem value="Developer">Developer</MenuItem>
+                <MenuItem value="Test Manager">Test Manager</MenuItem>
+                <MenuItem value="Release Manager">Release Manager</MenuItem>
                 <MenuItem value="Admin">Admin</MenuItem>
               </Select>
             </FormControl>
@@ -201,7 +242,6 @@ export default function UserManagement() {
             <Button variant="contained" onClick={handleCreateUser}>Create</Button>
           </DialogActions>
         </Dialog>
-      </Box>
     </Box>
   )
 }

@@ -43,6 +43,7 @@ async def create_user_in_tenant(db: AsyncSession, tenant_id: int, data: UserAdmi
         email=data.email,
         password_hash=get_password_hash(data.password),
         role=data.role,
+        is_master_admin=data.is_master_admin,
         is_active=True,
     )
     db.add(user)
@@ -77,6 +78,8 @@ async def update_user(db: AsyncSession, user_id: int, tenant_id: int, data: User
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists in this tenant")
         user.email = data.email
+    if data.is_master_admin is not None:
+        user.is_master_admin = data.is_master_admin
     await db.commit()
     await db.refresh(user)
     return user
@@ -99,6 +102,14 @@ async def set_user_role(db: AsyncSession, user_id: int, tenant_id: int, role: st
 async def deactivate_user(db: AsyncSession, user_id: int, tenant_id: int) -> User:
     user = await get_user(db, user_id, tenant_id)
     user.is_active = False
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def reactivate_user(db: AsyncSession, user_id: int, tenant_id: int) -> User:
+    user = await get_user(db, user_id, tenant_id)
+    user.is_active = True
     await db.commit()
     await db.refresh(user)
     return user

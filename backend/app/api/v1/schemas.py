@@ -74,6 +74,7 @@ class UserAdminCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
     role: str = "Viewer"
+    is_master_admin: bool = False
 
     @field_validator("role")
     @classmethod
@@ -87,6 +88,7 @@ class UserAdminCreate(BaseModel):
 class UserAdminUpdate(BaseModel):
     username: Optional[str] = Field(None, max_length=50)
     email: Optional[EmailStr] = None
+    is_master_admin: Optional[bool] = None
 
 
 class UserRoleUpdate(BaseModel):

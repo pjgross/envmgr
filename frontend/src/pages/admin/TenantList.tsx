@@ -19,8 +19,6 @@ import {
   DialogActions,
   TextField,
   Paper,
-  AppBar,
-  Toolbar,
 } from '@mui/material'
 import { fetchTenants, createTenant, disableTenant, signInAsTenant } from '../../store/adminSlice'
 import type { RootState, AppDispatch } from '../../store'
@@ -73,19 +71,7 @@ export default function TenantList() {
   }
 
   return (
-    <Box>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Platform Admin — Tenants
-          </Typography>
-          <Button color="inherit" component={Link} to="/dashboard">
-            Dashboard
-          </Button>
-        </Toolbar>
-      </AppBar>
-
-      <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h5">Tenants</Typography>
           <Button variant="contained" onClick={() => setCreateOpen(true)}>
@@ -181,7 +167,6 @@ export default function TenantList() {
             <Button variant="contained" onClick={handleCreate}>Create</Button>
           </DialogActions>
         </Dialog>
-      </Box>
     </Box>
   )
 }
