@@ -77,6 +77,9 @@ const customFieldSlice = createSlice({
         for (const et of Object.keys(state.definitions) as EntityType[]) {
           state.definitions[et] = (state.definitions[et] ?? []).filter((d) => d.id !== deletedId);
         }
+      })
+      .addCase(deleteDefinition.rejected, (state, action) => {
+        state.error = action.error.message ?? 'Failed to delete field';
       });
   },
 });

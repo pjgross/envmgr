@@ -38,7 +38,10 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
 
   const openCreate = () => { setEditTarget(null); setDialogOpen(true); };
   const openEdit = (d: CustomFieldDefinition) => { setEditTarget(d); setDialogOpen(true); };
-  const handleDelete = (id: number) => dispatch(deleteDefinition(id));
+  const handleDelete = (id: number) => {
+    if (!window.confirm('Delete this field? This cannot be undone.')) return;
+    dispatch(deleteDefinition(id));
+  };
 
   if (loading && defs.length === 0) return <Skeleton variant="rectangular" height={120} />;
 

@@ -88,7 +88,8 @@ export default function CustomFieldDefinitionDialog({ open, onClose, entityType,
       }
       onClose();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Save failed');
+      const msg = (e as { message?: string })?.message;
+      setError(msg ?? 'Save failed');
     }
   };
 
