@@ -10,7 +10,7 @@ export interface CustomFieldDefinition {
   field_type: FieldType;
   required: boolean;
   display_order: number;
-  options: Record<string, unknown>[] | null;
+  options: Record<string, unknown> | null;
   lifecycle_states: string[] | null;
   created_at: string;
   updated_at: string;
