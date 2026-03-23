@@ -33,13 +33,13 @@ export const recordVersion = createAsyncThunk(
 );
 
 export const updateVersion = createAsyncThunk(
-  'versions/updateVersion',
+  'version/updateVersion',
   ({ envId, versionId, data }: { envId: number; versionId: number; data: VersionUpdate }) =>
     versionService.updateVersion(envId, versionId, data)
 );
 
 export const deleteVersion = createAsyncThunk(
-  'versions/deleteVersion',
+  'version/deleteVersion',
   async ({ envId, versionId }: { envId: number; versionId: number }) => {
     await versionService.deleteVersion(envId, versionId);
     return versionId;

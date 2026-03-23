@@ -141,6 +141,7 @@ export default function EnvironmentDetail() {
   // Version edit state
   const [editVersionTarget, setEditVersionTarget] = useState<VersionResponse | null>(null);
   const [editVersionForm, setEditVersionForm] = useState<{ build_id: string; version_label: string; installed_at: string }>({ build_id: '', version_label: '', installed_at: '' });
+  const [editVersionError, setEditVersionError] = useState('');
 
   // System dialog state
   const [sysDialogOpen, setSysDialogOpen] = useState(false);
@@ -320,6 +321,7 @@ export default function EnvironmentDetail() {
       version_label: v.version_label,
       installed_at: v.installed_at ? new Date(v.installed_at).toISOString().slice(0, 16) : '',
     });
+    setEditVersionError('');
   };
 
   const handleEditVersionSave = async () => {
@@ -328,14 +330,23 @@ export default function EnvironmentDetail() {
     if (editVersionForm.build_id) data.build_id = editVersionForm.build_id;
     if (editVersionForm.version_label) data.version_label = editVersionForm.version_label;
     if (editVersionForm.installed_at) data.installed_at = new Date(editVersionForm.installed_at).toISOString();
-    await dispatch(updateVersion({ envId: currentEnvironment.id, versionId: editVersionTarget.id, data })).unwrap();
-    setEditVersionTarget(null);
+    try {
+      await dispatch(updateVersion({ envId: currentEnvironment.id, versionId: editVersionTarget.id, data })).unwrap();
+      setEditVersionTarget(null);
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message;
+      setEditVersionError(msg ?? 'Failed to save changes');
+    }
   };
 
   const handleDeleteVersion = async (versionId: number) => {
     if (!currentEnvironment) return;
     if (!window.confirm('Delete this version record? This cannot be undone.')) return;
-    await dispatch(deleteVersion({ envId: currentEnvironment.id, versionId })).unwrap();
+    try {
+      await dispatch(deleteVersion({ envId: currentEnvironment.id, versionId })).unwrap();
+    } catch (e: unknown) {
+      alert('Failed to delete version. Please try again.');
+    }
   };
 
   // Systems already assigned (to exclude from add dropdown)
@@ -741,7 +752,7 @@ export default function EnvironmentDetail() {
                             <IconButton size="small" onClick={() => openEditVersion(v)}><EditIcon fontSize="small" /></IconButton>
                           </Tooltip>
                           <Tooltip title="Delete">
-                            <IconButton size="small" onClick={() => handleDeleteVersion(v.id)}><DeleteIcon fontSize="small" /></IconButton>
+                            <IconButton size="small" color="error" onClick={() => handleDeleteVersion(v.id)}><DeleteIcon fontSize="small" /></IconButton>
                           </Tooltip>
                         </TableCell>
                       )}
@@ -758,6 +769,7 @@ export default function EnvironmentDetail() {
       <Dialog open={editVersionTarget !== null} onClose={() => setEditVersionTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Version</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {editVersionError && <Alert severity="error" sx={{ mx: 2 }}>{editVersionError}</Alert>}
           <TextField
             label="Build ID *"
             value={editVersionForm.build_id}
