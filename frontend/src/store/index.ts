@@ -3,6 +3,7 @@ import authReducer from './authSlice'
 import adminReducer from './adminSlice'
 import tenantAdminReducer from './tenantAdminSlice'
 import systemReducer from './systemSlice'
+import environmentReducer from './environmentSlice'
 
 export const store = configureStore({
     reducer: {
@@ -10,6 +11,7 @@ export const store = configureStore({
         admin: adminReducer,
         tenantAdmin: tenantAdminReducer,
         system: systemReducer,
+        environment: environmentReducer,
     },
 })
 

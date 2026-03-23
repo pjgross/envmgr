@@ -1,4 +1,5 @@
-import { useSelector } from 'react-redux'
+import { useEffect } from 'react'
+import { useSelector, useDispatch } from 'react-redux'
 import {
     Typography,
     Container,
@@ -6,10 +7,16 @@ import {
     Paper,
     Grid,
 } from '@mui/material'
-import { RootState } from '../store'
+import type { AppDispatch, RootState } from '../store'
+import { fetchEnvironments } from '../store/environmentSlice'
 
 export default function Dashboard() {
-    const user = useSelector((state: RootState) => state.auth.user)
+    const dispatch = useDispatch<AppDispatch>()
+    const { environments } = useSelector((state: RootState) => state.environment)
+
+    useEffect(() => {
+        dispatch(fetchEnvironments())
+    }, [dispatch])
 
     return (
         <Container maxWidth="lg" sx={{ mt: 4 }}>
@@ -23,7 +30,7 @@ export default function Dashboard() {
                             <Typography variant="h6" gutterBottom>
                                 Environments
                             </Typography>
-                            <Typography variant="h3">0</Typography>
+                            <Typography variant="h3">{environments.length}</Typography>
                             <Typography variant="body2" color="text.secondary">
                                 Total environments
                             </Typography>

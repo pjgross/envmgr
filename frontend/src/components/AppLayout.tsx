@@ -42,7 +42,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
   { label: 'Systems', path: '/systems', icon: <AccountTreeIcon /> },
-  { label: 'Environments', path: '/environments', icon: <ComputerIcon />, comingSoon: true },
+  { label: 'Environments', path: '/environments', icon: <ComputerIcon /> },
   { label: 'Bookings', path: '/bookings', icon: <EventAvailableIcon />, comingSoon: true },
   { label: 'Import', path: '/import', icon: <UploadIcon />, comingSoon: true },
 ]

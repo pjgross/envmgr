@@ -9,6 +9,8 @@ import TenantSettings from './pages/tenant/TenantSettings'
 import UserManagement from './pages/tenant/UserManagement'
 import SystemCatalog from './pages/systems/SystemCatalog'
 import SystemDetail from './pages/systems/SystemDetail'
+import EnvironmentList from './pages/environments/EnvironmentList'
+import EnvironmentDetail from './pages/environments/EnvironmentDetail'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import AppLayout from './components/AppLayout'
 
@@ -56,6 +58,8 @@ function App() {
                     />
                     <Route path="/systems" element={<SystemCatalog />} />
                     <Route path="/systems/:id" element={<SystemDetail />} />
+                    <Route path="/environments" element={<EnvironmentList />} />
+                    <Route path="/environments/:id" element={<EnvironmentDetail />} />
                 </Route>
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
             </Routes>
