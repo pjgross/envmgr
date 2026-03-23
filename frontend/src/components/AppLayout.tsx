@@ -44,7 +44,7 @@ const navItems: NavItem[] = [
   { label: 'Systems', path: '/systems', icon: <AccountTreeIcon /> },
   { label: 'Environments', path: '/environments', icon: <ComputerIcon /> },
   { label: 'Bookings', path: '/bookings', icon: <EventAvailableIcon /> },
-  { label: 'Import', path: '/import', icon: <UploadIcon />, comingSoon: true },
+  { label: 'Import', path: '/import', icon: <UploadIcon /> },
 ]
 
 export default function AppLayout() {

@@ -48,6 +48,8 @@ import {
 } from '../../store/environmentSlice';
 import { fetchSystems } from '../../store/systemSlice';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
+import { fetchVersions, recordVersion, clearVersions } from '../../store/versionSlice';
+import { systemService } from '../../services/systemService';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -56,6 +58,8 @@ import type {
   EnvironmentSystemUpdate,
   EnvironmentSystemStatus,
 } from '../../types/environment';
+import type { VersionCreate } from '../../types/version';
+import type { SubSystemResponse } from '../../types/system';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -98,6 +102,9 @@ export default function EnvironmentDetail() {
   const { verifyResult, loading: verifyLoading } = useSelector(
     (state: RootState) => state.dependency
   );
+  const { versions, loading: versionsLoading } = useSelector(
+    (state: RootState) => state.version
+  );
 
   const [tab, setTab] = useState(0);
 
@@ -110,6 +117,18 @@ export default function EnvironmentDetail() {
     status: 'active',
   });
   const [envFormError, setEnvFormError] = useState('');
+
+  // Version tab state
+  const [versionCurrentOnly, setVersionCurrentOnly] = useState(false);
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [versionForm, setVersionForm] = useState<VersionCreate>({
+    subsystem_id: 0,
+    build_id: '',
+    version_label: '',
+    installed_at: undefined,
+  });
+  const [versionFormError, setVersionFormError] = useState('');
+  const [availableSubsystems, setAvailableSubsystems] = useState<(SubSystemResponse & { systemName: string })[]>([]);
 
   // System dialog state
   const [sysDialogOpen, setSysDialogOpen] = useState(false);
@@ -220,6 +239,65 @@ export default function EnvironmentDetail() {
     dispatch(verifyEnvironment(envId));
   };
 
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setTab(newValue);
+    if (newValue === 2) {
+      // Lazy-load versions when tab is first opened
+      dispatch(clearVersions());
+      dispatch(fetchVersions({ envId, currentOnly: versionCurrentOnly }));
+    }
+  };
+
+  const handleVersionToggle = (currentOnly: boolean) => {
+    setVersionCurrentOnly(currentOnly);
+    dispatch(fetchVersions({ envId, currentOnly }));
+  };
+
+  const openVersionDialog = async () => {
+    setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
+    setVersionFormError('');
+    // Fetch subsystems for all assigned systems
+    const allSubsystems: (SubSystemResponse & { systemName: string })[] = [];
+    for (const envSys of environmentSystems) {
+      try {
+        const subs = await systemService.listSubSystems(envSys.system_id);
+        for (const sub of subs) {
+          allSubsystems.push({ ...sub, systemName: envSys.system.name });
+        }
+      } catch {
+        // ignore fetch errors per system
+      }
+    }
+    setAvailableSubsystems(allSubsystems);
+    setVersionDialogOpen(true);
+  };
+
+  const handleVersionSave = async () => {
+    if (!versionForm.subsystem_id) {
+      setVersionFormError('Please select a subsystem');
+      return;
+    }
+    if (!versionForm.build_id.trim()) {
+      setVersionFormError('Build ID is required');
+      return;
+    }
+    if (!versionForm.version_label.trim()) {
+      setVersionFormError('Version Label is required');
+      return;
+    }
+    try {
+      await dispatch(recordVersion({ envId, data: versionForm })).unwrap();
+      setVersionDialogOpen(false);
+      setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
+      setVersionFormError('');
+      // Refresh versions list
+      dispatch(fetchVersions({ envId, currentOnly: versionCurrentOnly }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setVersionFormError(message || 'Failed to record version');
+    }
+  };
+
   // Systems already assigned (to exclude from add dropdown)
   const assignedSystemIds = new Set(environmentSystems.map((s) => s.system_id));
   const availableSystems = systems.filter((s) => !assignedSystemIds.has(s.id));
@@ -273,7 +351,7 @@ export default function EnvironmentDetail() {
         )}
       </Box>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 2 }}>
         <Tab label="Overview" />
         <Tab label="Systems" />
         <Tab label="Versions" />
@@ -558,14 +636,142 @@ export default function EnvironmentDetail() {
         </Box>
       )}
 
-      {/* Versions Tab — placeholder */}
+      {/* Versions Tab */}
       {tab === 2 && (
-        <Paper sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="text.secondary">
-            Versions will be available in a future update.
-          </Typography>
-        </Paper>
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant={versionCurrentOnly ? 'outlined' : 'contained'}
+                size="small"
+                onClick={() => handleVersionToggle(false)}
+              >
+                All History
+              </Button>
+              <Button
+                variant={versionCurrentOnly ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => handleVersionToggle(true)}
+              >
+                Current
+              </Button>
+            </Box>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openVersionDialog}
+            >
+              Record Version
+            </Button>
+          </Box>
+
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>SubSystem</TableCell>
+                  <TableCell>Build ID</TableCell>
+                  <TableCell>Version Label</TableCell>
+                  <TableCell>Installed At</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {versionsLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} align="center">
+                      <CircularProgress size={24} />
+                    </TableCell>
+                  </TableRow>
+                ) : versions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} align="center">
+                      <Typography color="text.secondary" py={3}>
+                        No version history recorded yet.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  versions.map((v) => (
+                    <TableRow key={v.id} hover>
+                      <TableCell>{v.subsystem_name}</TableCell>
+                      <TableCell>{v.build_id}</TableCell>
+                      <TableCell>{v.version_label}</TableCell>
+                      <TableCell>
+                        {new Date(v.installed_at).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
       )}
+
+      {/* Record Version Dialog */}
+      <Dialog open={versionDialogOpen} onClose={() => setVersionDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Record Version</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {versionFormError && <Alert severity="error">{versionFormError}</Alert>}
+          <FormControl fullWidth required>
+            <InputLabel>SubSystem</InputLabel>
+            <Select
+              label="SubSystem"
+              value={versionForm.subsystem_id || ''}
+              onChange={(e) =>
+                setVersionForm({ ...versionForm, subsystem_id: e.target.value as number })
+              }
+            >
+              {availableSubsystems.length === 0 ? (
+                <MenuItem disabled value="">
+                  No subsystems available (add systems with subsystems first)
+                </MenuItem>
+              ) : (
+                availableSubsystems.map((sub) => (
+                  <MenuItem key={sub.id} value={sub.id}>
+                    {sub.systemName} / {sub.name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Build ID"
+            required
+            value={versionForm.build_id}
+            onChange={(e) => setVersionForm({ ...versionForm, build_id: e.target.value })}
+            fullWidth
+            placeholder="e.g. build-1234"
+          />
+          <TextField
+            label="Version Label"
+            required
+            value={versionForm.version_label}
+            onChange={(e) => setVersionForm({ ...versionForm, version_label: e.target.value })}
+            fullWidth
+            placeholder="e.g. v2.1.0"
+          />
+          <TextField
+            label="Installed At (optional)"
+            type="datetime-local"
+            value={versionForm.installed_at ?? ''}
+            onChange={(e) =>
+              setVersionForm({
+                ...versionForm,
+                installed_at: e.target.value ? new Date(e.target.value).toISOString() : undefined,
+              })
+            }
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVersionDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleVersionSave} variant="contained" disabled={versionsLoading}>
+            Record
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Add / Edit System Dialog */}
       <Dialog open={sysDialogOpen} onClose={() => setSysDialogOpen(false)} maxWidth="sm" fullWidth>

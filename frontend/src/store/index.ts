@@ -6,6 +6,7 @@ import systemReducer from './systemSlice'
 import environmentReducer from './environmentSlice'
 import dependencyReducer from './dependencySlice'
 import bookingReducer from './bookingSlice'
+import versionReducer from './versionSlice'
 
 export const store = configureStore({
     reducer: {
@@ -16,6 +17,7 @@ export const store = configureStore({
         environment: environmentReducer,
         dependency: dependencyReducer,
         booking: bookingReducer,
+        version: versionReducer,
     },
 })
 

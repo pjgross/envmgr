@@ -7,6 +7,7 @@ from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.environment import EnvironmentStatus
 from app.services import environment_service, environment_system_service
+from app.services import version_service
 from app.api.v1.schemas.environment import (
     EnvironmentCreate,
     EnvironmentUpdate,
@@ -16,6 +17,7 @@ from app.api.v1.schemas.environment import (
     EnvironmentSystemResponse,
 )
 from app.api.v1.schemas.dependency import VerifyResponse
+from app.api.v1.schemas.version import VersionCreate, VersionResponse
 
 router = APIRouter()
 
@@ -142,3 +144,38 @@ async def remove_system_from_environment(
     await environment_system_service.remove_system_from_environment(
         db, env_id, system_id, current_user.active_tenant_id
     )
+
+
+# ---------------------------------------------------------------------------
+# Version endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{env_id}/versions", response_model=list[VersionResponse])
+async def list_versions(
+    env_id: int,
+    current_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    versions = await version_service.list_versions(
+        db, env_id, current_user.active_tenant_id, current_only=current_only
+    )
+    return [VersionResponse.from_orm_with_name(v) for v in versions]
+
+
+@router.post(
+    "/{env_id}/versions",
+    response_model=VersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def record_version(
+    env_id: int,
+    data: VersionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    version = await version_service.record_version(
+        db, env_id, data, current_user.active_tenant_id
+    )
+    return VersionResponse.from_orm_with_name(version)

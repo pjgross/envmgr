@@ -51,6 +51,7 @@ from app.api.v1 import systems as systems_router
 from app.api.v1 import environments as environments_router
 from app.api.v1 import dependencies as dependencies_router
 from app.api.v1 import bookings as bookings_router
+from app.api.v1 import import_routes as import_router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -59,3 +60,4 @@ app.include_router(systems_router.router, prefix="/api/v1/systems", tags=["Syste
 app.include_router(environments_router.router, prefix="/api/v1/environments", tags=["Environments"])
 app.include_router(dependencies_router.router, prefix="/api/v1", tags=["Dependencies"])
 app.include_router(bookings_router.router, prefix="/api/v1/bookings", tags=["Bookings"])
+app.include_router(import_router.router, prefix="/api/v1/import", tags=["Import"])

@@ -12,6 +12,7 @@ import SystemDetail from './pages/systems/SystemDetail'
 import EnvironmentList from './pages/environments/EnvironmentList'
 import EnvironmentDetail from './pages/environments/EnvironmentDetail'
 import BookingCalendar from './pages/bookings/BookingCalendar'
+import ImportPage from './pages/import/ImportPage'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import AppLayout from './components/AppLayout'
 
@@ -62,6 +63,7 @@ function App() {
                     <Route path="/environments" element={<EnvironmentList />} />
                     <Route path="/environments/:id" element={<EnvironmentDetail />} />
                     <Route path="/bookings" element={<BookingCalendar />} />
+                    <Route path="/import" element={<ImportPage />} />
                 </Route>
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
             </Routes>
