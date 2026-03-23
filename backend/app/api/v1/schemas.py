@@ -15,10 +15,21 @@ class TenantCreate(TenantBase):
 
 class TenantResponse(TenantBase):
     id: int
+    is_active: bool
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
+
+
+class TenantUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    slug: Optional[str] = Field(None, max_length=50)
+    settings: Optional[dict] = None
+
+
+class TenantAdminSettings(BaseModel):
+    settings: dict
 
 
 class UserBase(BaseModel):
@@ -43,10 +54,33 @@ class UserResponse(UserBase):
     id: int
     tenant_id: int
     is_active: bool
+    is_master_admin: bool
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
+
+
+class UserAdminCreate(BaseModel):
+    username: str = Field(..., max_length=50)
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    role: str = "Viewer"
+
+
+class UserAdminUpdate(BaseModel):
+    username: Optional[str] = Field(None, max_length=50)
+    email: Optional[EmailStr] = None
+
+
+class UserRoleUpdate(BaseModel):
+    role: str
+
+
+class ImpersonationToken(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    target_tenant: TenantResponse
 
 
 class TokenResponse(BaseModel):
