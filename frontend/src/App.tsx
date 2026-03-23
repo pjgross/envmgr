@@ -7,6 +7,8 @@ import TenantList from './pages/admin/TenantList'
 import TenantDetail from './pages/admin/TenantDetail'
 import TenantSettings from './pages/tenant/TenantSettings'
 import UserManagement from './pages/tenant/UserManagement'
+import SystemCatalog from './pages/systems/SystemCatalog'
+import SystemDetail from './pages/systems/SystemDetail'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import AppLayout from './components/AppLayout'
 
@@ -52,6 +54,8 @@ function App() {
                         path="/tenant/users"
                         element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>}
                     />
+                    <Route path="/systems" element={<SystemCatalog />} />
+                    <Route path="/systems/:id" element={<SystemDetail />} />
                 </Route>
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
             </Routes>
