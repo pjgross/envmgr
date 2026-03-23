@@ -73,7 +73,7 @@ export const removeSystemFromEnvironment = createAsyncThunk(
   'environment/removeSystemFromEnvironment',
   async ({ envId, systemId }: { envId: number; systemId: number }) => {
     await environmentService.removeSystemFromEnvironment(envId, systemId);
-    return systemId;
+    return { envId, systemId };
   }
 );
 
@@ -173,7 +173,7 @@ const environmentSlice = createSlice({
       .addCase(removeSystemFromEnvironment.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(removeSystemFromEnvironment.fulfilled, (state, action) => {
         state.environmentSystems = state.environmentSystems.filter(
-          (s) => s.system_id !== action.payload
+          (s) => s.system_id !== action.payload.systemId
         );
         state.loading = false;
       })

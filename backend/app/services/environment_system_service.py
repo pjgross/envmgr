@@ -17,7 +17,10 @@ async def list_systems_in_environment(
 
     result = await db.execute(
         select(EnvironmentSystem)
-        .where(EnvironmentSystem.environment_id == env_id)
+        .where(
+            EnvironmentSystem.environment_id == env_id,
+            EnvironmentSystem.tenant_id == tenant_id,
+        )
         .options(selectinload(EnvironmentSystem.system))
     )
     return list(result.scalars().all())
@@ -82,6 +85,7 @@ async def _get_env_system(
         .where(
             EnvironmentSystem.environment_id == env_id,
             EnvironmentSystem.system_id == system_id,
+            EnvironmentSystem.tenant_id == tenant_id,
         )
         .options(selectinload(EnvironmentSystem.system))
     )

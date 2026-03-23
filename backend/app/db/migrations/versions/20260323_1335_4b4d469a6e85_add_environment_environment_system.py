@@ -22,6 +22,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # NOTE: Using IF NOT EXISTS because init_db() in base.py calls create_all() on startup,
+    # which pre-creates tables in the dev environment. In production, init_db() should be
+    # replaced with running `alembic upgrade head`. This pattern is used throughout Phase 1
+    # and should be resolved before production deployment.
     conn = op.get_bind()
 
     # Create environment table if it doesn't already exist
