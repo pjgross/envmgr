@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -11,19 +12,16 @@ import {
   DialogTitle,
   IconButton,
   InputAdornment,
-  Paper,
-  Skeleton,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
-  Alert,
 } from '@mui/material';
+import {
+  DataGrid,
+  GridColDef,
+  GridColumnVisibilityModel,
+  GridValueGetterParams,
+} from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -49,6 +47,26 @@ interface SystemFormValues {
 
 const emptyForm: SystemFormValues = { name: '', description: '', github_repository_url: '' };
 
+function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
+  const key = `systems-list-columns-${userId ?? 'guest'}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return {}
+    return JSON.parse(raw) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
+  const key = `systems-list-columns-${userId ?? 'guest'}`
+  try {
+    localStorage.setItem(key, JSON.stringify(model))
+  } catch {
+    // quota exceeded or storage unavailable — silently skip persistence
+  }
+}
+
 export default function SystemCatalog() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
@@ -63,6 +81,11 @@ export default function SystemCatalog() {
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<SystemResponse | null>(null);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
+
+  const user = useSelector((state: RootState) => state.auth.user)
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
+    () => loadColumnModel(user?.id)
+  )
 
   useEffect(() => {
     dispatch(fetchSystems());
@@ -81,7 +104,7 @@ export default function SystemCatalog() {
     setDialogOpen(true);
   };
 
-  const openEdit = (system: SystemResponse) => {
+  const openEdit = useCallback((system: SystemResponse) => {
     setEditTarget(system);
     setForm({
       name: system.name,
@@ -91,7 +114,92 @@ export default function SystemCatalog() {
     setFormError('');
     setCustomFieldValues(system.custom_fields ?? {});
     setDialogOpen(true);
-  };
+  }, []);
+
+  const coreColumns = useMemo<GridColDef<SystemResponse>[]>(() => [
+    {
+      field: 'name',
+      headerName: 'Name',
+      flex: 1.5,
+      hideable: false,
+      renderCell: (params) => (
+        <Typography variant="body2" fontWeight="medium">{params.row.name}</Typography>
+      ),
+    },
+    {
+      field: 'description',
+      headerName: 'Description',
+      flex: 2,
+      hideable: false,
+      valueGetter: (params: GridValueGetterParams<SystemResponse>) =>
+        params.row.description ?? '—',
+    },
+    {
+      field: 'github_repository_url',
+      headerName: 'GitHub',
+      flex: 1,
+      hideable: false,
+      renderCell: (params) =>
+        params.row.github_repository_url ? (
+          <Chip
+            icon={<LinkIcon />}
+            label="GitHub"
+            size="small"
+            component="a"
+            href={params.row.github_repository_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            clickable
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <Typography variant="body2" color="text.secondary">—</Typography>
+        ),
+    },
+    {
+      field: 'actions',
+      headerName: '',
+      width: 100,
+      sortable: false,
+      hideable: false,
+      disableColumnMenu: true,
+      renderCell: (params) => (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Edit">
+            <IconButton size="small" onClick={() => openEdit(params.row)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ),
+    },
+  ], [openEdit, setDeleteTarget])
+
+  const customFieldColumns = useMemo<GridColDef<SystemResponse>[]>(
+    () => customFieldDefs.map((def) => ({
+      field: def.field_key,
+      headerName: def.label,
+      flex: 1,
+      valueGetter: (params: GridValueGetterParams<SystemResponse>) =>
+        params.row.custom_fields?.[def.field_key] ?? '—',
+    } as GridColDef<SystemResponse>)),
+    [customFieldDefs]
+  )
+
+  const columns = useMemo(
+    () => [...coreColumns, ...customFieldColumns],
+    [coreColumns, customFieldColumns]
+  )
+
+  const handleColumnVisibilityChange = useCallback((model: GridColumnVisibilityModel) => {
+    setColumnVisibilityModel(model)
+    saveColumnModel(user?.id, model)
+  }, [user?.id])
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -159,91 +267,18 @@ export default function SystemCatalog() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell>GitHub</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && systems.length === 0
-              ? Array.from({ length: 4 }).map((_, i) => (
-                  <TableRow key={i}>
-                    {Array.from({ length: 4 }).map((__, j) => (
-                      <TableCell key={j}>
-                        <Skeleton />
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              : filtered.map((system) => (
-                  <TableRow
-                    key={system.id}
-                    hover
-                    sx={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/systems/${system.id}`)}
-                  >
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="medium">
-                        {system.name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {system.description ?? '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {system.github_repository_url ? (
-                        <Chip
-                          icon={<LinkIcon />}
-                          label="GitHub"
-                          size="small"
-                          component="a"
-                          href={system.github_repository_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          clickable
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => openEdit(system)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => setDeleteTarget(system)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-            {!loading && filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} align="center">
-                  <Typography color="text.secondary" py={3}>
-                    {search ? 'No systems match your search.' : 'No systems yet. Create one!'}
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      <DataGrid
+        rows={filtered}
+        columns={columns}
+        loading={loading && systems.length === 0}
+        onRowClick={(params) => navigate(`/systems/${params.row.id}`)}
+        columnVisibilityModel={columnVisibilityModel}
+        onColumnVisibilityModelChange={handleColumnVisibilityChange}
+        pageSizeOptions={[25, 50, 100]}
+        initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+        sx={{ border: 1, borderColor: 'divider' }}
+        disableRowSelectionOnClick
+      />
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
