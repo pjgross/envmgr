@@ -5,7 +5,7 @@ from httpx import AsyncClient
 
 from app.db.models.user import Tenant, User
 from app.db.models.system import System, SubSystem
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, create_access_token
 
 
 # ---------------------------------------------------------------------------
@@ -312,3 +312,179 @@ async def test_version_subsystem_not_linked_to_env(
         },
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# PATCH / DELETE tests
+# ---------------------------------------------------------------------------
+
+
+async def _record_version(client, auth_headers, env_id: int, sub_id: int, build_id="build-001", version_label="v1.0.0") -> int:
+    resp = await client.post(
+        f"/api/v1/environments/{env_id}/versions",
+        headers=auth_headers,
+        json={
+            "subsystem_id": sub_id,
+            "build_id": build_id,
+            "version_label": version_label,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_update_version(client: AsyncClient, auth_headers, test_tenant, db_session):
+    """PATCH /environments/{id}/versions/{vid} updates mutable fields."""
+    env_id = await _create_env(client, auth_headers, "UpdateVersionEnv")
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
+    version_id = await _record_version(client, auth_headers, env_id, sub_id)
+
+    resp = await client.patch(
+        f"/api/v1/environments/{env_id}/versions/{version_id}",
+        headers=auth_headers,
+        json={"build_id": "build-edited", "version_label": "v1.0.1"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["id"] == version_id
+    assert data["build_id"] == "build-edited"
+    assert data["version_label"] == "v1.0.1"
+
+
+@pytest.mark.asyncio
+async def test_update_version_partial(client: AsyncClient, auth_headers, test_tenant, db_session):
+    """PATCH with only one field leaves others unchanged."""
+    env_id = await _create_env(client, auth_headers, "PartialUpdateVersionEnv")
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
+    version_id = await _record_version(client, auth_headers, env_id, sub_id, build_id="build-orig", version_label="v2.0.0")
+
+    resp = await client.patch(
+        f"/api/v1/environments/{env_id}/versions/{version_id}",
+        headers=auth_headers,
+        json={"build_id": "build-changed"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["build_id"] == "build-changed"
+    assert data["version_label"] == "v2.0.0"  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_delete_version(client: AsyncClient, auth_headers, test_tenant, db_session):
+    """DELETE /environments/{id}/versions/{vid} removes the row (204)."""
+    env_id = await _create_env(client, auth_headers, "DeleteVersionEnv")
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
+    version_id = await _record_version(client, auth_headers, env_id, sub_id)
+
+    resp = await client.delete(
+        f"/api/v1/environments/{env_id}/versions/{version_id}",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    # Confirm gone — list should return 0
+    list_resp = await client.get(
+        f"/api/v1/environments/{env_id}/versions",
+        headers=auth_headers,
+    )
+    assert list_resp.status_code == 200
+    assert list_resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_update_version_wrong_tenant_returns_404(
+    client: AsyncClient, auth_headers, other_auth_headers, other_tenant, db_session, test_tenant
+):
+    """PATCH on a version belonging to another tenant returns 404."""
+    # Create version under other_tenant
+    other_env_id = await _create_env(client, other_auth_headers, "OtherTenantEditEnv")
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, other_tenant.id)
+    await _link_system_to_env(client, other_auth_headers, other_env_id, sys_id)
+    version_id = await _record_version(client, other_auth_headers, other_env_id, sub_id)
+
+    # Try to edit it as the primary tenant admin → should 404
+    resp = await client.patch(
+        f"/api/v1/environments/{other_env_id}/versions/{version_id}",
+        headers=auth_headers,
+        json={"build_id": "hacked"},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_version_wrong_tenant_returns_404(
+    client: AsyncClient, auth_headers, other_auth_headers, other_tenant, db_session
+):
+    """DELETE on a version belonging to another tenant returns 404."""
+    other_env_id = await _create_env(client, other_auth_headers, "OtherTenantDeleteEnv")
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, other_tenant.id)
+    await _link_system_to_env(client, other_auth_headers, other_env_id, sys_id)
+    version_id = await _record_version(client, other_auth_headers, other_env_id, sub_id)
+
+    resp = await client.delete(
+        f"/api/v1/environments/{other_env_id}/versions/{version_id}",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_edit_version(client: AsyncClient, db_session, test_tenant, auth_headers):
+    """A non-admin (Viewer) receives 403 when trying to PATCH a version."""
+    viewer = User(
+        tenant_id=test_tenant.id,
+        username="versionviewer1",
+        email="versionviewer1@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Viewer",
+        is_active=True,
+    )
+    db_session.add(viewer)
+    await db_session.commit()
+
+    login = await client.post("/api/v1/auth/login", json={
+        "username": "versionviewer1",
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    viewer_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    # We don't need a real version_id — auth check happens before DB lookup
+    resp = await client.patch(
+        "/api/v1/environments/1/versions/1",
+        headers=viewer_headers,
+        json={"build_id": "nope"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_delete_version(client: AsyncClient, db_session, test_tenant):
+    """A non-admin (Viewer) receives 403 when trying to DELETE a version."""
+    viewer = User(
+        tenant_id=test_tenant.id,
+        username="versionviewer2",
+        email="versionviewer2@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Viewer",
+        is_active=True,
+    )
+    db_session.add(viewer)
+    await db_session.commit()
+
+    login = await client.post("/api/v1/auth/login", json={
+        "username": "versionviewer2",
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    viewer_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    resp = await client.delete(
+        "/api/v1/environments/1/versions/1",
+        headers=viewer_headers,
+    )
+    assert resp.status_code == 403

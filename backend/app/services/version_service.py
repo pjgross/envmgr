@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.system import SubSystem
 from app.db.models.environment import EnvironmentSystem
-from app.api.v1.schemas.version import VersionCreate
+from app.api.v1.schemas.version import VersionCreate, VersionUpdate
 from app.services.environment_service import get_environment
 
 
@@ -115,3 +115,50 @@ async def list_versions(
         if v.subsystem_id not in seen:
             seen[v.subsystem_id] = v
     return sorted(seen.values(), key=lambda v: v.subsystem_id)
+
+
+async def update_version(
+    db: AsyncSession,
+    version_id: int,
+    tenant_id: int,
+    data: VersionUpdate,
+) -> EnvironmentSubSystemVersion:
+    result = await db.execute(
+        select(EnvironmentSubSystemVersion).where(
+            EnvironmentSubSystemVersion.id == version_id,
+            EnvironmentSubSystemVersion.tenant_id == tenant_id,
+        )
+    )
+    version = result.scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found")
+
+    if data.build_id is not None:
+        version.build_id = data.build_id
+    if data.version_label is not None:
+        version.version_label = data.version_label
+    if data.installed_at is not None:
+        version.installed_at = data.installed_at
+
+    await db.flush()
+    await db.refresh(version, attribute_names=["subsystem"])
+    return version
+
+
+async def delete_version(
+    db: AsyncSession,
+    version_id: int,
+    tenant_id: int,
+) -> None:
+    result = await db.execute(
+        select(EnvironmentSubSystemVersion).where(
+            EnvironmentSubSystemVersion.id == version_id,
+            EnvironmentSubSystemVersion.tenant_id == tenant_id,
+        )
+    )
+    version = result.scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found")
+
+    await db.delete(version)
+    await db.flush()

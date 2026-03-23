@@ -11,6 +11,12 @@ class VersionCreate(BaseModel):
     installed_at: Optional[datetime] = None  # if None, use server default
 
 
+class VersionUpdate(BaseModel):
+    build_id: Optional[str] = None
+    version_label: Optional[str] = None
+    installed_at: Optional[datetime] = None
+
+
 class VersionResponse(BaseModel):
     """
     Response schema for a version row.

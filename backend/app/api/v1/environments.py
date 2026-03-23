@@ -17,7 +17,7 @@ from app.api.v1.schemas.environment import (
     EnvironmentSystemResponse,
 )
 from app.api.v1.schemas.dependency import VerifyResponse
-from app.api.v1.schemas.version import VersionCreate, VersionResponse
+from app.api.v1.schemas.version import VersionCreate, VersionUpdate, VersionResponse
 
 router = APIRouter()
 
@@ -179,3 +179,25 @@ async def record_version(
         db, env_id, data, current_user.active_tenant_id
     )
     return VersionResponse.from_orm_with_name(version)
+
+
+@router.patch("/{env_id}/versions/{version_id}", response_model=VersionResponse)
+async def update_version(
+    env_id: int,
+    version_id: int,
+    data: VersionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    version = await version_service.update_version(db, version_id, current_user.active_tenant_id, data)
+    return VersionResponse.from_orm_with_name(version)
+
+
+@router.delete("/{env_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_version(
+    env_id: int,
+    version_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    await version_service.delete_version(db, version_id, current_user.active_tenant_id)
