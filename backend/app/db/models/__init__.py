@@ -1,6 +1,7 @@
 # Import all models here for Alembic to detect them
 from app.db.base import Base
-from app.db.models.user import Tenant, User, CustomFieldDefinition
+from app.db.models.user import Tenant, User
+from app.db.models.custom_field import CustomFieldDefinition
 from app.db.models.system import System, SubSystem
 from app.db.models.environment import Environment, EnvironmentSystem
 from app.db.models.dependency import SystemDependency, ComponentDependency

@@ -8,9 +8,9 @@ from app.db.base import Base
 
 class Tenant(Base):
     """Tenant model for multi-tenancy."""
-    
+
     __tablename__ = "tenant"
-    
+
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     slug: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
     settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -18,16 +18,16 @@ class Tenant(Base):
 
     # Relationships
     users: Mapped[list["User"]] = relationship("User", back_populates="tenant")
-    
+
     def __repr__(self):
         return f"<Tenant(id={self.id}, name='{self.name}')>"
 
 
 class User(Base):
     """User model with tenant association."""
-    
+
     __tablename__ = "user"
-    
+
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     username: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -37,25 +37,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_master_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    
+
     # Relationships
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="users")
-    
+
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', tenant_id={self.tenant_id})>"
-
-
-class CustomFieldDefinition(Base):
-    """Custom field definitions per tenant."""
-    
-    __tablename__ = "custom_field_definition"
-    
-    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
-    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # environment, booking, change, release, incident
-    field_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    field_type: Mapped[str] = mapped_column(String(20), nullable=False)  # text, number, date, select
-    options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # For select type
-    required: Mapped[bool] = mapped_column(default=False, nullable=False)
-    
-    def __repr__(self):
-        return f"<CustomFieldDefinition(id={self.id}, entity_type='{self.entity_type}', field_name='{self.field_name}')>"
