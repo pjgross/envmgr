@@ -40,12 +40,14 @@ import {
   updateEnvironment,
   deleteEnvironment,
 } from '../../store/environmentSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import type {
   EnvironmentResponse,
   EnvironmentStatus,
   EnvironmentCreate,
   EnvironmentUpdate,
 } from '../../types/environment';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -80,6 +82,7 @@ export default function EnvironmentList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { environments, loading, error } = useSelector((state: RootState) => state.environment);
+  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['environment'] ?? []);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<EnvironmentStatus | 'all'>('all');
@@ -88,9 +91,11 @@ export default function EnvironmentList() {
   const [form, setForm] = useState<EnvFormValues>(emptyForm);
   const [formError, setFormError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<EnvironmentResponse | null>(null);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     dispatch(fetchEnvironments());
+    dispatch(fetchDefinitions('environment'));
   }, [dispatch]);
 
   const filtered = environments.filter((e) => {
@@ -102,6 +107,7 @@ export default function EnvironmentList() {
   const openCreate = () => {
     setEditTarget(null);
     setForm(emptyForm);
+    setCustomFieldValues({});
     setFormError('');
     setDialogOpen(true);
   };
@@ -114,6 +120,7 @@ export default function EnvironmentList() {
       environment_type: env.environment_type,
       status: env.status,
     });
+    setCustomFieldValues(env.custom_fields ?? {});
     setFormError('');
     setDialogOpen(true);
   };
@@ -134,6 +141,7 @@ export default function EnvironmentList() {
           description: form.description || undefined,
           environment_type: form.environment_type,
           status: form.status,
+          custom_fields: customFieldValues,
         };
         await dispatch(updateEnvironment({ id: editTarget.id, data })).unwrap();
       } else {
@@ -142,9 +150,11 @@ export default function EnvironmentList() {
           description: form.description || undefined,
           environment_type: form.environment_type,
           status: form.status,
+          custom_fields: customFieldValues,
         };
         await dispatch(createEnvironment(data)).unwrap();
       }
+      setCustomFieldValues({});
       setDialogOpen(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -285,7 +295,7 @@ export default function EnvironmentList() {
       </TableContainer>
 
       {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
         <DialogTitle>{editTarget ? 'Edit Environment' : 'New Environment'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
@@ -325,9 +335,14 @@ export default function EnvironmentList() {
               <MenuItem value="decommissioned">Decommissioned</MenuItem>
             </Select>
           </FormControl>
+          <CustomFieldsSection
+            definitions={customFieldDefs}
+            values={customFieldValues}
+            onChange={setCustomFieldValues}
+          />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => { setDialogOpen(false); setCustomFieldValues({}); }}>Cancel</Button>
           <Button onClick={handleSave} variant="contained" disabled={loading}>
             {editTarget ? 'Save' : 'Create'}
           </Button>
