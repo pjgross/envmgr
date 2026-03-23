@@ -11,6 +11,7 @@ from app.db.models.environment import Environment, EnvironmentSystem, Environmen
 from app.db.models.dependency import SystemDependency
 from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
 from app.core.events import publish_event
+from app.services.custom_field_service import validate_custom_fields
 
 
 async def list_environments(
@@ -64,6 +65,7 @@ async def create_environment(
             status_code=status.HTTP_409_CONFLICT,
             detail="An environment with this name already exists in this tenant",
         )
+    await validate_custom_fields(db, tenant_id, "environment", data.custom_fields)
     env = Environment(
         name=data.name,
         description=data.description,
@@ -116,6 +118,7 @@ async def update_environment(
     if data.custom_fields is not None:
         env.custom_fields = data.custom_fields
 
+    await validate_custom_fields(db, tenant_id, "environment", data.custom_fields)
     await db.flush()
     await db.refresh(env)
     await publish_event(

@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer
+from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Enum as SAEnum
 
@@ -61,6 +61,7 @@ class Booking(Base):
         nullable=False,
         default=ContextTag.NONE,
     )
+    custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

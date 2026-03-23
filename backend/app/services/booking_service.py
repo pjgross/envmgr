@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models.booking import Booking, BookingType, BookingStatus, ContextTag
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
+from app.services.custom_field_service import validate_custom_fields
 
 
 @dataclass
@@ -92,6 +93,8 @@ async def create_booking(
             },
         )
 
+    await validate_custom_fields(db, current_user.active_tenant_id, "booking", data.custom_fields)
+
     # Determine context_tag
     if data.context_tag is not None and data.context_tag != ContextTag.NONE:
         ctx = data.context_tag
@@ -116,6 +119,7 @@ async def create_booking(
         release_id=data.release_id,
         test_phase_id=data.test_phase_id,
         context_tag=ctx,
+        custom_fields=data.custom_fields,
         tenant_id=current_user.active_tenant_id,
     )
     db.add(parent)
@@ -153,6 +157,7 @@ async def create_booking(
                 release_id=data.release_id,
                 test_phase_id=data.test_phase_id,
                 context_tag=ctx,
+                custom_fields=data.custom_fields,
                 tenant_id=current_user.active_tenant_id,
             )
             db.add(child)

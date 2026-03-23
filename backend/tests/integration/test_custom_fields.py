@@ -190,3 +190,99 @@ async def test_non_admin_cannot_manage_fields(client: AsyncClient, db_session, t
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     resp = await _create_field(client, headers)
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Validation tests (requires entity creation endpoints)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_required_field_blocks_booking_creation(client: AsyncClient, auth_headers: dict):
+    # Define a required text field on bookings
+    await _create_field(client, auth_headers, label="Ticket Ref", field_key="ticket_ref", required=True)
+    # Create an environment to book
+    env_resp = await client.post(
+        "/api/v1/environments/",
+        headers=auth_headers,
+        json={"name": "CF Test Env", "environment_type": "test"},
+    )
+    env_id = env_resp.json()["id"]
+    # Attempt to create booking without the required custom field
+    resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_id,
+        "project_name": "Test",
+        "start_date": "2026-05-01T10:00:00Z",
+        "end_date": "2026-05-01T14:00:00Z",
+        "booking_type": "shared",
+    })
+    assert resp.status_code == 422
+    assert "ticket_ref" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_required_field_passes_when_provided(client: AsyncClient, auth_headers: dict):
+    await _create_field(client, auth_headers, label="Ticket Ref", field_key="ticket_ref", required=True)
+    env_resp = await client.post(
+        "/api/v1/environments/",
+        headers=auth_headers,
+        json={"name": "CF Test Env 2", "environment_type": "test"},
+    )
+    env_id = env_resp.json()["id"]
+    resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_id,
+        "project_name": "Test",
+        "start_date": "2026-05-01T10:00:00Z",
+        "end_date": "2026-05-01T14:00:00Z",
+        "booking_type": "shared",
+        "custom_fields": {"ticket_ref": "JIRA-123"},
+    })
+    assert resp.status_code == 201
+    assert resp.json()["booking"]["custom_fields"]["ticket_ref"] == "JIRA-123"
+
+
+@pytest.mark.asyncio
+async def test_number_field_rejects_non_numeric(client: AsyncClient, auth_headers: dict):
+    await _create_field(client, auth_headers, label="Team Size", field_key="team_size", field_type="number", required=False)
+    env_resp = await client.post(
+        "/api/v1/environments/",
+        headers=auth_headers,
+        json={"name": "CF Test Env 3", "environment_type": "test"},
+    )
+    env_id = env_resp.json()["id"]
+    resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_id,
+        "project_name": "Test",
+        "start_date": "2026-05-01T10:00:00Z",
+        "end_date": "2026-05-01T14:00:00Z",
+        "booking_type": "shared",
+        "custom_fields": {"team_size": "not-a-number"},
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_unknown_custom_field_keys_are_accepted(client: AsyncClient, auth_headers: dict):
+    """Unknown keys (e.g. from soft-deleted fields) must not cause errors."""
+    env_resp = await client.post(
+        "/api/v1/environments/",
+        headers=auth_headers,
+        json={"name": "CF Test Env 4", "environment_type": "test"},
+    )
+    env_id = env_resp.json()["id"]
+    resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_id,
+        "project_name": "Test",
+        "start_date": "2026-05-01T10:00:00Z",
+        "end_date": "2026-05-01T14:00:00Z",
+        "booking_type": "shared",
+        "custom_fields": {"orphaned_old_key": "some value"},
+    })
+    assert resp.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_required_field_blocks_system_creation(client: AsyncClient, auth_headers: dict):
+    await _create_field(client, auth_headers, entity_type="system", label="Owner", field_key="owner", required=True)
+    resp = await client.post("/api/v1/systems/", headers=auth_headers, json={"name": "MySys"})
+    assert resp.status_code == 422
+    assert "owner" in resp.json()["detail"]

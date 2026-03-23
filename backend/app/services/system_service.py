@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.system import SystemCreate, SystemUpdate, SubSystemCreate, SubSystemUpdate
 from app.core.events import publish_event
+from app.services.custom_field_service import validate_custom_fields
 
 
 async def list_systems(db: AsyncSession, tenant_id: int) -> list[System]:
@@ -46,6 +47,7 @@ async def create_system(db: AsyncSession, data: SystemCreate, tenant_id: int) ->
             status_code=status.HTTP_409_CONFLICT,
             detail="A system with this name already exists in this tenant",
         )
+    await validate_custom_fields(db, tenant_id, "system", data.custom_fields)
     system = System(
         name=data.name,
         description=data.description,
@@ -95,6 +97,7 @@ async def update_system(
     if data.custom_fields is not None:
         system.custom_fields = data.custom_fields
 
+    await validate_custom_fields(db, tenant_id, "system", data.custom_fields)
     await db.flush()
     await db.refresh(system)
     await publish_event(
@@ -190,6 +193,7 @@ async def create_subsystem(
             detail="A subsystem with this name already exists in this system",
         )
 
+    await validate_custom_fields(db, tenant_id, "subsystem", data.custom_fields)
     subsystem = SubSystem(
         name=data.name,
         description=data.description,
@@ -234,6 +238,7 @@ async def update_subsystem(
     if data.custom_fields is not None:
         subsystem.custom_fields = data.custom_fields
 
+    await validate_custom_fields(db, tenant_id, "subsystem", data.custom_fields)
     await db.flush()
     await db.refresh(subsystem)
     return subsystem
