@@ -7,6 +7,7 @@ import environmentReducer from './environmentSlice'
 import dependencyReducer from './dependencySlice'
 import bookingReducer from './bookingSlice'
 import versionReducer from './versionSlice'
+import customFieldReducer from './customFieldSlice'
 
 export const store = configureStore({
     reducer: {
@@ -18,6 +19,7 @@ export const store = configureStore({
         dependency: dependencyReducer,
         booking: bookingReducer,
         version: versionReducer,
+        customField: customFieldReducer,
     },
 })
 
