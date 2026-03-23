@@ -57,7 +57,7 @@ Replace the `TableContainer`/`Table`/`TableHead`/`TableBody`/`TableRow`/`TableCe
 | `name` | Name | `flex: 1.5`, `fontWeight: medium` via `renderCell` |
 | `description` | Description | `flex: 2`, `valueGetter` → `params.row.description ?? '—'` |
 | `github_repository_url` | GitHub | `flex: 1`, renders `LinkIcon` chip if present, `'—'` if null |
-| `actions` | (empty) | `flex: 0`, `sortable: false`, `hideable: false`, `renderCell` → Edit + Delete icon buttons |
+| `actions` | (empty) | `width: 100`, `sortable: false`, `hideable: false`, `disableColumnMenu: true`, `renderCell` → Edit + Delete icon buttons |
 
 The GitHub column stops propagation on chip click (`e.stopPropagation()`) so it doesn't trigger row navigation.
 
@@ -91,7 +91,7 @@ Replace the `TableContainer`/`Table` block with a DataGrid. Status filter chips 
 | `environment_type` | Type | `flex: 1` |
 | `status` | Status | `flex: 0.8`, `renderCell` → coloured `Chip` using existing `STATUS_COLORS` map |
 | `created_at` | Created | `flex: 0.8`, `valueGetter` → `new Date(params.row.created_at).toLocaleDateString()` |
-| `actions` | (empty) | `flex: 0`, `sortable: false`, `hideable: false`, `renderCell` → Edit + Delete icon buttons |
+| `actions` | (empty) | `width: 100`, `sortable: false`, `hideable: false`, `disableColumnMenu: true`, `renderCell` → Edit + Delete icon buttons |
 
 ### Custom field columns
 
