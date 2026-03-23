@@ -47,7 +47,9 @@ const STATUS_COLORS: Record<BookingStatus, 'warning' | 'success' | 'error'> = {
 function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
   const key = `bookings-list-columns-${userId ?? 'guest'}`
   try {
-    return JSON.parse(localStorage.getItem(key) ?? '') ?? {}
+    const raw = localStorage.getItem(key)
+    if (!raw) return {}
+    return JSON.parse(raw) ?? {}
   } catch {
     return {}
   }
