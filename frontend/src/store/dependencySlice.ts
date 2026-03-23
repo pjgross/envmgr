@@ -47,6 +47,13 @@ export const deleteSystemDependency = createAsyncThunk(
   }
 );
 
+export const updateSystemDependency = createAsyncThunk(
+  'dependencies/updateSystemDependency',
+  async ({ systemId, depId, data }: { systemId: number; depId: number; data: Partial<SystemDependencyCreate> }) => {
+    return await dependencyService.updateSystemDependency(systemId, depId, data);
+  }
+);
+
 // ---------------------------------------------------------------------------
 // ComponentDependency thunks
 // ---------------------------------------------------------------------------
@@ -67,6 +74,13 @@ export const deleteComponentDependency = createAsyncThunk(
   async ({ subsystemId, depId }: { subsystemId: number; depId: number }) => {
     await dependencyService.deleteComponentDependency(subsystemId, depId);
     return depId;
+  }
+);
+
+export const updateComponentDependency = createAsyncThunk(
+  'dependencies/updateComponentDependency',
+  async ({ subsystemId, depId, data }: { subsystemId: number; depId: number; data: Partial<ComponentDependencyCreate> }) => {
+    return await dependencyService.updateComponentDependency(subsystemId, depId, data);
   }
 );
 
@@ -139,6 +153,24 @@ const dependencySlice = createSlice({
         state.error = action.error.message ?? 'Failed to delete dependency';
       });
 
+    // updateSystemDependency
+    builder
+      .addCase(updateSystemDependency.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateSystemDependency.fulfilled, (state, action) => {
+        state.loading = false;
+        const idx = state.systemDependencies.findIndex((d) => d.id === action.payload.id);
+        if (idx !== -1) {
+          state.systemDependencies[idx] = action.payload;
+        }
+      })
+      .addCase(updateSystemDependency.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to update dependency';
+      });
+
     // fetchComponentDependencies
     builder
       .addCase(fetchComponentDependencies.pending, (state) => {
@@ -184,6 +216,24 @@ const dependencySlice = createSlice({
       .addCase(deleteComponentDependency.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message ?? 'Failed to delete component dependency';
+      });
+
+    // updateComponentDependency
+    builder
+      .addCase(updateComponentDependency.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateComponentDependency.fulfilled, (state, action) => {
+        state.loading = false;
+        const idx = state.componentDependencies.findIndex((d) => d.id === action.payload.id);
+        if (idx !== -1) {
+          state.componentDependencies[idx] = action.payload;
+        }
+      })
+      .addCase(updateComponentDependency.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to update component dependency';
       });
 
     // verifyEnvironment

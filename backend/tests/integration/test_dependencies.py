@@ -352,3 +352,102 @@ async def test_component_dependency_crud(client: AsyncClient, auth_headers):
         f"/api/v1/subsystems/{from_sub_id}/dependencies", headers=auth_headers
     )
     assert list_after.json() == []
+
+
+# ---------------------------------------------------------------------------
+# Update (PATCH) tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_system_dependency(client: AsyncClient, auth_headers):
+    """PATCH /systems/{id}/dependencies/{dep_id} updates type and direction."""
+    from_id = await _create_system(client, auth_headers, "UpdateSysA")
+    to_id = await _create_system(client, auth_headers, "UpdateSysB")
+
+    create_resp = await client.post(
+        f"/api/v1/systems/{from_id}/dependencies",
+        headers=auth_headers,
+        json={"to_system_id": to_id, "dependency_type": "api_call", "direction": "one_way"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    dep_id = create_resp.json()["id"]
+
+    patch_resp = await client.patch(
+        f"/api/v1/systems/{from_id}/dependencies/{dep_id}",
+        headers=auth_headers,
+        json={"dependency_type": "message_queue", "direction": "two_way"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    data = patch_resp.json()
+    assert data["dependency_type"] == "message_queue"
+    assert data["direction"] == "two_way"
+    assert data["from_system_id"] == from_id
+    assert data["to_system_id"] == to_id
+    assert data["is_incoming"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_component_dependency(client: AsyncClient, auth_headers):
+    """PATCH /subsystems/{id}/dependencies/{dep_id} updates type, direction, protocol, port."""
+    sys_id = await _create_system(client, auth_headers, "UpdateCompSys")
+    from_sub_id = await _create_subsystem(client, auth_headers, sys_id, "UpdateSubA")
+    to_sub_id = await _create_subsystem(client, auth_headers, sys_id, "UpdateSubB")
+
+    create_resp = await client.post(
+        f"/api/v1/subsystems/{from_sub_id}/dependencies",
+        headers=auth_headers,
+        json={
+            "to_subsystem_id": to_sub_id,
+            "dependency_type": "api_call",
+            "direction": "one_way",
+            "protocol": "HTTP",
+            "port": 8080,
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    dep_id = create_resp.json()["id"]
+
+    patch_resp = await client.patch(
+        f"/api/v1/subsystems/{from_sub_id}/dependencies/{dep_id}",
+        headers=auth_headers,
+        json={"dependency_type": "database", "direction": "two_way", "protocol": "gRPC", "port": 50051},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    data = patch_resp.json()
+    assert data["dependency_type"] == "database"
+    assert data["direction"] == "two_way"
+    assert data["protocol"] == "gRPC"
+    assert data["port"] == 50051
+    assert data["from_subsystem_id"] == from_sub_id
+    assert data["to_subsystem_id"] == to_sub_id
+    assert data["is_incoming"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_from_target_side(client: AsyncClient, auth_headers):
+    """Create A→B dep, update from B's perspective (system_id=B); verify it works."""
+    sys_a = await _create_system(client, auth_headers, "TargetUpdateA")
+    sys_b = await _create_system(client, auth_headers, "TargetUpdateB")
+
+    create_resp = await client.post(
+        f"/api/v1/systems/{sys_a}/dependencies",
+        headers=auth_headers,
+        json={"to_system_id": sys_b, "dependency_type": "api_call", "direction": "one_way"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    dep_id = create_resp.json()["id"]
+
+    # Update from B's perspective
+    patch_resp = await client.patch(
+        f"/api/v1/systems/{sys_b}/dependencies/{dep_id}",
+        headers=auth_headers,
+        json={"dependency_type": "event"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    data = patch_resp.json()
+    assert data["dependency_type"] == "event"
+    # From B's perspective this is incoming
+    assert data["is_incoming"] is True
+    assert data["from_system_id"] == sys_a
+    assert data["to_system_id"] == sys_b

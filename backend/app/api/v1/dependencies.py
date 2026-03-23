@@ -6,8 +6,10 @@ from app.core.security import get_current_user, require_tenant_admin
 from app.services import dependency_service
 from app.api.v1.schemas.dependency import (
     SystemDependencyCreate,
+    SystemDependencyUpdate,
     SystemDependencyResponse,
     ComponentDependencyCreate,
+    ComponentDependencyUpdate,
     ComponentDependencyResponse,
 )
 
@@ -108,6 +110,34 @@ async def delete_system_dependency(
     )
 
 
+@router.patch(
+    "/systems/{system_id}/dependencies/{dep_id}",
+    response_model=SystemDependencyResponse,
+)
+async def update_system_dependency(
+    system_id: int,
+    dep_id: int,
+    data: SystemDependencyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    dep = await dependency_service.update_system_dependency(
+        db, dep_id, system_id, data, current_user.active_tenant_id
+    )
+    return SystemDependencyResponse(
+        id=dep.id,
+        from_system_id=dep.from_system_id,
+        to_system_id=dep.to_system_id,
+        dependency_type=dep.dependency_type,
+        direction=dep.direction,
+        source=dep.source,
+        tenant_id=dep.tenant_id,
+        to_system=dep.to_system,
+        from_system=dep.from_system,
+        is_incoming=dep.to_system_id == system_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Component dependency endpoints (nested under /subsystems/{id}/dependencies)
 # ---------------------------------------------------------------------------
@@ -205,4 +235,34 @@ async def delete_component_dependency(
 ):
     await dependency_service.delete_component_dependency(
         db, dep_id, subsystem_id, current_user.active_tenant_id
+    )
+
+
+@router.patch(
+    "/subsystems/{subsystem_id}/dependencies/{dep_id}",
+    response_model=ComponentDependencyResponse,
+)
+async def update_component_dependency(
+    subsystem_id: int,
+    dep_id: int,
+    data: ComponentDependencyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    dep = await dependency_service.update_component_dependency(
+        db, dep_id, subsystem_id, data, current_user.active_tenant_id
+    )
+    return ComponentDependencyResponse(
+        id=dep.id,
+        from_subsystem_id=dep.from_subsystem_id,
+        to_subsystem_id=dep.to_subsystem_id,
+        dependency_type=dep.dependency_type,
+        direction=dep.direction,
+        protocol=dep.protocol,
+        port=dep.port,
+        source=dep.source,
+        tenant_id=dep.tenant_id,
+        to_subsystem=dep.to_subsystem,
+        from_subsystem=dep.from_subsystem,
+        is_incoming=dep.to_subsystem_id == subsystem_id,
     )

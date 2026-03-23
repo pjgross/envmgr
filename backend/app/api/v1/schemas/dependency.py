@@ -40,6 +40,12 @@ class SystemDependencyCreate(BaseModel):
     source: DependencySource = DependencySource.MANUAL
 
 
+class SystemDependencyUpdate(BaseModel):
+    dependency_type: Optional[DependencyType] = None
+    source: Optional[DependencySource] = None
+    direction: Optional[DependencyDirection] = None
+
+
 class SystemDependencyResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,6 +73,14 @@ class ComponentDependencyCreate(BaseModel):
     protocol: Optional[str] = None
     port: Optional[int] = None
     source: DependencySource = DependencySource.MANUAL
+
+
+class ComponentDependencyUpdate(BaseModel):
+    dependency_type: Optional[DependencyType] = None
+    protocol: Optional[str] = None
+    port: Optional[int] = None
+    source: Optional[DependencySource] = None
+    direction: Optional[DependencyDirection] = None
 
 
 class ComponentDependencyResponse(BaseModel):

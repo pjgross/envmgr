@@ -50,7 +50,7 @@ import {
   fetchSystemDependencies,
   createSystemDependency,
   deleteSystemDependency,
-  fetchComponentDependencies,
+  updateSystemDependency,
   createComponentDependency,
   deleteComponentDependency,
 } from '../../store/dependencySlice';
@@ -64,6 +64,7 @@ import type {
 import type {
   DependencyType,
   DependencyDirection,
+  DependencySource,
   SystemDependencyResponse,
   ComponentDependencyResponse,
   ComponentDependencyCreate,
@@ -82,6 +83,26 @@ const DEP_DIRECTION_OPTIONS: { value: DependencyDirection; label: string }[] = [
   { value: 'one_way', label: 'One-way' },
   { value: 'two_way', label: 'Two-way' },
 ];
+
+const DEP_SOURCE_OPTIONS: { value: DependencySource; label: string }[] = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'terraform', label: 'Terraform' },
+  { value: 'docker_compose', label: 'Docker Compose' },
+];
+
+interface DepEditFormValues {
+  dependency_type: DependencyType;
+  direction: DependencyDirection;
+  source: DependencySource;
+}
+
+interface CompDepEditFormValues {
+  dependency_type: DependencyType;
+  direction: DependencyDirection;
+  source: DependencySource;
+  protocol: string;
+  port: string;
+}
 
 interface SubFormValues {
   name: string;
@@ -132,7 +153,7 @@ export default function SystemDetail() {
   const { currentSystem, subsystems, systems, loading, error } = useSelector(
     (state: RootState) => state.system
   );
-  const { systemDependencies, componentDependencies, loading: depLoading } = useSelector(
+  const { systemDependencies, loading: depLoading } = useSelector(
     (state: RootState) => state.dependency
   );
 
@@ -156,11 +177,31 @@ export default function SystemDetail() {
   const [depFormError, setDepFormError] = useState('');
   const [depDeleteTarget, setDepDeleteTarget] = useState<SystemDependencyResponse | null>(null);
 
+  // System dependency edit state
+  const [depEditTarget, setDepEditTarget] = useState<SystemDependencyResponse | null>(null);
+  const [depEditForm, setDepEditForm] = useState<DepEditFormValues>({
+    dependency_type: 'api_call',
+    direction: 'one_way',
+    source: 'manual',
+  });
+  const [depEditFormError, setDepEditFormError] = useState('');
+
   // Component dependency state
   const [compDepDialogOpen, setCompDepDialogOpen] = useState(false);
   const [compDepForm, setCompDepForm] = useState<CompDepFormValues>(emptyCompDepForm);
   const [compDepFormError, setCompDepFormError] = useState('');
   const [compDepDeleteTarget, setCompDepDeleteTarget] = useState<ComponentDependencyResponse | null>(null);
+
+  // Component dependency edit state
+  const [compDepEditTarget, setCompDepEditTarget] = useState<ComponentDependencyResponse | null>(null);
+  const [compDepEditForm, setCompDepEditForm] = useState<CompDepEditFormValues>({
+    dependency_type: 'api_call',
+    direction: 'one_way',
+    source: 'manual',
+    protocol: '',
+    port: '',
+  });
+  const [compDepEditFormError, setCompDepEditFormError] = useState('');
   const [allSubsystems, setAllSubsystems] = useState<AllSubsystem[]>([]);
   const [allSubsystemsLoading, setAllSubsystemsLoading] = useState(false);
   // Component deps merged across all subsystems of this system
@@ -326,6 +367,37 @@ export default function SystemDetail() {
     }
   };
 
+  const openDepEdit = (dep: SystemDependencyResponse) => {
+    setDepEditTarget(dep);
+    setDepEditForm({
+      dependency_type: dep.dependency_type,
+      direction: dep.direction,
+      source: dep.source,
+    });
+    setDepEditFormError('');
+  };
+
+  const handleDepEditSave = async () => {
+    if (!depEditTarget) return;
+    try {
+      await dispatch(
+        updateSystemDependency({
+          systemId,
+          depId: depEditTarget.id,
+          data: {
+            dependency_type: depEditForm.dependency_type,
+            direction: depEditForm.direction,
+            source: depEditForm.source,
+          },
+        })
+      ).unwrap();
+      setDepEditTarget(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setDepEditFormError(message || 'Failed to update dependency');
+    }
+  };
+
   // Component Dependency handlers
   const openCompDepCreate = async () => {
     setCompDepForm(emptyCompDepForm);
@@ -387,6 +459,42 @@ export default function SystemDetail() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setCompDepFormError(message || 'Failed to create component dependency');
+    }
+  };
+
+  const openCompDepEdit = (dep: ComponentDependencyResponse) => {
+    setCompDepEditTarget(dep);
+    setCompDepEditForm({
+      dependency_type: dep.dependency_type,
+      direction: dep.direction,
+      source: dep.source,
+      protocol: dep.protocol ?? '',
+      port: dep.port != null ? String(dep.port) : '',
+    });
+    setCompDepEditFormError('');
+  };
+
+  const handleCompDepEditSave = async () => {
+    if (!compDepEditTarget) return;
+    try {
+      const portNum = compDepEditForm.port !== '' ? Number(compDepEditForm.port) : undefined;
+      const updated = await dependencyService.updateComponentDependency(
+        compDepEditTarget.from_subsystem_id,
+        compDepEditTarget.id,
+        {
+          dependency_type: compDepEditForm.dependency_type,
+          direction: compDepEditForm.direction,
+          source: compDepEditForm.source,
+          protocol: compDepEditForm.protocol || undefined,
+          port: portNum,
+        }
+      );
+      // Update in allCompDeps local state (component deps are not in Redux for this view)
+      setAllCompDeps((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      setCompDepEditTarget(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCompDepEditFormError(message || 'Failed to update component dependency');
     }
   };
 
@@ -641,6 +749,11 @@ export default function SystemDetail() {
                       />
                     </TableCell>
                     <TableCell align="right">
+                      <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => openDepEdit(dep)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Delete">
                         <IconButton
                           size="small"
@@ -727,6 +840,11 @@ export default function SystemDetail() {
                           />
                         </TableCell>
                         <TableCell align="right">
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => openCompDepEdit(dep)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title="Delete">
                             <IconButton
                               size="small"
@@ -999,6 +1117,145 @@ export default function SystemDetail() {
           <Button onClick={() => setCompDepDeleteTarget(null)}>Cancel</Button>
           <Button onClick={handleCompDepDelete} color="error" variant="contained">
             Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit System Dependency Dialog */}
+      <Dialog open={Boolean(depEditTarget)} onClose={() => setDepEditTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Dependency</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {depEditFormError && <Alert severity="error">{depEditFormError}</Alert>}
+          <FormControl fullWidth required>
+            <InputLabel>Dependency Type</InputLabel>
+            <Select
+              label="Dependency Type"
+              value={depEditForm.dependency_type}
+              onChange={(e) =>
+                setDepEditForm({ ...depEditForm, dependency_type: e.target.value as DependencyType })
+              }
+            >
+              {DEP_TYPE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Direction</InputLabel>
+            <Select
+              label="Direction"
+              value={depEditForm.direction}
+              onChange={(e) =>
+                setDepEditForm({ ...depEditForm, direction: e.target.value as DependencyDirection })
+              }
+            >
+              {DEP_DIRECTION_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Source</InputLabel>
+            <Select
+              label="Source"
+              value={depEditForm.source}
+              onChange={(e) =>
+                setDepEditForm({ ...depEditForm, source: e.target.value as DependencySource })
+              }
+            >
+              {DEP_SOURCE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDepEditTarget(null)}>Cancel</Button>
+          <Button onClick={handleDepEditSave} variant="contained" disabled={depLoading}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Component Dependency Dialog */}
+      <Dialog open={Boolean(compDepEditTarget)} onClose={() => setCompDepEditTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Component Dependency</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {compDepEditFormError && <Alert severity="error">{compDepEditFormError}</Alert>}
+          <FormControl fullWidth required>
+            <InputLabel>Dependency Type</InputLabel>
+            <Select
+              label="Dependency Type"
+              value={compDepEditForm.dependency_type}
+              onChange={(e) =>
+                setCompDepEditForm({ ...compDepEditForm, dependency_type: e.target.value as DependencyType })
+              }
+            >
+              {DEP_TYPE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Direction</InputLabel>
+            <Select
+              label="Direction"
+              value={compDepEditForm.direction}
+              onChange={(e) =>
+                setCompDepEditForm({ ...compDepEditForm, direction: e.target.value as DependencyDirection })
+              }
+            >
+              {DEP_DIRECTION_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Source</InputLabel>
+            <Select
+              label="Source"
+              value={compDepEditForm.source}
+              onChange={(e) =>
+                setCompDepEditForm({ ...compDepEditForm, source: e.target.value as DependencySource })
+              }
+            >
+              {DEP_SOURCE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Protocol"
+            value={compDepEditForm.protocol}
+            onChange={(e) => setCompDepEditForm({ ...compDepEditForm, protocol: e.target.value })}
+            fullWidth
+            placeholder="e.g. HTTP, gRPC"
+          />
+          <TextField
+            label="Port"
+            type="number"
+            value={compDepEditForm.port}
+            onChange={(e) => setCompDepEditForm({ ...compDepEditForm, port: e.target.value })}
+            fullWidth
+            placeholder="e.g. 8080"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCompDepEditTarget(null)}>Cancel</Button>
+          <Button onClick={handleCompDepEditSave} variant="contained">
+            Save
           </Button>
         </DialogActions>
       </Dialog>

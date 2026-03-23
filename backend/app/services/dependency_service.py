@@ -5,7 +5,12 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.system import System, SubSystem
-from app.api.v1.schemas.dependency import SystemDependencyCreate, ComponentDependencyCreate
+from app.api.v1.schemas.dependency import (
+    SystemDependencyCreate,
+    SystemDependencyUpdate,
+    ComponentDependencyCreate,
+    ComponentDependencyUpdate,
+)
 from app.services.system_service import get_system
 
 
@@ -141,6 +146,41 @@ async def delete_system_dependency(
         )
     await db.delete(dep)
     await db.flush()
+
+
+async def update_system_dependency(
+    db: AsyncSession,
+    dep_id: int,
+    system_id: int,
+    data: SystemDependencyUpdate,
+    tenant_id: int,
+) -> SystemDependency:
+    result = await db.execute(
+        select(SystemDependency)
+        .where(
+            SystemDependency.id == dep_id,
+            SystemDependency.tenant_id == tenant_id,
+            or_(
+                SystemDependency.from_system_id == system_id,
+                SystemDependency.to_system_id == system_id,
+            ),
+        )
+        .options(
+            selectinload(SystemDependency.from_system),
+            selectinload(SystemDependency.to_system),
+        )
+    )
+    dep = result.scalar_one_or_none()
+    if dep is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dependency not found",
+        )
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(dep, field, value)
+    await db.flush()
+    return dep
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +326,38 @@ async def delete_component_dependency(
         )
     await db.delete(dep)
     await db.flush()
+
+
+async def update_component_dependency(
+    db: AsyncSession,
+    dep_id: int,
+    subsystem_id: int,
+    data: ComponentDependencyUpdate,
+    tenant_id: int,
+) -> ComponentDependency:
+    result = await db.execute(
+        select(ComponentDependency)
+        .where(
+            ComponentDependency.id == dep_id,
+            ComponentDependency.tenant_id == tenant_id,
+            or_(
+                ComponentDependency.from_subsystem_id == subsystem_id,
+                ComponentDependency.to_subsystem_id == subsystem_id,
+            ),
+        )
+        .options(
+            selectinload(ComponentDependency.from_subsystem),
+            selectinload(ComponentDependency.to_subsystem),
+        )
+    )
+    dep = result.scalar_one_or_none()
+    if dep is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Component dependency not found",
+        )
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(dep, field, value)
+    await db.flush()
+    return dep

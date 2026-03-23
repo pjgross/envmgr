@@ -20,6 +20,13 @@ export const dependencyService = {
   deleteSystemDependency: (systemId: number, depId: number): Promise<void> =>
     api.delete(`/systems/${systemId}/dependencies/${depId}`).then((r) => r.data),
 
+  updateSystemDependency: (
+    systemId: number,
+    depId: number,
+    data: Partial<SystemDependencyCreate>
+  ): Promise<SystemDependencyResponse> =>
+    api.patch<SystemDependencyResponse>(`/systems/${systemId}/dependencies/${depId}`, data).then((r) => r.data),
+
   listComponentDependencies: (subsystemId: number): Promise<ComponentDependencyResponse[]> =>
     api.get(`/subsystems/${subsystemId}/dependencies`).then((r) => r.data),
 
@@ -31,6 +38,13 @@ export const dependencyService = {
 
   deleteComponentDependency: (subsystemId: number, depId: number): Promise<void> =>
     api.delete(`/subsystems/${subsystemId}/dependencies/${depId}`).then((r) => r.data),
+
+  updateComponentDependency: (
+    subsystemId: number,
+    depId: number,
+    data: Partial<ComponentDependencyCreate>
+  ): Promise<ComponentDependencyResponse> =>
+    api.patch<ComponentDependencyResponse>(`/subsystems/${subsystemId}/dependencies/${depId}`, data).then((r) => r.data),
 
   verifyEnvironment: (envId: number): Promise<VerifyResponse> =>
     api.get(`/environments/${envId}/verify`).then((r) => r.data),
