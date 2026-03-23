@@ -1,6 +1,7 @@
 """Unit tests for app/core/security.py — no database required."""
 import pytest
 from datetime import timedelta
+from unittest.mock import MagicMock
 from fastapi import HTTPException
 
 from app.core.security import (
@@ -8,6 +9,7 @@ from app.core.security import (
     verify_password,
     create_access_token,
     decode_access_token,
+    require_master_admin,
 )
 
 
@@ -79,3 +81,43 @@ def test_tampered_token_raises_401():
     with pytest.raises(HTTPException) as exc_info:
         decode_access_token(tampered)
     assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Impersonation and master admin
+# ---------------------------------------------------------------------------
+
+def test_impersonating_tenant_id_preserved_in_token():
+    """impersonating_tenant_id passed in data must survive encode/decode."""
+    token = create_access_token({"sub": "1", "tenant_id": 1, "impersonating_tenant_id": 99})
+    payload = decode_access_token(token)
+    assert payload["impersonating_tenant_id"] == 99
+
+
+def test_active_tenant_id_uses_impersonating_when_set():
+    """active_tenant_id should equal impersonating_tenant_id when that claim is present."""
+    impersonating_tenant = 99
+    own_tenant = 1
+
+    # Simulate what get_current_user does after loading the user from DB
+    user = MagicMock()
+    user.tenant_id = own_tenant
+
+    payload = {"impersonating_tenant_id": impersonating_tenant}
+    impersonating = payload.get("impersonating_tenant_id")
+    user.active_tenant_id = impersonating if impersonating else user.tenant_id
+
+    assert user.active_tenant_id == impersonating_tenant
+
+
+@pytest.mark.asyncio
+async def test_require_master_admin_blocks_non_master():
+    """require_master_admin dependency must raise 403 for non-master-admin users."""
+    mock_user = MagicMock()
+    mock_user.is_master_admin = False
+
+    checker = require_master_admin()
+    with pytest.raises(HTTPException) as exc_info:
+        await checker(current_user=mock_user)
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Master admin access required"

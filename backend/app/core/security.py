@@ -84,7 +84,10 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
-    
+
+    impersonating = payload.get("impersonating_tenant_id")
+    user.active_tenant_id = impersonating if impersonating else user.tenant_id
+
     return user
 
 
@@ -100,6 +103,18 @@ def require_role(required_role: str):
     return role_checker
 
 
+def require_master_admin():
+    """Dependency to require master admin privileges."""
+    async def master_admin_checker(current_user=Depends(get_current_user)):
+        if not current_user.is_master_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Master admin access required",
+            )
+        return current_user
+    return master_admin_checker
+
+
 # Role constants
 class Role:
     ADMIN = "Admin"
@@ -107,3 +122,6 @@ class Role:
     TEST_MANAGER = "Test Manager"
     DEVELOPER = "Developer"
     VIEWER = "Viewer"
+
+
+require_tenant_admin = lambda: require_role(Role.ADMIN)
