@@ -296,7 +296,21 @@ async def test_update_user_patches_username_and_email():
     mock_user = MagicMock()
     mock_user.username = "old"
     mock_user.email = "old@example.com"
-    db = _make_db(scalar_result=mock_user)
+
+    # First call: get_user (returns mock_user)
+    # Second call: username uniqueness check (returns None — no conflict)
+    # Third call: email uniqueness check (returns None — no conflict)
+    result_user = MagicMock()
+    result_user.scalar_one_or_none.return_value = mock_user
+
+    result_no_match = MagicMock()
+    result_no_match.scalar_one_or_none.return_value = None
+
+    db = AsyncMock()
+    db.execute = AsyncMock(side_effect=[result_user, result_no_match, result_no_match])
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+    db.add = MagicMock()
 
     data = UserAdminUpdate(username="new", email="new@example.com")
     await update_user(db, user_id=1, tenant_id=1, data=data)
@@ -304,3 +318,57 @@ async def test_update_user_patches_username_and_email():
     assert mock_user.username == "new"
     assert mock_user.email == "new@example.com"
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_update_user_raises_409_on_duplicate_username():
+    mock_user = MagicMock()
+    mock_user.username = "old"
+
+    # First call: get_user (returns mock_user)
+    # Second call: username uniqueness check (returns a conflicting user)
+    result_user = MagicMock()
+    result_user.scalar_one_or_none.return_value = mock_user
+
+    existing_user = MagicMock()
+    result_conflict = MagicMock()
+    result_conflict.scalar_one_or_none.return_value = existing_user
+
+    db = AsyncMock()
+    db.execute = AsyncMock(side_effect=[result_user, result_conflict])
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+    db.add = MagicMock()
+
+    data = UserAdminUpdate(username="taken")
+    with pytest.raises(HTTPException) as exc_info:
+        await update_user(db, user_id=1, tenant_id=1, data=data)
+    assert exc_info.value.status_code == 409
+    assert "Username already exists" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_update_user_raises_409_on_duplicate_email():
+    mock_user = MagicMock()
+    mock_user.email = "old@example.com"
+
+    # First call: get_user (returns mock_user)
+    # Second call: email uniqueness check (returns a conflicting user)
+    result_user = MagicMock()
+    result_user.scalar_one_or_none.return_value = mock_user
+
+    existing_user = MagicMock()
+    result_conflict = MagicMock()
+    result_conflict.scalar_one_or_none.return_value = existing_user
+
+    db = AsyncMock()
+    db.execute = AsyncMock(side_effect=[result_user, result_conflict])
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+    db.add = MagicMock()
+
+    data = UserAdminUpdate(email="taken@example.com")
+    with pytest.raises(HTTPException) as exc_info:
+        await update_user(db, user_id=1, tenant_id=1, data=data)
+    assert exc_info.value.status_code == 409
+    assert "Email already exists" in exc_info.value.detail

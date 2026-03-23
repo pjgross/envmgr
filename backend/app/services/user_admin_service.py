@@ -54,8 +54,28 @@ async def create_user_in_tenant(db: AsyncSession, tenant_id: int, data: UserAdmi
 async def update_user(db: AsyncSession, user_id: int, tenant_id: int, data: UserAdminUpdate) -> User:
     user = await get_user(db, user_id, tenant_id)
     if data.username is not None:
+        existing = await db.execute(
+            select(User).where(
+                User.tenant_id == tenant_id,
+                User.username == data.username,
+                User.id != user_id,
+                User.deleted_at.is_(None),
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists in this tenant")
         user.username = data.username
     if data.email is not None:
+        existing = await db.execute(
+            select(User).where(
+                User.tenant_id == tenant_id,
+                User.email == data.email,
+                User.id != user_id,
+                User.deleted_at.is_(None),
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists in this tenant")
         user.email = data.email
     await db.commit()
     await db.refresh(user)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -38,6 +38,14 @@ class UserBase(BaseModel):
     role: str = "Viewer"
     notification_preferences: Optional[dict] = None
 
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        valid_roles = {"Admin", "Release Manager", "Test Manager", "Developer", "Viewer"}
+        if v not in valid_roles:
+            raise ValueError(f"Invalid role. Must be one of: {', '.join(sorted(valid_roles))}")
+        return v
+
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
@@ -66,6 +74,14 @@ class UserAdminCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
     role: str = "Viewer"
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        valid_roles = {"Admin", "Release Manager", "Test Manager", "Developer", "Viewer"}
+        if v not in valid_roles:
+            raise ValueError(f"Invalid role. Must be one of: {', '.join(sorted(valid_roles))}")
+        return v
 
 
 class UserAdminUpdate(BaseModel):
