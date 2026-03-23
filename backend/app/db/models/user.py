@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, ForeignKey, DateTime, JSON
+from sqlalchemy import Boolean, String, Integer, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional
 from datetime import datetime
@@ -14,8 +14,8 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     slug: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
     settings: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     # Relationships
     users: Mapped[list["User"]] = relationship("User", back_populates="tenant")
     
@@ -34,8 +34,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="Viewer")
     notification_preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    is_master_admin: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_master_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Relationships
