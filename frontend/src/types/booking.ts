@@ -35,6 +35,7 @@ export interface BookingCreate {
   release_id?: number;
   test_phase_id?: number;
   context_tag?: ContextTag;
+  custom_fields?: Record<string, unknown>;
 }
 
 export interface BookingCreateResponse {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -23,6 +23,8 @@ import {
 import { AppDispatch, RootState } from '../../store';
 import { createBooking, fetchBookings } from '../../store/bookingSlice';
 import type { BookingCreate, BookingType, ContextTag } from '../../types/booking';
+import { fetchDefinitions } from '../../store/customFieldSlice';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
 
 interface BookingFormProps {
   open: boolean;
@@ -59,6 +61,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const dispatch = useDispatch<AppDispatch>();
   const environments = useSelector((state: RootState) => state.environment.environments);
   const { loading } = useSelector((state: RootState) => state.booking);
+  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? []);
 
   const [envId, setEnvId] = useState<number | ''>(defaultEnvId ?? '');
   const [projectName, setProjectName] = useState('');
@@ -68,11 +71,17 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const [notes, setNotes] = useState('');
   const [contextTag, setContextTag] = useState<ContextTag>('none');
 
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
+
   // Recurrence state
   const [recurrenceFreq, setRecurrenceFreq] = useState<RecurrenceFreq>('none');
   const [endCondition, setEndCondition] = useState<EndCondition>('count');
   const [recurrenceCount, setRecurrenceCount] = useState(4);
   const [recurrenceUntil, setRecurrenceUntil] = useState('');
+
+  useEffect(() => {
+    dispatch(fetchDefinitions('booking'));
+  }, [dispatch]);
 
   // Feedback state
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
@@ -96,6 +105,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
       notes: notes || undefined,
       recurrence_rule: rrule,
       context_tag: contextTag,
+      custom_fields: customFieldValues,
     };
 
     const result = await dispatch(createBooking(payload));
@@ -137,6 +147,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
     setRecurrenceCount(4);
     setRecurrenceUntil('');
     setConflictError(null);
+    setCustomFieldValues({});
     onClose();
   };
 
@@ -280,6 +291,13 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
                 </Box>
               </Collapse>
             </Box>
+
+            {/* Custom Fields */}
+            <CustomFieldsSection
+              definitions={customFieldDefs}
+              values={customFieldValues}
+              onChange={setCustomFieldValues}
+            />
 
             {/* Conflict error */}
             {conflictError && (
