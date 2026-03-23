@@ -121,19 +121,22 @@ export default function EnvironmentList() {
     dispatch(fetchDefinitions('environment'));
   }, [dispatch]);
 
-  const filtered = environments.filter((e) => {
-    const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || e.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filtered = useMemo(
+    () => environments.filter((e) => {
+      const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || e.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    }),
+    [environments, search, statusFilter]
+  );
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setEditTarget(null);
     setForm(emptyForm);
     setCustomFieldValues({});
     setFormError('');
     setDialogOpen(true);
-  };
+  }, []);
 
   const openEdit = useCallback((env: EnvironmentResponse) => {
     setEditTarget(env);

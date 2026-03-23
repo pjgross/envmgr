@@ -92,8 +92,9 @@ export default function SystemCatalog() {
     dispatch(fetchDefinitions('system'));
   }, [dispatch]);
 
-  const filtered = systems.filter((s) =>
-    s.name.toLowerCase().includes(search.toLowerCase())
+  const filtered = useMemo(
+    () => systems.filter((s) => s.name.toLowerCase().includes(search.toLowerCase())),
+    [systems, search]
   );
 
   const openCreate = () => {
