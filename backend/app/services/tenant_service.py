@@ -20,6 +20,10 @@ async def get_tenant(db: AsyncSession, tenant_id: int) -> Tenant:
 
 
 async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
+    # Check slug uniqueness
+    existing = await db.execute(select(Tenant).where(Tenant.slug == data.slug))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tenant slug already exists")
     tenant = Tenant(name=data.name, slug=data.slug, settings=data.settings)
     db.add(tenant)
     await db.commit()

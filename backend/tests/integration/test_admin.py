@@ -1,5 +1,6 @@
 """Integration tests for admin and tenant-admin endpoints, and login guard."""
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 
@@ -57,17 +58,27 @@ async def test_non_master_admin_cannot_access_admin_endpoints(
 # Master admin fixtures and happy-path tests
 # ---------------------------------------------------------------------------
 
-import pytest_asyncio
+
+@pytest_asyncio.fixture(scope="function")
+async def master_admin_tenant(db_session):
+    """A dedicated tenant for the master admin user (separate from test_tenant)."""
+    from app.db.models.user import Tenant
+
+    tenant = Tenant(name="Master Org", slug="master-org")
+    db_session.add(tenant)
+    await db_session.commit()
+    await db_session.refresh(tenant)
+    return tenant
 
 
 @pytest_asyncio.fixture(scope="function")
-async def master_admin_user(db_session, test_tenant):
-    """A master-admin user belonging to test_tenant."""
+async def master_admin_user(db_session, master_admin_tenant):
+    """A master-admin user belonging to master_admin_tenant."""
     from app.db.models.user import User
     from app.core.security import get_password_hash
 
     user = User(
-        tenant_id=test_tenant.id,
+        tenant_id=master_admin_tenant.id,
         username="masteradmin",
         email="masteradmin@test.com",
         password_hash=get_password_hash("masterpass1"),
@@ -82,12 +93,12 @@ async def master_admin_user(db_session, test_tenant):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def master_admin_headers(client, test_tenant, master_admin_user) -> dict:
+async def master_admin_headers(client, master_admin_tenant, master_admin_user) -> dict:
     """Bearer token headers for master_admin_user."""
     response = await client.post("/api/v1/auth/login", json={
         "username": master_admin_user.username,
         "password": "masterpass1",
-        "tenant_slug": test_tenant.slug,
+        "tenant_slug": master_admin_tenant.slug,
     })
     assert response.status_code == 200
     token = response.json()["access_token"]
@@ -272,3 +283,42 @@ async def test_viewer_cannot_access_tenant_admin_endpoints(
 
     response = await client.get("/api/v1/tenant/users", headers=headers)
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_sign_in_as_token_can_access_tenant_settings(
+    client: AsyncClient, master_admin_headers, test_tenant
+):
+    """Impersonation token obtained via sign-in-as can access tenant settings."""
+    # Get impersonation token
+    impersonate_resp = await client.post(
+        f"/api/v1/admin/tenants/{test_tenant.id}/sign-in-as",
+        headers=master_admin_headers,
+    )
+    assert impersonate_resp.status_code == 200
+    imp_token = impersonate_resp.json()["access_token"]
+
+    # Use impersonation token to access tenant settings
+    settings_resp = await client.get(
+        "/api/v1/tenant/settings",
+        headers={"Authorization": f"Bearer {imp_token}"},
+    )
+    assert settings_resp.status_code == 200
+    assert settings_resp.json()["id"] == test_tenant.id
+
+
+@pytest.mark.asyncio
+async def test_tenant_admin_cannot_escalate_to_master_admin(
+    client: AsyncClient, tenant_admin_headers, test_user
+):
+    """is_master_admin is not in UserAdminUpdate schema and is ignored if sent."""
+    # Attempt to update user — is_master_admin is not in UserAdminUpdate schema
+    # so even if someone sends it, it should be ignored
+    resp = await client.patch(
+        f"/api/v1/tenant/users/{test_user.id}",
+        json={"is_master_admin": True},  # extra field, should be ignored
+        headers=tenant_admin_headers,
+    )
+    # Should succeed (200) but the field should be ignored
+    assert resp.status_code == 200
+    assert resp.json()["is_master_admin"] is False

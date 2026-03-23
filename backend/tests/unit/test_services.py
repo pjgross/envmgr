@@ -84,7 +84,12 @@ async def test_get_tenant_returns_tenant_when_found():
 
 @pytest.mark.asyncio
 async def test_create_tenant_calls_db_add_and_commit():
+    # Slug uniqueness check returns None (no existing tenant)
+    execute_result = MagicMock()
+    execute_result.scalar_one_or_none.return_value = None
+
     db = AsyncMock()
+    db.execute = AsyncMock(return_value=execute_result)
     db.add = MagicMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
@@ -105,7 +110,12 @@ async def test_create_tenant_uses_correct_fields():
         nonlocal created_tenant
         created_tenant = obj
 
+    # Slug uniqueness check returns None (no existing tenant)
+    execute_result = MagicMock()
+    execute_result.scalar_one_or_none.return_value = None
+
     db = AsyncMock()
+    db.execute = AsyncMock(return_value=execute_result)
     db.add = MagicMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock(side_effect=capture_refresh)

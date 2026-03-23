@@ -91,7 +91,9 @@ async def get_current_user(
 def require_role(required_role: str):
     """Dependency to require a specific role."""
     async def role_checker(current_user = Depends(get_current_user)):
-        if current_user.role != required_role and current_user.role != "Admin":
+        if current_user.is_master_admin:
+            return current_user  # master admins can act in any tenant context
+        if current_user.role != required_role and current_user.role != Role.ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Role '{required_role}' required",

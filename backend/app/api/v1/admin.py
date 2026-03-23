@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -54,6 +54,8 @@ async def disable_tenant(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_master_admin()),
 ):
+    if tenant_id == current_user.tenant_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot disable your own tenant")
     return await tenant_service.disable_tenant(db, tenant_id)
 
 

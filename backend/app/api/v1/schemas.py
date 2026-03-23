@@ -92,6 +92,14 @@ class UserAdminUpdate(BaseModel):
 class UserRoleUpdate(BaseModel):
     role: str
 
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        valid_roles = {"Admin", "Release Manager", "Test Manager", "Developer", "Viewer"}
+        if v not in valid_roles:
+            raise ValueError(f"Invalid role. Must be one of: {', '.join(sorted(valid_roles))}")
+        return v
+
 
 class ImpersonationToken(BaseModel):
     access_token: str
