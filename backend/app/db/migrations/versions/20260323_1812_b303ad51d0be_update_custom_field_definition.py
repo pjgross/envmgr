@@ -50,4 +50,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # NOTE: Intentionally does not reconstruct the prior schema — this is a pre-production
+    # migration with no data to preserve. If you need to roll back, run `alembic upgrade head`
+    # to re-apply. Do NOT use in a partial-downgrade scenario without manual intervention.
     op.drop_table("custom_field_definition")
