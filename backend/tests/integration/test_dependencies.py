@@ -84,16 +84,18 @@ async def test_create_system_dependency(client: AsyncClient, auth_headers):
     resp = await client.post(
         f"/api/v1/systems/{from_id}/dependencies",
         headers=auth_headers,
-        json={"to_system_id": to_id, "dependency_type": "api_call"},
+        json={"to_system_id": to_id, "dependency_type": "api_call", "direction": "one_way"},
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["from_system_id"] == from_id
     assert data["to_system_id"] == to_id
     assert data["dependency_type"] == "api_call"
+    assert data["direction"] == "one_way"
     assert data["source"] == "manual"
     assert data["to_system"]["id"] == to_id
     assert data["to_system"]["name"] == "SysB"
+    assert data["is_incoming"] is False
 
 
 @pytest.mark.asyncio
@@ -186,6 +188,85 @@ async def test_system_dep_tenant_isolation(
     assert resp.status_code == 404, resp.text
 
 
+@pytest.mark.asyncio
+async def test_list_includes_incoming_deps(client: AsyncClient, auth_headers):
+    """Create A→B dependency; listing B's deps shows it with is_incoming=True."""
+    sys_a = await _create_system(client, auth_headers, "IncomingA")
+    sys_b = await _create_system(client, auth_headers, "IncomingB")
+
+    # Create A → B
+    await client.post(
+        f"/api/v1/systems/{sys_a}/dependencies",
+        headers=auth_headers,
+        json={"to_system_id": sys_b, "dependency_type": "api_call"},
+    )
+
+    # List B's deps — should include the A→B dep as incoming
+    resp = await client.get(
+        f"/api/v1/systems/{sys_b}/dependencies", headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    items = resp.json()
+    assert len(items) == 1
+    dep = items[0]
+    assert dep["is_incoming"] is True
+    assert dep["from_system_id"] == sys_a
+    assert dep["to_system_id"] == sys_b
+    # from_system should be populated
+    assert dep["from_system"] is not None
+    assert dep["from_system"]["id"] == sys_a
+
+
+@pytest.mark.asyncio
+async def test_delete_from_target_system(client: AsyncClient, auth_headers):
+    """Create A→B, delete from B's perspective (using B's system_id endpoint)."""
+    sys_a = await _create_system(client, auth_headers, "DeleteFromTargetA")
+    sys_b = await _create_system(client, auth_headers, "DeleteFromTargetB")
+
+    create_resp = await client.post(
+        f"/api/v1/systems/{sys_a}/dependencies",
+        headers=auth_headers,
+        json={"to_system_id": sys_b, "dependency_type": "database"},
+    )
+    dep_id = create_resp.json()["id"]
+
+    # Delete using B as the system_id context
+    del_resp = await client.delete(
+        f"/api/v1/systems/{sys_b}/dependencies/{dep_id}", headers=auth_headers
+    )
+    assert del_resp.status_code == 204, del_resp.text
+
+    # Verify gone from A's perspective too
+    list_resp = await client.get(
+        f"/api/v1/systems/{sys_a}/dependencies", headers=auth_headers
+    )
+    assert list_resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_direction_two_way(client: AsyncClient, auth_headers):
+    """Create a two_way dependency and verify direction is returned correctly."""
+    sys_a = await _create_system(client, auth_headers, "TwoWayA")
+    sys_b = await _create_system(client, auth_headers, "TwoWayB")
+
+    create_resp = await client.post(
+        f"/api/v1/systems/{sys_a}/dependencies",
+        headers=auth_headers,
+        json={"to_system_id": sys_b, "dependency_type": "message_queue", "direction": "two_way"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    data = create_resp.json()
+    assert data["direction"] == "two_way"
+
+    # Verify it appears in list
+    list_resp = await client.get(
+        f"/api/v1/systems/{sys_a}/dependencies", headers=auth_headers
+    )
+    items = list_resp.json()
+    assert len(items) == 1
+    assert items[0]["direction"] == "two_way"
+
+
 # ---------------------------------------------------------------------------
 # ComponentDependency tests
 # ---------------------------------------------------------------------------
@@ -227,6 +308,7 @@ async def test_component_dependency_crud(client: AsyncClient, auth_headers):
         json={
             "to_subsystem_id": to_sub_id,
             "dependency_type": "api_call",
+            "direction": "one_way",
             "protocol": "HTTP",
             "port": 8080,
         },
@@ -236,10 +318,12 @@ async def test_component_dependency_crud(client: AsyncClient, auth_headers):
     assert data["from_subsystem_id"] == from_sub_id
     assert data["to_subsystem_id"] == to_sub_id
     assert data["dependency_type"] == "api_call"
+    assert data["direction"] == "one_way"
     assert data["protocol"] == "HTTP"
     assert data["port"] == 8080
     assert data["to_subsystem"]["id"] == to_sub_id
     assert data["to_subsystem"]["name"] == "SubB"
+    assert data["is_incoming"] is False
     dep_id = data["id"]
 
     # List

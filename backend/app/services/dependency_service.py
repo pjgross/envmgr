@@ -1,5 +1,5 @@
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,19 +16,41 @@ from app.services.system_service import get_system
 
 async def list_system_dependencies(
     db: AsyncSession, system_id: int, tenant_id: int
-) -> list[SystemDependency]:
+) -> tuple[list[SystemDependency], list[SystemDependency]]:
     # Verify system belongs to tenant
     await get_system(db, system_id, tenant_id)
-    result = await db.execute(
+
+    # Outgoing: this system depends on others
+    outgoing_result = await db.execute(
         select(SystemDependency)
         .where(
             SystemDependency.from_system_id == system_id,
             SystemDependency.tenant_id == tenant_id,
         )
-        .options(selectinload(SystemDependency.to_system))
+        .options(
+            selectinload(SystemDependency.to_system),
+            selectinload(SystemDependency.from_system),
+        )
         .order_by(SystemDependency.id)
     )
-    return list(result.scalars().all())
+    outgoing = list(outgoing_result.scalars().all())
+
+    # Incoming: others depend on this system
+    incoming_result = await db.execute(
+        select(SystemDependency)
+        .where(
+            SystemDependency.to_system_id == system_id,
+            SystemDependency.tenant_id == tenant_id,
+        )
+        .options(
+            selectinload(SystemDependency.to_system),
+            selectinload(SystemDependency.from_system),
+        )
+        .order_by(SystemDependency.id)
+    )
+    incoming = list(incoming_result.scalars().all())
+
+    return outgoing, incoming
 
 
 async def create_system_dependency(
@@ -79,17 +101,21 @@ async def create_system_dependency(
         from_system_id=system_id,
         to_system_id=data.to_system_id,
         dependency_type=data.dependency_type,
+        direction=data.direction,
         source=data.source,
         tenant_id=tenant_id,
     )
     db.add(dep)
     await db.flush()
 
-    # Reload with relationship
+    # Reload with relationships
     result = await db.execute(
         select(SystemDependency)
         .where(SystemDependency.id == dep.id)
-        .options(selectinload(SystemDependency.to_system))
+        .options(
+            selectinload(SystemDependency.to_system),
+            selectinload(SystemDependency.from_system),
+        )
     )
     return result.scalar_one()
 
@@ -100,8 +126,11 @@ async def delete_system_dependency(
     result = await db.execute(
         select(SystemDependency).where(
             SystemDependency.id == dep_id,
-            SystemDependency.from_system_id == system_id,
             SystemDependency.tenant_id == tenant_id,
+            or_(
+                SystemDependency.from_system_id == system_id,
+                SystemDependency.to_system_id == system_id,
+            ),
         )
     )
     dep = result.scalar_one_or_none()
@@ -141,19 +170,41 @@ async def _get_subsystem(
 
 async def list_component_dependencies(
     db: AsyncSession, subsystem_id: int, tenant_id: int
-) -> list[ComponentDependency]:
+) -> tuple[list[ComponentDependency], list[ComponentDependency]]:
     # Verify subsystem belongs to tenant
     await _get_subsystem(db, subsystem_id, tenant_id)
-    result = await db.execute(
+
+    # Outgoing: this subsystem depends on others
+    outgoing_result = await db.execute(
         select(ComponentDependency)
         .where(
             ComponentDependency.from_subsystem_id == subsystem_id,
             ComponentDependency.tenant_id == tenant_id,
         )
-        .options(selectinload(ComponentDependency.to_subsystem))
+        .options(
+            selectinload(ComponentDependency.to_subsystem),
+            selectinload(ComponentDependency.from_subsystem),
+        )
         .order_by(ComponentDependency.id)
     )
-    return list(result.scalars().all())
+    outgoing = list(outgoing_result.scalars().all())
+
+    # Incoming: others depend on this subsystem
+    incoming_result = await db.execute(
+        select(ComponentDependency)
+        .where(
+            ComponentDependency.to_subsystem_id == subsystem_id,
+            ComponentDependency.tenant_id == tenant_id,
+        )
+        .options(
+            selectinload(ComponentDependency.to_subsystem),
+            selectinload(ComponentDependency.from_subsystem),
+        )
+        .order_by(ComponentDependency.id)
+    )
+    incoming = list(incoming_result.scalars().all())
+
+    return outgoing, incoming
 
 
 async def create_component_dependency(
@@ -193,6 +244,7 @@ async def create_component_dependency(
         from_subsystem_id=subsystem_id,
         to_subsystem_id=data.to_subsystem_id,
         dependency_type=data.dependency_type,
+        direction=data.direction,
         protocol=data.protocol,
         port=data.port,
         source=data.source,
@@ -201,11 +253,14 @@ async def create_component_dependency(
     db.add(dep)
     await db.flush()
 
-    # Reload with relationship
+    # Reload with relationships
     result = await db.execute(
         select(ComponentDependency)
         .where(ComponentDependency.id == dep.id)
-        .options(selectinload(ComponentDependency.to_subsystem))
+        .options(
+            selectinload(ComponentDependency.to_subsystem),
+            selectinload(ComponentDependency.from_subsystem),
+        )
     )
     return result.scalar_one()
 
@@ -216,8 +271,11 @@ async def delete_component_dependency(
     result = await db.execute(
         select(ComponentDependency).where(
             ComponentDependency.id == dep_id,
-            ComponentDependency.from_subsystem_id == subsystem_id,
             ComponentDependency.tenant_id == tenant_id,
+            or_(
+                ComponentDependency.from_subsystem_id == subsystem_id,
+                ComponentDependency.to_subsystem_id == subsystem_id,
+            ),
         )
     )
     dep = result.scalar_one_or_none()

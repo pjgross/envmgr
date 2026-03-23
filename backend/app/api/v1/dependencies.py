@@ -28,9 +28,41 @@ async def list_system_dependencies(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await dependency_service.list_system_dependencies(
+    outgoing, incoming = await dependency_service.list_system_dependencies(
         db, system_id, current_user.active_tenant_id
     )
+    result = []
+    for dep in outgoing:
+        result.append(
+            SystemDependencyResponse(
+                id=dep.id,
+                from_system_id=dep.from_system_id,
+                to_system_id=dep.to_system_id,
+                dependency_type=dep.dependency_type,
+                direction=dep.direction,
+                source=dep.source,
+                tenant_id=dep.tenant_id,
+                to_system=dep.to_system,
+                from_system=dep.from_system,
+                is_incoming=False,
+            )
+        )
+    for dep in incoming:
+        result.append(
+            SystemDependencyResponse(
+                id=dep.id,
+                from_system_id=dep.from_system_id,
+                to_system_id=dep.to_system_id,
+                dependency_type=dep.dependency_type,
+                direction=dep.direction,
+                source=dep.source,
+                tenant_id=dep.tenant_id,
+                to_system=dep.to_system,
+                from_system=dep.from_system,
+                is_incoming=True,
+            )
+        )
+    return result
 
 
 @router.post(
@@ -44,8 +76,20 @@ async def create_system_dependency(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await dependency_service.create_system_dependency(
+    dep = await dependency_service.create_system_dependency(
         db, system_id, data, current_user.active_tenant_id
+    )
+    return SystemDependencyResponse(
+        id=dep.id,
+        from_system_id=dep.from_system_id,
+        to_system_id=dep.to_system_id,
+        dependency_type=dep.dependency_type,
+        direction=dep.direction,
+        source=dep.source,
+        tenant_id=dep.tenant_id,
+        to_system=dep.to_system,
+        from_system=dep.from_system,
+        is_incoming=False,
     )
 
 
@@ -78,9 +122,45 @@ async def list_component_dependencies(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await dependency_service.list_component_dependencies(
+    outgoing, incoming = await dependency_service.list_component_dependencies(
         db, subsystem_id, current_user.active_tenant_id
     )
+    result = []
+    for dep in outgoing:
+        result.append(
+            ComponentDependencyResponse(
+                id=dep.id,
+                from_subsystem_id=dep.from_subsystem_id,
+                to_subsystem_id=dep.to_subsystem_id,
+                dependency_type=dep.dependency_type,
+                direction=dep.direction,
+                protocol=dep.protocol,
+                port=dep.port,
+                source=dep.source,
+                tenant_id=dep.tenant_id,
+                to_subsystem=dep.to_subsystem,
+                from_subsystem=dep.from_subsystem,
+                is_incoming=False,
+            )
+        )
+    for dep in incoming:
+        result.append(
+            ComponentDependencyResponse(
+                id=dep.id,
+                from_subsystem_id=dep.from_subsystem_id,
+                to_subsystem_id=dep.to_subsystem_id,
+                dependency_type=dep.dependency_type,
+                direction=dep.direction,
+                protocol=dep.protocol,
+                port=dep.port,
+                source=dep.source,
+                tenant_id=dep.tenant_id,
+                to_subsystem=dep.to_subsystem,
+                from_subsystem=dep.from_subsystem,
+                is_incoming=True,
+            )
+        )
+    return result
 
 
 @router.post(
@@ -94,8 +174,22 @@ async def create_component_dependency(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await dependency_service.create_component_dependency(
+    dep = await dependency_service.create_component_dependency(
         db, subsystem_id, data, current_user.active_tenant_id
+    )
+    return ComponentDependencyResponse(
+        id=dep.id,
+        from_subsystem_id=dep.from_subsystem_id,
+        to_subsystem_id=dep.to_subsystem_id,
+        dependency_type=dep.dependency_type,
+        direction=dep.direction,
+        protocol=dep.protocol,
+        port=dep.port,
+        source=dep.source,
+        tenant_id=dep.tenant_id,
+        to_subsystem=dep.to_subsystem,
+        from_subsystem=dep.from_subsystem,
+        is_incoming=False,
     )
 
 

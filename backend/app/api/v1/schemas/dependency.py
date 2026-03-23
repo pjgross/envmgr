@@ -2,8 +2,30 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.db.models.dependency import DependencyType, DependencySource
+from app.db.models.dependency import DependencyType, DependencySource, DependencyDirection
 from app.api.v1.schemas.system import SystemResponse, SubSystemResponse
+
+
+# ---------------------------------------------------------------------------
+# Nested base schemas for dependency responses
+# ---------------------------------------------------------------------------
+
+
+class SystemBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: Optional[str] = None
+
+
+class SubSystemBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: Optional[str] = None
+    system_id: int
 
 
 # ---------------------------------------------------------------------------
@@ -14,6 +36,7 @@ from app.api.v1.schemas.system import SystemResponse, SubSystemResponse
 class SystemDependencyCreate(BaseModel):
     to_system_id: int
     dependency_type: DependencyType
+    direction: DependencyDirection = DependencyDirection.ONE_WAY
     source: DependencySource = DependencySource.MANUAL
 
 
@@ -24,9 +47,12 @@ class SystemDependencyResponse(BaseModel):
     from_system_id: int
     to_system_id: int
     dependency_type: DependencyType
+    direction: DependencyDirection
     source: DependencySource
     tenant_id: int
     to_system: SystemResponse
+    from_system: Optional[SystemBase] = None
+    is_incoming: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +63,7 @@ class SystemDependencyResponse(BaseModel):
 class ComponentDependencyCreate(BaseModel):
     to_subsystem_id: int
     dependency_type: DependencyType
+    direction: DependencyDirection = DependencyDirection.ONE_WAY
     protocol: Optional[str] = None
     port: Optional[int] = None
     source: DependencySource = DependencySource.MANUAL
@@ -49,11 +76,14 @@ class ComponentDependencyResponse(BaseModel):
     from_subsystem_id: int
     to_subsystem_id: int
     dependency_type: DependencyType
+    direction: DependencyDirection
     protocol: Optional[str] = None
     port: Optional[int] = None
     source: DependencySource
     tenant_id: int
     to_subsystem: SubSystemResponse
+    from_subsystem: Optional[SubSystemBase] = None
+    is_incoming: bool = False
 
 
 # ---------------------------------------------------------------------------

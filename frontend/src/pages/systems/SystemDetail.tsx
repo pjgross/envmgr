@@ -50,14 +50,24 @@ import {
   fetchSystemDependencies,
   createSystemDependency,
   deleteSystemDependency,
+  fetchComponentDependencies,
+  createComponentDependency,
+  deleteComponentDependency,
 } from '../../store/dependencySlice';
+import { dependencyService } from '../../services/dependencyService';
 import type {
   SystemUpdate,
   SubSystemResponse,
   SubSystemCreate,
   SubSystemUpdate,
 } from '../../types/system';
-import type { DependencyType, SystemDependencyResponse } from '../../types/dependency';
+import type {
+  DependencyType,
+  DependencyDirection,
+  SystemDependencyResponse,
+  ComponentDependencyResponse,
+  ComponentDependencyCreate,
+} from '../../types/dependency';
 
 const DEP_TYPE_OPTIONS: { value: DependencyType; label: string }[] = [
   { value: 'api_call', label: 'API Call' },
@@ -66,6 +76,11 @@ const DEP_TYPE_OPTIONS: { value: DependencyType; label: string }[] = [
   { value: 'event', label: 'Event' },
   { value: 'file', label: 'File' },
   { value: 'other', label: 'Other' },
+];
+
+const DEP_DIRECTION_OPTIONS: { value: DependencyDirection; label: string }[] = [
+  { value: 'one_way', label: 'One-way' },
+  { value: 'two_way', label: 'Two-way' },
 ];
 
 interface SubFormValues {
@@ -78,9 +93,35 @@ const emptySubForm: SubFormValues = { name: '', description: '' };
 interface DepFormValues {
   to_system_id: number | '';
   dependency_type: DependencyType;
+  direction: DependencyDirection;
 }
 
-const emptyDepForm: DepFormValues = { to_system_id: '', dependency_type: 'api_call' };
+const emptyDepForm: DepFormValues = {
+  to_system_id: '',
+  dependency_type: 'api_call',
+  direction: 'one_way',
+};
+
+interface AllSubsystem {
+  id: number;
+  name: string;
+  system_id: number;
+  system_name: string;
+}
+
+interface CompDepFormValues {
+  from_subsystem_id: number | '';
+  to_subsystem_id: number | '';
+  dependency_type: DependencyType;
+  direction: DependencyDirection;
+}
+
+const emptyCompDepForm: CompDepFormValues = {
+  from_subsystem_id: '',
+  to_subsystem_id: '',
+  dependency_type: 'api_call',
+  direction: 'one_way',
+};
 
 export default function SystemDetail() {
   const { id } = useParams<{ id: string }>();
@@ -91,7 +132,7 @@ export default function SystemDetail() {
   const { currentSystem, subsystems, systems, loading, error } = useSelector(
     (state: RootState) => state.system
   );
-  const { systemDependencies, loading: depLoading } = useSelector(
+  const { systemDependencies, componentDependencies, loading: depLoading } = useSelector(
     (state: RootState) => state.dependency
   );
 
@@ -109,11 +150,22 @@ export default function SystemDetail() {
   const [subFormError, setSubFormError] = useState('');
   const [subDeleteTarget, setSubDeleteTarget] = useState<SubSystemResponse | null>(null);
 
-  // Dependency dialog state
+  // System dependency dialog state
   const [depDialogOpen, setDepDialogOpen] = useState(false);
   const [depForm, setDepForm] = useState<DepFormValues>(emptyDepForm);
   const [depFormError, setDepFormError] = useState('');
   const [depDeleteTarget, setDepDeleteTarget] = useState<SystemDependencyResponse | null>(null);
+
+  // Component dependency state
+  const [compDepDialogOpen, setCompDepDialogOpen] = useState(false);
+  const [compDepForm, setCompDepForm] = useState<CompDepFormValues>(emptyCompDepForm);
+  const [compDepFormError, setCompDepFormError] = useState('');
+  const [compDepDeleteTarget, setCompDepDeleteTarget] = useState<ComponentDependencyResponse | null>(null);
+  const [allSubsystems, setAllSubsystems] = useState<AllSubsystem[]>([]);
+  const [allSubsystemsLoading, setAllSubsystemsLoading] = useState(false);
+  // Component deps merged across all subsystems of this system
+  const [allCompDeps, setAllCompDeps] = useState<ComponentDependencyResponse[]>([]);
+  const [compDepsLoading, setCompDepsLoading] = useState(false);
 
   useEffect(() => {
     dispatch(fetchSystem(systemId));
@@ -131,6 +183,36 @@ export default function SystemDetail() {
       });
     }
   }, [currentSystem]);
+
+  // Load component deps for all subsystems of this system when on tab 3
+  useEffect(() => {
+    if (tab !== 3 || subsystems.length === 0) return;
+    const loadCompDeps = async () => {
+      setCompDepsLoading(true);
+      try {
+        const results = await Promise.all(
+          subsystems.map((sub) =>
+            dependencyService.listComponentDependencies(sub.id).catch(() => [])
+          )
+        );
+        // Merge and deduplicate by id
+        const seen = new Set<number>();
+        const merged: ComponentDependencyResponse[] = [];
+        for (const list of results) {
+          for (const dep of list) {
+            if (!seen.has(dep.id)) {
+              seen.add(dep.id);
+              merged.push(dep);
+            }
+          }
+        }
+        setAllCompDeps(merged);
+      } finally {
+        setCompDepsLoading(false);
+      }
+    };
+    loadCompDeps();
+  }, [tab, subsystems]);
 
   const handleSysUpdate = async () => {
     if (!sysForm.name.trim()) {
@@ -203,7 +285,7 @@ export default function SystemDetail() {
     }
   };
 
-  // Dependency handlers
+  // System Dependency handlers
   const openDepCreate = () => {
     setDepForm(emptyDepForm);
     setDepFormError('');
@@ -222,6 +304,7 @@ export default function SystemDetail() {
           data: {
             to_system_id: depForm.to_system_id as number,
             dependency_type: depForm.dependency_type,
+            direction: depForm.direction,
           },
         })
       ).unwrap();
@@ -243,10 +326,91 @@ export default function SystemDetail() {
     }
   };
 
-  // Systems available for dependency (exclude self and already-added)
-  const existingDepTargetIds = new Set(systemDependencies.map((d) => d.to_system_id));
+  // Component Dependency handlers
+  const openCompDepCreate = async () => {
+    setCompDepForm(emptyCompDepForm);
+    setCompDepFormError('');
+    setCompDepDialogOpen(true);
+    // Load all subsystems from all systems
+    setAllSubsystemsLoading(true);
+    try {
+      const allSystems = systems.length > 0 ? systems : [];
+      const results = await Promise.all(
+        allSystems.map(async (sys) => {
+          try {
+            const resp = await fetch(`/api/v1/systems/${sys.id}/subsystems`, {
+              headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
+            });
+            if (!resp.ok) return [];
+            const subs = await resp.json();
+            return (subs as Array<{ id: number; name: string; system_id: number }>).map((sub) => ({
+              id: sub.id,
+              name: sub.name,
+              system_id: sys.id,
+              system_name: sys.name,
+            }));
+          } catch {
+            return [];
+          }
+        })
+      );
+      setAllSubsystems(results.flat());
+    } finally {
+      setAllSubsystemsLoading(false);
+    }
+  };
+
+  const handleCompDepSave = async () => {
+    if (!compDepForm.from_subsystem_id) {
+      setCompDepFormError('Please select a source subsystem');
+      return;
+    }
+    if (!compDepForm.to_subsystem_id) {
+      setCompDepFormError('Please select a target subsystem');
+      return;
+    }
+    try {
+      const data: ComponentDependencyCreate = {
+        to_subsystem_id: compDepForm.to_subsystem_id as number,
+        dependency_type: compDepForm.dependency_type,
+        direction: compDepForm.direction,
+      };
+      await dispatch(
+        createComponentDependency({
+          subsystemId: compDepForm.from_subsystem_id as number,
+          data,
+        })
+      ).unwrap();
+      setCompDepDialogOpen(false);
+      // Refresh merged list
+      setTab(3);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setCompDepFormError(message || 'Failed to create component dependency');
+    }
+  };
+
+  const handleCompDepDelete = async () => {
+    if (!compDepDeleteTarget) return;
+    try {
+      // Use from_subsystem_id as the context for deletion
+      const subsystemId = compDepDeleteTarget.from_subsystem_id;
+      await dispatch(
+        deleteComponentDependency({ subsystemId, depId: compDepDeleteTarget.id })
+      ).unwrap();
+      // Remove from local list
+      setAllCompDeps((prev) => prev.filter((d) => d.id !== compDepDeleteTarget.id));
+    } finally {
+      setCompDepDeleteTarget(null);
+    }
+  };
+
+  // Systems available for outgoing dependency (exclude self and already outgoing targets)
+  const outgoingDepTargetIds = new Set(
+    systemDependencies.filter((d) => !d.is_incoming).map((d) => d.to_system_id)
+  );
   const availableForDep = systems.filter(
-    (s) => s.id !== systemId && !existingDepTargetIds.has(s.id)
+    (s) => s.id !== systemId && !outgoingDepTargetIds.has(s.id)
   );
 
   if (loading && !currentSystem) {
@@ -287,6 +451,7 @@ export default function SystemDetail() {
         <Tab label="Overview" />
         <Tab label="SubSystems" />
         <Tab label="Dependencies" />
+        <Tab label="Component Deps" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -435,9 +600,10 @@ export default function SystemDetail() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Target System</TableCell>
+                  <TableCell>Direction</TableCell>
+                  <TableCell>Target / Source System</TableCell>
                   <TableCell>Type</TableCell>
-                  <TableCell>Source</TableCell>
+                  <TableCell>Direction Type</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -445,8 +611,18 @@ export default function SystemDetail() {
                 {systemDependencies.map((dep) => (
                   <TableRow key={dep.id} hover>
                     <TableCell>
+                      <Chip
+                        label={dep.is_incoming ? '← incoming' : '→ outgoing'}
+                        size="small"
+                        color={dep.is_incoming ? 'info' : 'default'}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
                       <Typography variant="body2" fontWeight="medium">
-                        {dep.to_system.name}
+                        {dep.is_incoming
+                          ? (dep.from_system?.name ?? `System #${dep.from_system_id}`)
+                          : dep.to_system.name}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -457,9 +633,12 @@ export default function SystemDetail() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {dep.source}
-                      </Typography>
+                      <Chip
+                        label={dep.direction === 'two_way' ? 'Two-way' : 'One-way'}
+                        size="small"
+                        color={dep.direction === 'two_way' ? 'secondary' : 'default'}
+                        variant="outlined"
+                      />
                     </TableCell>
                     <TableCell align="right">
                       <Tooltip title="Delete">
@@ -476,12 +655,100 @@ export default function SystemDetail() {
                 ))}
                 {systemDependencies.length === 0 && !depLoading && (
                   <TableRow>
-                    <TableCell colSpan={4} align="center">
+                    <TableCell colSpan={5} align="center">
                       <Typography color="text.secondary" py={3}>
                         No dependencies declared.
                       </Typography>
                     </TableCell>
                   </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
+
+      {/* Component Dependencies Tab */}
+      {tab === 3 && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openCompDepCreate}>
+              Add Component Dependency
+            </Button>
+          </Box>
+
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>From SubSystem</TableCell>
+                  <TableCell>To SubSystem</TableCell>
+                  <TableCell>Type</TableCell>
+                  <TableCell>Direction</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {compDepsLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      <Typography color="text.secondary" py={3}>
+                        Loading…
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <>
+                    {allCompDeps.map((dep) => (
+                      <TableRow key={dep.id} hover>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {dep.from_subsystem?.name ?? `SubSystem #${dep.from_subsystem_id}`}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {dep.to_subsystem.name}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={dep.dependency_type.replace(/_/g, ' ')}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={dep.direction === 'two_way' ? 'Two-way' : 'One-way'}
+                            size="small"
+                            color={dep.direction === 'two_way' ? 'secondary' : 'default'}
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Tooltip title="Delete">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setCompDepDeleteTarget(dep)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {allCompDeps.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} align="center">
+                          <Typography color="text.secondary" py={3}>
+                            No component dependencies declared.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 )}
               </TableBody>
             </Table>
@@ -534,7 +801,7 @@ export default function SystemDetail() {
         </DialogActions>
       </Dialog>
 
-      {/* Add Dependency Dialog */}
+      {/* Add System Dependency Dialog */}
       <Dialog open={depDialogOpen} onClose={() => setDepDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Add Dependency</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
@@ -577,6 +844,22 @@ export default function SystemDetail() {
               ))}
             </Select>
           </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Direction</InputLabel>
+            <Select
+              label="Direction"
+              value={depForm.direction}
+              onChange={(e) =>
+                setDepForm({ ...depForm, direction: e.target.value as DependencyDirection })
+              }
+            >
+              {DEP_DIRECTION_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDepDialogOpen(false)}>Cancel</Button>
@@ -586,18 +869,135 @@ export default function SystemDetail() {
         </DialogActions>
       </Dialog>
 
-      {/* Dependency Delete Confirmation */}
+      {/* System Dependency Delete Confirmation */}
       <Dialog open={Boolean(depDeleteTarget)} onClose={() => setDepDeleteTarget(null)}>
         <DialogTitle>Remove Dependency</DialogTitle>
         <DialogContent>
           <Typography>
             Remove dependency on{' '}
-            <strong>{depDeleteTarget?.to_system.name}</strong>?
+            <strong>
+              {depDeleteTarget?.is_incoming
+                ? (depDeleteTarget?.from_system?.name ?? `System #${depDeleteTarget?.from_system_id}`)
+                : depDeleteTarget?.to_system.name}
+            </strong>?
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDepDeleteTarget(null)}>Cancel</Button>
           <Button onClick={handleDepDelete} color="error" variant="contained">
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Component Dependency Dialog */}
+      <Dialog open={compDepDialogOpen} onClose={() => setCompDepDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add Component Dependency</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {compDepFormError && <Alert severity="error">{compDepFormError}</Alert>}
+          <FormControl fullWidth required>
+            <InputLabel>From SubSystem</InputLabel>
+            <Select
+              label="From SubSystem"
+              value={compDepForm.from_subsystem_id}
+              onChange={(e) =>
+                setCompDepForm({ ...compDepForm, from_subsystem_id: e.target.value as number })
+              }
+            >
+              {subsystems.length === 0 ? (
+                <MenuItem disabled value="">
+                  No subsystems available
+                </MenuItem>
+              ) : (
+                subsystems.map((sub) => (
+                  <MenuItem key={sub.id} value={sub.id}>
+                    {sub.name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>To SubSystem</InputLabel>
+            <Select
+              label="To SubSystem"
+              value={compDepForm.to_subsystem_id}
+              onChange={(e) =>
+                setCompDepForm({ ...compDepForm, to_subsystem_id: e.target.value as number })
+              }
+            >
+              {allSubsystemsLoading ? (
+                <MenuItem disabled value="">
+                  Loading…
+                </MenuItem>
+              ) : allSubsystems.length === 0 ? (
+                <MenuItem disabled value="">
+                  No subsystems available
+                </MenuItem>
+              ) : (
+                allSubsystems.map((sub) => (
+                  <MenuItem key={sub.id} value={sub.id}>
+                    {sub.system_name} / {sub.name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Dependency Type</InputLabel>
+            <Select
+              label="Dependency Type"
+              value={compDepForm.dependency_type}
+              onChange={(e) =>
+                setCompDepForm({ ...compDepForm, dependency_type: e.target.value as DependencyType })
+              }
+            >
+              {DEP_TYPE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Direction</InputLabel>
+            <Select
+              label="Direction"
+              value={compDepForm.direction}
+              onChange={(e) =>
+                setCompDepForm({ ...compDepForm, direction: e.target.value as DependencyDirection })
+              }
+            >
+              {DEP_DIRECTION_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCompDepDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleCompDepSave} variant="contained" disabled={depLoading || allSubsystemsLoading}>
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Component Dependency Delete Confirmation */}
+      <Dialog open={Boolean(compDepDeleteTarget)} onClose={() => setCompDepDeleteTarget(null)}>
+        <DialogTitle>Remove Component Dependency</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Remove dependency from{' '}
+            <strong>{compDepDeleteTarget?.from_subsystem?.name ?? `SubSystem #${compDepDeleteTarget?.from_subsystem_id}`}</strong>
+            {' '}to{' '}
+            <strong>{compDepDeleteTarget?.to_subsystem.name}</strong>?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCompDepDeleteTarget(null)}>Cancel</Button>
+          <Button onClick={handleCompDepDelete} color="error" variant="contained">
             Remove
           </Button>
         </DialogActions>

@@ -23,6 +23,11 @@ class DependencySource(str, enum.Enum):
     DOCKER_COMPOSE = "docker_compose"
 
 
+class DependencyDirection(str, enum.Enum):
+    ONE_WAY = "one_way"
+    TWO_WAY = "two_way"
+
+
 class SystemDependency(Base):
     """A declared dependency between two Systems within a tenant."""
 
@@ -36,6 +41,9 @@ class SystemDependency(Base):
     )
     dependency_type: Mapped[DependencyType] = mapped_column(
         SAEnum(DependencyType, native_enum=False), nullable=False
+    )
+    direction: Mapped[DependencyDirection] = mapped_column(
+        String(10), nullable=False, default=DependencyDirection.ONE_WAY
     )
     source: Mapped[DependencySource] = mapped_column(
         SAEnum(DependencySource, native_enum=False),
@@ -75,6 +83,9 @@ class ComponentDependency(Base):
     )
     dependency_type: Mapped[DependencyType] = mapped_column(
         SAEnum(DependencyType, native_enum=False), nullable=False
+    )
+    direction: Mapped[DependencyDirection] = mapped_column(
+        String(10), nullable=False, default=DependencyDirection.ONE_WAY
     )
     protocol: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
