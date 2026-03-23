@@ -5,6 +5,7 @@ import {
     AppBar,
     Box,
     Chip,
+    Collapse,
     Divider,
     Drawer,
     IconButton,
@@ -27,6 +28,10 @@ import ComputerIcon from '@mui/icons-material/Computer'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import EventAvailableIcon from '@mui/icons-material/EventAvailable'
 import UploadIcon from '@mui/icons-material/Upload'
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
+import ListIcon from '@mui/icons-material/List'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { RootState } from '../store'
 import { logout } from '../store/authSlice'
 
@@ -34,16 +39,24 @@ const DRAWER_WIDTH = 240
 
 interface NavItem {
   label: string
-  path: string
+  path?: string           // optional: group items have no path
   icon: React.ReactNode
   comingSoon?: boolean
+  children?: NavItem[]    // sub-items for expandable groups
 }
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
   { label: 'Systems', path: '/systems', icon: <AccountTreeIcon /> },
   { label: 'Environments', path: '/environments', icon: <ComputerIcon /> },
-  { label: 'Bookings', path: '/bookings', icon: <EventAvailableIcon /> },
+  {
+    label: 'Bookings',
+    icon: <EventAvailableIcon />,
+    children: [
+      { label: 'Calendar', path: '/bookings/calendar', icon: <CalendarMonthIcon /> },
+      { label: 'List',     path: '/bookings/list',     icon: <ListIcon /> },
+    ],
+  },
   { label: 'Import', path: '/import', icon: <UploadIcon /> },
 ]
 
@@ -53,6 +66,17 @@ export default function AppLayout() {
     const location = useLocation()
     const user = useSelector((state: RootState) => state.auth.user)
     const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
+    const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => {
+      const initial: Record<string, boolean> = {}
+      for (const item of navItems) {
+        if (item.children) {
+          initial[item.label] = item.children.some(
+            (child) => child.path !== undefined && location.pathname.startsWith(child.path)
+          )
+        }
+      }
+      return initial
+    })
 
     const handleLogout = () => {
         setMenuAnchor(null)
@@ -143,36 +167,71 @@ export default function AppLayout() {
                 <Box sx={{ overflow: 'auto', mt: 1 }}>
                     <List dense>
                         {navItems.map((item) => {
-                            const isActive = location.pathname === item.path ||
-                                (item.path !== '/dashboard' && location.pathname.startsWith(item.path))
+                          if (item.children) {
+                            // Group item — expandable, no navigation on parent click
+                            const isOpen = groupOpen[item.label] ?? false
                             return (
-                                <Tooltip
-                                    key={item.path}
-                                    title={item.comingSoon ? 'Coming soon' : ''}
-                                    placement="right"
+                              <div key={item.label}>
+                                <ListItemButton
+                                  selected={false}
+                                  onClick={() =>
+                                    setGroupOpen((prev) => ({ ...prev, [item.label]: !prev[item.label] }))
+                                  }
+                                  sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
                                 >
-                                    <span>
+                                  <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
+                                  <ListItemText primary={item.label} />
+                                  {isOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                </ListItemButton>
+                                <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                                  <List dense disablePadding>
+                                    {item.children.map((child) => {
+                                      const isChildActive = child.path !== undefined && location.pathname === child.path
+                                      return (
                                         <ListItemButton
-                                            selected={isActive}
-                                            disabled={item.comingSoon}
-                                            onClick={() => !item.comingSoon && navigate(item.path)}
-                                            sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
+                                          key={child.label}
+                                          selected={isChildActive}
+                                          onClick={() => child.path && navigate(child.path)}
+                                          sx={{ borderRadius: 1, mx: 1, mb: 0.5, pl: 4 }}
                                         >
-                                            <ListItemIcon sx={{ minWidth: 36 }}>
-                                                {item.icon}
-                                            </ListItemIcon>
-                                            <ListItemText primary={item.label} />
-                                            {item.comingSoon && (
-                                                <Chip
-                                                    label="Soon"
-                                                    size="small"
-                                                    sx={{ height: 18, fontSize: 10 }}
-                                                />
-                                            )}
+                                          <ListItemIcon sx={{ minWidth: 36 }}>{child.icon}</ListItemIcon>
+                                          <ListItemText primary={child.label} />
                                         </ListItemButton>
-                                    </span>
-                                </Tooltip>
+                                      )
+                                    })}
+                                  </List>
+                                </Collapse>
+                              </div>
                             )
+                          }
+
+                          // Leaf item — original behaviour
+                          const isActive =
+                            item.path !== undefined &&
+                            (location.pathname === item.path ||
+                              (item.path !== '/dashboard' && location.pathname.startsWith(item.path)))
+                          return (
+                            <Tooltip
+                              key={item.label}
+                              title={item.comingSoon ? 'Coming soon' : ''}
+                              placement="right"
+                            >
+                              <span>
+                                <ListItemButton
+                                  selected={isActive}
+                                  disabled={item.comingSoon}
+                                  onClick={() => !item.comingSoon && item.path && navigate(item.path)}
+                                  sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
+                                >
+                                  <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
+                                  <ListItemText primary={item.label} />
+                                  {item.comingSoon && (
+                                    <Chip label="Soon" size="small" sx={{ height: 18, fontSize: 10 }} />
+                                  )}
+                                </ListItemButton>
+                              </span>
+                            </Tooltip>
+                          )
                         })}
                         {user?.role === 'Admin' && (
                             <ListItemButton
