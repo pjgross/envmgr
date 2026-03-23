@@ -3,6 +3,7 @@ from app.db.base import Base
 from app.db.models.user import Tenant, User, CustomFieldDefinition
 from app.db.models.system import System, SubSystem
 from app.db.models.environment import Environment, EnvironmentSystem
+from app.db.models.dependency import SystemDependency, ComponentDependency
 
 # This will be expanded as we add more models
 __all__ = [
@@ -14,4 +15,6 @@ __all__ = [
     "SubSystem",
     "Environment",
     "EnvironmentSystem",
+    "SystemDependency",
+    "ComponentDependency",
 ]

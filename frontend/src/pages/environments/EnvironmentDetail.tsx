@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -34,6 +35,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -45,6 +47,7 @@ import {
   removeSystemFromEnvironment,
 } from '../../store/environmentSlice';
 import { fetchSystems } from '../../store/systemSlice';
+import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -92,6 +95,9 @@ export default function EnvironmentDetail() {
     (state: RootState) => state.environment
   );
   const { systems } = useSelector((state: RootState) => state.system);
+  const { verifyResult, loading: verifyLoading } = useSelector(
+    (state: RootState) => state.dependency
+  );
 
   const [tab, setTab] = useState(0);
 
@@ -116,6 +122,8 @@ export default function EnvironmentDetail() {
     dispatch(fetchEnvironment(envId));
     dispatch(fetchEnvironmentSystems(envId));
     dispatch(fetchSystems());
+    // Clear any previous verify result when env changes
+    dispatch(clearVerifyResult());
   }, [dispatch, envId]);
 
   useEffect(() => {
@@ -208,6 +216,10 @@ export default function EnvironmentDetail() {
     }
   };
 
+  const handleVerify = () => {
+    dispatch(verifyEnvironment(envId));
+  };
+
   // Systems already assigned (to exclude from add dropdown)
   const assignedSystemIds = new Set(environmentSystems.map((s) => s.system_id));
   const availableSystems = systems.filter((s) => !assignedSystemIds.has(s.id));
@@ -228,6 +240,14 @@ export default function EnvironmentDetail() {
       </Box>
     );
   }
+
+  // Flatten all dependency items from verify result for the missing table
+  const allDepItems = verifyResult
+    ? verifyResult.systems.flatMap((s) =>
+        s.dependencies.map((d) => ({ ...d, system_name: s.system_name }))
+      )
+    : [];
+  const nonSatisfiedItems = allDepItems.filter((d) => d.status !== 'satisfied');
 
   return (
     <Box sx={{ p: 3 }}>
@@ -261,123 +281,209 @@ export default function EnvironmentDetail() {
 
       {/* Overview Tab */}
       {tab === 0 && (
-        <Paper sx={{ p: 3 }}>
-          {editMode ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {envFormError && <Alert severity="error">{envFormError}</Alert>}
-              <TextField
-                label="Name"
-                required
-                value={envForm.name}
-                onChange={(e) => setEnvForm({ ...envForm, name: e.target.value })}
-              />
-              <TextField
-                label="Description"
-                value={envForm.description}
-                onChange={(e) => setEnvForm({ ...envForm, description: e.target.value })}
-                multiline
-                rows={3}
-              />
-              <TextField
-                label="Environment Type"
-                value={envForm.environment_type}
-                onChange={(e) => setEnvForm({ ...envForm, environment_type: e.target.value })}
-                placeholder="e.g. staging, uat, dev"
-              />
-              <FormControl>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  label="Status"
-                  value={envForm.status}
-                  onChange={(e) =>
-                    setEnvForm({ ...envForm, status: e.target.value as EnvironmentStatus })
-                  }
-                >
-                  <MenuItem value="active">Active</MenuItem>
-                  <MenuItem value="inactive">Inactive</MenuItem>
-                  <MenuItem value="maintenance">Maintenance</MenuItem>
-                  <MenuItem value="decommissioned">Decommissioned</MenuItem>
-                </Select>
-              </FormControl>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button variant="contained" onClick={handleEnvUpdate} disabled={loading}>
-                  Save
-                </Button>
-                <Button onClick={() => setEditMode(false)}>Cancel</Button>
-              </Box>
-            </Box>
-          ) : (
-            <Box>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="overline" color="text.secondary">Name</Typography>
-                <Typography>{currentEnvironment?.name}</Typography>
-              </Box>
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="overline" color="text.secondary">Description</Typography>
-                <Typography>{currentEnvironment?.description ?? '—'}</Typography>
-              </Box>
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="overline" color="text.secondary">Environment Type</Typography>
-                <Typography>{currentEnvironment?.environment_type}</Typography>
-              </Box>
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="overline" color="text.secondary">Status</Typography>
-                <Box>
-                  {currentEnvironment && (
-                    <Chip
-                      label={currentEnvironment.status}
-                      size="small"
-                      color={STATUS_COLORS[currentEnvironment.status]}
-                    />
-                  )}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Paper sx={{ p: 3 }}>
+            {editMode ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {envFormError && <Alert severity="error">{envFormError}</Alert>}
+                <TextField
+                  label="Name"
+                  required
+                  value={envForm.name}
+                  onChange={(e) => setEnvForm({ ...envForm, name: e.target.value })}
+                />
+                <TextField
+                  label="Description"
+                  value={envForm.description}
+                  onChange={(e) => setEnvForm({ ...envForm, description: e.target.value })}
+                  multiline
+                  rows={3}
+                />
+                <TextField
+                  label="Environment Type"
+                  value={envForm.environment_type}
+                  onChange={(e) => setEnvForm({ ...envForm, environment_type: e.target.value })}
+                  placeholder="e.g. staging, uat, dev"
+                />
+                <FormControl>
+                  <InputLabel>Status</InputLabel>
+                  <Select
+                    label="Status"
+                    value={envForm.status}
+                    onChange={(e) =>
+                      setEnvForm({ ...envForm, status: e.target.value as EnvironmentStatus })
+                    }
+                  >
+                    <MenuItem value="active">Active</MenuItem>
+                    <MenuItem value="inactive">Inactive</MenuItem>
+                    <MenuItem value="maintenance">Maintenance</MenuItem>
+                    <MenuItem value="decommissioned">Decommissioned</MenuItem>
+                  </Select>
+                </FormControl>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button variant="contained" onClick={handleEnvUpdate} disabled={loading}>
+                    Save
+                  </Button>
+                  <Button onClick={() => setEditMode(false)}>Cancel</Button>
                 </Box>
               </Box>
-              {currentEnvironment?.custom_fields && (
-                <>
-                  <Divider sx={{ my: 1 }} />
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="overline" color="text.secondary">Custom Fields</Typography>
-                    <Box
-                      component="pre"
-                      sx={{
-                        mt: 0.5,
-                        p: 1,
-                        bgcolor: 'grey.100',
-                        borderRadius: 1,
-                        fontSize: 12,
-                        overflowX: 'auto',
-                      }}
-                    >
-                      {JSON.stringify(currentEnvironment.custom_fields, null, 2)}
-                    </Box>
+            ) : (
+              <Box>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">Name</Typography>
+                  <Typography>{currentEnvironment?.name}</Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">Description</Typography>
+                  <Typography>{currentEnvironment?.description ?? '—'}</Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">Environment Type</Typography>
+                  <Typography>{currentEnvironment?.environment_type}</Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">Status</Typography>
+                  <Box>
+                    {currentEnvironment && (
+                      <Chip
+                        label={currentEnvironment.status}
+                        size="small"
+                        color={STATUS_COLORS[currentEnvironment.status]}
+                      />
+                    )}
                   </Box>
+                </Box>
+                {currentEnvironment?.custom_fields && (
+                  <>
+                    <Divider sx={{ my: 1 }} />
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="overline" color="text.secondary">Custom Fields</Typography>
+                      <Box
+                        component="pre"
+                        sx={{
+                          mt: 0.5,
+                          p: 1,
+                          bgcolor: 'grey.100',
+                          borderRadius: 1,
+                          fontSize: 12,
+                          overflowX: 'auto',
+                        }}
+                      >
+                        {JSON.stringify(currentEnvironment.custom_fields, null, 2)}
+                      </Box>
+                    </Box>
+                  </>
+                )}
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ display: 'flex', gap: 4 }}>
+                  <Box>
+                    <Typography variant="overline" color="text.secondary">Created</Typography>
+                    <Typography variant="body2">
+                      {currentEnvironment
+                        ? new Date(currentEnvironment.created_at).toLocaleString()
+                        : '—'}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="overline" color="text.secondary">Updated</Typography>
+                    <Typography variant="body2">
+                      {currentEnvironment
+                        ? new Date(currentEnvironment.updated_at).toLocaleString()
+                        : '—'}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Paper>
+
+          {/* Verify Environment Panel */}
+          {!editMode && (
+            <Paper sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6">Dependency Verification</Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={verifyLoading ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+                  onClick={handleVerify}
+                  disabled={verifyLoading}
+                >
+                  Verify Environment
+                </Button>
+              </Box>
+
+              {verifyResult && (
+                <>
+                  {verifyResult.total_dependencies === 0 ? (
+                    <Alert severity="info">No dependencies declared for systems in this environment.</Alert>
+                  ) : verifyResult.missing_count === 0 && verifyResult.mocked_count === 0 ? (
+                    <Alert severity="success">All dependencies satisfied.</Alert>
+                  ) : (
+                    <>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        <Chip
+                          label={`${verifyResult.satisfied_count} satisfied`}
+                          color="success"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.mocked_count} mocked`}
+                          color="warning"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.missing_count} missing`}
+                          color="error"
+                          size="small"
+                        />
+                      </Box>
+
+                      {nonSatisfiedItems.length > 0 && (
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>System</TableCell>
+                                <TableCell>Depends On</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Status</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {nonSatisfiedItems.map((item, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell>{item.system_name}</TableCell>
+                                  <TableCell>{item.to_system_name}</TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.dependency_type.replace('_', ' ')}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.status}
+                                      size="small"
+                                      color={item.status === 'missing' ? 'error' : 'warning'}
+                                    />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </>
+                  )}
                 </>
               )}
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ display: 'flex', gap: 4 }}>
-                <Box>
-                  <Typography variant="overline" color="text.secondary">Created</Typography>
-                  <Typography variant="body2">
-                    {currentEnvironment
-                      ? new Date(currentEnvironment.created_at).toLocaleString()
-                      : '—'}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="overline" color="text.secondary">Updated</Typography>
-                  <Typography variant="body2">
-                    {currentEnvironment
-                      ? new Date(currentEnvironment.updated_at).toLocaleString()
-                      : '—'}
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
+            </Paper>
           )}
-        </Paper>
+        </Box>
       )}
 
       {/* Systems Tab */}

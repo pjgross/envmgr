@@ -15,6 +15,7 @@ from app.api.v1.schemas.environment import (
     EnvironmentSystemUpdate,
     EnvironmentSystemResponse,
 )
+from app.api.v1.schemas.dependency import VerifyResponse
 
 router = APIRouter()
 
@@ -73,6 +74,17 @@ async def delete_environment(
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_service.delete_environment(db, env_id, current_user.active_tenant_id)
+
+
+@router.get("/{env_id}/verify", response_model=VerifyResponse)
+async def verify_environment(
+    env_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_service.verify_environment(
+        db, env_id, current_user.active_tenant_id
+    )
 
 
 # ---------------------------------------------------------------------------

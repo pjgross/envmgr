@@ -5,13 +5,18 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControl,
   IconButton,
+  InputLabel,
+  MenuItem,
   Paper,
+  Select,
   Skeleton,
   Tab,
   Table,
@@ -39,13 +44,29 @@ import {
   createSubSystem,
   updateSubSystem,
   deleteSubSystem,
+  fetchSystems,
 } from '../../store/systemSlice';
+import {
+  fetchSystemDependencies,
+  createSystemDependency,
+  deleteSystemDependency,
+} from '../../store/dependencySlice';
 import type {
   SystemUpdate,
   SubSystemResponse,
   SubSystemCreate,
   SubSystemUpdate,
 } from '../../types/system';
+import type { DependencyType, SystemDependencyResponse } from '../../types/dependency';
+
+const DEP_TYPE_OPTIONS: { value: DependencyType; label: string }[] = [
+  { value: 'api_call', label: 'API Call' },
+  { value: 'database', label: 'Database' },
+  { value: 'message_queue', label: 'Message Queue' },
+  { value: 'event', label: 'Event' },
+  { value: 'file', label: 'File' },
+  { value: 'other', label: 'Other' },
+];
 
 interface SubFormValues {
   name: string;
@@ -54,14 +75,24 @@ interface SubFormValues {
 
 const emptySubForm: SubFormValues = { name: '', description: '' };
 
+interface DepFormValues {
+  to_system_id: number | '';
+  dependency_type: DependencyType;
+}
+
+const emptyDepForm: DepFormValues = { to_system_id: '', dependency_type: 'api_call' };
+
 export default function SystemDetail() {
   const { id } = useParams<{ id: string }>();
   const systemId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
 
-  const { currentSystem, subsystems, loading, error } = useSelector(
+  const { currentSystem, subsystems, systems, loading, error } = useSelector(
     (state: RootState) => state.system
+  );
+  const { systemDependencies, loading: depLoading } = useSelector(
+    (state: RootState) => state.dependency
   );
 
   const [tab, setTab] = useState(0);
@@ -78,9 +109,17 @@ export default function SystemDetail() {
   const [subFormError, setSubFormError] = useState('');
   const [subDeleteTarget, setSubDeleteTarget] = useState<SubSystemResponse | null>(null);
 
+  // Dependency dialog state
+  const [depDialogOpen, setDepDialogOpen] = useState(false);
+  const [depForm, setDepForm] = useState<DepFormValues>(emptyDepForm);
+  const [depFormError, setDepFormError] = useState('');
+  const [depDeleteTarget, setDepDeleteTarget] = useState<SystemDependencyResponse | null>(null);
+
   useEffect(() => {
     dispatch(fetchSystem(systemId));
     dispatch(fetchSubSystems(systemId));
+    dispatch(fetchSystemDependencies(systemId));
+    dispatch(fetchSystems());
   }, [dispatch, systemId]);
 
   useEffect(() => {
@@ -164,6 +203,52 @@ export default function SystemDetail() {
     }
   };
 
+  // Dependency handlers
+  const openDepCreate = () => {
+    setDepForm(emptyDepForm);
+    setDepFormError('');
+    setDepDialogOpen(true);
+  };
+
+  const handleDepSave = async () => {
+    if (!depForm.to_system_id) {
+      setDepFormError('Please select a target system');
+      return;
+    }
+    try {
+      await dispatch(
+        createSystemDependency({
+          systemId,
+          data: {
+            to_system_id: depForm.to_system_id as number,
+            dependency_type: depForm.dependency_type,
+          },
+        })
+      ).unwrap();
+      setDepDialogOpen(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setDepFormError(message || 'Failed to create dependency');
+    }
+  };
+
+  const handleDepDelete = async () => {
+    if (!depDeleteTarget) return;
+    try {
+      await dispatch(
+        deleteSystemDependency({ systemId, depId: depDeleteTarget.id })
+      ).unwrap();
+    } finally {
+      setDepDeleteTarget(null);
+    }
+  };
+
+  // Systems available for dependency (exclude self and already-added)
+  const existingDepTargetIds = new Set(systemDependencies.map((d) => d.to_system_id));
+  const availableForDep = systems.filter(
+    (s) => s.id !== systemId && !existingDepTargetIds.has(s.id)
+  );
+
   if (loading && !currentSystem) {
     return (
       <Box sx={{ p: 3 }}>
@@ -201,6 +286,7 @@ export default function SystemDetail() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Overview" />
         <Tab label="SubSystems" />
+        <Tab label="Dependencies" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -336,6 +422,73 @@ export default function SystemDetail() {
         </Box>
       )}
 
+      {/* Dependencies Tab */}
+      {tab === 2 && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openDepCreate}>
+              Add Dependency
+            </Button>
+          </Box>
+
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Target System</TableCell>
+                  <TableCell>Type</TableCell>
+                  <TableCell>Source</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {systemDependencies.map((dep) => (
+                  <TableRow key={dep.id} hover>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {dep.to_system.name}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={dep.dependency_type.replace('_', ' ')}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {dep.source}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Delete">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => setDepDeleteTarget(dep)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {systemDependencies.length === 0 && !depLoading && (
+                  <TableRow>
+                    <TableCell colSpan={4} align="center">
+                      <Typography color="text.secondary" py={3}>
+                        No dependencies declared.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
+
       {/* SubSystem Create / Edit Dialog */}
       <Dialog open={subDialogOpen} onClose={() => setSubDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{subEditTarget ? 'Edit SubSystem' : 'Add SubSystem'}</DialogTitle>
@@ -377,6 +530,75 @@ export default function SystemDetail() {
           <Button onClick={() => setSubDeleteTarget(null)}>Cancel</Button>
           <Button onClick={handleSubDelete} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Dependency Dialog */}
+      <Dialog open={depDialogOpen} onClose={() => setDepDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add Dependency</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {depFormError && <Alert severity="error">{depFormError}</Alert>}
+          <FormControl fullWidth required>
+            <InputLabel>Target System</InputLabel>
+            <Select
+              label="Target System"
+              value={depForm.to_system_id}
+              onChange={(e) =>
+                setDepForm({ ...depForm, to_system_id: e.target.value as number })
+              }
+            >
+              {availableForDep.length === 0 ? (
+                <MenuItem disabled value="">
+                  No available systems
+                </MenuItem>
+              ) : (
+                availableForDep.map((s) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel>Dependency Type</InputLabel>
+            <Select
+              label="Dependency Type"
+              value={depForm.dependency_type}
+              onChange={(e) =>
+                setDepForm({ ...depForm, dependency_type: e.target.value as DependencyType })
+              }
+            >
+              {DEP_TYPE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDepDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleDepSave} variant="contained" disabled={depLoading}>
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dependency Delete Confirmation */}
+      <Dialog open={Boolean(depDeleteTarget)} onClose={() => setDepDeleteTarget(null)}>
+        <DialogTitle>Remove Dependency</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Remove dependency on{' '}
+            <strong>{depDeleteTarget?.to_system.name}</strong>?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDepDeleteTarget(null)}>Cancel</Button>
+          <Button onClick={handleDepDelete} color="error" variant="contained">
+            Remove
           </Button>
         </DialogActions>
       </Dialog>
