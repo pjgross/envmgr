@@ -95,7 +95,10 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
-    
+
+    if not tenant.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant is disabled")
+
     # Get user by username and tenant
     result = await db.execute(
         select(User).where(
