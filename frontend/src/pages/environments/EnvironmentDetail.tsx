@@ -49,7 +49,10 @@ import {
 import { fetchSystems } from '../../store/systemSlice';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
 import { fetchVersions, recordVersion, clearVersions } from '../../store/versionSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import { systemService } from '../../services/systemService';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -105,11 +108,15 @@ export default function EnvironmentDetail() {
   const { versions, loading: versionsLoading } = useSelector(
     (state: RootState) => state.version
   );
+  const envCustomFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['environment'] ?? []
+  );
 
   const [tab, setTab] = useState(0);
 
   // Overview edit state
   const [editMode, setEditMode] = useState(false);
+  const [envCustomFieldValues, setEnvCustomFieldValues] = useState<Record<string, unknown>>({});
   const [envForm, setEnvForm] = useState<EnvFormValues>({
     name: '',
     description: '',
@@ -141,6 +148,7 @@ export default function EnvironmentDetail() {
     dispatch(fetchEnvironment(envId));
     dispatch(fetchEnvironmentSystems(envId));
     dispatch(fetchSystems());
+    dispatch(fetchDefinitions('environment'));
     // Clear any previous verify result when env changes
     dispatch(clearVerifyResult());
   }, [dispatch, envId]);
@@ -153,6 +161,7 @@ export default function EnvironmentDetail() {
         environment_type: currentEnvironment.environment_type,
         status: currentEnvironment.status,
       });
+      setEnvCustomFieldValues(currentEnvironment.custom_fields ?? {});
     }
   }, [currentEnvironment]);
 
@@ -167,6 +176,7 @@ export default function EnvironmentDetail() {
         description: envForm.description || undefined,
         environment_type: envForm.environment_type,
         status: envForm.status,
+        custom_fields: envCustomFieldValues,
       };
       await dispatch(updateEnvironment({ id: envId, data })).unwrap();
       setEditMode(false);
@@ -398,6 +408,13 @@ export default function EnvironmentDetail() {
                     <MenuItem value="decommissioned">Decommissioned</MenuItem>
                   </Select>
                 </FormControl>
+                {envCustomFieldDefs.length > 0 && (
+                  <CustomFieldsSection
+                    definitions={envCustomFieldDefs}
+                    values={envCustomFieldValues}
+                    onChange={setEnvCustomFieldValues}
+                  />
+                )}
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Button variant="contained" onClick={handleEnvUpdate} disabled={loading}>
                     Save
@@ -434,25 +451,13 @@ export default function EnvironmentDetail() {
                     )}
                   </Box>
                 </Box>
-                {currentEnvironment?.custom_fields && (
+                {envCustomFieldDefs.length > 0 && (
                   <>
                     <Divider sx={{ my: 1 }} />
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="overline" color="text.secondary">Custom Fields</Typography>
-                      <Box
-                        component="pre"
-                        sx={{
-                          mt: 0.5,
-                          p: 1,
-                          bgcolor: 'grey.100',
-                          borderRadius: 1,
-                          fontSize: 12,
-                          overflowX: 'auto',
-                        }}
-                      >
-                        {JSON.stringify(currentEnvironment.custom_fields, null, 2)}
-                      </Box>
-                    </Box>
+                    <CustomFieldsDisplay
+                      definitions={envCustomFieldDefs}
+                      values={currentEnvironment?.custom_fields}
+                    />
                   </>
                 )}
                 <Divider sx={{ my: 1 }} />

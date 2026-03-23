@@ -19,6 +19,7 @@ export interface BookingResponse {
   release_id: number | null;
   test_phase_id: number | null;
   context_tag: ContextTag;
+  custom_fields: Record<string, unknown> | null;
   tenant_id: number;
   created_at: string;
   updated_at: string;

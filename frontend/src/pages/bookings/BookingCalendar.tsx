@@ -23,8 +23,10 @@ import AddIcon from '@mui/icons-material/Add';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings, approveBooking, rejectBooking, cancelBooking } from '../../store/bookingSlice';
 import { fetchEnvironments } from '../../store/environmentSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingResponse } from '../../types/booking';
 import BookingForm from './BookingForm';
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#9e9e9e',
@@ -49,6 +51,9 @@ export default function BookingCalendar() {
   const { bookings, loading } = useSelector((state: RootState) => state.booking);
   const environments = useSelector((state: RootState) => state.environment.environments);
   const user = useSelector((state: RootState) => state.auth.user);
+  const bookingCustomFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['booking'] ?? []
+  );
 
   const [selectedBooking, setSelectedBooking] = useState<BookingResponse | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -63,6 +68,7 @@ export default function BookingCalendar() {
   useEffect(() => {
     dispatch(fetchEnvironments());
     dispatch(fetchBookings());
+    dispatch(fetchDefinitions('booking'));
   }, [dispatch]);
 
   const handleEnvFilter = (envId: number | '') => {
@@ -254,6 +260,16 @@ export default function BookingCalendar() {
                 <Typography variant="body1" gutterBottom sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                   {selectedBooking.recurrence_rule}
                 </Typography>
+              </>
+            )}
+
+            {bookingCustomFieldDefs.length > 0 && selectedBooking?.custom_fields && (
+              <>
+                <Divider sx={{ my: 1 }} />
+                <CustomFieldsDisplay
+                  definitions={bookingCustomFieldDefs}
+                  values={selectedBooking.custom_fields}
+                />
               </>
             )}
 
