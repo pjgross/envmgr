@@ -163,6 +163,20 @@ async def test_delete_environment_emits_event(client: AsyncClient, auth_headers,
 
 
 @pytest.mark.asyncio
+async def test_create_system_emits_event(client: AsyncClient, auth_headers, db_session):
+    """Creating a system produces a SystemCreated EventLog row."""
+    sys_id = await _create_system(client, auth_headers, "SystemCreatedEvent")
+
+    events = await _get_events(db_session, "SystemCreated", sys_id)
+    assert len(events) == 1
+    evt = events[0]
+    assert evt.aggregate_type == "System"
+    assert evt.published_at is None
+    assert evt.payload["id"] == sys_id
+    assert evt.payload["name"] == "SystemCreatedEvent"
+
+
+@pytest.mark.asyncio
 async def test_update_system_emits_event(client: AsyncClient, auth_headers, db_session):
     """Updating a system produces a SystemUpdated EventLog row."""
     sys_id = await _create_system(client, auth_headers, "SystemUpdateEvent")
@@ -184,6 +198,21 @@ async def test_update_system_emits_event(client: AsyncClient, auth_headers, db_s
 # ---------------------------------------------------------------------------
 # Booking event tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_booking_emits_event(client: AsyncClient, auth_headers, db_session):
+    """Creating a booking produces a BookingCreated EventLog row."""
+    env_id = await _create_env(client, auth_headers, "CreateBookingEnv")
+    booking = await _create_booking(client, auth_headers, env_id)
+    booking_id = booking["id"]
+
+    events = await _get_events(db_session, "BookingCreated", booking_id)
+    assert len(events) == 1
+    evt = events[0]
+    assert evt.aggregate_type == "Booking"
+    assert evt.published_at is None
+    assert evt.payload["environment_id"] == env_id
 
 
 @pytest.mark.asyncio

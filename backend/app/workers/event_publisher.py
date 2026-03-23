@@ -25,9 +25,8 @@ async def _connect_nats():
     js = nc.jetstream()
     try:
         await js.add_stream(name="ENVMGR_EVENTS", subjects=["envmgr.events.>"])
-    except Exception:
-        # Stream may already exist — ignore
-        pass
+    except Exception as e:
+        logger.warning("NATS stream creation warning: %s", e)
     return nc, js
 
 
@@ -95,22 +94,31 @@ async def run_event_publisher() -> None:
                 events = list(result.scalars().all())
 
                 if events:
-                    await _publish_batch(js, events)
+                    try:
+                        await _publish_batch(js, events)
+                    except Exception as nats_exc:
+                        logger.error(
+                            "Event publisher: NATS publish failed: %s. Will reconnect.",
+                            nats_exc,
+                        )
+                        if nc is not None:
+                            try:
+                                await nc.close()
+                            except Exception:
+                                pass
+                        nc = None
+                        js = None
+                        attempt += 1
+                        await asyncio.sleep(
+                            _RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)]
+                        )
+                        continue
                     await db.commit()
-                    logger.debug("Published %d event(s) to NATS.", len(events))
+                    logger.info("Published %d event(s) to NATS.", len(events))
 
         except Exception as exc:
-            logger.error("Event publisher error: %s. Will reconnect.", exc)
-            # Force reconnect on next iteration
-            if nc is not None:
-                try:
-                    await nc.close()
-                except Exception:
-                    pass
-            nc = None
-            js = None
-            attempt += 1
-            await asyncio.sleep(_RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)])
+            logger.error("Event publisher: database error: %s.", exc)
+            await asyncio.sleep(_POLL_INTERVAL)
             continue
 
         await asyncio.sleep(_POLL_INTERVAL)
