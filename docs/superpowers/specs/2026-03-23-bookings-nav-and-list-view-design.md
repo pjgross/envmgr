@@ -13,28 +13,41 @@ No backend changes are required.
 
 ---
 
+## 0. New Dependency
+
+Install `@mui/x-data-grid` v6 (compatible with the project's existing `@mui/material` v5):
+
+```bash
+cd frontend && npm install @mui/x-data-grid@^6
+```
+
+All DataGrid prop names in this spec are v6 names.
+
+---
+
 ## 1. Navigation (`AppLayout.tsx`)
 
-### Changes
+### NavItem interface
 
-The `NavItem` interface gains an optional `children` field:
+`path` becomes optional to support group entries that have no navigation target:
 
 ```ts
 interface NavItem {
   label: string
-  path: string
+  path?: string              // optional — group items have no path
   icon: React.ReactNode
   comingSoon?: boolean
-  children?: NavItem[]
+  children?: NavItem[]       // sub-items for expandable groups
 }
 ```
 
-The flat `Bookings` entry is replaced with a group entry:
+### Nav data
+
+Replace the flat Bookings entry with a group:
 
 ```ts
 {
   label: 'Bookings',
-  path: '/bookings',
   icon: <EventAvailableIcon />,
   children: [
     { label: 'Calendar', path: '/bookings/calendar', icon: <CalendarMonthIcon /> },
@@ -43,20 +56,47 @@ The flat `Bookings` entry is replaced with a group entry:
 }
 ```
 
-### Behaviour
+### Render logic
 
-- Clicking the parent item toggles expand/collapse.
-- The group auto-expands when `location.pathname.startsWith('/bookings')`.
-- Sub-items render as indented `ListItemButton` entries beneath the parent (same `mx: 1, mb: 0.5, borderRadius: 1` style, with additional left padding).
-- Active highlight applies to the matched sub-item, not the parent.
+Group items (those with `children`) are handled separately from leaf items.
+
+**Open state:** Use `useState<Record<string, boolean>>` to track which groups are expanded, keyed by group label. Initialise lazily from the current location to avoid a flash of collapsed state:
+
+```ts
+const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => {
+  const initial: Record<string, boolean> = {}
+  for (const item of navItems) {
+    if (item.children) {
+      initial[item.label] = item.children.some(
+        (child) => child.path && location.pathname.startsWith(child.path)
+      )
+    }
+  }
+  return initial
+})
+```
+
+**Key prop:** Use `item.label` as the React key for all nav items (leaf and group). Do not use `item.path` as the key since group items have no path.
+
+**Group item click:** Toggle `groupOpen[item.label]` — do NOT call `navigate()`. The `path` field is absent on group items.
+
+**Leaf item click:** `item.path && navigate(item.path)` — guard required since `path` is now optional in the type.
+
+**`selected` prop on group `ListItemButton`:** always `false` — active highlight must not apply to the parent, only to the matched child.
+
+**Sub-item rendering:** Wrap child items in a MUI `Collapse` component (for animation) controlled by `groupOpen[item.label]`. Render children as indented `ListItemButton` entries with `pl: 4`. Apply `selected` to the child whose `path` matches `location.pathname`.
 
 ### Routes (`App.tsx`)
 
-| Path | Component |
-|------|-----------|
-| `/bookings` | Redirect to `/bookings/calendar` |
-| `/bookings/calendar` | `BookingCalendar` (unchanged) |
-| `/bookings/list` | `BookingList` (new) |
+**Remove** the existing `<Route path="/bookings" element={<BookingCalendar />} />` line.
+
+**Add** the following three routes **inside the existing authenticated layout route** (the `<Route element={isAuthenticated ? <AppLayout /> : ...}>` block), so `AppLayout`'s `<Outlet />` wraps them:
+
+```tsx
+<Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
+<Route path="/bookings/calendar" element={<BookingCalendar />} />
+<Route path="/bookings/list" element={<BookingList />} />
+```
 
 ---
 
@@ -71,46 +111,126 @@ The flat `Bookings` entry is replaced with a group entry:
 ├─ Selection toolbar (conditional) ──────────────────────────────│
 │  3 selected   [✓ Approve]  [✗ Reject]           [Clear]        │
 ├─ DataGrid ─────────────────────────────────────────────────────│
-│  ☐ │ Project │ Environment │ Start │ End │ Type │ Status │ CF… │
-│  ☑ │ …       │ …           │ …     │ …   │ …    │pending │ …   │
-│    │ …                                                         │
+│  ☐ │ Project │ Environment │ Booked By │ Start │ End │ Type │ Status │ CF… │
 └────────────────────────────────────────────────────────────────┘
 ```
 
 ### Status Filter
 
 - Chip group: **All / Pending / Approved / Rejected**
+- `Cancelled` is not included. `cancelBooking` does a soft delete on the backend (`deleted_at = now()`); the list endpoint filters `deleted_at IS NULL`, so cancelled bookings are never returned by the API.
 - Filters client-side against the loaded `bookings` array — no re-fetch on change.
 - Default: **All**.
 
-### DataGrid
+### New Booking button
 
-- `checkboxSelection` enabled.
-- **Core columns** (always visible, `hideable: false`): Project, Environment, Booked By, Start, End, Type, Status.
-- **Custom field columns** (toggleable): built from `state.customField.definitions['booking']`. Each definition produces one column, keyed by field name, labelled as the definition's display name.
-- Sorting and pagination use DataGrid defaults.
+Opens `BookingForm` via a local `formOpen` boolean:
 
-### Selection Toolbar
+```tsx
+const [formOpen, setFormOpen] = useState(false)
+// ...
+<Button variant="contained" onClick={() => setFormOpen(true)}>+ New Booking</Button>
+<BookingForm open={formOpen} onClose={() => setFormOpen(false)} />
+```
 
-- Renders conditionally above the grid when `selectionModel.length > 0`.
-- Shows selected count, **Approve** (green) and **Reject** (red) buttons, and a **Clear** link.
-- Bulk action: dispatches existing `approveBooking(id)` / `rejectBooking(id)` thunks for each selected ID in sequence using `Promise.all`.
-- On completion (all settled), selection model clears.
-- Approve/Reject respect existing role guards — the buttons are shown to all users but the API will 403 for non-admins (same behaviour as the calendar today).
+`BookingForm` props: `open: boolean`, `onClose: () => void`, `defaultEnvId?: number` (omit `defaultEnvId` from the list view).
 
-### Column Visibility Persistence
+### DataGrid columns
 
-- **Storage:** `localStorage`, key `bookings-list-columns-${user.id}`.
-- **Value:** DataGrid `GridColumnVisibilityModel` (object mapping column field → boolean).
-- **On mount:** read from localStorage, pass as `columnVisibilityModel` prop.
-- **On change:** `onColumnVisibilityModelChange` handler saves the new model to localStorage.
-- Core columns have `hideable: false` — they never appear in the column panel and cannot be hidden.
+**Core columns** (`hideable: false` in their `GridColDef`):
 
-### Data Loading
+| field | headerName | notes |
+|-------|------------|-------|
+| `project_name` | Project | |
+| `environment_name` | Environment | `string \| null` — use `valueGetter: (_v, row) => row.environment_name ?? '—'` |
+| `booked_by_username` | Booked By | `string \| null` — use `valueGetter: (_v, row) => row.booked_by_username ?? '—'` |
+| `start_date` | Start | format with `date-fns` |
+| `end_date` | End | format with `date-fns` |
+| `booking_type` | Type | render as Chip |
+| `status` | Status | render as coloured Chip |
 
-- On mount: `dispatch(fetchBookings())` — same as `BookingCalendar`.
-- Also dispatches `fetchDefinitions('booking')` for custom field definitions (same as calendar).
-- No new thunks; no service changes; no backend changes.
+**Custom field columns** (built dynamically from `state.customField.definitions['booking']`):
+
+Each `CustomFieldDefinition` has `field_key` (machine key) and `label` (human name). Build one `GridColDef` per definition:
+
+```ts
+{
+  field: definition.field_key,
+  headerName: definition.label,
+  valueGetter: (_value: unknown, row: BookingResponse) =>
+    row.custom_fields?.[definition.field_key] ?? '—',
+}
+```
+
+Note: In MUI X DataGrid v6, `valueGetter` receives `(value, row, column, apiRef)` — not a params object. The first argument is the raw cell value (unused here); the second is the full row.
+
+### Row selection
+
+- DataGrid props: `checkboxSelection`, `rowSelectionModel`, `onRowSelectionModelChange`
+- `GridRowSelectionModel` is `GridRowId[]` where `GridRowId = string | number`. DataGrid uses the `id` field of each row (`BookingResponse.id: number`) as the row identifier by default — no `getRowId` needed.
+- In the bulk handler, cast safely: `Number(id)` rather than `id as number` since `GridRowId` is `string | number`.
+
+### Selection toolbar
+
+Renders conditionally (`rowSelectionModel.length > 0`) above the DataGrid:
+
+- Shows count: `{rowSelectionModel.length} selected`
+- **Approve** button (green, `color="success"`): disabled when `isBulkLoading`
+- **Reject** button (red, `color="error"`): disabled when `isBulkLoading`
+- **Clear** link/button: resets `rowSelectionModel` to `[]`
+
+### Bulk action flow
+
+Use a local `isBulkLoading: boolean` state — **not** `state.booking.loading`. The `approveBooking`/`rejectBooking` thunks set `state.booking.loading = true` on each dispatch, which would cause the DataGrid loading overlay to flicker per row. Instead:
+
+```ts
+const handleBulkApprove = async () => {
+  setIsBulkLoading(true)
+  await Promise.allSettled(
+    rowSelectionModel.map((id) => dispatch(approveBooking(Number(id))))
+  )
+  setRowSelectionModel([])
+  setIsBulkLoading(false)
+}
+```
+
+Pass the DataGrid `loading` prop as `isInitialLoading` (see Data Loading below) — not `state.booking.loading`, which flickers during bulk operations.
+
+`Promise.allSettled` ensures all dispatches complete even if some fail. Approve/Reject are visible to all authenticated users; the backend enforces role checks (403 for non-admins), consistent with the calendar's behaviour.
+
+### Column visibility persistence
+
+- **Storage:** `localStorage`
+- **Key:** `bookings-list-columns-${user?.id ?? 'guest'}`
+- **Value:** `GridColumnVisibilityModel` (maps column field name → boolean)
+- **On mount:** read and parse from localStorage. Wrap in try/catch with `?? {}` fallback in case of missing or corrupted data:
+  ```ts
+  const savedModel = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? '') ?? {}
+    } catch {
+      return {}
+    }
+  })()
+  ```
+- **On change:** `onColumnVisibilityModelChange` handler saves the new model with `JSON.stringify`.
+- Core columns have `hideable: false` — they do not appear in the column visibility panel. Any entries for core column field names in a saved model are silently ignored by DataGrid.
+
+### Error handling
+
+If `state.booking.error` is set, display a MUI `<Alert severity="error">` above the DataGrid. Consistent with other pages in the project.
+
+### Data loading
+
+On mount, dispatch:
+1. `fetchBookings()` — populates `state.booking.bookings`
+2. `fetchDefinitions('booking')` — populates custom field column definitions
+
+Pass `loading={isInitialLoading}` to the DataGrid, where:
+```ts
+const isInitialLoading = loading && bookings.length === 0
+```
+This avoids flickering the loading overlay during bulk operations (which also set `loading = true` in the slice).
 
 ---
 
@@ -118,11 +238,12 @@ The flat `Bookings` entry is replaced with a group entry:
 
 No changes to `bookingSlice.ts`, `bookingService.ts`, or any backend code.
 
-The `BookingList` component reads:
-- `state.booking.bookings` — full list, filtered client-side by status chip.
-- `state.booking.loading` — for DataGrid loading overlay.
-- `state.customField.definitions['booking']` — to build custom field columns.
-- `state.auth.user.id` — for localStorage key scoping.
+`BookingList` reads from Redux:
+- `state.booking.bookings`
+- `state.booking.loading`
+- `state.booking.error`
+- `state.customField.definitions['booking']`
+- `state.auth.user`
 
 ---
 
@@ -130,8 +251,9 @@ The `BookingList` component reads:
 
 | File | Change |
 |------|--------|
-| `frontend/src/components/AppLayout.tsx` | Add collapsible group support; update Bookings nav entry |
-| `frontend/src/App.tsx` | Add `/bookings/calendar` and `/bookings/list` routes; redirect `/bookings` |
+| `frontend/package.json` | Add `@mui/x-data-grid@^6` dependency |
+| `frontend/src/components/AppLayout.tsx` | Add collapsible group support (Collapse, open state, key fix); update Bookings nav entry |
+| `frontend/src/App.tsx` | Remove existing `/bookings` route; add `/bookings`, `/bookings/calendar`, `/bookings/list` inside layout route |
 | `frontend/src/pages/bookings/BookingList.tsx` | **New** — list view component |
 
 No other files require modification.
