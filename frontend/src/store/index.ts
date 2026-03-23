@@ -5,6 +5,7 @@ import tenantAdminReducer from './tenantAdminSlice'
 import systemReducer from './systemSlice'
 import environmentReducer from './environmentSlice'
 import dependencyReducer from './dependencySlice'
+import bookingReducer from './bookingSlice'
 
 export const store = configureStore({
     reducer: {
@@ -14,6 +15,7 @@ export const store = configureStore({
         system: systemReducer,
         environment: environmentReducer,
         dependency: dependencyReducer,
+        booking: bookingReducer,
     },
 })
 
