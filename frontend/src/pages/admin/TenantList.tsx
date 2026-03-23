@@ -56,12 +56,20 @@ export default function TenantList() {
 
   const handleDisable = async (id: number) => {
     if (window.confirm('Disable this tenant? All users will lose access.')) {
-      dispatch(disableTenant(id))
+      try {
+        await dispatch(disableTenant(id)).unwrap()
+      } catch {
+        alert('Failed to disable tenant')
+      }
     }
   }
 
   const handleSignInAs = async (id: number) => {
-    dispatch(signInAsTenant(id))
+    try {
+      await dispatch(signInAsTenant(id)).unwrap()
+    } catch {
+      alert('Failed to sign in as tenant')
+    }
   }
 
   return (

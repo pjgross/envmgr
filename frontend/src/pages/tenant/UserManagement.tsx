@@ -61,8 +61,12 @@ export default function UserManagement() {
     }
   }
 
-  const handleRoleChange = (id: number, newRole: string) => {
-    dispatch(setUserRole({ id, role: newRole }))
+  const handleRoleChange = async (id: number, newRole: string) => {
+    try {
+      await dispatch(setUserRole({ id, role: newRole })).unwrap()
+    } catch {
+      alert('Failed to update role')
+    }
   }
 
   const handleDeactivate = (id: number) => {

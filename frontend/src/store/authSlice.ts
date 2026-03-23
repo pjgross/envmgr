@@ -55,6 +55,9 @@ const authSlice = createSlice({
             localStorage.setItem('impersonation_token', action.payload.token)
         },
         exitImpersonation(state) {
+            if (state.originalToken) {
+                localStorage.setItem('token', state.originalToken)
+            }
             state.token = state.originalToken
             state.impersonationMode = false
             state.impersonatingTenant = null

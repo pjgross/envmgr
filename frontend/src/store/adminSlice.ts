@@ -38,15 +38,19 @@ const adminSlice = createSlice({
       .addCase(createTenant.fulfilled, (state, action) => { state.tenants.push(action.payload); state.loading = false })
       .addCase(createTenant.pending, (state) => { state.loading = true; state.error = null })
       .addCase(createTenant.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed' })
+      .addCase(disableTenant.pending, (state) => { state.loading = true; state.error = null })
       .addCase(disableTenant.fulfilled, (state, action) => {
         const idx = state.tenants.findIndex(t => t.id === action.payload.id)
         if (idx !== -1) state.tenants[idx] = action.payload
         state.loading = false
       })
+      .addCase(disableTenant.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed' })
       .addCase(fetchTenantUsers.fulfilled, (state, action) => { state.tenantUsers = action.payload; state.loading = false })
       .addCase(fetchTenantUsers.pending, (state) => { state.loading = true; state.error = null })
       .addCase(fetchTenantUsers.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed' })
+      .addCase(createTenantUser.pending, (state) => { state.loading = true; state.error = null })
       .addCase(createTenantUser.fulfilled, (state, action) => { state.tenantUsers.push(action.payload); state.loading = false })
+      .addCase(createTenantUser.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed' })
       .addCase(signInAsTenant.pending, (state) => { state.loading = true; state.error = null })
       .addCase(signInAsTenant.fulfilled, (state) => { state.loading = false })
       .addCase(signInAsTenant.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed' })
