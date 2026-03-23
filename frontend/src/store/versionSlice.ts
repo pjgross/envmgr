@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { versionService } from '../services/versionService';
-import type { VersionResponse, VersionCreate, ImportResult } from '../types/version';
+import type { VersionResponse, VersionCreate, VersionUpdate, ImportResult } from '../types/version';
 
 interface VersionState {
   versions: VersionResponse[];
@@ -30,6 +30,20 @@ export const recordVersion = createAsyncThunk(
   'version/recordVersion',
   ({ envId, data }: { envId: number; data: VersionCreate }) =>
     versionService.recordVersion(envId, data)
+);
+
+export const updateVersion = createAsyncThunk(
+  'versions/updateVersion',
+  ({ envId, versionId, data }: { envId: number; versionId: number; data: VersionUpdate }) =>
+    versionService.updateVersion(envId, versionId, data)
+);
+
+export const deleteVersion = createAsyncThunk(
+  'versions/deleteVersion',
+  async ({ envId, versionId }: { envId: number; versionId: number }) => {
+    await versionService.deleteVersion(envId, versionId);
+    return versionId;
+  }
 );
 
 export const importEnvironments = createAsyncThunk(
@@ -81,6 +95,17 @@ const versionSlice = createSlice({
     builder.addCase(recordVersion.rejected, (state, action) => {
       state.loading = false;
       state.error = action.error.message ?? 'Failed to record version';
+    });
+
+    // updateVersion
+    builder.addCase(updateVersion.fulfilled, (state, action) => {
+      const idx = state.versions.findIndex((v) => v.id === action.payload.id);
+      if (idx !== -1) state.versions[idx] = action.payload;
+    });
+
+    // deleteVersion
+    builder.addCase(deleteVersion.fulfilled, (state, action) => {
+      state.versions = state.versions.filter((v) => v.id !== action.payload);
     });
 
     // importEnvironments

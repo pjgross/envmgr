@@ -1,5 +1,5 @@
 import api from './api';
-import type { VersionResponse, VersionCreate, ImportResult } from '../types/version';
+import type { VersionResponse, VersionCreate, VersionUpdate, ImportResult } from '../types/version';
 
 export const versionService = {
   listVersions: (envId: number, currentOnly?: boolean): Promise<VersionResponse[]> =>
@@ -11,6 +11,12 @@ export const versionService = {
 
   recordVersion: (envId: number, data: VersionCreate): Promise<VersionResponse> =>
     api.post(`/environments/${envId}/versions`, data).then((r) => r.data),
+
+  updateVersion: (envId: number, versionId: number, data: VersionUpdate): Promise<VersionResponse> =>
+    api.patch(`/environments/${envId}/versions/${versionId}`, data).then((r) => r.data),
+
+  deleteVersion: (envId: number, versionId: number): Promise<void> =>
+    api.delete(`/environments/${envId}/versions/${versionId}`).then((r) => r.data),
 
   importEnvironments: (file: File): Promise<ImportResult> => {
     const formData = new FormData();

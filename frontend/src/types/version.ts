@@ -17,6 +17,12 @@ export interface VersionCreate {
   installed_at?: string;
 }
 
+export interface VersionUpdate {
+  build_id?: string;
+  version_label?: string;
+  installed_at?: string;
+}
+
 export interface ImportError {
   row: number;
   field: string;

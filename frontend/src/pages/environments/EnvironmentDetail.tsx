@@ -48,7 +48,7 @@ import {
 } from '../../store/environmentSlice';
 import { fetchSystems } from '../../store/systemSlice';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
-import { fetchVersions, recordVersion, clearVersions } from '../../store/versionSlice';
+import { fetchVersions, recordVersion, clearVersions, updateVersion, deleteVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { systemService } from '../../services/systemService';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
@@ -61,7 +61,7 @@ import type {
   EnvironmentSystemUpdate,
   EnvironmentSystemStatus,
 } from '../../types/environment';
-import type { VersionCreate } from '../../types/version';
+import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
 import type { SubSystemResponse } from '../../types/system';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
@@ -111,6 +111,7 @@ export default function EnvironmentDetail() {
   const envCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
+  const user = useSelector((state: RootState) => state.auth.user);
 
   const [tab, setTab] = useState(0);
 
@@ -136,6 +137,10 @@ export default function EnvironmentDetail() {
   });
   const [versionFormError, setVersionFormError] = useState('');
   const [availableSubsystems, setAvailableSubsystems] = useState<(SubSystemResponse & { systemName: string })[]>([]);
+
+  // Version edit state
+  const [editVersionTarget, setEditVersionTarget] = useState<VersionResponse | null>(null);
+  const [editVersionForm, setEditVersionForm] = useState<{ build_id: string; version_label: string; installed_at: string }>({ build_id: '', version_label: '', installed_at: '' });
 
   // System dialog state
   const [sysDialogOpen, setSysDialogOpen] = useState(false);
@@ -306,6 +311,31 @@ export default function EnvironmentDetail() {
       const message = err instanceof Error ? err.message : String(err);
       setVersionFormError(message || 'Failed to record version');
     }
+  };
+
+  const openEditVersion = (v: VersionResponse) => {
+    setEditVersionTarget(v);
+    setEditVersionForm({
+      build_id: v.build_id,
+      version_label: v.version_label,
+      installed_at: v.installed_at ? new Date(v.installed_at).toISOString().slice(0, 16) : '',
+    });
+  };
+
+  const handleEditVersionSave = async () => {
+    if (!editVersionTarget || !currentEnvironment) return;
+    const data: VersionUpdate = {};
+    if (editVersionForm.build_id) data.build_id = editVersionForm.build_id;
+    if (editVersionForm.version_label) data.version_label = editVersionForm.version_label;
+    if (editVersionForm.installed_at) data.installed_at = new Date(editVersionForm.installed_at).toISOString();
+    await dispatch(updateVersion({ envId: currentEnvironment.id, versionId: editVersionTarget.id, data })).unwrap();
+    setEditVersionTarget(null);
+  };
+
+  const handleDeleteVersion = async (versionId: number) => {
+    if (!currentEnvironment) return;
+    if (!window.confirm('Delete this version record? This cannot be undone.')) return;
+    await dispatch(deleteVersion({ envId: currentEnvironment.id, versionId })).unwrap();
   };
 
   // Systems already assigned (to exclude from add dropdown)
@@ -678,18 +708,19 @@ export default function EnvironmentDetail() {
                   <TableCell>Build ID</TableCell>
                   <TableCell>Version Label</TableCell>
                   <TableCell>Installed At</TableCell>
+                  {user?.role === 'Admin' && <TableCell align="right">Actions</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {versionsLoading ? (
                   <TableRow>
-                    <TableCell colSpan={4} align="center">
+                    <TableCell colSpan={user?.role === 'Admin' ? 5 : 4} align="center">
                       <CircularProgress size={24} />
                     </TableCell>
                   </TableRow>
                 ) : versions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} align="center">
+                    <TableCell colSpan={user?.role === 'Admin' ? 5 : 4} align="center">
                       <Typography color="text.secondary" py={3}>
                         No version history recorded yet.
                       </Typography>
@@ -704,6 +735,16 @@ export default function EnvironmentDetail() {
                       <TableCell>
                         {new Date(v.installed_at).toLocaleString()}
                       </TableCell>
+                      {user?.role === 'Admin' && (
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => openEditVersion(v)}><EditIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton size="small" onClick={() => handleDeleteVersion(v.id)}><DeleteIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))
                 )}
@@ -712,6 +753,43 @@ export default function EnvironmentDetail() {
           </TableContainer>
         </Box>
       )}
+
+      {/* Edit Version Dialog */}
+      <Dialog open={editVersionTarget !== null} onClose={() => setEditVersionTarget(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Version</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <TextField
+            label="Build ID *"
+            value={editVersionForm.build_id}
+            onChange={(e) => setEditVersionForm((f) => ({ ...f, build_id: e.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Version Label *"
+            value={editVersionForm.version_label}
+            onChange={(e) => setEditVersionForm((f) => ({ ...f, version_label: e.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Installed At"
+            type="datetime-local"
+            value={editVersionForm.installed_at}
+            onChange={(e) => setEditVersionForm((f) => ({ ...f, installed_at: e.target.value }))}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditVersionTarget(null)}>Cancel</Button>
+          <Button
+            onClick={handleEditVersionSave}
+            variant="contained"
+            disabled={!editVersionForm.build_id || !editVersionForm.version_label}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Record Version Dialog */}
       <Dialog open={versionDialogOpen} onClose={() => setVersionDialogOpen(false)} maxWidth="sm" fullWidth>
