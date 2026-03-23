@@ -78,8 +78,6 @@ async def update_user(db: AsyncSession, user_id: int, tenant_id: int, data: User
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists in this tenant")
         user.email = data.email
-    if data.is_master_admin is not None:
-        user.is_master_admin = data.is_master_admin
     await db.commit()
     await db.refresh(user)
     return user

@@ -88,7 +88,6 @@ class UserAdminCreate(BaseModel):
 class UserAdminUpdate(BaseModel):
     username: Optional[str] = Field(None, max_length=50)
     email: Optional[EmailStr] = None
-    is_master_admin: Optional[bool] = None
 
 
 class UserRoleUpdate(BaseModel):
