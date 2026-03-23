@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class VersionCreate(BaseModel):
@@ -12,12 +12,18 @@ class VersionCreate(BaseModel):
 
 
 class VersionResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """
+    Response schema for a version row.
+
+    ``subsystem_name`` is resolved from the loaded ``subsystem`` relationship and
+    cannot be populated by Pydantic's standard ``model_validate`` / ORM mode alone.
+    Always construct instances via ``from_orm_with_name``.
+    """
 
     id: int
     environment_id: int
     subsystem_id: int
-    subsystem_name: str  # populated manually from subsystem.name
+    subsystem_name: str
     build_id: str
     version_label: str
     installed_at: datetime
@@ -26,7 +32,7 @@ class VersionResponse(BaseModel):
 
     @classmethod
     def from_orm_with_name(cls, obj) -> "VersionResponse":
-        """Build response, pulling subsystem_name from relationship."""
+        """Build response, pulling subsystem_name from the eagerly-loaded relationship."""
         return cls(
             id=obj.id,
             environment_id=obj.environment_id,

@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.system import SubSystem
+from app.db.models.environment import EnvironmentSystem
 from app.api.v1.schemas.version import VersionCreate
 from app.services.environment_service import get_environment
 
@@ -38,7 +39,24 @@ async def record_version(
             detail="Subsystem not found",
         )
 
-    # 3. Create EnvironmentSubSystemVersion row
+    # 3. Verify the subsystem's parent system is linked to this environment
+    env_system_result = await db.execute(
+        select(EnvironmentSystem).where(
+            EnvironmentSystem.environment_id == env_id,
+            EnvironmentSystem.system_id == subsystem.system_id,
+            EnvironmentSystem.tenant_id == tenant_id,
+        )
+    )
+    if env_system_result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Subsystem's parent system is not linked to this environment. "
+                "Add the system to the environment before recording a version."
+            ),
+        )
+
+    # 4. Build the new version row
     version_kwargs: dict = dict(
         environment_id=env_id,
         subsystem_id=data.subsystem_id,
@@ -51,11 +69,11 @@ async def record_version(
 
     version = EnvironmentSubSystemVersion(**version_kwargs)
 
-    # 4. Persist
+    # 5. Persist
     db.add(version)
     await db.flush()
 
-    # 5. Refresh with subsystem relationship loaded
+    # 6. Refresh with subsystem relationship loaded
     await db.refresh(version, attribute_names=["subsystem"])
 
     return version

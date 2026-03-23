@@ -87,6 +87,16 @@ async def _create_system_and_subsystem(db_session, tenant_id: int) -> tuple[int,
     return system.id, subsystem.id
 
 
+async def _link_system_to_env(client, auth_headers, env_id: int, system_id: int) -> None:
+    """Link a system to an environment via the API (required before recording versions)."""
+    resp = await client.post(
+        f"/api/v1/environments/{env_id}/systems",
+        headers=auth_headers,
+        json={"system_id": system_id},
+    )
+    assert resp.status_code == 201, resp.text
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -96,7 +106,8 @@ async def _create_system_and_subsystem(db_session, tenant_id: int) -> tuple[int,
 async def test_record_version(client: AsyncClient, auth_headers, test_tenant, db_session):
     """POST /environments/{id}/versions creates a new version row."""
     env_id = await _create_env(client, auth_headers, "RecordVersionEnv")
-    _, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
 
     resp = await client.post(
         f"/api/v1/environments/{env_id}/versions",
@@ -122,7 +133,8 @@ async def test_record_version(client: AsyncClient, auth_headers, test_tenant, db
 async def test_list_versions_all(client: AsyncClient, auth_headers, test_tenant, db_session):
     """GET /environments/{id}/versions returns all version history."""
     env_id = await _create_env(client, auth_headers, "ListAllVersionsEnv")
-    _, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
 
     # Record 3 versions
     for i in range(3):
@@ -149,7 +161,8 @@ async def test_list_versions_all(client: AsyncClient, auth_headers, test_tenant,
 async def test_list_versions_current_only(client: AsyncClient, auth_headers, test_tenant, db_session):
     """GET /versions?current_only=true returns only one row per subsystem."""
     env_id = await _create_env(client, auth_headers, "CurrentOnlyEnv")
-    _, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
 
     # Record 3 versions for the same subsystem
     for i in range(3):
@@ -182,7 +195,8 @@ async def test_version_history_current_only_returns_latest(
     current_only=true must return only the later one (higher version_label / installed_at).
     """
     env_id = await _create_env(client, auth_headers, "HistoryLatestEnv")
-    _, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+    await _link_system_to_env(client, auth_headers, env_id, sys_id)
 
     from datetime import datetime, timezone, timedelta
 
@@ -277,3 +291,24 @@ async def test_version_invalid_subsystem(
         },
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_version_subsystem_not_linked_to_env(
+    client: AsyncClient, auth_headers, test_tenant, db_session
+):
+    """Subsystem whose parent system is NOT linked to the environment returns 422."""
+    env_id = await _create_env(client, auth_headers, "UnlinkedSysEnv")
+    # Create system + subsystem but do NOT link the system to the environment
+    _, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
+
+    resp = await client.post(
+        f"/api/v1/environments/{env_id}/versions",
+        headers=auth_headers,
+        json={
+            "subsystem_id": sub_id,
+            "build_id": "build-x",
+            "version_label": "v1.0.0",
+        },
+    )
+    assert resp.status_code == 422

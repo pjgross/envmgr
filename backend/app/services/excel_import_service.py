@@ -6,6 +6,7 @@ from typing import Optional
 
 import openpyxl
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,7 +98,7 @@ async def import_environments(
             )
             await environment_service.create_environment(db, data, tenant_id)
             created += 1
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             errors.append({"row": row_num, "field": "general", "message": str(e)})
 
     return {"created": created, "skipped": skipped, "errors": errors}
@@ -169,7 +170,7 @@ async def import_systems(
             )
             await system_service.create_system(db, data, tenant_id)
             created += 1
-        except Exception as e:
+        except (ValueError, ValidationError) as e:
             errors.append({"row": row_num, "field": "general", "message": str(e)})
 
     return {"created": created, "skipped": skipped, "errors": errors}
