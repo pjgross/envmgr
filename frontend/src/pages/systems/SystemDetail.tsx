@@ -48,6 +48,7 @@ import {
 } from '../../store/systemSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import {
   fetchSystemDependencies,
   createSystemDependency,
@@ -161,6 +162,9 @@ export default function SystemDetail() {
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['subsystem'] ?? []
   );
+  const sysCustomFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['system'] ?? []
+  );
 
   const [tab, setTab] = useState(0);
 
@@ -168,6 +172,7 @@ export default function SystemDetail() {
   const [editMode, setEditMode] = useState(false);
   const [sysForm, setSysForm] = useState({ name: '', description: '', github_repository_url: '' });
   const [sysFormError, setSysFormError] = useState('');
+  const [sysCustomFieldValues, setSysCustomFieldValues] = useState<Record<string, unknown>>({});
 
   // SubSystem dialog state
   const [subDialogOpen, setSubDialogOpen] = useState(false);
@@ -220,6 +225,7 @@ export default function SystemDetail() {
     dispatch(fetchSystemDependencies(systemId));
     dispatch(fetchSystems());
     dispatch(fetchDefinitions('subsystem'));
+    dispatch(fetchDefinitions('system'));
   }, [dispatch, systemId]);
 
   useEffect(() => {
@@ -229,6 +235,7 @@ export default function SystemDetail() {
         description: currentSystem.description ?? '',
         github_repository_url: currentSystem.github_repository_url ?? '',
       });
+      setSysCustomFieldValues(currentSystem.custom_fields ?? {});
     }
   }, [currentSystem]);
 
@@ -272,6 +279,7 @@ export default function SystemDetail() {
         name: sysForm.name,
         description: sysForm.description || undefined,
         github_repository_url: sysForm.github_repository_url || undefined,
+        custom_fields: sysCustomFieldValues,
       };
       await dispatch(updateSystem({ id: systemId, data })).unwrap();
       setEditMode(false);
@@ -601,6 +609,11 @@ export default function SystemDetail() {
                 }
                 placeholder="https://github.com/org/repo"
               />
+              <CustomFieldsSection
+                definitions={sysCustomFieldDefs}
+                values={sysCustomFieldValues}
+                onChange={setSysCustomFieldValues}
+              />
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <Button variant="contained" onClick={handleSysUpdate} disabled={loading}>
                   Save
@@ -642,6 +655,15 @@ export default function SystemDetail() {
                   )}
                 </Typography>
               </Box>
+              {sysCustomFieldDefs.length > 0 && (
+                <>
+                  <Divider sx={{ my: 1 }} />
+                  <CustomFieldsDisplay
+                    definitions={sysCustomFieldDefs}
+                    values={currentSystem?.custom_fields}
+                  />
+                </>
+              )}
             </Box>
           )}
         </Paper>
