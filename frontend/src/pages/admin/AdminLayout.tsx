@@ -1,7 +1,7 @@
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   Box, Divider, Drawer, List, ListItemButton,
-  ListItemIcon, ListItemText, Toolbar, Typography,
+  ListItemIcon, ListItemText, Typography,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
@@ -38,7 +38,6 @@ export default function AdminLayout() {
           '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box', position: 'relative', height: '100%' },
         }}
       >
-        <Toolbar />
         <Box sx={{ overflow: 'auto', p: 1 }}>
           <Typography variant="overline" color="text.secondary" sx={{ px: 1 }}>Admin</Typography>
           <List dense>

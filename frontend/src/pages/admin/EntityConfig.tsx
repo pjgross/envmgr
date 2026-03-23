@@ -14,11 +14,12 @@ const ENTITY_LABELS: Record<string, string> = {
 export default function EntityConfig() {
   const { entityType } = useParams<{ entityType: string }>();
   const [tab, setTab] = useState(0);
-  const et = entityType as EntityType;
 
-  if (!ENTITY_LABELS[et]) {
+  if (!entityType || !ENTITY_LABELS[entityType]) {
     return <Typography>Unknown entity type.</Typography>;
   }
+
+  const et = entityType as EntityType;
 
   return (
     <Box sx={{ p: 3 }}>
