@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
@@ -93,7 +93,7 @@ async def update_system(
 
 async def delete_system(db: AsyncSession, system_id: int, tenant_id: int) -> None:
     system = await get_system(db, system_id, tenant_id)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     system.deleted_at = now
 
     # Cascade soft-delete all subsystems
@@ -218,5 +218,5 @@ async def delete_subsystem(
     db: AsyncSession, subsystem_id: int, system_id: int, tenant_id: int
 ) -> None:
     subsystem = await get_subsystem(db, subsystem_id, system_id, tenant_id)
-    subsystem.deleted_at = datetime.utcnow()
+    subsystem.deleted_at = datetime.now(timezone.utc)
     await db.flush()
