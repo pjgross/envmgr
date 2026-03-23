@@ -26,6 +26,7 @@ dependencies = [
     "aiosqlite>=0.19",
     "greenlet>=3.0",
     "python-dateutil>=2.8",
+    "nats-py>=2.3",
 ]
 
 [dependency-groups]

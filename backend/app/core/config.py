@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://envmgr:envmgr_dev_password@localhost:5672"
+
+    # NATS
+    NATS_URL: str = "nats://localhost:4222"
     
     # Security
     SECRET_KEY: str = "dev-secret-key-change-in-production"

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.system import SystemCreate, SystemUpdate, SubSystemCreate, SubSystemUpdate
+from app.core.events import publish_event
 
 
 async def list_systems(db: AsyncSession, tenant_id: int) -> list[System]:
@@ -55,6 +56,14 @@ async def create_system(db: AsyncSession, data: SystemCreate, tenant_id: int) ->
     db.add(system)
     await db.flush()
     await db.refresh(system)
+    await publish_event(
+        db,
+        event_type="SystemCreated",
+        aggregate_id=system.id,
+        aggregate_type="System",
+        payload={"id": system.id, "name": system.name, "tenant_id": system.tenant_id},
+        tenant_id=system.tenant_id,
+    )
     return system
 
 
@@ -88,6 +97,14 @@ async def update_system(
 
     await db.flush()
     await db.refresh(system)
+    await publish_event(
+        db,
+        event_type="SystemUpdated",
+        aggregate_id=system.id,
+        aggregate_type="System",
+        payload={"id": system.id, "name": system.name, "tenant_id": system.tenant_id},
+        tenant_id=system.tenant_id,
+    )
     return system
 
 
@@ -103,6 +120,14 @@ async def delete_system(db: AsyncSession, system_id: int, tenant_id: int) -> Non
         .values(deleted_at=now)
     )
     await db.flush()
+    await publish_event(
+        db,
+        event_type="SystemDeleted",
+        aggregate_id=system.id,
+        aggregate_type="System",
+        payload={"id": system.id, "name": system.name, "tenant_id": system.tenant_id},
+        tenant_id=system.tenant_id,
+    )
 
 
 # ---------------------------------------------------------------------------

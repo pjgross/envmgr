@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus, EnvironmentSystemStatus
 from app.db.models.dependency import SystemDependency
 from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
+from app.core.events import publish_event
 
 
 async def list_environments(
@@ -74,6 +75,14 @@ async def create_environment(
     db.add(env)
     await db.flush()
     await db.refresh(env)
+    await publish_event(
+        db,
+        event_type="EnvironmentCreated",
+        aggregate_id=env.id,
+        aggregate_type="Environment",
+        payload={"id": env.id, "name": env.name, "tenant_id": env.tenant_id},
+        tenant_id=env.tenant_id,
+    )
     return env
 
 
@@ -109,6 +118,14 @@ async def update_environment(
 
     await db.flush()
     await db.refresh(env)
+    await publish_event(
+        db,
+        event_type="EnvironmentUpdated",
+        aggregate_id=env.id,
+        aggregate_type="Environment",
+        payload={"id": env.id, "name": env.name, "tenant_id": env.tenant_id},
+        tenant_id=env.tenant_id,
+    )
     return env
 
 
@@ -120,6 +137,14 @@ async def delete_environment(
     # EnvironmentSystem rows are a junction table — no soft-delete needed;
     # they're naturally excluded once the parent environment is gone.
     await db.flush()
+    await publish_event(
+        db,
+        event_type="EnvironmentDeleted",
+        aggregate_id=env.id,
+        aggregate_type="Environment",
+        payload={"id": env.id, "name": env.name, "tenant_id": env.tenant_id},
+        tenant_id=env.tenant_id,
+    )
 
 
 async def verify_environment(db: AsyncSession, env_id: int, tenant_id: int) -> dict:

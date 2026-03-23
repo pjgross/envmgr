@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models.booking import Booking, BookingType, BookingStatus, ContextTag
 from app.api.v1.schemas.booking import BookingCreate
+from app.core.events import publish_event
 
 
 @dataclass
@@ -160,6 +161,19 @@ async def create_booking(
 
     # Re-fetch the parent with relationships eagerly loaded
     parent = await get_booking(db, parent.id, current_user.active_tenant_id)
+    await publish_event(
+        db,
+        event_type="BookingCreated",
+        aggregate_id=parent.id,
+        aggregate_type="Booking",
+        payload={
+            "id": parent.id,
+            "project_name": parent.project_name,
+            "environment_id": parent.environment_id,
+            "tenant_id": parent.tenant_id,
+        },
+        tenant_id=parent.tenant_id,
+    )
     return parent, overlap.warnings
 
 
@@ -230,7 +244,21 @@ async def approve_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> 
 
     await db.flush()
     # Re-fetch with eager relationships after flush
-    return await get_booking(db, booking_id, tenant_id)
+    result = await get_booking(db, booking_id, tenant_id)
+    await publish_event(
+        db,
+        event_type="BookingApproved",
+        aggregate_id=result.id,
+        aggregate_type="Booking",
+        payload={
+            "id": result.id,
+            "project_name": result.project_name,
+            "environment_id": result.environment_id,
+            "tenant_id": result.tenant_id,
+        },
+        tenant_id=result.tenant_id,
+    )
+    return result
 
 
 async def reject_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Booking:
@@ -251,7 +279,21 @@ async def reject_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> B
 
     await db.flush()
     # Re-fetch with eager relationships after flush
-    return await get_booking(db, booking_id, tenant_id)
+    result = await get_booking(db, booking_id, tenant_id)
+    await publish_event(
+        db,
+        event_type="BookingRejected",
+        aggregate_id=result.id,
+        aggregate_type="Booking",
+        payload={
+            "id": result.id,
+            "project_name": result.project_name,
+            "environment_id": result.environment_id,
+            "tenant_id": result.tenant_id,
+        },
+        tenant_id=result.tenant_id,
+    )
+    return result
 
 
 async def cancel_booking(db: AsyncSession, booking_id: int, current_user) -> None:
@@ -268,6 +310,19 @@ async def cancel_booking(db: AsyncSession, booking_id: int, current_user) -> Non
 
     booking.deleted_at = datetime.now(timezone.utc)
     await db.flush()
+    await publish_event(
+        db,
+        event_type="BookingCancelled",
+        aggregate_id=booking.id,
+        aggregate_type="Booking",
+        payload={
+            "id": booking.id,
+            "project_name": booking.project_name,
+            "environment_id": booking.environment_id,
+            "tenant_id": booking.tenant_id,
+        },
+        tenant_id=booking.tenant_id,
+    )
 
 
 async def delete_occurrence(db: AsyncSession, booking_id: int, current_user) -> None:

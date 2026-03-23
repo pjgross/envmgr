@@ -1,8 +1,11 @@
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db.base import init_db
+from app.workers.event_publisher import run_event_publisher
 
 
 app = FastAPI(
@@ -23,8 +26,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
+    """Initialize database on startup and launch background workers."""
     await init_db()
+    asyncio.create_task(run_event_publisher())
 
 
 @app.get("/")
