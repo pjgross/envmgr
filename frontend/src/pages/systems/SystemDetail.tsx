@@ -46,6 +46,8 @@ import {
   deleteSubSystem,
   fetchSystems,
 } from '../../store/systemSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
 import {
   fetchSystemDependencies,
   createSystemDependency,
@@ -156,6 +158,9 @@ export default function SystemDetail() {
   const { systemDependencies, loading: depLoading } = useSelector(
     (state: RootState) => state.dependency
   );
+  const customFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['subsystem'] ?? []
+  );
 
   const [tab, setTab] = useState(0);
 
@@ -170,6 +175,7 @@ export default function SystemDetail() {
   const [subForm, setSubForm] = useState<SubFormValues>(emptySubForm);
   const [subFormError, setSubFormError] = useState('');
   const [subDeleteTarget, setSubDeleteTarget] = useState<SubSystemResponse | null>(null);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   // System dependency dialog state
   const [depDialogOpen, setDepDialogOpen] = useState(false);
@@ -213,6 +219,7 @@ export default function SystemDetail() {
     dispatch(fetchSubSystems(systemId));
     dispatch(fetchSystemDependencies(systemId));
     dispatch(fetchSystems());
+    dispatch(fetchDefinitions('subsystem'));
   }, [dispatch, systemId]);
 
   useEffect(() => {
@@ -279,6 +286,7 @@ export default function SystemDetail() {
     setSubEditTarget(null);
     setSubForm(emptySubForm);
     setSubFormError('');
+    setCustomFieldValues({});
     setSubDialogOpen(true);
   };
 
@@ -286,6 +294,7 @@ export default function SystemDetail() {
     setSubEditTarget(sub);
     setSubForm({ name: sub.name, description: sub.description ?? '' });
     setSubFormError('');
+    setCustomFieldValues(sub.custom_fields ?? {});
     setSubDialogOpen(true);
   };
 
@@ -299,6 +308,7 @@ export default function SystemDetail() {
         const data: SubSystemUpdate = {
           name: subForm.name,
           description: subForm.description || undefined,
+          custom_fields: customFieldValues,
         };
         await dispatch(
           updateSubSystem({ systemId, subId: subEditTarget.id, data })
@@ -307,10 +317,12 @@ export default function SystemDetail() {
         const data: SubSystemCreate = {
           name: subForm.name,
           description: subForm.description || undefined,
+          custom_fields: customFieldValues,
         };
         await dispatch(createSubSystem({ systemId, data })).unwrap();
       }
       setSubDialogOpen(false);
+      setCustomFieldValues({});
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setSubFormError(message || 'Failed to save subsystem');
@@ -875,7 +887,7 @@ export default function SystemDetail() {
       )}
 
       {/* SubSystem Create / Edit Dialog */}
-      <Dialog open={subDialogOpen} onClose={() => setSubDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={subDialogOpen} onClose={() => { setSubDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
         <DialogTitle>{subEditTarget ? 'Edit SubSystem' : 'Add SubSystem'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {subFormError && <Alert severity="error">{subFormError}</Alert>}
@@ -894,9 +906,14 @@ export default function SystemDetail() {
             multiline
             rows={2}
           />
+          <CustomFieldsSection
+            definitions={customFieldDefs}
+            values={customFieldValues}
+            onChange={setCustomFieldValues}
+          />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSubDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => { setSubDialogOpen(false); setCustomFieldValues({}); }}>Cancel</Button>
           <Button onClick={handleSubSave} variant="contained" disabled={loading}>
             {subEditTarget ? 'Save' : 'Add'}
           </Button>
