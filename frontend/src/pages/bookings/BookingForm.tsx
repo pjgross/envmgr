@@ -49,8 +49,8 @@ function buildRrule(
   if (endCondition === 'count') {
     return `FREQ=${freqStr};COUNT=${count}`;
   } else {
-    // Convert "YYYY-MM-DD" to "YYYYMMDD"
-    const untilStr = until.replace(/-/g, '');
+    // Convert "YYYY-MM-DD" to RFC 5545 UTC datetime (YYYYMMDDTHHMMSSZ)
+    const untilStr = until.replace(/-/g, '') + 'T000000Z';
     return `FREQ=${freqStr};UNTIL=${untilStr}`;
   }
 }

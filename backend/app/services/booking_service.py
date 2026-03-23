@@ -6,6 +6,7 @@ from dateutil.rrule import rrulestr
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.models.booking import Booking, BookingType, BookingStatus, ContextTag
 from app.api.v1.schemas.booking import BookingCreate
@@ -157,12 +158,19 @@ async def create_booking(
 
         await db.flush()
 
+    # Re-fetch the parent with relationships eagerly loaded
+    parent = await get_booking(db, parent.id, current_user.active_tenant_id)
     return parent, overlap.warnings
 
 
 async def get_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Booking:
     result = await db.execute(
-        select(Booking).where(
+        select(Booking)
+        .options(
+            selectinload(Booking.environment),
+            selectinload(Booking.booker),
+        )
+        .where(
             Booking.id == booking_id,
             Booking.tenant_id == tenant_id,
             Booking.deleted_at.is_(None),
@@ -182,9 +190,16 @@ async def list_bookings(
     end: Optional[datetime] = None,
     booking_status: Optional[BookingStatus] = None,
 ) -> list[Booking]:
-    query = select(Booking).where(
-        Booking.tenant_id == tenant_id,
-        Booking.deleted_at.is_(None),
+    query = (
+        select(Booking)
+        .options(
+            selectinload(Booking.environment),
+            selectinload(Booking.booker),
+        )
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+        )
     )
     if environment_id is not None:
         query = query.where(Booking.environment_id == environment_id)
@@ -214,8 +229,8 @@ async def approve_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> 
         )
 
     await db.flush()
-    await db.refresh(booking)
-    return booking
+    # Re-fetch with eager relationships after flush
+    return await get_booking(db, booking_id, tenant_id)
 
 
 async def reject_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Booking:
@@ -235,8 +250,8 @@ async def reject_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> B
         )
 
     await db.flush()
-    await db.refresh(booking)
-    return booking
+    # Re-fetch with eager relationships after flush
+    return await get_booking(db, booking_id, tenant_id)
 
 
 async def cancel_booking(db: AsyncSession, booking_id: int, current_user) -> None:
@@ -271,13 +286,22 @@ async def delete_occurrence(db: AsyncSession, booking_id: int, current_user) -> 
     await db.flush()
 
 
-async def delete_series(db: AsyncSession, booking_id: int, tenant_id: int) -> None:
+async def delete_series(db: AsyncSession, booking_id: int, current_user) -> None:
     """Soft-delete the entire series (parent + all children)."""
-    booking = await get_booking(db, booking_id, tenant_id)
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+
+    # Allow if owner or Admin/Release Manager/master admin
+    is_owner = booking.booked_by == current_user.id
+    is_privileged = current_user.is_master_admin or current_user.role in ("Admin", "Release Manager")
+    if not (is_owner or is_privileged):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own booking series",
+        )
 
     # Find root: if booking has a parent, load the parent
     if booking.recurrence_parent_id is not None:
-        root = await get_booking(db, booking.recurrence_parent_id, tenant_id)
+        root = await get_booking(db, booking.recurrence_parent_id, current_user.active_tenant_id)
     else:
         root = booking
 

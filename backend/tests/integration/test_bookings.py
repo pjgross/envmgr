@@ -398,6 +398,32 @@ async def test_cancel_booking(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_pending_booking_blocks_exclusive(client: AsyncClient, auth_headers):
+    """
+    Business rule: PENDING bookings block exclusive bookings.
+    A PENDING shared booking (not yet approved) on the same env/time should
+    cause a 409 when a second exclusive booking is attempted.
+    """
+    env_id = await _create_env(client, auth_headers, "PendingBlockExclusiveEnv")
+
+    # Create a PENDING shared booking (do not approve it)
+    resp1 = await _create_booking(client, auth_headers, env_id, booking_type="shared")
+    assert resp1.status_code == 201
+    shared_id = resp1.json()["booking"]["id"]
+    assert resp1.json()["booking"]["status"] == "pending"
+
+    # Now try to create an EXCLUSIVE booking for the same env/time
+    # PENDING bookings are not REJECTED, so they participate in overlap checks
+    resp2 = await _create_booking(client, auth_headers, env_id, booking_type="exclusive")
+    assert resp2.status_code == 409, (
+        "PENDING bookings should block exclusive bookings (intentional business rule)"
+    )
+    detail = resp2.json()["detail"]
+    assert "conflicts" in detail
+    assert shared_id in detail["conflicts"]
+
+
+@pytest.mark.asyncio
 async def test_tenant_isolation(client: AsyncClient, auth_headers, other_auth_headers):
     """Booking from tenant A is not visible to tenant B."""
     env_id = await _create_env(client, auth_headers, "IsolationEnv")

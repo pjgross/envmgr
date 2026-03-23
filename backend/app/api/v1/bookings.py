@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.core.security import get_current_user, require_tenant_admin
+from app.core.security import get_current_user
 from app.db.models.booking import BookingStatus
 from app.services import booking_service
 from app.api.v1.schemas.booking import BookingCreate, BookingResponse, BookingCreateResponse
@@ -29,16 +29,8 @@ async def require_admin_or_rm(current_user=Depends(get_current_user)):
 def _to_response(booking) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating optional display fields."""
     resp = BookingResponse.model_validate(booking)
-    # Populate environment_name if the relationship is loaded
-    try:
-        resp.environment_name = booking.environment.name if booking.environment else None
-    except Exception:
-        resp.environment_name = None
-    # Populate booked_by_username if the relationship is loaded
-    try:
-        resp.booked_by_username = booking.booker.username if booking.booker else None
-    except Exception:
-        resp.booked_by_username = None
+    resp.environment_name = booking.environment.name if booking.environment else None
+    resp.booked_by_username = booking.booker.username if booking.booker else None
     return resp
 
 
@@ -118,9 +110,9 @@ async def cancel_booking(
 async def delete_series(
     booking_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_tenant_admin()),
+    current_user=Depends(get_current_user),
 ):
-    await booking_service.delete_series(db, booking_id, current_user.active_tenant_id)
+    await booking_service.delete_series(db, booking_id, current_user)
 
 
 @router.delete("/{booking_id}/occurrence", status_code=status.HTTP_204_NO_CONTENT)
