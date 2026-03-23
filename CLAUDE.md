@@ -1,10 +1,10 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 1 — Environment Inventory + Shared Booking (In Progress)
+> **Current Phase**: Phase 2 — next up (Phase 1 complete ✅)
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
-> **Roadmap**: [docs/plan.md](docs/plan.md) | **Active tasks**: [docs/phases/phase-1.md](docs/phases/phase-1.md)
+> **Roadmap**: [docs/plan.md](docs/plan.md) | **Phase 1 summary**: [docs/phases/phase-1.md](docs/phases/phase-1.md)
 
 EnvManager is a multi-tenant test environment management platform: inventory, booking, change management, CI/CD tracking, DORA metrics, and infrastructure topology visualization.
 
@@ -83,24 +83,28 @@ Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20c
 
 ## Adding a New Feature (checklist)
 
-1. `backend/app/db/models/<entity>.py` — SQLAlchemy model with `tenant_id`
-2. `alembic revision --autogenerate -m "..."` then `alembic upgrade head`
-3. `backend/app/services/<entity>_service.py` — business logic, no HTTP code
-4. `backend/app/api/v1/<entities>.py` — thin endpoints, delegate to service
-5. `frontend/src/services/<entity>Service.ts` — API client
-6. `frontend/src/store/<entity>Slice.ts` — Redux slice with async thunks
-7. `frontend/src/pages/<EntityList>.tsx` — page component using Redux
+1. `backend/app/db/models/<entity>.py` — SQLAlchemy model with `tenant_id`; all enum columns use `native_enum=False` (stores as VARCHAR — keeps SQLite test compat)
+2. `alembic revision -m "..."` then write DDL **manually** — do NOT use `--autogenerate` (init_db uses create_all so autogenerate sees nothing to do for new tables); use `op.create_table()` for new tables, `op.add_column()` for new columns
+3. `alembic upgrade head`
+4. `backend/app/services/<entity>_service.py` — business logic, no HTTP code; use `db.flush()` not `db.commit()` when you need the DB to assign an ID mid-transaction
+5. `backend/app/api/v1/<entities>.py` — thin endpoints, delegate to service
+6. `frontend/src/services/<entity>Service.ts` — API client
+7. `frontend/src/store/<entity>Slice.ts` — Redux slice with async thunks
+8. `frontend/src/pages/<EntityList>.tsx` — page component using Redux
 
 ---
 
 ## Common Pitfalls
 
 - **Business logic in API endpoints** — keep endpoints thin, put logic in services
-- **Missing tenant_id filter** — every query on tenant-scoped tables must filter by `tenant_id`
+- **Missing tenant_id filter** — every query on tenant-scoped tables must filter by `tenant_id`; use `current_user.active_tenant_id` (not `.tenant_id`) to handle impersonation correctly
 - **API calls in React components** — use Redux async thunks + service layer instead
 - **Synchronous DB operations** — always use `async/await` with `AsyncSession`
-- **Hard deleting records** — use soft deletes (`deleted_at` timestamp)
-- **Skipping migrations** — always create an Alembic migration for schema changes
+- **Hard deleting records** — use soft deletes (`deleted_at = datetime.now(timezone.utc)`); only dependency/junction records use hard delete
+- **Skipping migrations** — always create an Alembic migration for schema changes; write manual DDL (see checklist above)
+- **`db.commit()` in services** — `get_db()` auto-commits on success; calling `db.commit()` inside a service will break the outbox pattern (event rows must commit atomically with the business write). Use `db.flush()` if you need the DB to assign an ID mid-transaction
+- **Native enums** — always set `native_enum=False` on enum columns; PostgreSQL native ENUMs break SQLite-based tests and are hard to alter later
+- **`--autogenerate` migrations** — `init_db()` calls `create_all`, so Alembic autogenerate sees tables as already existing and generates empty migrations. Always use `alembic revision -m "..."` and write the DDL manually
 - **Secrets in code** — use environment variables and `.env` files
 
 ---
