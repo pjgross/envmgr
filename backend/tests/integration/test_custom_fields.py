@@ -286,3 +286,26 @@ async def test_required_field_blocks_system_creation(client: AsyncClient, auth_h
     resp = await client.post("/api/v1/systems/", headers=auth_headers, json={"name": "MySys"})
     assert resp.status_code == 422
     assert "owner" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_partial_update_without_custom_fields_succeeds(client: AsyncClient, auth_headers: dict):
+    """A PATCH that omits custom_fields should not trigger required-field validation."""
+    # Create a required field
+    await _create_field(client, auth_headers, entity_type="system", label="Owner", field_key="owner2", required=True)
+    # Create a system (with the required field satisfied)
+    sys_resp = await client.post(
+        "/api/v1/systems/",
+        headers=auth_headers,
+        json={"name": "TestSysPartial", "custom_fields": {"owner2": "Alice"}},
+    )
+    assert sys_resp.status_code == 201, sys_resp.text
+    sys_id = sys_resp.json()["id"]
+    # Now PATCH only the name — should NOT require custom_fields
+    patch_resp = await client.patch(
+        f"/api/v1/systems/{sys_id}",
+        headers=auth_headers,
+        json={"name": "UpdatedName"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["name"] == "UpdatedName"

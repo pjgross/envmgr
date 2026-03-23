@@ -118,7 +118,8 @@ async def update_environment(
     if data.custom_fields is not None:
         env.custom_fields = data.custom_fields
 
-    await validate_custom_fields(db, tenant_id, "environment", data.custom_fields)
+    if data.custom_fields is not None:
+        await validate_custom_fields(db, tenant_id, "environment", data.custom_fields)
     await db.flush()
     await db.refresh(env)
     await publish_event(
