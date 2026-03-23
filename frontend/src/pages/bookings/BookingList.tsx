@@ -174,19 +174,22 @@ export default function BookingList() {
 
   const handleBulkApprove = async () => {
     setIsBulkLoading(true)
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       rowSelectionModel.map((id) => dispatch(approveBooking(Number(id))))
     )
-    setRowSelectionModel([])
+    // Only clear rows that were successfully processed
+    const successIds = rowSelectionModel.filter((_, i) => results[i].status === 'fulfilled')
+    setRowSelectionModel((prev) => prev.filter((id) => !successIds.includes(id)))
     setIsBulkLoading(false)
   }
 
   const handleBulkReject = async () => {
     setIsBulkLoading(true)
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       rowSelectionModel.map((id) => dispatch(rejectBooking(Number(id))))
     )
-    setRowSelectionModel([])
+    const successIds = rowSelectionModel.filter((_, i) => results[i].status === 'fulfilled')
+    setRowSelectionModel((prev) => prev.filter((id) => !successIds.includes(id)))
     setIsBulkLoading(false)
   }
 
