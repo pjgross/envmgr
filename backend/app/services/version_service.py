@@ -120,12 +120,14 @@ async def list_versions(
 async def update_version(
     db: AsyncSession,
     version_id: int,
+    env_id: int,
     tenant_id: int,
     data: VersionUpdate,
 ) -> EnvironmentSubSystemVersion:
     result = await db.execute(
         select(EnvironmentSubSystemVersion).where(
             EnvironmentSubSystemVersion.id == version_id,
+            EnvironmentSubSystemVersion.environment_id == env_id,
             EnvironmentSubSystemVersion.tenant_id == tenant_id,
         )
     )
@@ -148,11 +150,13 @@ async def update_version(
 async def delete_version(
     db: AsyncSession,
     version_id: int,
+    env_id: int,
     tenant_id: int,
 ) -> None:
     result = await db.execute(
         select(EnvironmentSubSystemVersion).where(
             EnvironmentSubSystemVersion.id == version_id,
+            EnvironmentSubSystemVersion.environment_id == env_id,
             EnvironmentSubSystemVersion.tenant_id == tenant_id,
         )
     )

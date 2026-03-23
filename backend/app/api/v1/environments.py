@@ -189,7 +189,7 @@ async def update_version(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    version = await version_service.update_version(db, version_id, current_user.active_tenant_id, data)
+    version = await version_service.update_version(db, version_id, env_id, current_user.active_tenant_id, data)
     return VersionResponse.from_orm_with_name(version)
 
 
@@ -200,4 +200,4 @@ async def delete_version(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    await version_service.delete_version(db, version_id, current_user.active_tenant_id)
+    await version_service.delete_version(db, version_id, env_id, current_user.active_tenant_id)
