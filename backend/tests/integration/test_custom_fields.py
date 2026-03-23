@@ -129,11 +129,11 @@ async def test_update_field(client: AsyncClient, auth_headers: dict):
 async def test_update_ignores_immutable_fields(client: AsyncClient, auth_headers: dict):
     create_resp = await _create_field(client, auth_headers, field_key="orig_key")
     field_id = create_resp.json()["id"]
-    # Sending field_key and field_type in body — should be ignored (not in Update schema)
+    # Sending field_key and field_type in body — schema should discard them silently
     resp = await client.patch(
         f"/api/v1/tenant/fields/{field_id}",
         headers=auth_headers,
-        json={"label": "New Label"},
+        json={"label": "New Label", "field_key": "hacked_key", "field_type": "number"},
     )
     assert resp.status_code == 200
     assert resp.json()["field_key"] == "orig_key"
