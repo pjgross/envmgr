@@ -186,7 +186,9 @@ export default function AppLayout() {
                                 <Collapse in={isOpen} timeout="auto" unmountOnExit>
                                   <List dense disablePadding>
                                     {item.children.map((child) => {
-                                      const isChildActive = child.path !== undefined && location.pathname === child.path
+                                      const isChildActive =
+                                        child.path !== undefined &&
+                                        (location.pathname === child.path || location.pathname.startsWith(child.path + '/'))
                                       return (
                                         <ListItemButton
                                           key={child.label}
