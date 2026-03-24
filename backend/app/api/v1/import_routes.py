@@ -49,7 +49,7 @@ async def import_systems_endpoint(
 async def import_docker_compose_endpoint(
     system_id: int = Form(...),
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_tenant_admin()),
     db: AsyncSession = Depends(get_db),
 ):
     """Import a docker-compose.yml file, creating/updating subsystems and dependencies."""
