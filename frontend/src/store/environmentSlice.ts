@@ -2,17 +2,20 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { environmentService } from '../services/environmentService';
 import type {
   EnvironmentResponse,
-  EnvironmentSystemResponse,
+  EnvironmentSystemsResponse,
+  EnvironmentSubsystemResponse,
   EnvironmentCreate,
   EnvironmentUpdate,
   EnvironmentSystemCreate,
   EnvironmentSystemUpdate,
+  EnvironmentSubsystemUpdate,
 } from '../types/environment';
 
 interface EnvironmentState {
   environments: EnvironmentResponse[];
   currentEnvironment: EnvironmentResponse | null;
-  environmentSystems: EnvironmentSystemResponse[];
+  environmentSystemsData: EnvironmentSystemsResponse;
+  envSubsystems: EnvironmentSubsystemResponse[];
   loading: boolean;
   error: string | null;
 }
@@ -20,7 +23,8 @@ interface EnvironmentState {
 const initialState: EnvironmentState = {
   environments: [],
   currentEnvironment: null,
-  environmentSystems: [],
+  environmentSystemsData: { systems: [], missing_systems: [] },
+  envSubsystems: [],
   loading: false,
   error: null,
 };
@@ -75,6 +79,17 @@ export const removeSystemFromEnvironment = createAsyncThunk(
     await environmentService.removeSystemFromEnvironment(envId, systemId);
     return { envId, systemId };
   }
+);
+
+export const fetchEnvSubsystems = createAsyncThunk(
+  'environment/fetchEnvSubsystems',
+  (envId: number) => environmentService.listEnvironmentSubsystems(envId)
+);
+
+export const updateEnvSubsystem = createAsyncThunk(
+  'environment/updateEnvSubsystem',
+  ({ envId, subsystemId, data }: { envId: number; subsystemId: number; data: EnvironmentSubsystemUpdate }) =>
+    environmentService.updateEnvironmentSubsystem(envId, subsystemId, data)
 );
 
 const environmentSlice = createSlice({
@@ -141,7 +156,7 @@ const environmentSlice = createSlice({
       // fetchEnvironmentSystems
       .addCase(fetchEnvironmentSystems.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchEnvironmentSystems.fulfilled, (state, action) => {
-        state.environmentSystems = action.payload;
+        state.environmentSystemsData = action.payload;
         state.loading = false;
       })
       .addCase(fetchEnvironmentSystems.rejected, (state, action) => {
@@ -151,7 +166,7 @@ const environmentSlice = createSlice({
       // addSystemToEnvironment
       .addCase(addSystemToEnvironment.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(addSystemToEnvironment.fulfilled, (state, action) => {
-        state.environmentSystems.push(action.payload);
+        state.environmentSystemsData.systems.push(action.payload);
         state.loading = false;
       })
       .addCase(addSystemToEnvironment.rejected, (state, action) => {
@@ -161,8 +176,8 @@ const environmentSlice = createSlice({
       // updateSystemInEnvironment
       .addCase(updateSystemInEnvironment.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(updateSystemInEnvironment.fulfilled, (state, action) => {
-        const idx = state.environmentSystems.findIndex((s) => s.id === action.payload.id);
-        if (idx !== -1) state.environmentSystems[idx] = action.payload;
+        const idx = state.environmentSystemsData.systems.findIndex((s) => s.id === action.payload.id);
+        if (idx !== -1) state.environmentSystemsData.systems[idx] = action.payload;
         state.loading = false;
       })
       .addCase(updateSystemInEnvironment.rejected, (state, action) => {
@@ -172,7 +187,7 @@ const environmentSlice = createSlice({
       // removeSystemFromEnvironment
       .addCase(removeSystemFromEnvironment.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(removeSystemFromEnvironment.fulfilled, (state, action) => {
-        state.environmentSystems = state.environmentSystems.filter(
+        state.environmentSystemsData.systems = state.environmentSystemsData.systems.filter(
           (s) => s.system_id !== action.payload.systemId
         );
         state.loading = false;
@@ -180,6 +195,21 @@ const environmentSlice = createSlice({
       .addCase(removeSystemFromEnvironment.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message ?? 'Failed to remove system from environment';
+      })
+      // fetchEnvSubsystems
+      .addCase(fetchEnvSubsystems.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchEnvSubsystems.fulfilled, (state, action) => {
+        state.envSubsystems = action.payload;
+        state.loading = false;
+      })
+      .addCase(fetchEnvSubsystems.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to fetch subsystems';
+      })
+      // updateEnvSubsystem
+      .addCase(updateEnvSubsystem.fulfilled, (state, action) => {
+        const idx = state.envSubsystems.findIndex((s) => s.subsystem_id === action.payload.subsystem_id);
+        if (idx !== -1) state.envSubsystems[idx] = action.payload;
       });
   },
 });

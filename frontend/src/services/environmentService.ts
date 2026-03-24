@@ -2,6 +2,9 @@ import api from './api';
 import type {
   EnvironmentResponse,
   EnvironmentSystemResponse,
+  EnvironmentSystemsResponse,
+  EnvironmentSubsystemResponse,
+  EnvironmentSubsystemUpdate,
   EnvironmentCreate,
   EnvironmentUpdate,
   EnvironmentSystemCreate,
@@ -24,7 +27,7 @@ export const environmentService = {
   deleteEnvironment: (id: number): Promise<void> =>
     api.delete(`/environments/${id}`).then((r) => r.data),
 
-  listSystemsInEnvironment: (envId: number): Promise<EnvironmentSystemResponse[]> =>
+  listSystemsInEnvironment: (envId: number): Promise<EnvironmentSystemsResponse> =>
     api.get(`/environments/${envId}/systems`).then((r) => r.data),
 
   addSystemToEnvironment: (envId: number, data: EnvironmentSystemCreate): Promise<EnvironmentSystemResponse> =>
@@ -39,4 +42,17 @@ export const environmentService = {
 
   removeSystemFromEnvironment: (envId: number, systemId: number): Promise<void> =>
     api.delete(`/environments/${envId}/systems/${systemId}`).then((r) => r.data),
+
+  listEnvironmentSubsystems: (envId: number): Promise<EnvironmentSubsystemResponse[]> =>
+    api.get(`/environments/${envId}/subsystems`).then((r) => r.data),
+
+  updateEnvironmentSubsystem: (
+    envId: number,
+    subsystemId: number,
+    data: EnvironmentSubsystemUpdate
+  ): Promise<EnvironmentSubsystemResponse> =>
+    api.patch(`/environments/${envId}/subsystems/${subsystemId}`, data).then((r) => r.data),
+
+  getEnvironmentTopology: (envId: number): Promise<unknown> =>
+    api.get(`/environments/${envId}/topology`).then((r) => r.data),
 };
