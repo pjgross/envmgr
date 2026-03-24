@@ -15,6 +15,8 @@ export interface SubSystemResponse {
   description: string | null;
   system_id: number;
   tenant_id: number;
+  component_type: string;
+  technology: string | null;
   custom_fields: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;

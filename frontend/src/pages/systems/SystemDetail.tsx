@@ -64,6 +64,7 @@ import type {
   SubSystemCreate,
   SubSystemUpdate,
 } from '../../types/system';
+import SystemTopologyDiagram from './SystemTopologyDiagram';
 import type {
   DependencyType,
   DependencyDirection,
@@ -580,6 +581,7 @@ export default function SystemDetail() {
         <Tab label="SubSystems" />
         <Tab label="Dependencies" />
         <Tab label="Component Deps" />
+        <Tab label="Topology" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -906,6 +908,10 @@ export default function SystemDetail() {
             </Table>
           </TableContainer>
         </Box>
+      )}
+
+      {tab === 4 && currentSystem && (
+        <SystemTopologyDiagram systemId={currentSystem.id} />
       )}
 
       {/* SubSystem Create / Edit Dialog */}

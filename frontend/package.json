@@ -13,6 +13,7 @@
     "test:e2e:debug": "playwright test --debug"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.0",
     "@fullcalendar/core": "^6.1.20",
@@ -30,10 +31,11 @@
     "react-dom": "^18.2.0",
     "react-redux": "^9.0.4",
     "react-router-dom": "^6.21.1",
-    "reactflow": "^11.10.4"
+    "reactflow": "^11.11.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/dagre": "^0.7.54",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@typescript-eslint/eslint-plugin": "^6.18.1",

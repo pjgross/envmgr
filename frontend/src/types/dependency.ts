@@ -29,6 +29,7 @@ export interface ComponentDependencyResponse {
   to_subsystem_id: number;
   dependency_type: DependencyType;
   direction: DependencyDirection;
+  label: string | null;
   protocol: string | null;
   port: number | null;
   source: DependencySource;
