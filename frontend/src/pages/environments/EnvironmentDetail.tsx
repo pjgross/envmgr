@@ -53,6 +53,7 @@ import { recordVersion, updateVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
+import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -724,6 +725,11 @@ export default function EnvironmentDetail() {
             </Table>
           </TableContainer>
         </Box>
+      )}
+
+      {/* Topology Tab */}
+      {tab === 3 && (
+        <EnvironmentTopologyDiagram envId={envId} />
       )}
 
       {/* Edit Version Dialog */}
