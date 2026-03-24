@@ -768,7 +768,7 @@ export default function EnvironmentDetail() {
       {/* Edit Version Dialog */}
       <Dialog open={editVersionTarget !== null} onClose={() => setEditVersionTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Version</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '20px' }}>
           {editVersionError && <Alert severity="error" sx={{ mx: 2 }}>{editVersionError}</Alert>}
           <TextField
             label="Build ID *"
@@ -806,7 +806,7 @@ export default function EnvironmentDetail() {
       {/* Record Version Dialog */}
       <Dialog open={versionDialogOpen} onClose={() => setVersionDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Record Version</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '20px' }}>
           {versionFormError && <Alert severity="error">{versionFormError}</Alert>}
           <FormControl fullWidth required>
             <InputLabel>SubSystem</InputLabel>
@@ -871,7 +871,7 @@ export default function EnvironmentDetail() {
       {/* Add / Edit System Dialog */}
       <Dialog open={sysDialogOpen} onClose={() => setSysDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{sysEditTarget ? 'Edit System in Environment' : 'Add System'}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '20px' }}>
           {sysFormError && <Alert severity="error">{sysFormError}</Alert>}
 
           {!sysEditTarget && (

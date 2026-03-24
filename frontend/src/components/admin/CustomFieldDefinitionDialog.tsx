@@ -96,7 +96,7 @@ export default function CustomFieldDefinitionDialog({ open, onClose, entityType,
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{isEdit ? 'Edit Field' : 'Add Custom Field'}</DialogTitle>
-      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '20px' }}>
         {error && <Alert severity="error">{error}</Alert>}
 
         <TextField label="Label *" value={label} onChange={(e) => handleLabelChange(e.target.value)} fullWidth />

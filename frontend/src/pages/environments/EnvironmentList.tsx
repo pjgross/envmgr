@@ -336,7 +336,7 @@ export default function EnvironmentList() {
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
         <DialogTitle>{editTarget ? 'Edit Environment' : 'New Environment'}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '20px' }}>
           {formError && <Alert severity="error">{formError}</Alert>}
           <TextField
             label="Name"
