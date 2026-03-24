@@ -244,7 +244,6 @@ async def test_add_system_to_environment(client: AsyncClient, auth_headers):
     data = response.json()
     assert data["environment_id"] == env_id
     assert data["system_id"] == sys_id
-    assert data["status"] == "active"
     assert data["system"]["id"] == sys_id
     assert data["system"]["name"] == "SysForEnv"
 
@@ -266,7 +265,7 @@ async def test_add_system_duplicate(client: AsyncClient, auth_headers):
 
 @pytest.mark.asyncio
 async def test_update_system_in_environment(client: AsyncClient, auth_headers):
-    """PATCH /{env_id}/systems/{sys_id} updates status to mock with notes."""
+    """PATCH /{env_id}/systems/{sys_id} returns 200 with the current system row."""
     sys_id = await _create_system(client, auth_headers, "PatchSys")
     env_resp = await client.post("/api/v1/environments/", headers=auth_headers,
                                  json={"name": "PatchEnv", "environment_type": "dev"})
@@ -278,12 +277,12 @@ async def test_update_system_in_environment(client: AsyncClient, auth_headers):
     response = await client.patch(
         f"/api/v1/environments/{env_id}/systems/{sys_id}",
         headers=auth_headers,
-        json={"status": "mock", "mock_notes": "Stubbed out for perf testing"},
+        json={},
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "mock"
-    assert data["mock_notes"] == "Stubbed out for perf testing"
+    assert data["environment_id"] == env_id
+    assert data["system_id"] == sys_id
 
 
 @pytest.mark.asyncio
@@ -306,5 +305,5 @@ async def test_remove_system_from_environment(client: AsyncClient, auth_headers)
     # Should not be in the list anymore
     list_resp = await client.get(f"/api/v1/environments/{env_id}/systems", headers=auth_headers)
     assert list_resp.status_code == 200
-    sys_ids = [s["system_id"] for s in list_resp.json()]
+    sys_ids = [s["system_id"] for s in list_resp.json()["systems"]]
     assert sys_id not in sys_ids

@@ -116,26 +116,26 @@ async def test_verify_missing_dep(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_verify_mocked_dep(client: AsyncClient, auth_headers):
-    """A depends on B; B is in env but status=mock → mocked."""
-    sys_a = await _create_system(client, auth_headers, "MockA")
-    sys_b = await _create_system(client, auth_headers, "MockB")
-    env_id = await _create_env(client, auth_headers, "MockEnv")
+async def test_verify_both_systems_present(client: AsyncClient, auth_headers):
+    """A depends on B; both in env → system dep is satisfied (no system-level mocking)."""
+    sys_a = await _create_system(client, auth_headers, "BothA")
+    sys_b = await _create_system(client, auth_headers, "BothB")
+    env_id = await _create_env(client, auth_headers, "BothEnv")
 
-    await _add_to_env(client, auth_headers, env_id, sys_a, sys_status="active")
-    await _add_to_env(client, auth_headers, env_id, sys_b, sys_status="mock")
+    await _add_to_env(client, auth_headers, env_id, sys_a)
+    await _add_to_env(client, auth_headers, env_id, sys_b)
     await _add_dep(client, auth_headers, sys_a, sys_b)
 
     resp = await client.get(f"/api/v1/environments/{env_id}/verify", headers=auth_headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["total_dependencies"] == 1
-    assert data["satisfied_count"] == 0
-    assert data["mocked_count"] == 1
+    assert data["satisfied_count"] == 1
+    assert data["mocked_count"] == 0
     assert data["missing_count"] == 0
 
     sys_entry = next(s for s in data["systems"] if s["system_id"] == sys_a)
-    assert sys_entry["dependencies"][0]["status"] == "mocked"
+    assert sys_entry["dependencies"][0]["status"] == "satisfied"
 
 
 @pytest.mark.asyncio
