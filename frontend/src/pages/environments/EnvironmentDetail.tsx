@@ -45,12 +45,12 @@ import {
   fetchEnvSubsystems,
   addSystemToEnvironment,
   removeSystemFromEnvironment,
+  updateEnvSubsystem,
 } from '../../store/environmentSlice';
 import { fetchSystems } from '../../store/systemSlice';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
-import { fetchVersions, recordVersion, updateVersion, deleteVersion } from '../../store/versionSlice';
+import { recordVersion, updateVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
-import { systemService } from '../../services/systemService';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import type {
@@ -60,7 +60,6 @@ import type {
   EnvironmentSystemCreate,
 } from '../../types/environment';
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
-import type { SubSystemResponse } from '../../types/system';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -89,7 +88,7 @@ export default function EnvironmentDetail() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
 
-  const { currentEnvironment, environmentSystemsData, loading, error } = useSelector(
+  const { currentEnvironment, environmentSystemsData, envSubsystems, loading, error } = useSelector(
     (state: RootState) => state.environment
   );
   const environmentSystems = environmentSystemsData.systems;
@@ -98,13 +97,12 @@ export default function EnvironmentDetail() {
   const { verifyResult, loading: verifyLoading } = useSelector(
     (state: RootState) => state.dependency
   );
-  const { versions, loading: versionsLoading } = useSelector(
+  const { loading: versionsLoading } = useSelector(
     (state: RootState) => state.version
   );
   const envCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
-  const user = useSelector((state: RootState) => state.auth.user);
 
   const [tab, setTab] = useState(0);
 
@@ -120,7 +118,6 @@ export default function EnvironmentDetail() {
   const [envFormError, setEnvFormError] = useState('');
 
   // Version tab state
-  const [versionCurrentOnly, setVersionCurrentOnly] = useState(false);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const [versionForm, setVersionForm] = useState<VersionCreate>({
     subsystem_id: 0,
@@ -129,7 +126,6 @@ export default function EnvironmentDetail() {
     installed_at: undefined,
   });
   const [versionFormError, setVersionFormError] = useState('');
-  const [availableSubsystems, setAvailableSubsystems] = useState<(SubSystemResponse & { systemName: string })[]>([]);
 
   // Version edit state
   const [editVersionTarget, setEditVersionTarget] = useState<VersionResponse | null>(null);
@@ -231,29 +227,14 @@ export default function EnvironmentDetail() {
     }
   };
 
-  const handleVersionToggle = (currentOnly: boolean) => {
-    setVersionCurrentOnly(currentOnly);
-    dispatch(fetchVersions({ envId, currentOnly }));
-  };
-
-  const openVersionDialog = async () => {
+  const openVersionDialog = () => {
     setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
     setVersionFormError('');
-    // Fetch subsystems for all assigned systems
-    const allSubsystems: (SubSystemResponse & { systemName: string })[] = [];
-    for (const envSys of environmentSystems) {
-      try {
-        const subs = await systemService.listSubSystems(envSys.system_id);
-        for (const sub of subs) {
-          allSubsystems.push({ ...sub, systemName: envSys.system.name });
-        }
-      } catch {
-        // ignore fetch errors per system
-      }
-    }
-    setAvailableSubsystems(allSubsystems);
     setVersionDialogOpen(true);
   };
+
+  // Only non-mocked subsystems can have a real version recorded
+  const versionableSubsystems = envSubsystems.filter((s) => !s.is_mocked);
 
   const handleVersionSave = async () => {
     if (!versionForm.subsystem_id) {
@@ -273,22 +254,12 @@ export default function EnvironmentDetail() {
       setVersionDialogOpen(false);
       setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
       setVersionFormError('');
-      // Refresh versions list
-      dispatch(fetchVersions({ envId, currentOnly: versionCurrentOnly }));
+      // Refresh envSubsystems so latest_version column updates
+      dispatch(fetchEnvSubsystems(envId));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setVersionFormError(message || 'Failed to record version');
     }
-  };
-
-  const openEditVersion = (v: VersionResponse) => {
-    setEditVersionTarget(v);
-    setEditVersionForm({
-      build_id: v.build_id,
-      version_label: v.version_label,
-      installed_at: v.installed_at ? new Date(v.installed_at).toISOString().slice(0, 16) : '',
-    });
-    setEditVersionError('');
   };
 
   const handleEditVersionSave = async () => {
@@ -303,16 +274,6 @@ export default function EnvironmentDetail() {
     } catch (e: unknown) {
       const msg = (e as { message?: string })?.message;
       setEditVersionError(msg ?? 'Failed to save changes');
-    }
-  };
-
-  const handleDeleteVersion = async (versionId: number) => {
-    if (!currentEnvironment) return;
-    if (!window.confirm('Delete this version record? This cannot be undone.')) return;
-    try {
-      await dispatch(deleteVersion({ envId: currentEnvironment.id, versionId })).unwrap();
-    } catch (e: unknown) {
-      alert('Failed to delete version. Please try again.');
     }
   };
 
@@ -657,31 +618,11 @@ export default function EnvironmentDetail() {
         </Box>
       )}
 
-      {/* Versions Tab */}
+      {/* Components Tab */}
       {tab === 2 && (
         <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant={versionCurrentOnly ? 'outlined' : 'contained'}
-                size="small"
-                onClick={() => handleVersionToggle(false)}
-              >
-                All History
-              </Button>
-              <Button
-                variant={versionCurrentOnly ? 'contained' : 'outlined'}
-                size="small"
-                onClick={() => handleVersionToggle(true)}
-              >
-                Current
-              </Button>
-            </Box>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={openVersionDialog}
-            >
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openVersionDialog}>
               Record Version
             </Button>
           </Box>
@@ -690,50 +631,95 @@ export default function EnvironmentDetail() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>SubSystem</TableCell>
-                  <TableCell>Build ID</TableCell>
-                  <TableCell>Version Label</TableCell>
-                  <TableCell>Installed At</TableCell>
-                  {user?.role === 'Admin' && <TableCell align="right">Actions</TableCell>}
+                  <TableCell>System / Subsystem</TableCell>
+                  <TableCell>Type</TableCell>
+                  <TableCell>Real / Mock</TableCell>
+                  <TableCell>Mock Notes</TableCell>
+                  <TableCell>Latest Version</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {versionsLoading ? (
+                {envSubsystems.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={user?.role === 'Admin' ? 5 : 4} align="center">
-                      <CircularProgress size={24} />
-                    </TableCell>
-                  </TableRow>
-                ) : versions.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={user?.role === 'Admin' ? 5 : 4} align="center">
+                    <TableCell colSpan={5} align="center">
                       <Typography color="text.secondary" py={3}>
-                        No version history recorded yet.
+                        No subsystems configured. Add systems with subsystems first.
                       </Typography>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  versions.map((v) => (
-                    <TableRow key={v.id} hover>
-                      <TableCell>{v.subsystem_name}</TableCell>
-                      <TableCell>{v.build_id}</TableCell>
-                      <TableCell>{v.version_label}</TableCell>
-                      <TableCell>
-                        {new Date(v.installed_at).toLocaleString()}
-                      </TableCell>
-                      {user?.role === 'Admin' && (
-                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                          <Tooltip title="Edit">
-                            <IconButton size="small" onClick={() => openEditVersion(v)}><EditIcon fontSize="small" /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton size="small" color="error" onClick={() => handleDeleteVersion(v.id)}><DeleteIcon fontSize="small" /></IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
                 )}
+                {envSubsystems.map((sub) => (
+                  <TableRow
+                    key={sub.subsystem_id}
+                    hover
+                    sx={{ opacity: sub.is_mocked ? 0.6 : 1 }}
+                  >
+                    <TableCell>
+                      <Typography variant="caption" color="text.secondary">
+                        {sub.system_name}
+                      </Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        {sub.subsystem_name}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={sub.component_type.replace(/_/g, ' ')}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={sub.is_mocked ? 'Mock' : 'Real'}
+                        size="small"
+                        color={sub.is_mocked ? 'warning' : 'success'}
+                        onClick={() =>
+                          dispatch(updateEnvSubsystem({
+                            envId,
+                            subsystemId: sub.subsystem_id,
+                            data: { is_mocked: !sub.is_mocked },
+                          }))
+                        }
+                        sx={{ cursor: 'pointer' }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {sub.is_mocked ? (
+                        <TextField
+                          size="small"
+                          placeholder="Mock notes (optional)"
+                          value={sub.mock_notes ?? ''}
+                          onChange={(e) =>
+                            dispatch(updateEnvSubsystem({
+                              envId,
+                              subsystemId: sub.subsystem_id,
+                              data: { mock_notes: e.target.value || null },
+                            }))
+                          }
+                          sx={{ minWidth: 200 }}
+                        />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {sub.is_mocked ? (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      ) : sub.latest_version ? (
+                        <Box>
+                          <Typography variant="body2">{sub.latest_version.version_label}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {sub.latest_version.build_id} ·{' '}
+                            {new Date(sub.latest_version.installed_at).toLocaleDateString()}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">No version recorded</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </TableContainer>
@@ -792,14 +778,14 @@ export default function EnvironmentDetail() {
                 setVersionForm({ ...versionForm, subsystem_id: e.target.value as number })
               }
             >
-              {availableSubsystems.length === 0 ? (
+              {versionableSubsystems.length === 0 ? (
                 <MenuItem disabled value="">
-                  No subsystems available (add systems with subsystems first)
+                  No non-mocked subsystems available
                 </MenuItem>
               ) : (
-                availableSubsystems.map((sub) => (
-                  <MenuItem key={sub.id} value={sub.id}>
-                    {sub.systemName} / {sub.name}
+                versionableSubsystems.map((sub) => (
+                  <MenuItem key={sub.subsystem_id} value={sub.subsystem_id}>
+                    {sub.system_name} / {sub.subsystem_name}
                   </MenuItem>
                 ))
               )}
