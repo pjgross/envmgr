@@ -9,7 +9,7 @@ import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material'
 import SystemGroupNode from '../../components/topology/SystemGroupNode'
 import DependencyDetailPane from '../../components/topology/DependencyDetailPane'
 import { environmentService } from '../../services/environmentService'
-import type { EnvSubsystemNode } from '../../types/environment'
+import type { EnvSubsystemNode, EnvironmentTopologyData } from '../../types/environment'
 import type { ComponentDependencyResponse } from '../../types/dependency'
 
 const COMPONENT_COLORS: Record<string, string> = {
@@ -182,15 +182,6 @@ function getLayoutedElements(
   return { nodes: [...groupNodes, ...subsystemNodes], edges }
 }
 
-interface EnvironmentTopologyData {
-  environment_id: number
-  subsystems: EnvSubsystemNode[]
-  dependencies: ComponentDependencyResponse[]
-  system_names: Record<string, string>
-  outside_subsystems: EnvSubsystemNode[]
-  outside_dependencies: ComponentDependencyResponse[]
-}
-
 interface Props {
   envId: number
 }
@@ -204,7 +195,7 @@ export default function EnvironmentTopologyDiagram({ envId }: Props) {
   useEffect(() => {
     setLoading(true)
     environmentService.getEnvironmentTopology(envId)
-      .then((d) => { setData(d as EnvironmentTopologyData); setLoading(false) })
+      .then((d) => { setData(d); setLoading(false) })
       .catch((e: Error) => { setError(e.message ?? 'Failed to load topology'); setLoading(false) })
   }, [envId])
 

@@ -142,7 +142,8 @@ async def delete_environment(
     # Hard-delete all environment_subsystem junction rows
     await db.execute(
         delete(EnvironmentSubSystem).where(
-            EnvironmentSubSystem.environment_id == env_id
+            EnvironmentSubSystem.environment_id == env_id,
+            EnvironmentSubSystem.tenant_id == tenant_id,
         )
     )
 

@@ -92,3 +92,14 @@ export interface EnvSubsystemNode {
   system_id: number;
   is_mocked: boolean;
 }
+
+import type { ComponentDependencyResponse } from './dependency';
+
+export interface EnvironmentTopologyData {
+  environment_id: number;
+  subsystems: EnvSubsystemNode[];
+  dependencies: ComponentDependencyResponse[];
+  system_names: Record<string, string>;
+  outside_subsystems: EnvSubsystemNode[];
+  outside_dependencies: ComponentDependencyResponse[];
+}

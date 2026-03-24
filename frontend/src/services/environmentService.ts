@@ -9,6 +9,7 @@ import type {
   EnvironmentUpdate,
   EnvironmentSystemCreate,
   EnvironmentSystemUpdate,
+  EnvironmentTopologyData,
 } from '../types/environment';
 
 export const environmentService = {
@@ -53,6 +54,6 @@ export const environmentService = {
   ): Promise<EnvironmentSubsystemResponse> =>
     api.patch(`/environments/${envId}/subsystems/${subsystemId}`, data).then((r) => r.data),
 
-  getEnvironmentTopology: (envId: number): Promise<unknown> =>
+  getEnvironmentTopology: (envId: number): Promise<EnvironmentTopologyData> =>
     api.get(`/environments/${envId}/topology`).then((r) => r.data),
 };
