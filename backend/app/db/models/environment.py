@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, JSON, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,12 +14,6 @@ class EnvironmentStatus(str, enum.Enum):
     INACTIVE = "inactive"
     MAINTENANCE = "maintenance"
     DECOMMISSIONED = "decommissioned"
-
-
-class EnvironmentSystemStatus(str, enum.Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    MOCK = "mock"
 
 
 class Environment(Base):
@@ -48,7 +42,7 @@ class Environment(Base):
 
 
 class EnvironmentSystem(Base):
-    """Junction table linking an Environment to a System, with per-link metadata."""
+    """Junction table linking an Environment to a System."""
 
     __tablename__ = "environment_system"
 
@@ -59,12 +53,6 @@ class EnvironmentSystem(Base):
         ForeignKey("system.id"), nullable=False, index=True
     )
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
-    status: Mapped[EnvironmentSystemStatus] = mapped_column(
-        SAEnum(EnvironmentSystemStatus, native_enum=False),
-        nullable=False,
-        default=EnvironmentSystemStatus.ACTIVE,
-    )
-    mock_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("environment_id", "system_id", name="uq_env_system"),
@@ -76,6 +64,32 @@ class EnvironmentSystem(Base):
     system: Mapped["System"] = relationship("System")  # type: ignore[name-defined]
 
     def __repr__(self) -> str:
+        return f"<EnvironmentSystem(env={self.environment_id}, sys={self.system_id})>"
+
+
+class EnvironmentSubSystem(Base):
+    """Per-subsystem real/mocked configuration for an environment."""
+
+    __tablename__ = "environment_subsystem"
+
+    environment_id: Mapped[int] = mapped_column(
+        ForeignKey("environment.id"), nullable=False, index=True
+    )
+    subsystem_id: Mapped[int] = mapped_column(
+        ForeignKey("subsystem.id"), nullable=False, index=True
+    )
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
+    is_mocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    mock_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("environment_id", "subsystem_id", name="uq_env_subsystem"),
+    )
+
+    subsystem: Mapped["SubSystem"] = relationship("SubSystem")  # type: ignore[name-defined]
+
+    def __repr__(self) -> str:
         return (
-            f"<EnvironmentSystem(env={self.environment_id}, sys={self.system_id})>"
+            f"<EnvironmentSubSystem(env={self.environment_id}, sub={self.subsystem_id}, "
+            f"mocked={self.is_mocked})>"
         )
