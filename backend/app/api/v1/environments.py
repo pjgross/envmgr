@@ -18,6 +18,7 @@ from app.api.v1.schemas.environment import (
     EnvironmentSystemsResponse,
     EnvironmentSubsystemResponse,
     EnvironmentSubsystemUpdate,
+    EnvironmentTopologyResponse,
 )
 from app.api.v1.schemas.dependency import VerifyResponse
 from app.api.v1.schemas.version import VersionCreate, VersionUpdate, VersionResponse
@@ -183,7 +184,7 @@ async def update_environment_subsystem(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{env_id}/topology")
+@router.get("/{env_id}/topology", response_model=EnvironmentTopologyResponse)
 async def get_environment_topology(
     env_id: int,
     db: AsyncSession = Depends(get_db),

@@ -101,3 +101,15 @@ class EnvSubsystemNode(BaseModel):
     technology: Optional[str] = None
     system_id: int
     is_mocked: bool
+
+
+from app.api.v1.schemas.dependency import ComponentDependencyResponse  # noqa: E402
+
+
+class EnvironmentTopologyResponse(BaseModel):
+    environment_id: int
+    subsystems: list[EnvSubsystemNode]
+    dependencies: list[ComponentDependencyResponse]
+    system_names: dict[str, str]
+    outside_subsystems: list[EnvSubsystemNode]
+    outside_dependencies: list[ComponentDependencyResponse]
