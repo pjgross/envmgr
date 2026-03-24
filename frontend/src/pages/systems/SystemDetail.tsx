@@ -1031,7 +1031,7 @@ export default function SystemDetail() {
       {/* SubSystem Create / Edit Dialog */}
       <Dialog open={subDialogOpen} onClose={() => { setSubDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
         <DialogTitle>{subEditTarget ? 'Edit SubSystem' : 'Add SubSystem'}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {subFormError && <Alert severity="error">{subFormError}</Alert>}
           <TextField
             label="Name"
@@ -1100,7 +1100,7 @@ export default function SystemDetail() {
       {/* Add System Dependency Dialog */}
       <Dialog open={depDialogOpen} onClose={() => setDepDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Add Dependency</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {depFormError && <Alert severity="error">{depFormError}</Alert>}
           <FormControl fullWidth required>
             <InputLabel>Target System</InputLabel>
@@ -1189,7 +1189,7 @@ export default function SystemDetail() {
       {/* Add Component Dependency Dialog */}
       <Dialog open={compDepDialogOpen} onClose={() => setCompDepDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Add Component Dependency</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {compDepFormError && <Alert severity="error">{compDepFormError}</Alert>}
           <FormControl fullWidth required>
             <InputLabel>From SubSystem</InputLabel>
@@ -1302,7 +1302,7 @@ export default function SystemDetail() {
       {/* Edit System Dependency Dialog */}
       <Dialog open={Boolean(depEditTarget)} onClose={() => setDepEditTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Dependency</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {depEditFormError && <Alert severity="error">{depEditFormError}</Alert>}
           <FormControl fullWidth required>
             <InputLabel>Dependency Type</InputLabel>
@@ -1364,7 +1364,7 @@ export default function SystemDetail() {
       {/* Docker Compose Import Dialog */}
       <Dialog open={dcImportOpen} onClose={() => setDcImportOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Import Docker Compose</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {dcImportError && <Alert severity="error">{dcImportError}</Alert>}
           {dcImportResult && (
             <Alert severity="success">
@@ -1403,7 +1403,7 @@ export default function SystemDetail() {
       {/* Terraform Import Dialog */}
       <Dialog open={tfImportOpen} onClose={() => setTfImportOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Import Terraform State</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <Typography variant="body2" color="text.secondary">
             Uploads a .tfstate file and creates SubSystems from managed resources.
             Dependencies must be added manually (tfstate has no explicit dependency graph).
@@ -1445,7 +1445,7 @@ export default function SystemDetail() {
       {/* Edit Component Dependency Dialog */}
       <Dialog open={Boolean(compDepEditTarget)} onClose={() => setCompDepEditTarget(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Component Dependency</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {compDepEditFormError && <Alert severity="error">{compDepEditFormError}</Alert>}
           <FormControl fullWidth required>
             <InputLabel>Dependency Type</InputLabel>

@@ -284,7 +284,7 @@ export default function SystemCatalog() {
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
         <DialogTitle>{editTarget ? 'Edit System' : 'New System'}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '32px' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
           <TextField
             label="Name"

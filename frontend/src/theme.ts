@@ -21,4 +21,22 @@ export const theme = createTheme({
             'sans-serif',
         ].join(','),
     },
+    components: {
+        MuiDialogContent: {
+            styleOverrides: {
+                root: {
+                    // overflow: auto clips the absolutely-positioned floating label on the first field
+                    overflowY: 'visible',
+                    // Restore scrolling on the Paper instead (handled by Dialog's scroll="paper" default)
+                },
+            },
+        },
+        MuiDialog: {
+            defaultProps: {
+                PaperProps: {
+                    sx: { overflowY: 'auto' },
+                },
+            },
+        },
+    },
 })
