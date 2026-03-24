@@ -229,6 +229,13 @@ export default function SystemDetail() {
   const [dcImportResult, setDcImportResult] = useState<{ subsystems_created: number; subsystems_updated: number; dependencies_created: number } | null>(null);
   const [dcImportError, setDcImportError] = useState('');
 
+  // Terraform import dialog state
+  const [tfImportOpen, setTfImportOpen] = useState(false);
+  const [tfImportFile, setTfImportFile] = useState<File | null>(null);
+  const [tfImportLoading, setTfImportLoading] = useState(false);
+  const [tfImportError, setTfImportError] = useState<string | null>(null);
+  const [tfImportResult, setTfImportResult] = useState<{ subsystems_created: number; subsystems_updated: number } | null>(null);
+
   useEffect(() => {
     dispatch(fetchSystem(systemId));
     dispatch(fetchSubSystems(systemId));
@@ -573,6 +580,37 @@ export default function SystemDetail() {
     }
   };
 
+  const openTfImport = () => {
+    setTfImportFile(null);
+    setTfImportResult(null);
+    setTfImportError(null);
+    setTfImportOpen(true);
+  };
+
+  const handleTfImport = async () => {
+    if (!tfImportFile || !currentSystem) return;
+    setTfImportLoading(true);
+    setTfImportError(null);
+    setTfImportResult(null);
+    try {
+      const form = new FormData();
+      form.append('system_id', String(currentSystem.id));
+      form.append('file', tfImportFile);
+      const res = await api.post<{ subsystems_created: number; subsystems_updated: number }>(
+        '/import/terraform', form,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      setTfImportResult(res.data);
+      dispatch(fetchSubSystems(currentSystem.id));
+      dispatch(fetchTopology(currentSystem.id));
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      setTfImportError(anyErr?.response?.data?.detail ?? anyErr?.message ?? 'Import failed');
+    } finally {
+      setTfImportLoading(false);
+    }
+  };
+
   // Systems available for outgoing dependency (exclude self and already outgoing targets)
   const outgoingDepTargetIds = new Set(
     systemDependencies.filter((d) => !d.is_incoming).map((d) => d.to_system_id)
@@ -716,6 +754,9 @@ export default function SystemDetail() {
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 2 }}>
             <Button variant="outlined" onClick={openDcImport}>
               Import Docker Compose
+            </Button>
+            <Button variant="outlined" onClick={openTfImport}>
+              Import Terraform
             </Button>
             <Button variant="contained" startIcon={<AddIcon />} onClick={openSubCreate}>
               Add SubSystem
@@ -1305,6 +1346,48 @@ export default function SystemDetail() {
             disabled={!dcImportFile || dcImportLoading}
           >
             {dcImportLoading ? 'Importing…' : 'Import'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Terraform Import Dialog */}
+      <Dialog open={tfImportOpen} onClose={() => setTfImportOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Import Terraform State</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            Uploads a .tfstate file and creates SubSystems from managed resources.
+            Dependencies must be added manually (tfstate has no explicit dependency graph).
+          </Typography>
+          {tfImportError && <Alert severity="error">{tfImportError}</Alert>}
+          {tfImportResult && (
+            <Alert severity="success">
+              Import complete: {tfImportResult.subsystems_created} created,{' '}
+              {tfImportResult.subsystems_updated} updated.
+            </Alert>
+          )}
+          <Button variant="outlined" component="label">
+            {tfImportFile ? tfImportFile.name : 'Choose .tfstate file'}
+            <input
+              type="file"
+              accept=".json,.tfstate"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setTfImportFile(f);
+                setTfImportResult(null);
+                setTfImportError(null);
+              }}
+            />
+          </Button>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTfImportOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleTfImport}
+            disabled={!tfImportFile || tfImportLoading}
+          >
+            {tfImportLoading ? 'Importing…' : 'Import'}
           </Button>
         </DialogActions>
       </Dialog>
