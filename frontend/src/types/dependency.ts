@@ -1,4 +1,26 @@
 export type DependencyType = 'api_call' | 'database' | 'message_queue' | 'event' | 'file' | 'other';
+export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete' | 'head' | 'options';
+
+export interface ComponentEndpointResponse {
+  id: number;
+  dependency_id: number;
+  http_method: HttpMethod | null;
+  path: string;
+  description: string | null;
+  tenant_id: number;
+}
+
+export interface ComponentEndpointCreate {
+  http_method?: HttpMethod | null;
+  path: string;
+  description?: string | null;
+}
+
+export interface ComponentEndpointUpdate {
+  http_method?: HttpMethod | null;
+  path?: string;
+  description?: string | null;
+}
 export type DependencySource = 'manual' | 'terraform' | 'docker_compose';
 export type DependencyDirection = 'one_way' | 'two_way';
 
@@ -47,6 +69,7 @@ export interface ComponentDependencyResponse {
     system_id: number;
   };
   is_incoming: boolean;
+  endpoints: ComponentEndpointResponse[];
 }
 
 export interface SystemDependencyCreate {
@@ -78,6 +101,15 @@ export interface SystemVerifyResult {
   dependencies: DependencyVerifyItem[];
 }
 
+export interface ComponentVerifyItem {
+  from_subsystem_id: number;
+  from_subsystem_name: string;
+  to_subsystem_id: number;
+  to_subsystem_name: string;
+  dependency_type: DependencyType;
+  status: 'satisfied' | 'mocked' | 'missing';
+}
+
 export interface VerifyResponse {
   environment_id: number;
   total_dependencies: number;
@@ -85,4 +117,9 @@ export interface VerifyResponse {
   mocked_count: number;
   missing_count: number;
   systems: SystemVerifyResult[];
+  component_total: number;
+  component_satisfied: number;
+  component_mocked: number;
+  component_missing: number;
+  component_dependencies: ComponentVerifyItem[];
 }

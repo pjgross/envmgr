@@ -1,5 +1,4 @@
 export type EnvironmentStatus = 'active' | 'inactive' | 'maintenance' | 'decommissioned';
-export type EnvironmentSystemStatus = 'active' | 'inactive' | 'mock';
 
 export interface EnvironmentResponse {
   id: number;
@@ -13,18 +12,27 @@ export interface EnvironmentResponse {
   updated_at: string;
 }
 
+export interface SystemSummary {
+  id: number;
+  name: string;
+  description: string | null;
+}
+
 export interface EnvironmentSystemResponse {
   id: number;
   environment_id: number;
   system_id: number;
-  status: EnvironmentSystemStatus;
-  mock_notes: string | null;
   system: {
     id: number;
     name: string;
     description: string | null;
     github_repository_url: string | null;
   };
+}
+
+export interface EnvironmentSystemsResponse {
+  systems: EnvironmentSystemResponse[];
+  missing_systems: SystemSummary[];
 }
 
 export interface EnvironmentCreate {
@@ -45,11 +53,42 @@ export interface EnvironmentUpdate {
 
 export interface EnvironmentSystemCreate {
   system_id: number;
-  status?: EnvironmentSystemStatus;
-  mock_notes?: string;
 }
 
 export interface EnvironmentSystemUpdate {
-  status?: EnvironmentSystemStatus;
-  mock_notes?: string;
+  // reserved for future fields
+}
+
+export interface VersionSummary {
+  build_id: string;
+  version_label: string;
+  installed_at: string;
+}
+
+export interface EnvironmentSubsystemResponse {
+  id: number;
+  environment_id: number;
+  subsystem_id: number;
+  subsystem_name: string;
+  component_type: string;
+  technology: string | null;
+  system_id: number;
+  system_name: string;
+  is_mocked: boolean;
+  mock_notes: string | null;
+  latest_version: VersionSummary | null;
+}
+
+export interface EnvironmentSubsystemUpdate {
+  is_mocked?: boolean;
+  mock_notes?: string | null;
+}
+
+export interface EnvSubsystemNode {
+  id: number;
+  name: string;
+  component_type: string;
+  technology: string | null;
+  system_id: number;
+  is_mocked: boolean;
 }
