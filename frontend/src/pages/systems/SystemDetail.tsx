@@ -227,7 +227,7 @@ export default function SystemDetail() {
   const [dcImportFile, setDcImportFile] = useState<File | null>(null);
   const [dcImportLoading, setDcImportLoading] = useState(false);
   const [dcImportResult, setDcImportResult] = useState<{ subsystems_created: number; subsystems_updated: number; dependencies_created: number } | null>(null);
-  const [dcImportError, setDcImportError] = useState('');
+  const [dcImportError, setDcImportError] = useState<string | null>(null);
 
   // Terraform import dialog state
   const [tfImportOpen, setTfImportOpen] = useState(false);
@@ -553,7 +553,7 @@ export default function SystemDetail() {
   const openDcImport = () => {
     setDcImportFile(null);
     setDcImportResult(null);
-    setDcImportError('');
+    setDcImportError(null);
     setDcImportOpen(true);
   };
 
@@ -561,7 +561,7 @@ export default function SystemDetail() {
     if (!dcImportFile || !currentSystem) return;
     setDcImportLoading(true);
     setDcImportResult(null);
-    setDcImportError('');
+    setDcImportError(null);
     try {
       const form = new FormData();
       form.append('system_id', String(currentSystem.id));
@@ -1333,7 +1333,7 @@ export default function SystemDetail() {
                 const f = e.target.files?.[0] ?? null;
                 setDcImportFile(f);
                 setDcImportResult(null);
-                setDcImportError('');
+                setDcImportError(null);
               }}
             />
           </Button>
