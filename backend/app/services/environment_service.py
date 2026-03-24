@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus, EnvironmentSystemStatus
+from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus
 from app.db.models.dependency import SystemDependency
 from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
 from app.core.events import publish_event
@@ -203,13 +203,8 @@ async def verify_environment(db: AsyncSession, env_id: int, tenant_id: int) -> d
         for dep in deps:
             to_id = dep.to_system_id
             if to_id in env_system_map:
-                to_env_sys = env_system_map[to_id]
-                if to_env_sys.status == EnvironmentSystemStatus.MOCK:
-                    dep_status = "mocked"
-                    mocked_count += 1
-                else:
-                    dep_status = "satisfied"
-                    satisfied_count += 1
+                dep_status = "satisfied"
+                satisfied_count += 1
             else:
                 dep_status = "missing"
                 missing_count += 1
