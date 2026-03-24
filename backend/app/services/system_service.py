@@ -88,17 +88,14 @@ async def update_system(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="A system with this name already exists in this tenant",
             )
-        system.name = data.name
-
-    if data.description is not None:
-        system.description = data.description
-    if data.github_repository_url is not None:
-        system.github_repository_url = data.github_repository_url
-    if data.custom_fields is not None:
-        system.custom_fields = data.custom_fields
 
     if data.custom_fields is not None:
         await validate_custom_fields(db, tenant_id, "system", data.custom_fields)
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(system, field, value)
+
     await db.flush()
     await db.refresh(system)
     await publish_event(
@@ -234,19 +231,14 @@ async def update_subsystem(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="A subsystem with this name already exists in this system",
             )
-        subsystem.name = data.name
-
-    if data.description is not None:
-        subsystem.description = data.description
-    if data.component_type is not None:
-        subsystem.component_type = data.component_type
-    if data.technology is not None:
-        subsystem.technology = data.technology
-    if data.custom_fields is not None:
-        subsystem.custom_fields = data.custom_fields
 
     if data.custom_fields is not None:
         await validate_custom_fields(db, tenant_id, "subsystem", data.custom_fields)
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(subsystem, field, value)
+
     await db.flush()
     await db.refresh(subsystem)
     return subsystem
