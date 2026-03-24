@@ -69,9 +69,6 @@ async def import_terraform(
     # Filter to managed resources only (skip data sources, which have mode='data')
     managed = [r for r in resources if isinstance(r, dict) and r.get('mode') == 'managed']
 
-    if not managed:
-        raise ValueError("No managed resources found in tfstate file")
-
     # Load existing subsystems for upsert by name
     result = await db.execute(
         select(SubSystem).where(
@@ -102,7 +99,6 @@ async def import_terraform(
             sub = existing[subsystem_name]
             sub.component_type = component_type
             sub.technology = technology
-            await db.flush()
             subsystems_updated += 1
         else:
             sub = SubSystem(
