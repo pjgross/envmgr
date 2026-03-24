@@ -307,6 +307,10 @@ export default function EnvironmentDetail() {
     : [];
   const nonSatisfiedItems = allDepItems.filter((d) => d.status !== 'satisfied');
 
+  const nonSatisfiedComponentItems = verifyResult?.component_dependencies?.filter(
+    (d) => d.status !== 'satisfied'
+  ) ?? [];
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -473,7 +477,8 @@ export default function EnvironmentDetail() {
                 <>
                   {verifyResult.total_dependencies === 0 ? (
                     <Alert severity="info">No dependencies declared for systems in this environment.</Alert>
-                  ) : verifyResult.missing_count === 0 && verifyResult.mocked_count === 0 ? (
+                  ) : verifyResult.missing_count === 0 && verifyResult.mocked_count === 0
+                    && (verifyResult.component_missing ?? 0) === 0 && (verifyResult.component_mocked ?? 0) === 0 ? (
                     <Alert severity="success">All dependencies satisfied.</Alert>
                   ) : (
                     <>
@@ -532,6 +537,50 @@ export default function EnvironmentDetail() {
                         </TableContainer>
                       )}
                     </>
+                  )}
+
+                  {/* Component Dependencies section */}
+                  {(verifyResult.component_total ?? 0) > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Component Dependencies</Typography>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        <Chip label={`${verifyResult.component_satisfied} satisfied`} color="success" size="small" />
+                        <Chip label={`${verifyResult.component_mocked} mocked`} color="warning" size="small" />
+                        <Chip label={`${verifyResult.component_missing} missing`} color="error" size="small" />
+                      </Box>
+                      {nonSatisfiedComponentItems.length > 0 && (
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>From Component</TableCell>
+                                <TableCell>Depends On</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Status</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {nonSatisfiedComponentItems.map((item) => (
+                                <TableRow key={`${item.from_subsystem_id}-${item.to_subsystem_id}`}>
+                                  <TableCell>{item.from_subsystem_name}</TableCell>
+                                  <TableCell>{item.to_subsystem_name}</TableCell>
+                                  <TableCell>
+                                    <Chip label={item.dependency_type.replace(/_/g, ' ')} size="small" variant="outlined" />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.status}
+                                      size="small"
+                                      color={item.status === 'missing' ? 'error' : 'warning'}
+                                    />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
                   )}
                 </>
               )}
