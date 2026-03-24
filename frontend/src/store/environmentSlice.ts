@@ -207,9 +207,15 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch subsystems';
       })
       // updateEnvSubsystem
+      .addCase(updateEnvSubsystem.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(updateEnvSubsystem.fulfilled, (state, action) => {
         const idx = state.envSubsystems.findIndex((s) => s.subsystem_id === action.payload.subsystem_id);
         if (idx !== -1) state.envSubsystems[idx] = action.payload;
+        state.loading = false;
+      })
+      .addCase(updateEnvSubsystem.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to update subsystem';
       });
   },
 });
