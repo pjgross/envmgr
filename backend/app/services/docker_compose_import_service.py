@@ -58,7 +58,7 @@ async def import_docker_compose(
         raise ValueError("Invalid docker-compose file: expected a YAML mapping at the top level")
 
     services: dict[str, Any] = compose.get('services', {})
-    if not services:
+    if not isinstance(services, dict) or not services:
         raise ValueError("No services found in docker-compose file")
 
     # Load existing subsystems for this system (match by name for upsert)
@@ -76,10 +76,13 @@ async def import_docker_compose(
     name_to_id: dict[str, int] = {}
 
     for service_name, service_config in services.items():
+        if not isinstance(service_name, str):
+            continue
         service_config = service_config or {}
         image = service_config.get('image')
         component_type = infer_component_type(image)
         technology = image.split(':')[0] if image else None  # strip tag
+        technology = technology[:100] if technology else None
 
         if service_name in existing:
             # Update existing subsystem
@@ -118,6 +121,8 @@ async def import_docker_compose(
 
     dependencies_created = 0
     for service_name, service_config in services.items():
+        if not isinstance(service_name, str):
+            continue
         service_config = service_config or {}
         depends_on = service_config.get('depends_on', {})
 

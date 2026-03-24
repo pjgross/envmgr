@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.base import get_db
 from app.db.models.user import User
@@ -58,6 +59,8 @@ async def import_docker_compose_endpoint(
     await get_system(db, system_id, current_user.active_tenant_id)
 
     content = await file.read()
+    if len(content) > settings.MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
     try:
         result = await docker_compose_import_service.import_docker_compose(
             system_id=system_id,
