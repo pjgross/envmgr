@@ -47,7 +47,7 @@ class SubSystem(Base):
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    component_type: Mapped[str] = mapped_column(
+    component_type: Mapped[ComponentType] = mapped_column(
         SAEnum(ComponentType, native_enum=False, name="componenttype"),
         nullable=False,
         default=ComponentType.OTHER,
