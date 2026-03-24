@@ -110,12 +110,25 @@ interface CompDepEditFormValues {
   port: string;
 }
 
+const COMPONENT_TYPE_OPTIONS = [
+  { value: 'web_service', label: 'Web Service' },
+  { value: 'api_gateway', label: 'API Gateway' },
+  { value: 'database', label: 'Database' },
+  { value: 'cache', label: 'Cache' },
+  { value: 'message_queue', label: 'Message Queue' },
+  { value: 'worker', label: 'Worker' },
+  { value: 'frontend', label: 'Frontend' },
+  { value: 'other', label: 'Other' },
+];
+
 interface SubFormValues {
   name: string;
   description: string;
+  component_type: string;
+  technology: string;
 }
 
-const emptySubForm: SubFormValues = { name: '', description: '' };
+const emptySubForm: SubFormValues = { name: '', description: '', component_type: 'other', technology: '' };
 
 interface DepFormValues {
   to_system_id: number | '';
@@ -317,7 +330,7 @@ export default function SystemDetail() {
 
   const openSubEdit = (sub: SubSystemResponse) => {
     setSubEditTarget(sub);
-    setSubForm({ name: sub.name, description: sub.description ?? '' });
+    setSubForm({ name: sub.name, description: sub.description ?? '', component_type: sub.component_type ?? 'other', technology: sub.technology ?? '' });
     setSubFormError('');
     setCustomFieldValues(sub.custom_fields ?? {});
     setSubDialogOpen(true);
@@ -333,6 +346,8 @@ export default function SystemDetail() {
         const data: SubSystemUpdate = {
           name: subForm.name,
           description: subForm.description || undefined,
+          component_type: subForm.component_type,
+          technology: subForm.technology || undefined,
           custom_fields: customFieldValues,
         };
         await dispatch(
@@ -342,6 +357,8 @@ export default function SystemDetail() {
         const data: SubSystemCreate = {
           name: subForm.name,
           description: subForm.description || undefined,
+          component_type: subForm.component_type,
+          technology: subForm.technology || undefined,
           custom_fields: customFieldValues,
         };
         await dispatch(createSubSystem({ systemId, data })).unwrap();
@@ -768,6 +785,8 @@ export default function SystemDetail() {
               <TableHead>
                 <TableRow>
                   <TableCell>Name</TableCell>
+                  <TableCell>Type</TableCell>
+                  <TableCell>Technology</TableCell>
                   <TableCell>Description</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -776,6 +795,18 @@ export default function SystemDetail() {
                 {subsystems.map((sub) => (
                   <TableRow key={sub.id} hover>
                     <TableCell>{sub.name}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={COMPONENT_TYPE_OPTIONS.find(o => o.value === sub.component_type)?.label ?? sub.component_type ?? 'Other'}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {sub.technology ?? '—'}
+                      </Typography>
+                    </TableCell>
                     <TableCell>
                       <Typography variant="body2" color="text.secondary">
                         {sub.description ?? '—'}
@@ -801,7 +832,7 @@ export default function SystemDetail() {
                 ))}
                 {subsystems.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={3} align="center">
+                    <TableCell colSpan={5} align="center">
                       <Typography color="text.secondary" py={3}>
                         No subsystems yet.
                       </Typography>
@@ -1016,6 +1047,25 @@ export default function SystemDetail() {
             fullWidth
             multiline
             rows={2}
+          />
+          <FormControl fullWidth>
+            <InputLabel>Component Type</InputLabel>
+            <Select
+              label="Component Type"
+              value={subForm.component_type}
+              onChange={(e) => setSubForm({ ...subForm, component_type: e.target.value })}
+            >
+              {COMPONENT_TYPE_OPTIONS.map((opt) => (
+                <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Technology"
+            value={subForm.technology}
+            onChange={(e) => setSubForm({ ...subForm, technology: e.target.value })}
+            fullWidth
+            placeholder="e.g. PostgreSQL 15, FastAPI, Redis"
           />
           <CustomFieldsSection
             definitions={customFieldDefs}

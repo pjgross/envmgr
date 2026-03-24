@@ -39,11 +39,15 @@ export interface SystemUpdate {
 export interface SubSystemCreate {
   name: string;
   description?: string;
+  component_type?: string;
+  technology?: string;
   custom_fields?: Record<string, unknown>;
 }
 
 export interface SubSystemUpdate {
   name?: string;
   description?: string;
+  component_type?: string;
+  technology?: string;
   custom_fields?: Record<string, unknown>;
 }
