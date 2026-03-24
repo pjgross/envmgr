@@ -28,6 +28,7 @@ const topologySlice = createSlice({
     clearTopology: (state) => {
       state.data = null
       state.error = null
+      state.loading = false
     },
   },
   extraReducers: (builder) => {
