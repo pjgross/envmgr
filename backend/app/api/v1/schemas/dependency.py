@@ -38,12 +38,14 @@ class SystemDependencyCreate(BaseModel):
     dependency_type: DependencyType
     direction: DependencyDirection = DependencyDirection.ONE_WAY
     source: DependencySource = DependencySource.MANUAL
+    label: Optional[str] = None
 
 
 class SystemDependencyUpdate(BaseModel):
     dependency_type: Optional[DependencyType] = None
     source: Optional[DependencySource] = None
     direction: Optional[DependencyDirection] = None
+    label: Optional[str] = None
 
 
 class SystemDependencyResponse(BaseModel):
@@ -55,6 +57,7 @@ class SystemDependencyResponse(BaseModel):
     dependency_type: DependencyType
     direction: DependencyDirection
     source: DependencySource
+    label: Optional[str] = None
     tenant_id: int
     to_system: SystemResponse
     from_system: Optional[SystemBase] = None
@@ -73,6 +76,7 @@ class ComponentDependencyCreate(BaseModel):
     protocol: Optional[str] = None
     port: Optional[int] = None
     source: DependencySource = DependencySource.MANUAL
+    label: Optional[str] = None
 
 
 class ComponentDependencyUpdate(BaseModel):
@@ -81,6 +85,7 @@ class ComponentDependencyUpdate(BaseModel):
     port: Optional[int] = None
     source: Optional[DependencySource] = None
     direction: Optional[DependencyDirection] = None
+    label: Optional[str] = None
 
 
 class ComponentDependencyResponse(BaseModel):
@@ -94,6 +99,7 @@ class ComponentDependencyResponse(BaseModel):
     protocol: Optional[str] = None
     port: Optional[int] = None
     source: DependencySource
+    label: Optional[str] = None
     tenant_id: int
     to_subsystem: SubSystemResponse
     from_subsystem: Optional[SubSystemBase] = None

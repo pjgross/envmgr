@@ -108,6 +108,7 @@ async def create_system_dependency(
         dependency_type=data.dependency_type,
         direction=data.direction,
         source=data.source,
+        label=data.label,
         tenant_id=tenant_id,
     )
     db.add(dep)
@@ -288,6 +289,7 @@ async def create_component_dependency(
         protocol=data.protocol,
         port=data.port,
         source=data.source,
+        label=data.label,
         tenant_id=tenant_id,
     )
     db.add(dep)

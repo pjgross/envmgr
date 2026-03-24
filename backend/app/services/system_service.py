@@ -198,6 +198,8 @@ async def create_subsystem(
     subsystem = SubSystem(
         name=data.name,
         description=data.description,
+        component_type=data.component_type,
+        technology=data.technology,
         system_id=system_id,
         tenant_id=tenant_id,
         custom_fields=data.custom_fields,
@@ -236,6 +238,10 @@ async def update_subsystem(
 
     if data.description is not None:
         subsystem.description = data.description
+    if data.component_type is not None:
+        subsystem.component_type = data.component_type
+    if data.technology is not None:
+        subsystem.technology = data.technology
     if data.custom_fields is not None:
         subsystem.custom_fields = data.custom_fields
 

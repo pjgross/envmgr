@@ -50,6 +50,7 @@ class SystemDependency(Base):
         nullable=False,
         default=DependencySource.MANUAL,
     )
+    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
 
     __table_args__ = (
@@ -94,6 +95,7 @@ class ComponentDependency(Base):
         nullable=False,
         default=DependencySource.MANUAL,
     )
+    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
 
     __table_args__ = (
