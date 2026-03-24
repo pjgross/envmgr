@@ -15,6 +15,9 @@ from app.api.v1.schemas.environment import (
     EnvironmentSystemCreate,
     EnvironmentSystemUpdate,
     EnvironmentSystemResponse,
+    EnvironmentSystemsResponse,
+    EnvironmentSubsystemResponse,
+    EnvironmentSubsystemUpdate,
 )
 from app.api.v1.schemas.dependency import VerifyResponse
 from app.api.v1.schemas.version import VersionCreate, VersionUpdate, VersionResponse
@@ -94,7 +97,7 @@ async def verify_environment(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{env_id}/systems", response_model=list[EnvironmentSystemResponse])
+@router.get("/{env_id}/systems", response_model=EnvironmentSystemsResponse)
 async def list_systems_in_environment(
     env_id: int,
     db: AsyncSession = Depends(get_db),
@@ -143,6 +146,51 @@ async def remove_system_from_environment(
 ):
     await environment_system_service.remove_system_from_environment(
         db, env_id, system_id, current_user.active_tenant_id
+    )
+
+
+# ---------------------------------------------------------------------------
+# EnvironmentSubSystem endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{env_id}/subsystems", response_model=list[EnvironmentSubsystemResponse])
+async def list_environment_subsystems(
+    env_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_system_service.get_environment_subsystems(
+        db, env_id, current_user.active_tenant_id
+    )
+
+
+@router.patch("/{env_id}/subsystems/{subsystem_id}", response_model=EnvironmentSubsystemResponse)
+async def update_environment_subsystem(
+    env_id: int,
+    subsystem_id: int,
+    data: EnvironmentSubsystemUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await environment_system_service.update_environment_subsystem(
+        db, env_id, subsystem_id, data, current_user.active_tenant_id
+    )
+
+
+# ---------------------------------------------------------------------------
+# Environment Topology
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{env_id}/topology")
+async def get_environment_topology(
+    env_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_service.get_environment_topology(
+        db, env_id, current_user.active_tenant_id
     )
 
 
