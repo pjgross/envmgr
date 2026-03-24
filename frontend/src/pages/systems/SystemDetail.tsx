@@ -57,7 +57,9 @@ import {
   createComponentDependency,
   deleteComponentDependency,
 } from '../../store/dependencySlice';
+import { fetchTopology } from '../../store/topologySlice';
 import { dependencyService } from '../../services/dependencyService';
+import api from '../../services/api';
 import type {
   SystemUpdate,
   SubSystemResponse,
@@ -219,6 +221,13 @@ export default function SystemDetail() {
   // Component deps merged across all subsystems of this system
   const [allCompDeps, setAllCompDeps] = useState<ComponentDependencyResponse[]>([]);
   const [compDepsLoading, setCompDepsLoading] = useState(false);
+
+  // Docker Compose import dialog state
+  const [dcImportOpen, setDcImportOpen] = useState(false);
+  const [dcImportFile, setDcImportFile] = useState<File | null>(null);
+  const [dcImportLoading, setDcImportLoading] = useState(false);
+  const [dcImportResult, setDcImportResult] = useState<{ subsystems_created: number; subsystems_updated: number; dependencies_created: number } | null>(null);
+  const [dcImportError, setDcImportError] = useState('');
 
   useEffect(() => {
     dispatch(fetchSystem(systemId));
@@ -534,6 +543,36 @@ export default function SystemDetail() {
     }
   };
 
+  const openDcImport = () => {
+    setDcImportFile(null);
+    setDcImportResult(null);
+    setDcImportError('');
+    setDcImportOpen(true);
+  };
+
+  const handleDcImport = async () => {
+    if (!dcImportFile || !currentSystem) return;
+    setDcImportLoading(true);
+    setDcImportResult(null);
+    setDcImportError('');
+    try {
+      const form = new FormData();
+      form.append('system_id', String(currentSystem.id));
+      form.append('file', dcImportFile);
+      const res = await api.post('/import/docker-compose', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setDcImportResult(res.data as { subsystems_created: number; subsystems_updated: number; dependencies_created: number });
+      dispatch(fetchSubSystems(currentSystem.id));
+      dispatch(fetchTopology(currentSystem.id));
+    } catch (err: unknown) {
+      const anyErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      setDcImportError(anyErr?.response?.data?.detail ?? anyErr?.message ?? 'Import failed');
+    } finally {
+      setDcImportLoading(false);
+    }
+  };
+
   // Systems available for outgoing dependency (exclude self and already outgoing targets)
   const outgoingDepTargetIds = new Set(
     systemDependencies.filter((d) => !d.is_incoming).map((d) => d.to_system_id)
@@ -674,7 +713,10 @@ export default function SystemDetail() {
       {/* SubSystems Tab */}
       {tab === 1 && (
         <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 2 }}>
+            <Button variant="outlined" onClick={openDcImport}>
+              Import Docker Compose
+            </Button>
             <Button variant="contained" startIcon={<AddIcon />} onClick={openSubCreate}>
               Add SubSystem
             </Button>
@@ -1224,6 +1266,45 @@ export default function SystemDetail() {
           <Button onClick={() => setDepEditTarget(null)}>Cancel</Button>
           <Button onClick={handleDepEditSave} variant="contained" disabled={depLoading}>
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Docker Compose Import Dialog */}
+      <Dialog open={dcImportOpen} onClose={() => setDcImportOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Import Docker Compose</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {dcImportError && <Alert severity="error">{dcImportError}</Alert>}
+          {dcImportResult && (
+            <Alert severity="success">
+              Import complete: {dcImportResult.subsystems_created} subsystem(s) created,{' '}
+              {dcImportResult.subsystems_updated} updated,{' '}
+              {dcImportResult.dependencies_created} dependenc{dcImportResult.dependencies_created === 1 ? 'y' : 'ies'} created.
+            </Alert>
+          )}
+          <Button variant="outlined" component="label">
+            {dcImportFile ? dcImportFile.name : 'Choose docker-compose.yml'}
+            <input
+              type="file"
+              accept=".yml,.yaml"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setDcImportFile(f);
+                setDcImportResult(null);
+                setDcImportError('');
+              }}
+            />
+          </Button>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDcImportOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleDcImport}
+            disabled={!dcImportFile || dcImportLoading}
+          >
+            {dcImportLoading ? 'Importing…' : 'Import'}
           </Button>
         </DialogActions>
       </Dialog>
