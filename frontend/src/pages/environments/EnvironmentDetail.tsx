@@ -42,13 +42,13 @@ import {
   fetchEnvironment,
   updateEnvironment,
   fetchEnvironmentSystems,
+  fetchEnvSubsystems,
   addSystemToEnvironment,
-  updateSystemInEnvironment,
   removeSystemFromEnvironment,
 } from '../../store/environmentSlice';
 import { fetchSystems } from '../../store/systemSlice';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
-import { fetchVersions, recordVersion, clearVersions, updateVersion, deleteVersion } from '../../store/versionSlice';
+import { fetchVersions, recordVersion, updateVersion, deleteVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { systemService } from '../../services/systemService';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
@@ -58,8 +58,6 @@ import type {
   EnvironmentStatus,
   EnvironmentSystemResponse,
   EnvironmentSystemCreate,
-  EnvironmentSystemUpdate,
-  EnvironmentSystemStatus,
 } from '../../types/environment';
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
 import type { SubSystemResponse } from '../../types/system';
@@ -71,11 +69,6 @@ const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default'
   decommissioned: 'error',
 };
 
-const ENV_SYS_STATUS_COLORS: Record<EnvironmentSystemStatus, 'success' | 'warning' | 'default'> = {
-  active: 'success',
-  mock: 'warning',
-  inactive: 'default',
-};
 
 interface EnvFormValues {
   name: string;
@@ -86,11 +79,9 @@ interface EnvFormValues {
 
 interface SysFormValues {
   system_id: number | '';
-  status: EnvironmentSystemStatus;
-  mock_notes: string;
 }
 
-const emptySysForm: SysFormValues = { system_id: '', status: 'active', mock_notes: '' };
+const emptySysForm: SysFormValues = { system_id: '' };
 
 export default function EnvironmentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -98,9 +89,11 @@ export default function EnvironmentDetail() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
 
-  const { currentEnvironment, environmentSystems, loading, error } = useSelector(
+  const { currentEnvironment, environmentSystemsData, loading, error } = useSelector(
     (state: RootState) => state.environment
   );
+  const environmentSystems = environmentSystemsData.systems;
+  const missingSystems = environmentSystemsData.missing_systems;
   const { systems } = useSelector((state: RootState) => state.system);
   const { verifyResult, loading: verifyLoading } = useSelector(
     (state: RootState) => state.dependency
@@ -145,7 +138,6 @@ export default function EnvironmentDetail() {
 
   // System dialog state
   const [sysDialogOpen, setSysDialogOpen] = useState(false);
-  const [sysEditTarget, setSysEditTarget] = useState<EnvironmentSystemResponse | null>(null);
   const [sysForm, setSysForm] = useState<SysFormValues>(emptySysForm);
   const [sysFormError, setSysFormError] = useState('');
   const [sysDeleteTarget, setSysDeleteTarget] = useState<EnvironmentSystemResponse | null>(null);
@@ -194,45 +186,21 @@ export default function EnvironmentDetail() {
   };
 
   const openSysCreate = () => {
-    setSysEditTarget(null);
     setSysForm(emptySysForm);
-    setSysFormError('');
-    setSysDialogOpen(true);
-  };
-
-  const openSysEdit = (envSys: EnvironmentSystemResponse) => {
-    setSysEditTarget(envSys);
-    setSysForm({
-      system_id: envSys.system_id,
-      status: envSys.status,
-      mock_notes: envSys.mock_notes ?? '',
-    });
     setSysFormError('');
     setSysDialogOpen(true);
   };
 
   const handleSysSave = async () => {
     try {
-      if (sysEditTarget) {
-        const data: EnvironmentSystemUpdate = {
-          status: sysForm.status,
-          mock_notes: sysForm.mock_notes || undefined,
-        };
-        await dispatch(
-          updateSystemInEnvironment({ envId, systemId: sysEditTarget.system_id, data })
-        ).unwrap();
-      } else {
-        if (!sysForm.system_id) {
-          setSysFormError('Please select a system');
-          return;
-        }
-        const data: EnvironmentSystemCreate = {
-          system_id: sysForm.system_id as number,
-          status: sysForm.status,
-          mock_notes: sysForm.mock_notes || undefined,
-        };
-        await dispatch(addSystemToEnvironment({ envId, data })).unwrap();
+      if (!sysForm.system_id) {
+        setSysFormError('Please select a system');
+        return;
       }
+      const data: EnvironmentSystemCreate = {
+        system_id: sysForm.system_id as number,
+      };
+      await dispatch(addSystemToEnvironment({ envId, data })).unwrap();
       setSysDialogOpen(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -258,9 +226,8 @@ export default function EnvironmentDetail() {
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setTab(newValue);
     if (newValue === 2) {
-      // Lazy-load versions when tab is first opened
-      dispatch(clearVersions());
-      dispatch(fetchVersions({ envId, currentOnly: versionCurrentOnly }));
+      // Lazy-load subsystems when Components tab is first opened
+      dispatch(fetchEnvSubsystems(envId));
     }
   };
 
@@ -405,7 +372,8 @@ export default function EnvironmentDetail() {
       <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 2 }}>
         <Tab label="Overview" />
         <Tab label="Systems" />
-        <Tab label="Versions" />
+        <Tab label="Components" />
+        <Tab label="Topology" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -624,8 +592,6 @@ export default function EnvironmentDetail() {
               <TableHead>
                 <TableRow>
                   <TableCell>System</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Mock Notes</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -637,24 +603,7 @@ export default function EnvironmentDetail() {
                         {envSys.system.name}
                       </Typography>
                     </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={envSys.status}
-                        size="small"
-                        color={ENV_SYS_STATUS_COLORS[envSys.status]}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {envSys.mock_notes ?? '—'}
-                      </Typography>
-                    </TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => openSysEdit(envSys)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
                       <Tooltip title="Remove">
                         <IconButton
                           size="small"
@@ -667,9 +616,35 @@ export default function EnvironmentDetail() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {environmentSystems.length === 0 && !loading && (
+                {missingSystems.map((sys) => (
+                  <TableRow key={`missing-${sys.id}`} sx={{ opacity: 0.5 }}>
+                    <TableCell>
+                      <Typography variant="body2">{sys.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Required by a dependency — not yet in environment
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Add to environment">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={() => {
+                            setSysForm({ system_id: sys.id });
+                            setSysFormError('');
+                            setSysDialogOpen(true);
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {environmentSystems.length === 0 && missingSystems.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={4} align="center">
+                    <TableCell colSpan={2} align="center">
                       <Typography color="text.secondary" py={3}>
                         No systems assigned to this environment yet.
                       </Typography>
@@ -868,64 +843,37 @@ export default function EnvironmentDetail() {
         </DialogActions>
       </Dialog>
 
-      {/* Add / Edit System Dialog */}
+      {/* Add System Dialog */}
       <Dialog open={sysDialogOpen} onClose={() => setSysDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{sysEditTarget ? 'Edit System in Environment' : 'Add System'}</DialogTitle>
+        <DialogTitle>Add System</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {sysFormError && <Alert severity="error">{sysFormError}</Alert>}
 
-          {!sysEditTarget && (
-            <FormControl fullWidth required>
-              <InputLabel>System</InputLabel>
-              <Select
-                label="System"
-                value={sysForm.system_id}
-                onChange={(e) => setSysForm({ ...sysForm, system_id: e.target.value as number })}
-              >
-                {availableSystems.length === 0 ? (
-                  <MenuItem disabled value="">
-                    No available systems
-                  </MenuItem>
-                ) : (
-                  availableSystems.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
-          )}
-
-          <FormControl fullWidth>
-            <InputLabel>Status</InputLabel>
+          <FormControl fullWidth required>
+            <InputLabel>System</InputLabel>
             <Select
-              label="Status"
-              value={sysForm.status}
-              onChange={(e) =>
-                setSysForm({ ...sysForm, status: e.target.value as EnvironmentSystemStatus })
-              }
+              label="System"
+              value={sysForm.system_id}
+              onChange={(e) => setSysForm({ ...sysForm, system_id: e.target.value as number })}
             >
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-              <MenuItem value="mock">Mock</MenuItem>
+              {availableSystems.length === 0 ? (
+                <MenuItem disabled value="">
+                  No available systems
+                </MenuItem>
+              ) : (
+                availableSystems.map((s) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.name}
+                  </MenuItem>
+                ))
+              )}
             </Select>
           </FormControl>
-
-          <TextField
-            label="Mock Notes"
-            value={sysForm.mock_notes}
-            onChange={(e) => setSysForm({ ...sysForm, mock_notes: e.target.value })}
-            fullWidth
-            multiline
-            rows={2}
-            placeholder="Notes about mock behaviour (optional)"
-          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSysDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSysSave} variant="contained" disabled={loading}>
-            {sysEditTarget ? 'Save' : 'Add'}
+            Add
           </Button>
         </DialogActions>
       </Dialog>
