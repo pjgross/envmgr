@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.db.models.environment import EnvironmentStatus, EnvironmentSystemStatus
+from app.db.models.environment import EnvironmentStatus
 from app.api.v1.schemas.system import SystemResponse
 
 
@@ -39,13 +39,10 @@ class EnvironmentResponse(BaseModel):
 
 class EnvironmentSystemCreate(BaseModel):
     system_id: int
-    status: EnvironmentSystemStatus = EnvironmentSystemStatus.ACTIVE
-    mock_notes: Optional[str] = None
 
 
 class EnvironmentSystemUpdate(BaseModel):
-    status: Optional[EnvironmentSystemStatus] = None
-    mock_notes: Optional[str] = None
+    pass  # reserved for future fields
 
 
 class EnvironmentSystemResponse(BaseModel):
@@ -54,6 +51,53 @@ class EnvironmentSystemResponse(BaseModel):
     id: int
     environment_id: int
     system_id: int
-    status: EnvironmentSystemStatus
-    mock_notes: Optional[str] = None
     system: SystemResponse
+
+
+class SystemSummary(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+
+class EnvironmentSystemsResponse(BaseModel):
+    """Response for GET /environments/{env_id}/systems — includes missing systems."""
+    systems: list[EnvironmentSystemResponse]
+    missing_systems: list[SystemSummary]
+
+
+class VersionSummary(BaseModel):
+    build_id: str
+    version_label: str
+    installed_at: datetime
+
+
+class EnvironmentSubsystemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    environment_id: int
+    subsystem_id: int
+    subsystem_name: str
+    component_type: str
+    technology: Optional[str] = None
+    system_id: int
+    system_name: str
+    is_mocked: bool
+    mock_notes: Optional[str] = None
+    latest_version: Optional[VersionSummary] = None
+
+
+class EnvironmentSubsystemUpdate(BaseModel):
+    is_mocked: Optional[bool] = None
+    mock_notes: Optional[str] = None
+
+
+class EnvSubsystemNode(BaseModel):
+    """Subsystem node for the environment topology response."""
+    id: int
+    name: str
+    component_type: str
+    technology: Optional[str] = None
+    system_id: int
+    is_mocked: bool

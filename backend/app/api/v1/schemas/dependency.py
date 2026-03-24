@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.db.models.dependency import DependencyType, DependencySource, DependencyDirection
+from app.db.models.dependency import DependencyType, DependencySource, DependencyDirection, HttpMethod
 from app.api.v1.schemas.system import SystemResponse, SubSystemResponse
 
 
@@ -65,6 +65,34 @@ class SystemDependencyResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# ComponentEndpoint schemas
+# ---------------------------------------------------------------------------
+
+
+class ComponentEndpointCreate(BaseModel):
+    http_method: Optional[HttpMethod] = None
+    path: str
+    description: Optional[str] = None
+
+
+class ComponentEndpointUpdate(BaseModel):
+    http_method: Optional[HttpMethod] = None
+    path: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ComponentEndpointResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    dependency_id: int
+    http_method: Optional[HttpMethod] = None
+    path: str
+    description: Optional[str] = None
+    tenant_id: int
+
+
+# ---------------------------------------------------------------------------
 # ComponentDependency schemas
 # ---------------------------------------------------------------------------
 
@@ -104,6 +132,7 @@ class ComponentDependencyResponse(BaseModel):
     to_subsystem: SubSystemResponse
     from_subsystem: Optional[SubSystemBase] = None
     is_incoming: bool = False
+    endpoints: list[ComponentEndpointResponse] = []
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +153,15 @@ class SystemVerifyResult(BaseModel):
     dependencies: list[DependencyVerifyItem]
 
 
+class ComponentVerifyItem(BaseModel):
+    from_subsystem_id: int
+    from_subsystem_name: str
+    to_subsystem_id: int
+    to_subsystem_name: str
+    dependency_type: DependencyType
+    status: Literal["satisfied", "mocked", "missing"]
+
+
 class VerifyResponse(BaseModel):
     environment_id: int
     total_dependencies: int
@@ -131,3 +169,8 @@ class VerifyResponse(BaseModel):
     mocked_count: int
     missing_count: int
     systems: list[SystemVerifyResult]
+    component_total: int = 0
+    component_satisfied: int = 0
+    component_mocked: int = 0
+    component_missing: int = 0
+    component_dependencies: list[ComponentVerifyItem] = []
