@@ -176,11 +176,11 @@ def upgrade() -> None:
           AND blt.tenant_id NOT IN (SELECT tenant_id FROM booking_type)
     """)
 
-    # 7. Backfill booking.exclusive_use (EXCLUSIVE -> true, SHARED -> false)
-    # Values stored as uppercase strings due to native_enum=False
+    # 7. Backfill booking.exclusive_use (exclusive -> true, shared -> false)
+    # Values stored as lowercase strings because native_enum=False stores the enum .value
     op.execute("""
         UPDATE booking
-        SET exclusive_use = CASE WHEN booking_type = 'EXCLUSIVE' THEN true ELSE false END
+        SET exclusive_use = CASE WHEN booking_type = 'exclusive' THEN true ELSE false END
         WHERE exclusive_use IS NULL
     """)
 
@@ -246,7 +246,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_constraint("fk_booking_booking_type_id", "booking", type_="foreignkey")
     op.add_column("booking", sa.Column("booking_type", sa.String(), nullable=True))
-    op.execute("UPDATE booking SET booking_type = CASE WHEN exclusive_use THEN 'EXCLUSIVE' ELSE 'SHARED' END")
+    op.execute("UPDATE booking SET booking_type = CASE WHEN exclusive_use THEN 'exclusive' ELSE 'shared' END")
     op.alter_column("booking", "booking_type", nullable=False)
 
     op.add_column("booking", sa.Column("status_old", sa.String(), nullable=True))
