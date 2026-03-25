@@ -141,12 +141,6 @@ export default function AppLayout() {
                                 <ListItemText>Tenant Admin</ListItemText>
                             </MenuItem>
                         )}
-                        {user?.role === 'Admin' && (
-                            <MenuItem onClick={() => handleMenuNav('/tenant/booking-config')}>
-                                <ListItemIcon><AdminPanelSettingsIcon fontSize="small" /></ListItemIcon>
-                                <ListItemText>Booking Config</ListItemText>
-                            </MenuItem>
-                        )}
                         {(user?.is_master_admin || user?.role === 'Admin') && <Divider />}
                         <MenuItem onClick={handleLogout}>
                             <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>

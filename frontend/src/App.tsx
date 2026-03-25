@@ -17,7 +17,6 @@ import BookingDetail from './pages/bookings/BookingDetail'
 import ImportPage from './pages/import/ImportPage'
 import AdminLayout from './pages/admin/AdminLayout'
 import EntityConfig from './pages/admin/EntityConfig'
-import BookingConfiguration from './pages/admin/BookingConfiguration'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import AppLayout from './components/AppLayout'
 
@@ -62,10 +61,6 @@ function App() {
                     <Route
                         path="/tenant/users"
                         element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>}
-                    />
-                    <Route
-                        path="/tenant/booking-config"
-                        element={<PrivateRoute requiredRole="Admin"><BookingConfiguration /></PrivateRoute>}
                     />
                     <Route path="/systems" element={<SystemCatalog />} />
                     <Route path="/systems/:id" element={<SystemDetail />} />
