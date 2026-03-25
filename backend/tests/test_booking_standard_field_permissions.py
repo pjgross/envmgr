@@ -75,9 +75,10 @@ def test_mandatory_field_no_roles_in_initial_state():
         LifecycleDefinition.model_validate(d)
 
 
-def test_non_mandatory_field_can_be_readonly():
-    """Non-mandatory field (notes) with no roles does not fail validation."""
-    fields = {**MANDATORY_EDITABLE, "notes": {"editable_by": []}}
+@pytest.mark.parametrize("field", ["notes", "exclusive_use", "context_tag"])
+def test_non_mandatory_field_can_be_readonly(field):
+    """Non-mandatory fields with no roles do not fail validation."""
+    fields = {**MANDATORY_EDITABLE, field: {"editable_by": []}}
     d = _make_definition(fields)
     LifecycleDefinition.model_validate(d)  # should not raise
 

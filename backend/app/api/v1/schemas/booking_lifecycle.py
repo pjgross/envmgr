@@ -29,7 +29,7 @@ class LifecycleTransition(BaseModel):
     allowed_roles: list[str]
 
 
-class CustomFieldPermission(BaseModel):
+class _FieldPermission(BaseModel):
     editable_by: list[str]
 
     @field_validator("editable_by")
@@ -41,16 +41,12 @@ class CustomFieldPermission(BaseModel):
         return v
 
 
-class StandardFieldPermission(BaseModel):
-    editable_by: list[str]
+class CustomFieldPermission(_FieldPermission):
+    pass
 
-    @field_validator("editable_by")
-    @classmethod
-    def validate_roles(cls, v: list[str]) -> list[str]:
-        invalid = set(v) - VALID_ROLES
-        if invalid:
-            raise ValueError(f"Invalid roles: {invalid}. Must be one of {VALID_ROLES}")
-        return v
+
+class StandardFieldPermission(_FieldPermission):
+    pass
 
 
 class LifecycleFieldPermission(BaseModel):
@@ -88,7 +84,7 @@ class LifecycleDefinition(BaseModel):
         if perm is None:
             raise ValueError(
                 f"Initial state '{initial.key}' has no field_permissions entry. "
-                f"Mandatory fields {MANDATORY_STANDARD_FIELDS} must each have at least one editable role."
+                f"Mandatory fields {sorted(MANDATORY_STANDARD_FIELDS)} must each have at least one editable role."
             )
         for field in MANDATORY_STANDARD_FIELDS:
             sf = perm.standard_fields.get(field)
