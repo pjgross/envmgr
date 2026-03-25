@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { Link as RouterLink } from 'react-router-dom'
 import {
   Alert,
   Box,
@@ -98,6 +99,17 @@ export default function BookingList() {
       headerName: 'Project',
       flex: 1.5,
       hideable: false,
+      renderCell: ({ row }) => (
+        <Button
+          variant="text"
+          size="small"
+          component={RouterLink}
+          to={`/bookings/${row.id}`}
+          sx={{ textTransform: 'none', p: 0, minWidth: 0, justifyContent: 'flex-start' }}
+        >
+          {row.project_name}
+        </Button>
+      ),
     },
     {
       field: 'environment_name',
