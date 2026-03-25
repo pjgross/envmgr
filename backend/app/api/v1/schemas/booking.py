@@ -42,6 +42,7 @@ class BookingResponse(BaseModel):
     test_phase_id: Optional[int] = None
     context_tag: ContextTag
     custom_fields: Optional[dict] = None
+    custom_field_permissions: Optional[dict[str, dict]] = None
     tenant_id: int
     created_at: datetime
     updated_at: datetime

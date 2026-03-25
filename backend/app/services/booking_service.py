@@ -16,11 +16,12 @@ from app.db.models.booking_lifecycle import (
 )
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
-from app.services.custom_field_service import validate_custom_fields
+from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
 from app.services.booking_lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
     get_editable_fields,
+    get_custom_field_permissions,
 )
 
 
@@ -456,3 +457,68 @@ async def delete_series(db: AsyncSession, booking_id: int, current_user) -> None
     )
 
     await db.flush()
+
+
+async def get_custom_field_perms_for_booking(
+    db: AsyncSession, booking: Booking, user_role: str
+) -> dict[str, dict]:
+    """
+    Load the lifecycle template for a booking and return the resolved
+    custom_field_permissions map for the booking's current state and user role.
+    Returns empty dict if the booking type or template is not found.
+    """
+    bt_result = await db.execute(
+        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+    )
+    booking_type_obj = bt_result.scalar_one_or_none()
+    if not booking_type_obj:
+        return {}
+
+    tmpl_result = await db.execute(
+        select(BookingLifecycleTemplate).where(
+            BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+        )
+    )
+    template = tmpl_result.scalar_one_or_none()
+    if not template:
+        return {}
+
+    active_keys = await get_active_field_keys(db, booking.tenant_id, "booking")
+    return get_custom_field_permissions(
+        template.definition, booking.status, user_role, active_keys
+    )
+
+
+async def update_custom_fields(
+    db: AsyncSession,
+    booking_id: int,
+    values: dict,
+    current_user,
+) -> Booking:
+    """
+    Update the custom_fields JSON on a booking.
+    Only fields that are visible AND editable for the current user's role in the
+    current state are permitted. Raises 403 if any submitted key is not editable.
+    """
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+    perms = await get_custom_field_perms_for_booking(db, booking, current_user.role)
+
+    for key in values:
+        entry = perms.get(key)
+        if entry is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Field '{key}' is not visible in state '{booking.status}'",
+            )
+        if not entry["editable"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Field '{key}' is not editable in state '{booking.status}' for your role",
+            )
+
+    # Merge into existing values (partial update — do not wipe unlisted keys)
+    existing = booking.custom_fields or {}
+    booking.custom_fields = {**existing, **values}
+    await db.flush()
+    await db.refresh(booking)
+    return booking

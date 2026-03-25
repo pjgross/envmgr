@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -80,7 +80,26 @@ async def get_booking(
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.get_booking(db, booking_id, current_user.active_tenant_id)
-    return _to_response(booking)
+    resp = _to_response(booking)
+    resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
+        db, booking, current_user.role
+    )
+    return resp
+
+
+@router.patch("/{booking_id}/custom-fields", response_model=BookingResponse)
+async def update_custom_fields(
+    booking_id: int,
+    values: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    booking = await booking_service.update_custom_fields(db, booking_id, values, current_user)
+    resp = _to_response(booking)
+    resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
+        db, booking, current_user.role
+    )
+    return resp
 
 
 @router.post("/{booking_id}/approve", response_model=BookingResponse)

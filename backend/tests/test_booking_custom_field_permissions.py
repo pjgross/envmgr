@@ -136,3 +136,120 @@ def test_get_custom_field_permissions_no_custom_fields_in_state():
     }
     result = get_custom_field_permissions(definition, "draft", "Admin", {"any_key"})
     assert result == {}
+
+
+# Note: uses a different constant name to avoid clash with DEFINITION_WITH_CUSTOM_FIELDS from Task 1
+BOOKING_DEF = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": True},
+    ],
+    "transitions": [
+        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin"]},
+    ],
+    "field_permissions": {
+        "draft": {
+            "editable_fields": ["project_name"],
+            "editable_by": ["Admin"],
+            "custom_fields": {
+                "release_notes": {"editable_by": ["Admin"]},
+            },
+        },
+        "submitted": {
+            "editable_fields": [],
+            "editable_by": [],
+            "custom_fields": {},
+        },
+    },
+}
+
+
+async def _setup_booking_with_cf_template(client, auth_headers):
+    """Create template, booking type, environment, and booking. Return booking_id."""
+    tmpl = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "CF Template", "definition": BOOKING_DEF},
+    )
+    template_id = tmpl.json()["id"]
+    bt = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={"name": "CF Type", "lifecycle_template_id": template_id},
+    )
+    bt_id = bt.json()["id"]
+
+    # Create custom field definition
+    await client.post(
+        "/api/v1/tenant/fields",
+        headers=auth_headers,
+        json={"entity_type": "booking", "label": "Release Notes", "field_key": "release_notes", "field_type": "text"},
+    )
+
+    env = await client.post(
+        "/api/v1/environments/",
+        headers=auth_headers,
+        json={"name": "CFTestEnv", "environment_type": "testing"},
+    )
+    env_id = env.json()["id"]
+
+    booking = await client.post(
+        "/api/v1/bookings/",
+        headers=auth_headers,
+        json={
+            "environment_id": env_id,
+            "project_name": "CF Project",
+            "start_date": "2026-04-01T09:00:00Z",
+            "end_date": "2026-04-01T17:00:00Z",
+            "booking_type_id": bt_id,
+            "custom_fields": {"release_notes": "initial notes"},
+        },
+    )
+    return booking.json()["booking"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_get_booking_includes_custom_field_permissions(client: AsyncClient, auth_headers: dict):
+    """GET /bookings/{id} includes custom_field_permissions resolved for current state+role."""
+    booking_id = await _setup_booking_with_cf_template(client, auth_headers)
+
+    resp = await client.get(f"/api/v1/bookings/{booking_id}", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "custom_field_permissions" in data
+    # Booking is in draft; Admin can edit release_notes
+    assert data["custom_field_permissions"]["release_notes"] == {"visible": True, "editable": True}
+
+
+@pytest.mark.asyncio
+async def test_patch_custom_fields_updates_booking(client: AsyncClient, auth_headers: dict):
+    """PATCH /bookings/{id}/custom-fields updates the custom_fields JSON."""
+    booking_id = await _setup_booking_with_cf_template(client, auth_headers)
+
+    resp = await client.patch(
+        f"/api/v1/bookings/{booking_id}/custom-fields",
+        headers=auth_headers,
+        json={"release_notes": "updated notes"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["custom_fields"]["release_notes"] == "updated notes"
+
+
+@pytest.mark.asyncio
+async def test_patch_custom_fields_hidden_field_rejected(client: AsyncClient, auth_headers: dict):
+    """PATCH /bookings/{id}/custom-fields rejects update for a field not visible in current state."""
+    booking_id = await _setup_booking_with_cf_template(client, auth_headers)
+
+    # Transition to submitted where release_notes is hidden (custom_fields: {})
+    await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "submitted"},
+    )
+
+    resp = await client.patch(
+        f"/api/v1/bookings/{booking_id}/custom-fields",
+        headers=auth_headers,
+        json={"release_notes": "trying to edit hidden field"},
+    )
+    assert resp.status_code == 403, resp.text
