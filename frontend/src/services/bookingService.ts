@@ -43,4 +43,7 @@ export const bookingService = {
 
   updateCustomFields: (id: number, values: Record<string, unknown>): Promise<BookingResponse> =>
     api.patch(`/bookings/${id}/custom-fields`, values).then((r) => r.data),
+
+  updateStandardFields: (id: number, values: Record<string, unknown>): Promise<BookingResponse> =>
+    api.patch(`/bookings/${id}/standard-fields`, values).then((r) => r.data),
 };

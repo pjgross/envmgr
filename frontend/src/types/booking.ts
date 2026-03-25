@@ -26,6 +26,7 @@ export interface BookingResponse {
   context_tag: ContextTag;
   custom_fields: Record<string, unknown> | null;
   custom_field_permissions?: Record<string, CustomFieldPermission>;
+  standard_field_permissions?: Record<string, { editable: boolean }>;
   tenant_id: number;
   created_at: string;
   updated_at: string;

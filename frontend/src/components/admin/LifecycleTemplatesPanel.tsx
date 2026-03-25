@@ -117,9 +117,17 @@ export default function LifecycleTemplatesPanel() {
     })));
     const fp: Record<string, FieldPermState> = {};
     for (const [stateKey, perm] of Object.entries(template.definition.field_permissions ?? {})) {
+      // standard_fields is a map of field_key -> { editable_by: string[] }
+      // Flatten to editable_fields (keys) and editable_by (union of all roles) for the local editor state
+      const stdFields = perm.standard_fields ?? {};
+      const editableFields = Object.keys(stdFields);
+      const editableBySet = new Set<string>();
+      for (const sf of Object.values(stdFields)) {
+        sf.editable_by.forEach((r) => editableBySet.add(r));
+      }
       fp[stateKey] = {
-        editable_fields: perm.editable_fields ?? [],
-        editable_by: perm.editable_by ?? [],
+        editable_fields: editableFields,
+        editable_by: Array.from(editableBySet),
         custom_fields: (perm.custom_fields as Record<string, { editable_by: string[] }>) ?? {},
       };
     }
@@ -139,7 +147,12 @@ export default function LifecycleTemplatesPanel() {
       field_permissions: Object.fromEntries(
         stateKeys.map((key) => {
           const perm = fieldPerms[key] ?? { editable_fields: [], editable_by: [], custom_fields: {} };
-          return [key, { editable_fields: perm.editable_fields, editable_by: perm.editable_by, custom_fields: perm.custom_fields }];
+          // Convert local editor state (editable_fields + editable_by) to new standard_fields shape
+          const standardFields: Record<string, { editable_by: string[] }> = {};
+          for (const field of perm.editable_fields) {
+            standardFields[field] = { editable_by: perm.editable_by };
+          }
+          return [key, { standard_fields: standardFields, custom_fields: perm.custom_fields }];
         })
       ),
     };
