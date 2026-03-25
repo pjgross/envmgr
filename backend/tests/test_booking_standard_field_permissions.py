@@ -225,3 +225,173 @@ def test_get_standard_field_permissions_unknown_state():
     """State not in field_permissions returns empty set (fail-closed)."""
     result = get_standard_field_permissions(SF_DEFINITION, "nonexistent", "Admin")
     assert result == set()
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for PATCH /{booking_id}/standard-fields
+# ---------------------------------------------------------------------------
+
+import pytest_asyncio
+from httpx import AsyncClient
+
+# Template definition: Admin can edit all standard fields in draft;
+# Developer can only edit project_name, start_date, end_date, booking_type (not exclusive_use).
+INTEGRATION_TEST_DEFINITION = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        {"key": "closed", "label": "Closed", "is_initial": False, "is_terminal": True},
+    ],
+    "transitions": [
+        {"from_state": "draft", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin"]},
+    ],
+    "field_permissions": {
+        "draft": {
+            "standard_fields": {
+                "project_name": {"editable_by": ["Admin", "Developer"]},
+                "start_date": {"editable_by": ["Admin", "Developer"]},
+                "end_date": {"editable_by": ["Admin", "Developer"]},
+                "booking_type": {"editable_by": ["Admin", "Developer"]},
+                "notes": {"editable_by": ["Admin"]},
+                "exclusive_use": {"editable_by": ["Admin"]},
+                "context_tag": {"editable_by": ["Admin"]},
+            },
+        },
+        "closed": {"standard_fields": {}},
+    },
+}
+
+
+@pytest_asyncio.fixture
+async def sf_booking(client: AsyncClient, auth_headers: dict) -> dict:
+    """Create a lifecycle template, booking type, environment, and booking for integration tests."""
+    # Create lifecycle template
+    tmpl_resp = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "SF Integration Template", "definition": INTEGRATION_TEST_DEFINITION},
+    )
+    assert tmpl_resp.status_code == 201, tmpl_resp.text
+    template_id = tmpl_resp.json()["id"]
+
+    # Create booking type
+    bt_resp = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={"name": "SF Integration Type", "lifecycle_template_id": template_id},
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+    booking_type_id = bt_resp.json()["id"]
+
+    # Create environment
+    env_resp = await client.post(
+        "/api/v1/environments/",
+        headers=auth_headers,
+        json={"name": "SF Integration Env", "environment_type": "test"},
+    )
+    assert env_resp.status_code == 201, env_resp.text
+    env_id = env_resp.json()["id"]
+
+    # Create booking
+    booking_resp = await client.post(
+        "/api/v1/bookings/",
+        headers=auth_headers,
+        json={
+            "environment_id": env_id,
+            "project_name": "Initial Project",
+            "start_date": "2026-06-01T10:00:00Z",
+            "end_date": "2026-06-01T14:00:00Z",
+            "booking_type_id": booking_type_id,
+            "exclusive_use": False,
+            "notes": "Initial notes",
+        },
+    )
+    assert booking_resp.status_code == 201, booking_resp.text
+    return booking_resp.json()["booking"]
+
+
+@pytest.mark.asyncio
+async def test_update_standard_fields_success(
+    client: AsyncClient, auth_headers: dict, sf_booking: dict
+):
+    """PATCH notes field as Admin succeeds and returns updated value."""
+    booking_id = sf_booking["id"]
+    resp = await client.patch(
+        f"/api/v1/bookings/{booking_id}/standard-fields",
+        headers=auth_headers,
+        json={"notes": "Updated notes via PATCH"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["notes"] == "Updated notes via PATCH"
+
+
+@pytest.mark.asyncio
+async def test_update_standard_fields_forbidden(
+    client: AsyncClient, db_session, test_tenant, sf_booking: dict
+):
+    """PATCH exclusive_use as Developer (role without permission) returns 403."""
+    from app.db.models.user import User
+    from app.core.security import get_password_hash
+
+    # Create a Developer user
+    dev_user = User(
+        tenant_id=test_tenant.id,
+        username="sfdev",
+        email="sfdev@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Developer",
+        is_active=True,
+    )
+    db_session.add(dev_user)
+    await db_session.commit()
+    await db_session.refresh(dev_user)
+
+    login_resp = await client.post("/api/v1/auth/login", json={
+        "username": "sfdev",
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert login_resp.status_code == 200, login_resp.text
+    dev_headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+    booking_id = sf_booking["id"]
+    resp = await client.patch(
+        f"/api/v1/bookings/{booking_id}/standard-fields",
+        headers=dev_headers,
+        json={"exclusive_use": True},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_standard_fields_get_includes_permissions(
+    client: AsyncClient, auth_headers: dict, sf_booking: dict
+):
+    """GET booking detail includes standard_field_permissions with all 7 fields."""
+    booking_id = sf_booking["id"]
+
+    # First perform an update so we know the booking has the right state
+    patch_resp = await client.patch(
+        f"/api/v1/bookings/{booking_id}/standard-fields",
+        headers=auth_headers,
+        json={"notes": "Permission check notes"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+
+    # Now GET and assert standard_field_permissions present with all 7 fields
+    get_resp = await client.get(
+        f"/api/v1/bookings/{booking_id}",
+        headers=auth_headers,
+    )
+    assert get_resp.status_code == 200, get_resp.text
+    data = get_resp.json()
+    assert "standard_field_permissions" in data
+    perms = data["standard_field_permissions"]
+    expected_fields = {
+        "project_name", "start_date", "end_date", "booking_type",
+        "notes", "exclusive_use", "context_tag",
+    }
+    assert set(perms.keys()) == expected_fields
+    # Admin should have all fields editable in draft state
+    for field_name in expected_fields:
+        assert perms[field_name]["editable"] is True, f"{field_name} should be editable for Admin"

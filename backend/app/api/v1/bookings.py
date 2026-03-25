@@ -84,6 +84,27 @@ async def get_booking(
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
     )
+    resp.standard_field_permissions = await booking_service.get_standard_field_perms_for_booking(
+        db, booking, current_user.role
+    )
+    return resp
+
+
+@router.patch("/{booking_id}/standard-fields", response_model=BookingResponse)
+async def update_standard_fields(
+    booking_id: int,
+    values: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    booking = await booking_service.update_standard_fields(db, booking_id, values, current_user)
+    resp = _to_response(booking)
+    resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
+        db, booking, current_user.role
+    )
+    resp.standard_field_permissions = await booking_service.get_standard_field_perms_for_booking(
+        db, booking, current_user.role
+    )
     return resp
 
 

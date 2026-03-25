@@ -556,6 +556,72 @@ async def get_standard_field_perms_for_booking(
     return {f: {"editable": f in editable} for f in VALID_STANDARD_FIELD_NAMES}
 
 
+async def update_standard_fields(
+    db: AsyncSession,
+    booking_id: int,
+    values: dict,
+    current_user,
+) -> Booking:
+    """Update standard fields on a booking subject to lifecycle permissions.
+    `values` is a dict of model column names (e.g. {"booking_type_id": 3, "notes": "..."}).
+    All submitted keys are treated as attempted changes regardless of whether the value
+    differs from the current stored value.
+    Raises HTTP 403 if any submitted key is not in VALID_STANDARD_FIELD_NAMES (unknown field)
+    or is not editable for the user's role in the current state (permission denied).
+    Each key maps directly to a Booking model column — no JSON merge, no partial-update pattern.
+    """
+    # Field name mapping: column name -> permission key
+    COLUMN_TO_PERM_KEY = {
+        "booking_type_id": "booking_type",
+    }
+    VALID_COLUMN_NAMES = {
+        "project_name", "start_date", "end_date", "booking_type_id",
+        "notes", "exclusive_use", "context_tag",
+    }
+
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+
+    # Load template via booking type (two-step)
+    bt_result = await db.execute(
+        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+    )
+    booking_type_obj = bt_result.scalar_one_or_none()
+
+    editable_perm_keys: set[str] = set()
+    if booking_type_obj:
+        tmpl_result = await db.execute(
+            select(BookingLifecycleTemplate).where(
+                BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+            )
+        )
+        template = tmpl_result.scalar_one_or_none()
+        if template:
+            editable_perm_keys = get_standard_field_permissions(
+                template.definition, booking.status, current_user.role
+            )
+    # Fail-closed: if template not found, editable_perm_keys stays empty
+
+    for col_name in values:
+        if col_name not in VALID_COLUMN_NAMES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Field '{col_name}' is not a valid standard field",
+            )
+        perm_key = COLUMN_TO_PERM_KEY.get(col_name, col_name)
+        if perm_key not in editable_perm_keys:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Field '{perm_key}' is not editable in state '{booking.status}' for your role",
+            )
+
+    for col_name, value in values.items():
+        setattr(booking, col_name, value)
+
+    await db.flush()
+    await db.refresh(booking)
+    return booking
+
+
 async def update_custom_fields(
     db: AsyncSession,
     booking_id: int,
