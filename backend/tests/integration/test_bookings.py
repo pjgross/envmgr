@@ -97,25 +97,6 @@ async def default_booking_type_id(client: AsyncClient, auth_headers: dict) -> in
     return bt_resp.json()["id"]
 
 
-@pytest_asyncio.fixture
-async def other_default_booking_type_id(client: AsyncClient, other_auth_headers: dict) -> int:
-    """Create a default lifecycle template + booking type for the other tenant."""
-    tmpl_resp = await client.post(
-        "/api/v1/tenant/lifecycle-templates",
-        headers=other_auth_headers,
-        json={"name": "Test Lifecycle Other", "definition": DEFAULT_TEST_DEFINITION},
-    )
-    assert tmpl_resp.status_code == 201, tmpl_resp.text
-    template_id = tmpl_resp.json()["id"]
-    bt_resp = await client.post(
-        "/api/v1/tenant/booking-types",
-        headers=other_auth_headers,
-        json={"name": "Test Type Other", "lifecycle_template_id": template_id},
-    )
-    assert bt_resp.status_code == 201, bt_resp.text
-    return bt_resp.json()["id"]
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

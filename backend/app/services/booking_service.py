@@ -357,15 +357,16 @@ async def approve_booking(db: AsyncSession, booking_id: int, current_user) -> Bo
 
     # Cascade-approve submitted children if this is a parent booking
     if booking.recurrence_parent_id is None:
-        await db.execute(
-            update(Booking)
-            .where(
+        children_result = await db.execute(
+            select(Booking.id).where(
                 Booking.recurrence_parent_id == booking_id,
                 Booking.status == "submitted",
                 Booking.deleted_at.is_(None),
             )
-            .values(status="approved")
         )
+        child_ids = list(children_result.scalars().all())
+        for child_id in child_ids:
+            await transition_state(db, child_id, "approved", current_user)
 
     return await transition_state(db, booking_id, "approved", current_user)
 
