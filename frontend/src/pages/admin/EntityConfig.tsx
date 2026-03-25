@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Box, Tab, Tabs, Typography, Chip } from '@mui/material';
+import { Box, Chip, Divider, Tab, Tabs, Typography } from '@mui/material';
 import CustomFieldDefinitionManager from '../../components/admin/CustomFieldDefinitionManager';
+import BookingTypesPanel from '../../components/admin/BookingTypesPanel';
+import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -20,6 +22,7 @@ export default function EntityConfig() {
   }
 
   const et = entityType as EntityType;
+  const isBooking = et === 'booking';
 
   return (
     <Box sx={{ p: 3 }}>
@@ -31,11 +34,30 @@ export default function EntityConfig() {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
           <Tab label="Custom Fields" />
-          <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>Lifecycle <Chip label="Coming Soon" size="small" /></Box>} disabled />
+          {isBooking ? (
+            <Tab label="Lifecycle" />
+          ) : (
+            <Tab
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Lifecycle <Chip label="Coming Soon" size="small" />
+                </Box>
+              }
+              disabled
+            />
+          )}
         </Tabs>
       </Box>
 
       {tab === 0 && <CustomFieldDefinitionManager entityType={et} />}
+
+      {tab === 1 && isBooking && (
+        <Box>
+          <BookingTypesPanel />
+          <Divider sx={{ my: 3 }} />
+          <LifecycleTemplatesPanel />
+        </Box>
+      )}
     </Box>
   );
 }
