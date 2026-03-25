@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, field_validator, ConfigDict
 
@@ -95,8 +96,8 @@ class LifecycleTemplateResponse(BaseModel):
     description: Optional[str]
     is_default: bool
     definition: dict
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,7 +126,7 @@ class BookingTypeResponse(BaseModel):
     lifecycle_template_id: int
     color: Optional[str]
     is_active: bool
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
