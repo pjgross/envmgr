@@ -25,14 +25,6 @@ class LifecycleTransition(BaseModel):
     label: str
     allowed_roles: list[str]
 
-    @field_validator("allowed_roles")
-    @classmethod
-    def validate_roles(cls, v: list[str]) -> list[str]:
-        invalid = set(v) - VALID_ROLES
-        if invalid:
-            raise ValueError(f"Invalid roles: {invalid}. Must be one of {VALID_ROLES}")
-        return v
-
 
 class CustomFieldPermission(BaseModel):
     editable_by: list[str]
@@ -57,14 +49,6 @@ class LifecycleFieldPermission(BaseModel):
         invalid = set(v) - VALID_FIELD_NAMES
         if invalid:
             raise ValueError(f"Invalid field names: {invalid}. Must be one of {VALID_FIELD_NAMES}")
-        return v
-
-    @field_validator("editable_by")
-    @classmethod
-    def validate_roles(cls, v: list[str]) -> list[str]:
-        invalid = set(v) - VALID_ROLES
-        if invalid:
-            raise ValueError(f"Invalid roles: {invalid}")
         return v
 
 
