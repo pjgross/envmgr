@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.db.models.booking import BookingType, BookingStatus, ContextTag
+from app.db.models.booking import ContextTag
 
 
 class BookingCreate(BaseModel):
@@ -11,7 +11,8 @@ class BookingCreate(BaseModel):
     project_name: str
     start_date: datetime
     end_date: datetime
-    booking_type: BookingType
+    booking_type_id: int
+    exclusive_use: bool = False
     notes: Optional[str] = None
     recurrence_rule: Optional[str] = None  # RRULE string e.g. "FREQ=WEEKLY;COUNT=4"
     release_id: Optional[int] = None
@@ -31,8 +32,9 @@ class BookingResponse(BaseModel):
     booked_by_username: Optional[str] = None  # populated manually in service
     start_date: datetime
     end_date: datetime
-    booking_type: BookingType
-    status: BookingStatus
+    booking_type_id: int
+    exclusive_use: bool
+    status: str
     notes: Optional[str] = None
     recurrence_rule: Optional[str] = None
     recurrence_parent_id: Optional[int] = None
@@ -48,3 +50,25 @@ class BookingResponse(BaseModel):
 class BookingCreateResponse(BaseModel):
     booking: BookingResponse
     overlap_warnings: list[int] = []  # IDs of bookings that share the time slot
+
+
+class BookingTransitionRequest(BaseModel):
+    to_state: str
+    notes: Optional[str] = None
+
+
+class BookingStatusHistoryResponse(BaseModel):
+    id: int
+    from_state: Optional[str]
+    to_state: str
+    changed_by: int
+    changed_at: datetime
+    notes: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AllowedTransitionResponse(BaseModel):
+    from_state: str
+    to_state: str
+    label: str
