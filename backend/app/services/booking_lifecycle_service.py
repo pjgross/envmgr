@@ -113,3 +113,27 @@ def get_editable_fields(definition: dict, current_state: str, user_role: str) ->
     if user_role not in perm.get("editable_by", []):
         return []
     return perm.get("editable_fields", [])
+
+
+def get_custom_field_permissions(
+    definition: dict,
+    current_state: str,
+    user_role: str,
+    active_field_keys: set[str],
+) -> dict[str, dict]:
+    """
+    Return {field_key: {visible, editable}} for all custom fields visible in this state.
+    Fields absent from the state config, or whose CustomFieldDefinition has been
+    soft-deleted (not in active_field_keys), are omitted (treated as hidden).
+    """
+    perm = definition.get("field_permissions", {}).get(current_state, {})
+    result = {}
+    for key, entry in (perm.get("custom_fields") or {}).items():
+        if key not in active_field_keys:
+            continue  # definition was soft-deleted; skip silently
+        editable_by = entry.get("editable_by", [])
+        result[key] = {
+            "visible": True,
+            "editable": user_role in editable_by,
+        }
+    return result

@@ -39,6 +39,20 @@ async def list_definitions(
     return list(result.scalars().all())
 
 
+async def get_active_field_keys(
+    db: AsyncSession, tenant_id: int, entity_type: str
+) -> set[str]:
+    """Return the set of field_key values for active (non-deleted) definitions."""
+    result = await db.execute(
+        select(CustomFieldDefinition.field_key).where(
+            CustomFieldDefinition.tenant_id == tenant_id,
+            CustomFieldDefinition.entity_type == entity_type,
+            CustomFieldDefinition.deleted_at.is_(None),
+        )
+    )
+    return set(result.scalars().all())
+
+
 async def create_definition(
     db: AsyncSession, tenant_id: int, data: CustomFieldDefinitionCreate
 ) -> CustomFieldDefinition:
@@ -123,11 +137,14 @@ async def validate_custom_fields(
     tenant_id: int,
     entity_type: str,
     values: Optional[dict],
+    visible_field_keys: Optional[set[str]] = None,
 ) -> None:
     """Validate custom_fields dict against active definitions for this tenant+entity_type.
 
     Raises HTTPException(422) if required fields are missing or types are wrong.
     Unknown keys are permitted (soft-deleted fields may still have stored values).
+    If visible_field_keys is provided, required validation is only enforced for
+    fields in that set (state-driven visibility supersedes required).
     """
     definitions = await list_definitions(db, tenant_id, entity_type)
     if not definitions:
@@ -137,6 +154,9 @@ async def validate_custom_fields(
 
     for defn in definitions:
         if not defn.required:
+            continue
+        # Skip required check if field is not visible in current state
+        if visible_field_keys is not None and defn.field_key not in visible_field_keys:
             continue
         val = values.get(defn.field_key)
         if val is None or (isinstance(val, str) and val.strip() == ""):
