@@ -20,7 +20,7 @@ import {
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingLifecycleTemplate } from '../../types/bookingLifecycle';
 
-const ROLES = ['Admin', 'Release Manager', 'Test Manager', 'Developer', 'Viewer'];
+const ALL_ROLES = ['Admin', 'Release Manager', 'Test Manager', 'Developer', 'Viewer'];
 
 const STANDARD_FIELDS: { key: string; label: string; mandatory: boolean }[] = [
   { key: 'project_name',  label: 'Project Name',  mandatory: true },
@@ -31,8 +31,6 @@ const STANDARD_FIELDS: { key: string; label: string; mandatory: boolean }[] = [
   { key: 'exclusive_use', label: 'Exclusive Use', mandatory: false },
   { key: 'context_tag',   label: 'Context Tag',   mandatory: false },
 ];
-
-const ALL_ROLES = ['Admin', 'Release Manager', 'Test Manager', 'Developer', 'Viewer'];
 
 interface StateRow {
   key: string;
@@ -485,7 +483,7 @@ export default function LifecycleTemplatesPanel() {
                   </IconButton>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                  {ROLES.map((role) => (
+                  {ALL_ROLES.map((role) => (
                     <Chip
                       key={role}
                       label={role}
@@ -585,7 +583,7 @@ export default function LifecycleTemplatesPanel() {
                             />
                             {included && (
                               <Box sx={{ ml: 3, display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 0.5 }}>
-                                {ROLES.map((role) => (
+                                {ALL_ROLES.map((role) => (
                                   <Chip
                                     key={role}
                                     label={role}
