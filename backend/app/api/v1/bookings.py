@@ -6,9 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.db.models.booking import BookingStatus
 from app.services import booking_service
-from app.api.v1.schemas.booking import BookingCreate, BookingResponse, BookingCreateResponse
+from app.api.v1.schemas.booking import (
+    BookingCreate,
+    BookingResponse,
+    BookingCreateResponse,
+    BookingTransitionRequest,
+    BookingStatusHistoryResponse,
+    AllowedTransitionResponse,
+)
 
 router = APIRouter()
 
@@ -39,7 +45,7 @@ async def list_bookings(
     environment_id: Optional[int] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
-    booking_status: Optional[BookingStatus] = None,
+    booking_status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -83,7 +89,7 @@ async def approve_booking(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_rm),
 ):
-    booking = await booking_service.approve_booking(db, booking_id, current_user.active_tenant_id)
+    booking = await booking_service.approve_booking(db, booking_id, current_user)
     return _to_response(booking)
 
 
@@ -93,7 +99,7 @@ async def reject_booking(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin_or_rm),
 ):
-    booking = await booking_service.reject_booking(db, booking_id, current_user.active_tenant_id)
+    booking = await booking_service.reject_booking(db, booking_id, current_user)
     return _to_response(booking)
 
 
@@ -104,6 +110,35 @@ async def cancel_booking(
     current_user=Depends(get_current_user),
 ):
     await booking_service.cancel_booking(db, booking_id, current_user)
+
+
+@router.post("/{booking_id}/transition", response_model=BookingResponse)
+async def transition_booking_state(
+    booking_id: int,
+    data: BookingTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    booking = await booking_service.transition_state(db, booking_id, data.to_state, current_user, data.notes)
+    return _to_response(booking)
+
+
+@router.get("/{booking_id}/history", response_model=list[BookingStatusHistoryResponse])
+async def get_booking_history(
+    booking_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await booking_service.get_status_history(db, booking_id, current_user.active_tenant_id)
+
+
+@router.get("/{booking_id}/allowed-transitions", response_model=list[AllowedTransitionResponse])
+async def get_allowed_transitions_for_booking(
+    booking_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await booking_service.get_booking_allowed_transitions(db, booking_id, current_user)
 
 
 @router.delete("/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -8,10 +8,20 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models.booking import Booking, BookingType, BookingStatus, ContextTag
+from app.db.models.booking import Booking, ContextTag
+from app.db.models.booking_lifecycle import (
+    BookingStatusHistory,
+    BookingType as BookingTypeModel,
+    BookingLifecycleTemplate,
+)
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
+from app.services.booking_lifecycle_service import (
+    validate_transition,
+    get_allowed_transitions,
+    get_editable_fields,
+)
 
 
 @dataclass
@@ -27,7 +37,7 @@ async def check_overlap(
     start: datetime,
     end: datetime,
     tenant_id: int,
-    booking_type: BookingType,
+    exclusive_use: bool,
     exclude_id: Optional[int] = None,
 ) -> OverlapResult:
     """
@@ -38,7 +48,7 @@ async def check_overlap(
         Booking.environment_id == env_id,
         Booking.tenant_id == tenant_id,
         Booking.deleted_at.is_(None),
-        Booking.status != BookingStatus.REJECTED,
+        Booking.status != "rejected",
         Booking.start_date < end,
         Booking.end_date > start,
     )
@@ -51,10 +61,8 @@ async def check_overlap(
     if not overlapping:
         return OverlapResult(blocked=False)
 
-    # If new booking is EXCLUSIVE or any existing is EXCLUSIVE → blocked
-    has_exclusive = booking_type == BookingType.EXCLUSIVE or any(
-        b.booking_type == BookingType.EXCLUSIVE for b in overlapping
-    )
+    # If new booking is exclusive or any existing is exclusive → blocked
+    has_exclusive = exclusive_use or any(b.exclusive_use for b in overlapping)
 
     if has_exclusive:
         return OverlapResult(
@@ -62,7 +70,7 @@ async def check_overlap(
             conflicts=[b.id for b in overlapping],
         )
 
-    # All SHARED — not blocked, just warnings
+    # All shared — not blocked, just warnings
     return OverlapResult(
         blocked=False,
         warnings=[b.id for b in overlapping],
@@ -82,7 +90,7 @@ async def create_booking(
         data.start_date,
         data.end_date,
         current_user.active_tenant_id,
-        data.booking_type,
+        data.exclusive_use,
     )
     if overlap.blocked:
         raise HTTPException(
@@ -111,8 +119,9 @@ async def create_booking(
         booked_by=current_user.id,
         start_date=data.start_date,
         end_date=data.end_date,
-        booking_type=data.booking_type,
-        status=BookingStatus.PENDING,
+        exclusive_use=data.exclusive_use,
+        booking_type_id=data.booking_type_id,
+        status="draft",
         notes=data.notes,
         recurrence_rule=data.recurrence_rule,
         recurrence_parent_id=None,
@@ -125,6 +134,17 @@ async def create_booking(
     db.add(parent)
     await db.flush()
     await db.refresh(parent)
+
+    # Write initial history row
+    history = BookingStatusHistory(
+        booking_id=parent.id,
+        from_state=None,
+        to_state="draft",
+        changed_by=current_user.id,
+        changed_at=datetime.now(timezone.utc),
+    )
+    db.add(history)
+    await db.flush()
 
     # Generate recurring occurrences if RRULE provided
     if data.recurrence_rule:
@@ -149,8 +169,9 @@ async def create_booking(
                 booked_by=current_user.id,
                 start_date=dt,
                 end_date=dt + duration,
-                booking_type=data.booking_type,
-                status=BookingStatus.PENDING,
+                exclusive_use=data.exclusive_use,
+                booking_type_id=data.booking_type_id,
+                status="draft",
                 notes=data.notes,
                 recurrence_rule=None,  # children don't store the rule
                 recurrence_parent_id=parent.id,
@@ -207,7 +228,7 @@ async def list_bookings(
     environment_id: Optional[int] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
-    booking_status: Optional[BookingStatus] = None,
+    booking_status: Optional[str] = None,
 ) -> list[Booking]:
     query = (
         select(Booking)
@@ -231,74 +252,112 @@ async def list_bookings(
     return list(result.scalars().all())
 
 
-async def approve_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Booking:
-    booking = await get_booking(db, booking_id, tenant_id)
-    booking.status = BookingStatus.APPROVED
+async def transition_state(
+    db: AsyncSession,
+    booking_id: int,
+    to_state: str,
+    current_user,
+    notes: str | None = None,
+) -> Booking:
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
-    # If this is a parent booking, also approve all pending children
-    if booking.recurrence_parent_id is None:
-        await db.execute(
-            update(Booking)
-            .where(
-                Booking.recurrence_parent_id == booking_id,
-                Booking.status == BookingStatus.PENDING,
-                Booking.deleted_at.is_(None),
-            )
-            .values(status=BookingStatus.APPROVED)
+    # Load lifecycle template via booking type
+    result = await db.execute(
+        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+    )
+    booking_type_obj = result.scalar_one_or_none()
+    if not booking_type_obj:
+        raise HTTPException(status_code=404, detail="Booking type not found")
+
+    tmpl_result = await db.execute(
+        select(BookingLifecycleTemplate).where(
+            BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
         )
+    )
+    template = tmpl_result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Lifecycle template not found")
 
+    user_role = current_user.role
+    if not validate_transition(template.definition, booking.status, to_state, user_role):
+        # Check if transition exists at all (regardless of role)
+        all_transitions = template.definition.get("transitions", [])
+        transition_exists = any(
+            t["from_state"] == booking.status and t["to_state"] == to_state
+            for t in all_transitions
+        )
+        if transition_exists:
+            raise HTTPException(status_code=403, detail="Your role cannot make this transition")
+        raise HTTPException(status_code=400, detail=f"Invalid transition: {booking.status} -> {to_state}")
+
+    old_state = booking.status
+    booking.status = to_state
+
+    history = BookingStatusHistory(
+        booking_id=booking.id,
+        from_state=old_state,
+        to_state=to_state,
+        changed_by=current_user.id,
+        changed_at=datetime.now(timezone.utc),
+        notes=notes,
+    )
+    db.add(history)
     await db.flush()
-    # Re-fetch with eager relationships after flush
-    result = await get_booking(db, booking_id, tenant_id)
+
     await publish_event(
         db,
-        event_type="BookingApproved",
-        aggregate_id=result.id,
+        event_type="BookingStateTransitioned",
+        aggregate_id=booking.id,
         aggregate_type="Booking",
-        payload={
-            "id": result.id,
-            "project_name": result.project_name,
-            "environment_id": result.environment_id,
-            "tenant_id": result.tenant_id,
-        },
-        tenant_id=result.tenant_id,
+        payload={"from_state": old_state, "to_state": to_state, "changed_by": current_user.id},
+        tenant_id=booking.tenant_id,
     )
-    return result
+    await db.refresh(booking)
+    return booking
 
 
-async def reject_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Booking:
-    booking = await get_booking(db, booking_id, tenant_id)
-    booking.status = BookingStatus.REJECTED
+async def get_status_history(
+    db: AsyncSession, booking_id: int, tenant_id: int
+) -> list[BookingStatusHistory]:
+    # Verify booking belongs to tenant
+    await get_booking(db, booking_id, tenant_id)
+    result = await db.execute(
+        select(BookingStatusHistory)
+        .where(BookingStatusHistory.booking_id == booking_id)
+        .order_by(BookingStatusHistory.changed_at.asc())
+    )
+    return list(result.scalars().all())
 
-    # If this is a parent booking, also reject all pending children
-    if booking.recurrence_parent_id is None:
-        await db.execute(
-            update(Booking)
-            .where(
-                Booking.recurrence_parent_id == booking_id,
-                Booking.status == BookingStatus.PENDING,
-                Booking.deleted_at.is_(None),
-            )
-            .values(status=BookingStatus.REJECTED)
+
+async def get_booking_allowed_transitions(
+    db: AsyncSession, booking_id: int, current_user
+) -> list[dict]:
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+    result = await db.execute(
+        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+    )
+    booking_type_obj = result.scalar_one()
+    tmpl_result = await db.execute(
+        select(BookingLifecycleTemplate).where(
+            BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
         )
-
-    await db.flush()
-    # Re-fetch with eager relationships after flush
-    result = await get_booking(db, booking_id, tenant_id)
-    await publish_event(
-        db,
-        event_type="BookingRejected",
-        aggregate_id=result.id,
-        aggregate_type="Booking",
-        payload={
-            "id": result.id,
-            "project_name": result.project_name,
-            "environment_id": result.environment_id,
-            "tenant_id": result.tenant_id,
-        },
-        tenant_id=result.tenant_id,
     )
-    return result
+    template = tmpl_result.scalar_one()
+    return get_allowed_transitions(template.definition, booking.status, current_user.role)
+
+
+async def approve_booking(db: AsyncSession, booking_id: int, current_user) -> Booking:
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+    if booking.status != "submitted":
+        raise HTTPException(status_code=400, detail="Can only approve bookings in 'submitted' state")
+    return await transition_state(db, booking_id, "approved", current_user)
+
+
+async def reject_booking(db: AsyncSession, booking_id: int, current_user) -> Booking:
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+    if booking.status != "submitted":
+        raise HTTPException(status_code=400, detail="Can only reject bookings in 'submitted' state")
+    return await transition_state(db, booking_id, "rejected", current_user)
 
 
 async def cancel_booking(db: AsyncSession, booking_id: int, current_user) -> None:
