@@ -10,14 +10,14 @@ DEFAULT_DEFINITION = {
         {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
     ],
     "transitions": [
-        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "ReleaseManager", "User"]},
-        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "ReleaseManager"]},
-        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "ReleaseManager"]},
-        {"from_state": "submitted", "to_state": "draft", "label": "Return", "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "Release Manager", "Developer"]},
+        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "draft", "label": "Return", "allowed_roles": ["Admin", "Release Manager"]},
     ],
     "field_permissions": {
-        "draft": {"editable_fields": ["project_name", "notes"], "editable_by": ["Admin", "ReleaseManager", "User"]},
-        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "ReleaseManager"]},
+        "draft": {"editable_fields": ["project_name", "notes"], "editable_by": ["Admin", "Release Manager", "Developer"]},
+        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
         "approved": {"editable_fields": [], "editable_by": []},
         "rejected": {"editable_fields": [], "editable_by": []},
     }

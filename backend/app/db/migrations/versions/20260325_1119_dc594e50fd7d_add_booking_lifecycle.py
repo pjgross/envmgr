@@ -133,21 +133,21 @@ def upgrade() -> None:
                     {"key": "closed", "label": "Closed", "is_initial": false, "is_terminal": true}
                 ],
                 "transitions": [
-                    {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "ReleaseManager", "User"]},
-                    {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "ReleaseManager"]},
-                    {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "ReleaseManager"]},
-                    {"from_state": "submitted", "to_state": "draft", "label": "Return for Revision", "allowed_roles": ["Admin", "ReleaseManager"]},
-                    {"from_state": "approved", "to_state": "extension_requested", "label": "Request Extension", "allowed_roles": ["Admin", "ReleaseManager", "User"]},
-                    {"from_state": "extension_requested", "to_state": "approved", "label": "Approve Extension", "allowed_roles": ["Admin", "ReleaseManager"]},
-                    {"from_state": "extension_requested", "to_state": "rejected", "label": "Reject Extension", "allowed_roles": ["Admin", "ReleaseManager"]},
-                    {"from_state": "approved", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin", "ReleaseManager"]}
+                    {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "Release Manager", "Test Manager", "Developer", "Viewer"]},
+                    {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "Release Manager"]},
+                    {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "Release Manager"]},
+                    {"from_state": "submitted", "to_state": "draft", "label": "Return for Revision", "allowed_roles": ["Admin", "Release Manager"]},
+                    {"from_state": "approved", "to_state": "extension_requested", "label": "Request Extension", "allowed_roles": ["Admin", "Release Manager", "Test Manager", "Developer", "Viewer"]},
+                    {"from_state": "extension_requested", "to_state": "approved", "label": "Approve Extension", "allowed_roles": ["Admin", "Release Manager"]},
+                    {"from_state": "extension_requested", "to_state": "rejected", "label": "Reject Extension", "allowed_roles": ["Admin", "Release Manager"]},
+                    {"from_state": "approved", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin", "Release Manager"]}
                 ],
                 "field_permissions": {
-                    "draft": {"editable_fields": ["project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"], "editable_by": ["Admin", "ReleaseManager", "User"]},
-                    "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "ReleaseManager"]},
-                    "approved": {"editable_fields": ["notes"], "editable_by": ["Admin", "ReleaseManager"]},
+                    "draft": {"editable_fields": ["project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"], "editable_by": ["Admin", "Release Manager", "Test Manager", "Developer", "Viewer"]},
+                    "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+                    "approved": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
                     "rejected": {"editable_fields": [], "editable_by": []},
-                    "extension_requested": {"editable_fields": ["notes", "end_date"], "editable_by": ["Admin", "ReleaseManager"]},
+                    "extension_requested": {"editable_fields": ["notes", "end_date"], "editable_by": ["Admin", "Release Manager"]},
                     "closed": {"editable_fields": [], "editable_by": []}
                 }
             }'::jsonb,

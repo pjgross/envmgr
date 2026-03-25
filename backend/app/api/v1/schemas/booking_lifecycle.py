@@ -9,7 +9,7 @@ VALID_FIELD_NAMES = {
     "project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"
 }
 
-VALID_ROLES = {"Admin", "ReleaseManager", "User"}
+VALID_ROLES = {"Admin", "Release Manager", "Test Manager", "Developer", "Viewer"}
 
 
 class LifecycleState(BaseModel):

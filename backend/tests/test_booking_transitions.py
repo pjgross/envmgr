@@ -12,14 +12,14 @@ DEFAULT_DEFINITION = {
         {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
     ],
     "transitions": [
-        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "ReleaseManager", "User"]},
-        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "ReleaseManager"]},
-        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "ReleaseManager"]},
-        {"from_state": "submitted", "to_state": "draft", "label": "Return", "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "Release Manager", "Developer"]},
+        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "draft", "label": "Return", "allowed_roles": ["Admin", "Release Manager"]},
     ],
     "field_permissions": {
-        "draft": {"editable_fields": ["project_name", "notes"], "editable_by": ["Admin", "ReleaseManager", "User"]},
-        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "ReleaseManager"]},
+        "draft": {"editable_fields": ["project_name", "notes"], "editable_by": ["Admin", "Release Manager", "Developer"]},
+        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
         "approved": {"editable_fields": [], "editable_by": []},
         "rejected": {"editable_fields": [], "editable_by": []},
     }
@@ -180,7 +180,7 @@ async def test_approve_shortcut_only_works_from_submitted(client: AsyncClient, a
 
 @pytest.mark.asyncio
 async def test_transition_invalid_role(client: AsyncClient, auth_headers: dict, db_session, test_tenant):
-    """A user with the 'User' role gets 403 when attempting a transition that requires Admin or ReleaseManager."""
+    """A user with 'Developer' role gets 403 when attempting a transition that requires Admin or Release Manager."""
     booking_type_id = await _setup_booking_type(client, auth_headers)
     env_id = await _setup_env(client, auth_headers, "TransitionEnv6")
 
