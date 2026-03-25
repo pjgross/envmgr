@@ -22,7 +22,7 @@ import {
 } from '@mui/material';
 import { AppDispatch, RootState } from '../../store';
 import { createBooking, fetchBookings } from '../../store/bookingSlice';
-import type { BookingCreate, BookingType, ContextTag } from '../../types/booking';
+import type { BookingCreate, ContextTag } from '../../types/booking';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 
@@ -65,7 +65,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
 
   const [envId, setEnvId] = useState<number | ''>(defaultEnvId ?? '');
   const [projectName, setProjectName] = useState('');
-  const [bookingType, setBookingType] = useState<BookingType>('shared');
+  const [bookingTypeId, setBookingTypeId] = useState<number>(1);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -101,7 +101,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
       project_name: projectName,
       start_date: new Date(startDate).toISOString(),
       end_date: new Date(endDate).toISOString(),
-      booking_type: bookingType,
+      booking_type_id: bookingTypeId,
       notes: notes || undefined,
       recurrence_rule: rrule,
       context_tag: contextTag,
@@ -137,7 +137,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const handleClose = () => {
     setEnvId(defaultEnvId ?? '');
     setProjectName('');
-    setBookingType('shared');
+    setBookingTypeId(1);
     setStartDate('');
     setEndDate('');
     setNotes('');
@@ -187,8 +187,8 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
               <FormLabel>Booking Type</FormLabel>
               <RadioGroup
                 row
-                value={bookingType}
-                onChange={(e) => setBookingType(e.target.value as BookingType)}
+                value={bookingTypeId}
+                onChange={(e) => setBookingTypeId(Number(e.target.value))}
               >
                 <FormControlLabel value="shared" control={<Radio />} label="Shared" />
                 <FormControlLabel value="exclusive" control={<Radio />} label="Exclusive" />

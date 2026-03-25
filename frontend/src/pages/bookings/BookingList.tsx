@@ -138,9 +138,9 @@ export default function BookingList() {
       hideable: false,
       renderCell: ({ row }) => (
         <Chip
-          label={row.booking_type}
+          label={row.booking_type_id}
           size="small"
-          color={row.booking_type === 'exclusive' ? 'error' : 'primary'}
+          color="primary"
           variant="outlined"
         />
       ),

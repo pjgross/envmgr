@@ -1,5 +1,4 @@
-export type BookingType = 'shared' | 'exclusive';
-export type BookingStatus = 'pending' | 'approved' | 'rejected';
+export type BookingStatus = string; // lifecycle state key e.g. 'draft', 'submitted', 'approved'
 export type ContextTag = 'deployment' | 'regression' | 'none';
 
 export interface BookingResponse {
@@ -11,7 +10,8 @@ export interface BookingResponse {
   booked_by_username: string | null;
   start_date: string;
   end_date: string;
-  booking_type: BookingType;
+  booking_type_id: number;
+  exclusive_use: boolean;
   status: BookingStatus;
   notes: string | null;
   recurrence_rule: string | null;
@@ -30,7 +30,8 @@ export interface BookingCreate {
   project_name: string;
   start_date: string; // ISO datetime string
   end_date: string;
-  booking_type: BookingType;
+  booking_type_id: number;
+  exclusive_use?: boolean;
   notes?: string;
   recurrence_rule?: string;
   release_id?: number;

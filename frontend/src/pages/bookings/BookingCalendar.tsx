@@ -206,7 +206,7 @@ export default function BookingCalendar() {
               Type
             </Typography>
             <Typography variant="body1" gutterBottom>
-              {selectedBooking.booking_type}
+              {selectedBooking.booking_type_id}
             </Typography>
 
             <Typography variant="body2" color="text.secondary">
