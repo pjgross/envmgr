@@ -171,3 +171,57 @@ def test_migrate_mixed_shape():
     assert "editable_fields" not in result["field_permissions"]["draft"]
     # submitted unchanged
     assert result["field_permissions"]["submitted"]["standard_fields"]["project_name"]["editable_by"] == ["Admin"]
+
+
+# --- get_standard_field_permissions pure function tests ---
+
+from app.services.booking_service import get_standard_field_permissions
+
+SF_DEFINITION = {
+    "field_permissions": {
+        "draft": {
+            "standard_fields": {
+                "project_name": {"editable_by": ["Admin", "Developer"]},
+                "start_date": {"editable_by": ["Admin"]},
+                "end_date": {"editable_by": ["Admin"]},
+                "booking_type": {"editable_by": ["Admin"]},
+                "notes": {"editable_by": []},
+            }
+        },
+        "submitted": {
+            "standard_fields": {}
+        },
+    }
+}
+
+
+def test_get_standard_field_permissions_editable_role():
+    """Admin in draft can edit project_name and start_date."""
+    result = get_standard_field_permissions(SF_DEFINITION, "draft", "Admin")
+    assert "project_name" in result
+    assert "start_date" in result
+
+
+def test_get_standard_field_permissions_non_editable_field():
+    """notes has empty editable_by — not in result for any role."""
+    result = get_standard_field_permissions(SF_DEFINITION, "draft", "Admin")
+    assert "notes" not in result
+
+
+def test_get_standard_field_permissions_role_without_access():
+    """Developer in draft can edit project_name but not start_date."""
+    result = get_standard_field_permissions(SF_DEFINITION, "draft", "Developer")
+    assert "project_name" in result
+    assert "start_date" not in result
+
+
+def test_get_standard_field_permissions_non_initial_state():
+    """submitted state has no standard_fields — empty set returned."""
+    result = get_standard_field_permissions(SF_DEFINITION, "submitted", "Admin")
+    assert result == set()
+
+
+def test_get_standard_field_permissions_unknown_state():
+    """State not in field_permissions returns empty set (fail-closed)."""
+    result = get_standard_field_permissions(SF_DEFINITION, "nonexistent", "Admin")
+    assert result == set()
