@@ -34,9 +34,22 @@ class LifecycleTransition(BaseModel):
         return v
 
 
+class CustomFieldPermission(BaseModel):
+    editable_by: list[str]
+
+    @field_validator("editable_by")
+    @classmethod
+    def validate_roles(cls, v: list[str]) -> list[str]:
+        invalid = set(v) - VALID_ROLES
+        if invalid:
+            raise ValueError(f"Invalid roles: {invalid}. Must be one of {VALID_ROLES}")
+        return v
+
+
 class LifecycleFieldPermission(BaseModel):
     editable_fields: list[str]
     editable_by: list[str]
+    custom_fields: Optional[dict[str, CustomFieldPermission]] = None
 
     @field_validator("editable_fields")
     @classmethod
