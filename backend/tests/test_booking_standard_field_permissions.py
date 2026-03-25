@@ -94,3 +94,80 @@ def test_valid_standard_field_names_constant():
 def test_mandatory_standard_fields_constant():
     """MANDATORY_STANDARD_FIELDS contains the 4 expected mandatory keys."""
     assert MANDATORY_STANDARD_FIELDS == {"project_name", "start_date", "end_date", "booking_type"}
+
+
+# --- Migration tests ---
+
+from app.services.booking_lifecycle_service import migrate_field_permissions
+
+
+def test_migrate_old_shape_converts_to_standard_fields():
+    """Old editable_fields/editable_by shape is converted per-field."""
+    old = {
+        "states": [{"key": "draft", "is_initial": True}],
+        "field_permissions": {
+            "draft": {
+                "editable_fields": ["project_name", "start_date"],
+                "editable_by": ["Admin", "Release Manager"],
+                "custom_fields": {"release_notes": {"editable_by": ["Admin"]}},
+            },
+            "closed": {
+                "editable_fields": [],
+                "editable_by": [],
+            },
+        },
+    }
+    result = migrate_field_permissions(old)
+    draft = result["field_permissions"]["draft"]
+    assert draft["standard_fields"]["project_name"]["editable_by"] == ["Admin", "Release Manager"]
+    assert draft["standard_fields"]["start_date"]["editable_by"] == ["Admin", "Release Manager"]
+    # Fields NOT in editable_fields get empty editable_by
+    assert draft["standard_fields"]["notes"]["editable_by"] == []
+    assert draft["standard_fields"]["booking_type"]["editable_by"] == []
+    # custom_fields preserved
+    assert draft["custom_fields"]["release_notes"]["editable_by"] == ["Admin"]
+    # editable_fields/editable_by removed
+    assert "editable_fields" not in draft
+    assert "editable_by" not in draft
+
+
+def test_migrate_new_shape_is_noop():
+    """Definition already using standard_fields is returned unchanged."""
+    new = {
+        "field_permissions": {
+            "draft": {
+                "standard_fields": {"project_name": {"editable_by": ["Admin"]}},
+            },
+        },
+    }
+    result = migrate_field_permissions(new)
+    assert result["field_permissions"]["draft"]["standard_fields"]["project_name"]["editable_by"] == ["Admin"]
+    assert "editable_fields" not in result["field_permissions"]["draft"]
+
+
+def test_migrate_empty_definition():
+    """Definition with no field_permissions is returned unchanged."""
+    d = {"states": [], "transitions": [], "field_permissions": {}}
+    result = migrate_field_permissions(d)
+    assert result["field_permissions"] == {}
+
+
+def test_migrate_mixed_shape():
+    """Definition where some states are old shape and some are new shape — only old states converted."""
+    mixed = {
+        "field_permissions": {
+            "draft": {
+                "editable_fields": ["notes"],
+                "editable_by": ["Admin"],
+            },
+            "submitted": {
+                "standard_fields": {"project_name": {"editable_by": ["Admin"]}},
+            },
+        },
+    }
+    result = migrate_field_permissions(mixed)
+    # draft converted
+    assert "standard_fields" in result["field_permissions"]["draft"]
+    assert "editable_fields" not in result["field_permissions"]["draft"]
+    # submitted unchanged
+    assert result["field_permissions"]["submitted"]["standard_fields"]["project_name"]["editable_by"] == ["Admin"]

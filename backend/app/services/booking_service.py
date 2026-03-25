@@ -20,7 +20,6 @@ from app.services.custom_field_service import validate_custom_fields, get_active
 from app.services.booking_lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
-    get_editable_fields,
     get_custom_field_permissions,
 )
 

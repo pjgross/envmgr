@@ -7,7 +7,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
 from app.api.v1.schemas.booking_lifecycle import (
     LifecycleDefinition, LifecycleTemplateCreate, LifecycleTemplateUpdate,
+    VALID_STANDARD_FIELD_NAMES,
 )
+
+
+def migrate_field_permissions(definition: dict) -> dict:
+    """Convert old editable_fields/editable_by shape to standard_fields per-field shape.
+    A definition is old-shape if ANY state entry in field_permissions contains 'editable_fields'.
+    Every such state entry is converted; entries already in new shape are left untouched.
+    Returns the mutated definition dict.
+    Conversion rule: fields listed in editable_fields inherit editable_by;
+    all other standard field names (from VALID_STANDARD_FIELD_NAMES) get editable_by: [].
+    """
+    field_perms = definition.get("field_permissions", {})
+    for state_key, perm in field_perms.items():
+        if "editable_fields" not in perm:
+            continue  # already new shape
+        old_editable_fields = perm.get("editable_fields", [])
+        old_editable_by = perm.get("editable_by", [])
+        # Iterate over ALL valid standard field names so no field is silently dropped
+        standard_fields = {
+            f: {"editable_by": old_editable_by if f in old_editable_fields else []}
+            for f in VALID_STANDARD_FIELD_NAMES
+        }
+        new_perm = {"standard_fields": standard_fields}
+        if "custom_fields" in perm:
+            new_perm["custom_fields"] = perm["custom_fields"]
+        field_perms[state_key] = new_perm
+    return definition
 
 
 async def create_template(
@@ -15,12 +42,13 @@ async def create_template(
 ) -> BookingLifecycleTemplate:
     # Validate JSONB definition via Pydantic (raises ValidationError -> 422)
     LifecycleDefinition.model_validate(data.definition.model_dump())
+    definition_dict = migrate_field_permissions(data.definition.model_dump())
     template = BookingLifecycleTemplate(
         tenant_id=tenant_id,
         name=data.name,
         description=data.description,
         is_default=data.is_default,
-        definition=data.definition.model_dump(),
+        definition=definition_dict,
     )
     db.add(template)
     await db.flush()
@@ -66,7 +94,7 @@ async def update_template(
         template.is_default = data.is_default
     if data.definition is not None:
         LifecycleDefinition.model_validate(data.definition.model_dump())
-        template.definition = data.definition.model_dump()
+        template.definition = migrate_field_permissions(data.definition.model_dump())
     await db.flush()
     await db.refresh(template)
     return template
@@ -81,7 +109,7 @@ async def copy_template(
         name=new_name,
         description=original.description,
         is_default=False,
-        definition=copy.deepcopy(original.definition),
+        definition=migrate_field_permissions(copy.deepcopy(original.definition)),
     )
     db.add(new_template)
     await db.flush()
@@ -104,15 +132,6 @@ def get_allowed_transitions(definition: dict, current_state: str, user_role: str
         if t["from_state"] == current_state and user_role in t["allowed_roles"]
     ]
 
-
-def get_editable_fields(definition: dict, current_state: str, user_role: str) -> list[str]:
-    """Return fields editable in this state for this role. Fail-closed (empty list) if state not defined."""
-    perm = definition.get("field_permissions", {}).get(current_state)
-    if not perm:
-        return []
-    if user_role not in perm.get("editable_by", []):
-        return []
-    return perm.get("editable_fields", [])
 
 
 def get_custom_field_permissions(
