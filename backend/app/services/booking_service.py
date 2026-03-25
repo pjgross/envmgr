@@ -354,6 +354,19 @@ async def approve_booking(db: AsyncSession, booking_id: int, current_user) -> Bo
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
     if booking.status != "submitted":
         raise HTTPException(status_code=400, detail="Can only approve bookings in 'submitted' state")
+
+    # Cascade-approve submitted children if this is a parent booking
+    if booking.recurrence_parent_id is None:
+        await db.execute(
+            update(Booking)
+            .where(
+                Booking.recurrence_parent_id == booking_id,
+                Booking.status == "submitted",
+                Booking.deleted_at.is_(None),
+            )
+            .values(status="approved")
+        )
+
     return await transition_state(db, booking_id, "approved", current_user)
 
 

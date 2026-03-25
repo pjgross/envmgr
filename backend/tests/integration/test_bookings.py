@@ -51,6 +51,72 @@ async def other_auth_headers(client, other_tenant, other_user) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Lifecycle template / booking type fixtures
+# ---------------------------------------------------------------------------
+
+DEFAULT_TEST_DEFINITION = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+        {"key": "approved", "label": "Approved", "is_initial": False, "is_terminal": False},
+        {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
+        {"key": "closed", "label": "Closed", "is_initial": False, "is_terminal": True},
+    ],
+    "transitions": [
+        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "Release Manager", "Developer"]},
+        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "approved", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin", "Release Manager"]},
+    ],
+    "field_permissions": {
+        "draft": {"editable_fields": ["project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"], "editable_by": ["Admin", "Release Manager", "Developer"]},
+        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+        "approved": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+        "rejected": {"editable_fields": [], "editable_by": []},
+        "closed": {"editable_fields": [], "editable_by": []},
+    }
+}
+
+
+@pytest_asyncio.fixture
+async def default_booking_type_id(client: AsyncClient, auth_headers: dict) -> int:
+    """Create a default lifecycle template + booking type for tests."""
+    tmpl_resp = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "Test Lifecycle", "definition": DEFAULT_TEST_DEFINITION},
+    )
+    assert tmpl_resp.status_code == 201, tmpl_resp.text
+    template_id = tmpl_resp.json()["id"]
+    bt_resp = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={"name": "Test Type", "lifecycle_template_id": template_id},
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+    return bt_resp.json()["id"]
+
+
+@pytest_asyncio.fixture
+async def other_default_booking_type_id(client: AsyncClient, other_auth_headers: dict) -> int:
+    """Create a default lifecycle template + booking type for the other tenant."""
+    tmpl_resp = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=other_auth_headers,
+        json={"name": "Test Lifecycle Other", "definition": DEFAULT_TEST_DEFINITION},
+    )
+    assert tmpl_resp.status_code == 201, tmpl_resp.text
+    template_id = tmpl_resp.json()["id"]
+    bt_resp = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=other_auth_headers,
+        json={"name": "Test Type Other", "lifecycle_template_id": template_id},
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+    return bt_resp.json()["id"]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -65,17 +131,28 @@ async def _create_env(client, auth_headers, name="TestEnv") -> int:
     return resp.json()["id"]
 
 
-async def _create_booking(client, auth_headers, env_id: int, **overrides) -> dict:
+async def _create_booking(client, auth_headers, env_id: int, booking_type_id: int, **overrides) -> dict:
     payload = {
         "environment_id": env_id,
         "project_name": "Test Project",
         "start_date": "2026-04-01T10:00:00Z",
         "end_date": "2026-04-01T14:00:00Z",
-        "booking_type": "shared",
+        "booking_type_id": booking_type_id,
+        "exclusive_use": False,
         **overrides,
     }
     resp = await client.post("/api/v1/bookings/", headers=auth_headers, json=payload)
     return resp
+
+
+async def _submit_booking(client, auth_headers, booking_id: int) -> None:
+    """Transition a booking from draft to submitted."""
+    resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "submitted"},
+    )
+    assert resp.status_code == 200, f"Failed to submit booking {booking_id}: {resp.text}"
 
 
 # ---------------------------------------------------------------------------
@@ -84,52 +161,53 @@ async def _create_booking(client, auth_headers, env_id: int, **overrides) -> dic
 
 
 @pytest.mark.asyncio
-async def test_create_booking(client: AsyncClient, auth_headers):
-    """POST /bookings creates a booking with status=pending."""
+async def test_create_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
+    """POST /bookings creates a booking with status=draft."""
     env_id = await _create_env(client, auth_headers, "CreateBookingEnv")
-    resp = await _create_booking(client, auth_headers, env_id)
+    resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert "booking" in data
     booking = data["booking"]
-    assert booking["status"] == "pending"
+    assert booking["status"] == "draft"
     assert booking["environment_id"] == env_id
     assert booking["project_name"] == "Test Project"
-    assert booking["booking_type"] == "shared"
+    assert booking["exclusive_use"] == False
     assert data["overlap_warnings"] == []
 
 
 @pytest.mark.asyncio
-async def test_create_booking_returns_overlap_warnings_for_shared(client: AsyncClient, auth_headers):
+async def test_create_booking_returns_overlap_warnings_for_shared(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """Two shared bookings on same env/time both succeed; second returns overlap_warnings."""
     env_id = await _create_env(client, auth_headers, "OverlapWarnEnv")
 
-    resp1 = await _create_booking(client, auth_headers, env_id)
+    resp1 = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     assert resp1.status_code == 201
     booking1_id = resp1.json()["booking"]["id"]
 
-    resp2 = await _create_booking(client, auth_headers, env_id)
+    resp2 = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     assert resp2.status_code == 201
     data2 = resp2.json()
     assert booking1_id in data2["overlap_warnings"]
 
 
 @pytest.mark.asyncio
-async def test_exclusive_booking_blocked(client: AsyncClient, auth_headers):
+async def test_exclusive_booking_blocked(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """Creating an exclusive booking when a shared booking already exists → 409."""
     env_id = await _create_env(client, auth_headers, "ExclusiveBlockEnv")
 
     # Create a shared booking first and approve it
-    resp1 = await _create_booking(client, auth_headers, env_id, booking_type="shared")
+    resp1 = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     assert resp1.status_code == 201
     shared_id = resp1.json()["booking"]["id"]
 
-    # Approve the shared booking so it has status=approved
+    # Submit the shared booking first, then approve it
+    await _submit_booking(client, auth_headers, shared_id)
     approve_resp = await client.post(f"/api/v1/bookings/{shared_id}/approve", headers=auth_headers)
     assert approve_resp.status_code == 200
 
     # Now try to create an exclusive booking on the same time slot
-    resp2 = await _create_booking(client, auth_headers, env_id, booking_type="exclusive")
+    resp2 = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id, exclusive_use=True)
     assert resp2.status_code == 409
     detail = resp2.json()["detail"]
     assert "conflicts" in detail
@@ -137,13 +215,13 @@ async def test_exclusive_booking_blocked(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_list_bookings(client: AsyncClient, auth_headers):
+async def test_list_bookings(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """GET /bookings returns all bookings; filter by environment_id works."""
     env1_id = await _create_env(client, auth_headers, "ListEnv1")
     env2_id = await _create_env(client, auth_headers, "ListEnv2")
 
-    await _create_booking(client, auth_headers, env1_id, project_name="ProjA")
-    await _create_booking(client, auth_headers, env2_id, project_name="ProjB")
+    await _create_booking(client, auth_headers, env1_id, booking_type_id=default_booking_type_id, project_name="ProjA")
+    await _create_booking(client, auth_headers, env2_id, booking_type_id=default_booking_type_id, project_name="ProjB")
 
     # List all
     all_resp = await client.get("/api/v1/bookings/", headers=auth_headers)
@@ -163,7 +241,7 @@ async def test_list_bookings(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_list_bookings_date_range(client: AsyncClient, auth_headers):
+async def test_list_bookings_date_range(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """Filter bookings by start/end date range."""
     env_id = await _create_env(client, auth_headers, "DateRangeEnv")
 
@@ -176,7 +254,8 @@ async def test_list_bookings_date_range(client: AsyncClient, auth_headers):
             "project_name": "AprilProj",
             "start_date": "2026-04-01T10:00:00Z",
             "end_date": "2026-04-01T14:00:00Z",
-            "booking_type": "shared",
+            "booking_type_id": default_booking_type_id,
+            "exclusive_use": False,
         },
     )
     # May booking
@@ -188,7 +267,8 @@ async def test_list_bookings_date_range(client: AsyncClient, auth_headers):
             "project_name": "MayProj",
             "start_date": "2026-05-01T10:00:00Z",
             "end_date": "2026-05-01T14:00:00Z",
-            "booking_type": "shared",
+            "booking_type_id": default_booking_type_id,
+            "exclusive_use": False,
         },
     )
 
@@ -204,11 +284,13 @@ async def test_list_bookings_date_range(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_approve_booking(client: AsyncClient, auth_headers):
+async def test_approve_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """POST /bookings/{id}/approve sets status to approved."""
     env_id = await _create_env(client, auth_headers, "ApproveEnv")
-    create_resp = await _create_booking(client, auth_headers, env_id)
+    create_resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     booking_id = create_resp.json()["booking"]["id"]
+
+    await _submit_booking(client, auth_headers, booking_id)
 
     resp = await client.post(f"/api/v1/bookings/{booking_id}/approve", headers=auth_headers)
     assert resp.status_code == 200
@@ -216,11 +298,13 @@ async def test_approve_booking(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_reject_booking(client: AsyncClient, auth_headers):
+async def test_reject_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """POST /bookings/{id}/reject sets status to rejected."""
     env_id = await _create_env(client, auth_headers, "RejectEnv")
-    create_resp = await _create_booking(client, auth_headers, env_id)
+    create_resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     booking_id = create_resp.json()["booking"]["id"]
+
+    await _submit_booking(client, auth_headers, booking_id)
 
     resp = await client.post(f"/api/v1/bookings/{booking_id}/reject", headers=auth_headers)
     assert resp.status_code == 200
@@ -228,8 +312,8 @@ async def test_reject_booking(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_approve_parent_approves_children(client: AsyncClient, auth_headers):
-    """Approving a parent recurring booking also approves all pending children."""
+async def test_approve_parent_approves_children(client: AsyncClient, auth_headers, default_booking_type_id: int):
+    """Approving a parent recurring booking also approves all submitted children."""
     env_id = await _create_env(client, auth_headers, "RecurApproveEnv")
 
     create_resp = await client.post(
@@ -240,12 +324,20 @@ async def test_approve_parent_approves_children(client: AsyncClient, auth_header
             "project_name": "RecurProj",
             "start_date": "2026-04-01T10:00:00Z",
             "end_date": "2026-04-01T14:00:00Z",
-            "booking_type": "shared",
+            "booking_type_id": default_booking_type_id,
+            "exclusive_use": False,
             "recurrence_rule": "FREQ=WEEKLY;COUNT=3",
         },
     )
     assert create_resp.status_code == 201
     parent_id = create_resp.json()["booking"]["id"]
+
+    # Get all bookings for this project and submit each one
+    list_resp = await client.get("/api/v1/bookings/", headers=auth_headers)
+    all_bookings = list_resp.json()
+    project_bookings = [b for b in all_bookings if b["project_name"] == "RecurProj"]
+    for b in project_bookings:
+        await _submit_booking(client, auth_headers, b["id"])
 
     # Approve the parent
     approve_resp = await client.post(
@@ -262,7 +354,7 @@ async def test_approve_parent_approves_children(client: AsyncClient, auth_header
 
 
 @pytest.mark.asyncio
-async def test_recurring_booking_generates_occurrences(client: AsyncClient, auth_headers):
+async def test_recurring_booking_generates_occurrences(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """Creating a booking with RRULE generates multiple rows (parent + children)."""
     env_id = await _create_env(client, auth_headers, "RecurGenEnv")
 
@@ -274,7 +366,8 @@ async def test_recurring_booking_generates_occurrences(client: AsyncClient, auth
             "project_name": "Weekly Sprint",
             "start_date": "2026-04-01T09:00:00Z",
             "end_date": "2026-04-01T17:00:00Z",
-            "booking_type": "shared",
+            "booking_type_id": default_booking_type_id,
+            "exclusive_use": False,
             "recurrence_rule": "FREQ=WEEKLY;COUNT=4",
         },
     )
@@ -301,7 +394,7 @@ async def test_recurring_booking_generates_occurrences(client: AsyncClient, auth
 
 
 @pytest.mark.asyncio
-async def test_delete_occurrence(client: AsyncClient, auth_headers):
+async def test_delete_occurrence(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """DELETE /bookings/{id}/occurrence soft-deletes one row; siblings remain."""
     env_id = await _create_env(client, auth_headers, "DeleteOccEnv")
 
@@ -313,7 +406,8 @@ async def test_delete_occurrence(client: AsyncClient, auth_headers):
             "project_name": "OccProj",
             "start_date": "2026-04-07T09:00:00Z",
             "end_date": "2026-04-07T17:00:00Z",
-            "booking_type": "shared",
+            "booking_type_id": default_booking_type_id,
+            "exclusive_use": False,
             "recurrence_rule": "FREQ=WEEKLY;COUNT=3",
         },
     )
@@ -341,7 +435,7 @@ async def test_delete_occurrence(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_delete_series(client: AsyncClient, auth_headers):
+async def test_delete_series(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """DELETE /bookings/{id} soft-deletes parent + all children."""
     env_id = await _create_env(client, auth_headers, "DeleteSeriesEnv")
 
@@ -353,7 +447,8 @@ async def test_delete_series(client: AsyncClient, auth_headers):
             "project_name": "SeriesProj",
             "start_date": "2026-04-14T09:00:00Z",
             "end_date": "2026-04-14T17:00:00Z",
-            "booking_type": "shared",
+            "booking_type_id": default_booking_type_id,
+            "exclusive_use": False,
             "recurrence_rule": "FREQ=WEEKLY;COUNT=4",
         },
     )
@@ -376,10 +471,10 @@ async def test_delete_series(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_cancel_booking(client: AsyncClient, auth_headers):
+async def test_cancel_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """POST /bookings/{id}/cancel by owner soft-deletes the booking."""
     env_id = await _create_env(client, auth_headers, "CancelBookingEnv")
-    create_resp = await _create_booking(client, auth_headers, env_id, project_name="CancelMe")
+    create_resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id, project_name="CancelMe")
     booking_id = create_resp.json()["booking"]["id"]
 
     cancel_resp = await client.post(
@@ -398,25 +493,25 @@ async def test_cancel_booking(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_pending_booking_blocks_exclusive(client: AsyncClient, auth_headers):
+async def test_pending_booking_blocks_exclusive(client: AsyncClient, auth_headers, default_booking_type_id: int):
     """
-    Business rule: PENDING bookings block exclusive bookings.
-    A PENDING shared booking (not yet approved) on the same env/time should
+    Business rule: DRAFT bookings block exclusive bookings.
+    A DRAFT shared booking (not yet submitted/approved) on the same env/time should
     cause a 409 when a second exclusive booking is attempted.
     """
     env_id = await _create_env(client, auth_headers, "PendingBlockExclusiveEnv")
 
-    # Create a PENDING shared booking (do not approve it)
-    resp1 = await _create_booking(client, auth_headers, env_id, booking_type="shared")
+    # Create a DRAFT shared booking (do not submit/approve it)
+    resp1 = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
     assert resp1.status_code == 201
     shared_id = resp1.json()["booking"]["id"]
-    assert resp1.json()["booking"]["status"] == "pending"
+    assert resp1.json()["booking"]["status"] == "draft"
 
     # Now try to create an EXCLUSIVE booking for the same env/time
-    # PENDING bookings are not REJECTED, so they participate in overlap checks
-    resp2 = await _create_booking(client, auth_headers, env_id, booking_type="exclusive")
+    # DRAFT bookings are not REJECTED, so they participate in overlap checks
+    resp2 = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id, exclusive_use=True)
     assert resp2.status_code == 409, (
-        "PENDING bookings should block exclusive bookings (intentional business rule)"
+        "DRAFT bookings should block exclusive bookings (intentional business rule)"
     )
     detail = resp2.json()["detail"]
     assert "conflicts" in detail
@@ -424,11 +519,11 @@ async def test_pending_booking_blocks_exclusive(client: AsyncClient, auth_header
 
 
 @pytest.mark.asyncio
-async def test_tenant_isolation(client: AsyncClient, auth_headers, other_auth_headers):
+async def test_tenant_isolation(client: AsyncClient, auth_headers, other_auth_headers, default_booking_type_id: int):
     """Booking from tenant A is not visible to tenant B."""
     env_id = await _create_env(client, auth_headers, "IsolationEnv")
     create_resp = await _create_booking(
-        client, auth_headers, env_id, project_name="TenantAProject"
+        client, auth_headers, env_id, booking_type_id=default_booking_type_id, project_name="TenantAProject"
     )
     assert create_resp.status_code == 201
     booking_id = create_resp.json()["booking"]["id"]
