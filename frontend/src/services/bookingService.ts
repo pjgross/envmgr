@@ -40,4 +40,7 @@ export const bookingService = {
 
   getAllowedTransitions: (id: number): Promise<AllowedTransition[]> =>
     api.get(`/bookings/${id}/allowed-transitions`).then((r) => r.data),
+
+  updateCustomFields: (id: number, values: Record<string, unknown>): Promise<BookingResponse> =>
+    api.patch(`/bookings/${id}/custom-fields`, values).then((r) => r.data),
 };

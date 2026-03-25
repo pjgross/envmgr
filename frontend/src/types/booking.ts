@@ -1,6 +1,11 @@
 export type BookingStatus = string; // lifecycle state key e.g. 'draft', 'submitted', 'approved'
 export type ContextTag = 'deployment' | 'regression' | 'none';
 
+export interface CustomFieldPermission {
+  visible: boolean;
+  editable: boolean;
+}
+
 export interface BookingResponse {
   id: number;
   environment_id: number;
@@ -20,6 +25,7 @@ export interface BookingResponse {
   test_phase_id: number | null;
   context_tag: ContextTag;
   custom_fields: Record<string, unknown> | null;
+  custom_field_permissions?: Record<string, CustomFieldPermission>;
   tenant_id: number;
   created_at: string;
   updated_at: string;

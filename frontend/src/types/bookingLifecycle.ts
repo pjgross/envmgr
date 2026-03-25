@@ -15,6 +15,7 @@ export interface LifecycleTransition {
 export interface LifecycleFieldPermission {
   editable_fields: string[];
   editable_by: string[];
+  custom_fields?: Record<string, { editable_by: string[] }>; // new
 }
 
 export interface LifecycleDefinition {
