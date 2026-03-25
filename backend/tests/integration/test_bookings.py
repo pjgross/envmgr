@@ -69,11 +69,18 @@ DEFAULT_TEST_DEFINITION = {
         {"from_state": "approved", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin", "Release Manager"]},
     ],
     "field_permissions": {
-        "draft": {"editable_fields": ["project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"], "editable_by": ["Admin", "Release Manager", "Developer"]},
-        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
-        "approved": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
-        "rejected": {"editable_fields": [], "editable_by": []},
-        "closed": {"editable_fields": [], "editable_by": []},
+        "draft": {
+            "standard_fields": {
+                "project_name": {"editable_by": ["Admin", "Release Manager", "Developer"]},
+                "start_date": {"editable_by": ["Admin", "Release Manager", "Developer"]},
+                "end_date": {"editable_by": ["Admin", "Release Manager", "Developer"]},
+                "booking_type": {"editable_by": ["Admin", "Release Manager", "Developer"]},
+            }
+        },
+        "submitted": {"standard_fields": {}},
+        "approved": {"standard_fields": {}},
+        "rejected": {"standard_fields": {}},
+        "closed": {"standard_fields": {}},
     }
 }
 

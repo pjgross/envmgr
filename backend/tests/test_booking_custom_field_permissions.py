@@ -11,16 +11,19 @@ DEFINITION_WITH_CUSTOM_FIELDS = {
     ],
     "field_permissions": {
         "draft": {
-            "editable_fields": ["project_name"],
-            "editable_by": ["Admin"],
+            "standard_fields": {
+                "project_name": {"editable_by": ["Admin"]},
+                "start_date": {"editable_by": ["Admin"]},
+                "end_date": {"editable_by": ["Admin"]},
+                "booking_type": {"editable_by": ["Admin"]},
+            },
             "custom_fields": {
                 "release_notes": {"editable_by": ["Admin", "Release Manager"]},
                 "sign_off": {"editable_by": ["Admin"]},
             },
         },
         "submitted": {
-            "editable_fields": [],
-            "editable_by": [],
+            "standard_fields": {},
             "custom_fields": {
                 "sign_off": {"editable_by": []},
             },
@@ -52,8 +55,12 @@ async def test_create_template_with_invalid_role_in_custom_field(client: AsyncCl
         "transitions": [],
         "field_permissions": {
             "draft": {
-                "editable_fields": [],
-                "editable_by": [],
+                "standard_fields": {
+                    "project_name": {"editable_by": ["Admin"]},
+                    "start_date": {"editable_by": ["Admin"]},
+                    "end_date": {"editable_by": ["Admin"]},
+                    "booking_type": {"editable_by": ["Admin"]},
+                },
                 "custom_fields": {
                     "my_field": {"editable_by": ["NotARealRole"]},
                 },
@@ -149,15 +156,18 @@ BOOKING_DEF = {
     ],
     "field_permissions": {
         "draft": {
-            "editable_fields": ["project_name"],
-            "editable_by": ["Admin"],
+            "standard_fields": {
+                "project_name": {"editable_by": ["Admin"]},
+                "start_date": {"editable_by": ["Admin"]},
+                "end_date": {"editable_by": ["Admin"]},
+                "booking_type": {"editable_by": ["Admin"]},
+            },
             "custom_fields": {
                 "release_notes": {"editable_by": ["Admin"]},
             },
         },
         "submitted": {
-            "editable_fields": [],
-            "editable_by": [],
+            "standard_fields": {},
             "custom_fields": {},
         },
     },
