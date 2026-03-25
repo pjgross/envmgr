@@ -336,13 +336,17 @@ async def get_booking_allowed_transitions(
     result = await db.execute(
         select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
     )
-    booking_type_obj = result.scalar_one()
+    booking_type_obj = result.scalar_one_or_none()
+    if not booking_type_obj:
+        raise HTTPException(status_code=404, detail="Booking type not found")
     tmpl_result = await db.execute(
         select(BookingLifecycleTemplate).where(
             BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
         )
     )
-    template = tmpl_result.scalar_one()
+    template = tmpl_result.scalar_one_or_none()
+    if not template:
+        raise HTTPException(status_code=404, detail="Lifecycle template not found")
     return get_allowed_transitions(template.definition, booking.status, current_user.role)
 
 

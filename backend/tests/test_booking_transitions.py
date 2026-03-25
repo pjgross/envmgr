@@ -1,5 +1,7 @@
 import pytest
 from httpx import AsyncClient
+from app.core.security import get_password_hash
+from app.db.models.user import User
 
 
 DEFAULT_DEFINITION = {
@@ -174,3 +176,59 @@ async def test_approve_shortcut_only_works_from_submitted(client: AsyncClient, a
 
     resp = await client.post(f"/api/v1/bookings/{booking_id}/approve", headers=auth_headers)
     assert resp.status_code == 400  # booking is in draft, not submitted
+
+
+@pytest.mark.asyncio
+async def test_transition_invalid_role(client: AsyncClient, auth_headers: dict, db_session, test_tenant):
+    """A user with the 'User' role gets 403 when attempting a transition that requires Admin or ReleaseManager."""
+    booking_type_id = await _setup_booking_type(client, auth_headers)
+    env_id = await _setup_env(client, auth_headers, "TransitionEnv6")
+
+    # Create a booking as Admin (starts in draft)
+    create_resp = await _create_booking(
+        client, auth_headers, env_id, booking_type_id,
+        project_name="Test Project 6",
+        start_date="2026-11-01T10:00:00Z",
+        end_date="2026-11-07T10:00:00Z",
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    booking_id = create_resp.json()["booking"]["id"]
+
+    # Transition draft -> submitted as Admin (allowed for all roles)
+    submit_resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "submitted"},
+    )
+    assert submit_resp.status_code == 200, submit_resp.text
+
+    # Create a user with a role that is not Admin or ReleaseManager
+    user_role_user = User(
+        tenant_id=test_tenant.id,
+        username="testuser",
+        email="user@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Developer",
+        is_active=True,
+    )
+    db_session.add(user_role_user)
+    await db_session.commit()
+    await db_session.refresh(user_role_user)
+
+    # Log in as the User-role user
+    login_resp = await client.post("/api/v1/auth/login", json={
+        "username": "testuser",
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert login_resp.status_code == 200, login_resp.text
+    user_token = login_resp.json()["access_token"]
+    user_headers = {"Authorization": f"Bearer {user_token}"}
+
+    # Attempt submitted -> approved as User role — should be 403
+    resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=user_headers,
+        json={"to_state": "approved"},
+    )
+    assert resp.status_code == 403
