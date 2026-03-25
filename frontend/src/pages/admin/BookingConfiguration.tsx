@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box, Button, Typography, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, TextField, MenuItem,
+  DialogActions, TextField, MenuItem, Alert,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -21,6 +21,7 @@ export default function BookingConfiguration() {
   const [createTypeOpen, setCreateTypeOpen] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
   const [newTypeTemplateId, setNewTypeTemplateId] = useState<number | ''>('');
+  const [createTypeError, setCreateTypeError] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch(fetchBookingTypes());
@@ -29,13 +30,18 @@ export default function BookingConfiguration() {
 
   const handleCreateType = async () => {
     if (!newTypeName || !newTypeTemplateId) return;
-    await dispatch(createBookingType({
+    setCreateTypeError(null);
+    const result = await dispatch(createBookingType({
       name: newTypeName,
       lifecycle_template_id: Number(newTypeTemplateId),
       is_active: true,
       description: null,
       color: null,
     }));
+    if (createBookingType.rejected.match(result)) {
+      setCreateTypeError(result.error.message ?? 'Failed to create booking type');
+      return;
+    }
     setCreateTypeOpen(false);
     setNewTypeName('');
     setNewTypeTemplateId('');
@@ -123,6 +129,7 @@ export default function BookingConfiguration() {
       <Dialog open={createTypeOpen} onClose={() => setCreateTypeOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>New Booking Type</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {createTypeError && <Alert severity="error">{createTypeError}</Alert>}
           <TextField
             label="Name"
             required

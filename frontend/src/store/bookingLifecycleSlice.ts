@@ -75,8 +75,14 @@ const bookingLifecycleSlice = createSlice({
         state.error = action.error.message ?? 'Failed to load templates';
       })
 
+      .addCase(fetchBookingTypes.pending, (state) => { state.loading = true; state.error = null; })
       .addCase(fetchBookingTypes.fulfilled, (state, action) => {
+        state.loading = false;
         state.bookingTypes = action.payload;
+      })
+      .addCase(fetchBookingTypes.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load booking types';
       })
 
       .addCase(createLifecycleTemplate.fulfilled, (state, action) => {
