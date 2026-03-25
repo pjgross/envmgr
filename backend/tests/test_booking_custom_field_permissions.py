@@ -138,7 +138,7 @@ def test_get_custom_field_permissions_no_custom_fields_in_state():
     """State entry with no custom_fields key returns empty dict."""
     definition = {
         "field_permissions": {
-            "draft": {"editable_fields": ["project_name"], "editable_by": ["Admin"]},
+            "draft": {"standard_fields": {"project_name": {"editable_by": ["Admin"]}}},
         }
     }
     result = get_custom_field_permissions(definition, "draft", "Admin", {"any_key"})
