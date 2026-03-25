@@ -6,6 +6,9 @@ export const bookingLifecycleService = {
   listTemplates: (): Promise<BookingLifecycleTemplate[]> =>
     api.get('/tenant/lifecycle-templates').then((r) => r.data),
 
+  getTemplate: (id: number): Promise<BookingLifecycleTemplate> =>
+    api.get(`/tenant/lifecycle-templates/${id}`).then((r) => r.data),
+
   createTemplate: (data: Omit<BookingLifecycleTemplate, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>): Promise<BookingLifecycleTemplate> =>
     api.post('/tenant/lifecycle-templates', data).then((r) => r.data),
 
@@ -18,6 +21,9 @@ export const bookingLifecycleService = {
   // Booking types
   listBookingTypes: (): Promise<BookingTypeRecord[]> =>
     api.get('/tenant/booking-types').then((r) => r.data),
+
+  getBookingType: (id: number): Promise<BookingTypeRecord> =>
+    api.get(`/tenant/booking-types/${id}`).then((r) => r.data),
 
   createBookingType: (data: Omit<BookingTypeRecord, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>): Promise<BookingTypeRecord> =>
     api.post('/tenant/booking-types', data).then((r) => r.data),
