@@ -68,7 +68,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
 
   const [envId, setEnvId] = useState<number | ''>(defaultEnvId ?? '');
   const [projectName, setProjectName] = useState('');
-  const [bookingTypeId, setBookingTypeId] = useState<number>(1);
+  const [bookingTypeId, setBookingTypeId] = useState<number | ''>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -88,6 +88,13 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
     dispatch(fetchBookingTypes());
   }, [dispatch]);
 
+  // Auto-select first active booking type once loaded
+  useEffect(() => {
+    if (!bookingTypeId && bookingTypes.length > 0) {
+      setBookingTypeId(bookingTypes.find((bt) => bt.is_active)?.id ?? '');
+    }
+  }, [bookingTypes, bookingTypeId]);
+
   // Feedback state
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
     open: false,
@@ -106,7 +113,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
       project_name: projectName,
       start_date: new Date(startDate).toISOString(),
       end_date: new Date(endDate).toISOString(),
-      booking_type_id: bookingTypeId,
+      booking_type_id: bookingTypeId as number,
       exclusive_use: exclusiveUse,
       notes: notes || undefined,
       recurrence_rule: rrule,
@@ -143,7 +150,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const handleClose = () => {
     setEnvId(defaultEnvId ?? '');
     setProjectName('');
-    setBookingTypeId(bookingTypes.find(bt => bt.is_active)?.id ?? 1);
+    setBookingTypeId('');
     setExclusiveUse(false);
     setStartDate('');
     setEndDate('');
@@ -337,7 +344,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
           <Button
             onClick={handleSubmit}
             variant="contained"
-            disabled={loading || !envId || !projectName || !startDate || !endDate}
+            disabled={loading || !envId || !projectName || !startDate || !endDate || !bookingTypeId}
           >
             {loading ? 'Creating...' : 'Create Booking'}
           </Button>
