@@ -22,6 +22,7 @@ from app.services.booking_lifecycle_service import (
     get_allowed_transitions,
     get_custom_field_permissions,
 )
+from app.api.v1.schemas.booking_lifecycle import VALID_STANDARD_FIELD_NAMES
 
 
 @dataclass
@@ -539,7 +540,6 @@ async def get_standard_field_perms_for_booking(
     """Return editable status for all 7 standard fields for the booking's current state and user role.
     All 7 standard fields are always present in the response.
     Returns {"project_name": {"editable": True}, "start_date": {"editable": False}, ...}"""
-    from app.api.v1.schemas.booking_lifecycle import VALID_STANDARD_FIELD_NAMES
     bt_result = await db.execute(
         select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
     )

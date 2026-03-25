@@ -3,13 +3,19 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models.dependency import SystemDependency, ComponentDependency
+from app.db.models.dependency import (
+    SystemDependency,
+    ComponentDependency,
+    ComponentEndpoint,
+)
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.dependency import (
     SystemDependencyCreate,
     SystemDependencyUpdate,
     ComponentDependencyCreate,
     ComponentDependencyUpdate,
+    ComponentEndpointCreate,
+    ComponentEndpointUpdate,
 )
 from app.services.system_service import get_system
 
@@ -225,6 +231,7 @@ async def list_component_dependencies(
         .options(
             selectinload(ComponentDependency.to_subsystem),
             selectinload(ComponentDependency.from_subsystem),
+            selectinload(ComponentDependency.endpoints),
         )
         .order_by(ComponentDependency.id)
     )
@@ -240,6 +247,7 @@ async def list_component_dependencies(
         .options(
             selectinload(ComponentDependency.to_subsystem),
             selectinload(ComponentDependency.from_subsystem),
+            selectinload(ComponentDependency.endpoints),
         )
         .order_by(ComponentDependency.id)
     )
@@ -302,6 +310,7 @@ async def create_component_dependency(
         .options(
             selectinload(ComponentDependency.to_subsystem),
             selectinload(ComponentDependency.from_subsystem),
+            selectinload(ComponentDependency.endpoints),
         )
     )
     return result.scalar_one()
@@ -350,6 +359,7 @@ async def update_component_dependency(
         .options(
             selectinload(ComponentDependency.from_subsystem),
             selectinload(ComponentDependency.to_subsystem),
+            selectinload(ComponentDependency.endpoints),
         )
     )
     dep = result.scalar_one_or_none()
@@ -362,4 +372,117 @@ async def update_component_dependency(
     for field, value in update_data.items():
         setattr(dep, field, value)
     await db.flush()
+    return dep
+
+
+# ---------------------------------------------------------------------------
+# ComponentEndpoint operations
+# ---------------------------------------------------------------------------
+
+
+async def _get_component_dependency(
+    db: AsyncSession, dep_id: int, subsystem_id: int, tenant_id: int
+) -> ComponentDependency:
+    """Load a ComponentDependency with all relationships, verifying tenant + subsystem ownership."""
+    result = await db.execute(
+        select(ComponentDependency)
+        .where(
+            ComponentDependency.id == dep_id,
+            ComponentDependency.tenant_id == tenant_id,
+            or_(
+                ComponentDependency.from_subsystem_id == subsystem_id,
+                ComponentDependency.to_subsystem_id == subsystem_id,
+            ),
+        )
+        .options(
+            selectinload(ComponentDependency.from_subsystem),
+            selectinload(ComponentDependency.to_subsystem),
+            selectinload(ComponentDependency.endpoints),
+        )
+    )
+    dep = result.scalar_one_or_none()
+    if dep is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Component dependency not found",
+        )
+    return dep
+
+
+async def create_component_endpoint(
+    db: AsyncSession,
+    dep_id: int,
+    subsystem_id: int,
+    data: ComponentEndpointCreate,
+    tenant_id: int,
+) -> ComponentDependency:
+    """Add an endpoint to a component dependency and return the updated dependency."""
+    dep = await _get_component_dependency(db, dep_id, subsystem_id, tenant_id)
+
+    endpoint = ComponentEndpoint(
+        dependency_id=dep_id,
+        http_method=data.http_method,
+        path=data.path,
+        description=data.description,
+        tenant_id=tenant_id,
+    )
+    db.add(endpoint)
+    await db.flush()
+    await db.refresh(dep, ["endpoints"])
+    return dep
+
+
+async def update_component_endpoint(
+    db: AsyncSession,
+    dep_id: int,
+    endpoint_id: int,
+    subsystem_id: int,
+    data: ComponentEndpointUpdate,
+    tenant_id: int,
+) -> ComponentDependency:
+    """Update an endpoint and return the parent dependency with all endpoints."""
+    dep = await _get_component_dependency(db, dep_id, subsystem_id, tenant_id)
+
+    ep_result = await db.execute(
+        select(ComponentEndpoint).where(
+            ComponentEndpoint.id == endpoint_id,
+            ComponentEndpoint.dependency_id == dep_id,
+            ComponentEndpoint.tenant_id == tenant_id,
+        )
+    )
+    ep = ep_result.scalar_one_or_none()
+    if ep is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
+
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(ep, field, value)
+    await db.flush()
+    await db.refresh(dep, ["endpoints"])
+    return dep
+
+
+async def delete_component_endpoint(
+    db: AsyncSession,
+    dep_id: int,
+    endpoint_id: int,
+    subsystem_id: int,
+    tenant_id: int,
+) -> ComponentDependency:
+    """Delete an endpoint and return the parent dependency with remaining endpoints."""
+    dep = await _get_component_dependency(db, dep_id, subsystem_id, tenant_id)
+
+    ep_result = await db.execute(
+        select(ComponentEndpoint).where(
+            ComponentEndpoint.id == endpoint_id,
+            ComponentEndpoint.dependency_id == dep_id,
+            ComponentEndpoint.tenant_id == tenant_id,
+        )
+    )
+    ep = ep_result.scalar_one_or_none()
+    if ep is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found")
+
+    await db.delete(ep)
+    await db.flush()
+    await db.refresh(dep, ["endpoints"])
     return dep

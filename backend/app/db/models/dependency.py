@@ -28,6 +28,16 @@ class DependencyDirection(str, enum.Enum):
     TWO_WAY = "two_way"
 
 
+class HttpMethod(str, enum.Enum):
+    GET = "get"
+    POST = "post"
+    PUT = "put"
+    PATCH = "patch"
+    DELETE = "delete"
+    HEAD = "head"
+    OPTIONS = "options"
+
+
 class SystemDependency(Base):
     """A declared dependency between two Systems within a tenant."""
 
@@ -110,9 +120,43 @@ class ComponentDependency(Base):
     to_subsystem: Mapped["SubSystem"] = relationship(  # type: ignore[name-defined]
         "SubSystem", foreign_keys=[to_subsystem_id]
     )
+    endpoints: Mapped[list["ComponentEndpoint"]] = relationship(
+        "ComponentEndpoint",
+        back_populates="dependency",
+        cascade="all, delete-orphan",
+        lazy="raise",
+    )
 
     def __repr__(self) -> str:
         return (
             f"<ComponentDependency(from={self.from_subsystem_id}, to={self.to_subsystem_id}, "
             f"type={self.dependency_type})>"
+        )
+
+
+class ComponentEndpoint(Base):
+    """A documented API endpoint on a ComponentDependency link."""
+
+    __tablename__ = "component_endpoint"
+
+    dependency_id: Mapped[int] = mapped_column(
+        ForeignKey("component_dependency.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    http_method: Mapped[Optional[HttpMethod]] = mapped_column(
+        SAEnum(HttpMethod, native_enum=False), nullable=True
+    )
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
+
+    dependency: Mapped["ComponentDependency"] = relationship(
+        "ComponentDependency", back_populates="endpoints"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ComponentEndpoint(dep={self.dependency_id}, method={self.http_method}, "
+            f"path='{self.path}')>"
         )

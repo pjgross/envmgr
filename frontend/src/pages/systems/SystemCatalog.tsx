@@ -157,29 +157,30 @@ export default function SystemCatalog() {
           <Typography variant="body2" color="text.secondary">—</Typography>
         ),
     },
-    {
-      field: 'actions',
-      headerName: '',
-      width: 100,
-      sortable: false,
-      hideable: false,
-      disableColumnMenu: true,
-      renderCell: (params) => (
-        <Box onClick={(e) => e.stopPropagation()}>
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ], [openEdit, setDeleteTarget])
+  ], [])
+
+  const actionsColumn = useMemo<GridColDef<SystemResponse>>(() => ({
+    field: 'actions',
+    headerName: '',
+    width: 100,
+    sortable: false,
+    hideable: false,
+    disableColumnMenu: true,
+    renderCell: (params) => (
+      <Box onClick={(e) => e.stopPropagation()}>
+        <Tooltip title="Edit">
+          <IconButton size="small" onClick={() => openEdit(params.row)}>
+            <EditIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Delete">
+          <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+            <DeleteIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    ),
+  }), [openEdit, setDeleteTarget])
 
   const customFieldColumns = useMemo<GridColDef<SystemResponse>[]>(
     () => customFieldDefs.map((def) => ({
@@ -193,8 +194,8 @@ export default function SystemCatalog() {
   )
 
   const columns = useMemo(
-    () => [...coreColumns, ...customFieldColumns],
-    [coreColumns, customFieldColumns]
+    () => [...coreColumns, ...customFieldColumns, actionsColumn],
+    [coreColumns, customFieldColumns, actionsColumn]
   )
 
   const handleColumnVisibilityChange = useCallback((model: GridColumnVisibilityModel) => {

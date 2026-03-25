@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
+from app.db.models.dependency import ComponentDependency
 from app.services import dependency_service
 from app.api.v1.schemas.dependency import (
     SystemDependencyCreate,
@@ -11,9 +12,37 @@ from app.api.v1.schemas.dependency import (
     ComponentDependencyCreate,
     ComponentDependencyUpdate,
     ComponentDependencyResponse,
+    ComponentEndpointCreate,
+    ComponentEndpointUpdate,
 )
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_comp_dep_response(
+    dep: ComponentDependency, subsystem_id: int
+) -> ComponentDependencyResponse:
+    return ComponentDependencyResponse(
+        id=dep.id,
+        from_subsystem_id=dep.from_subsystem_id,
+        to_subsystem_id=dep.to_subsystem_id,
+        dependency_type=dep.dependency_type,
+        direction=dep.direction,
+        protocol=dep.protocol,
+        port=dep.port,
+        source=dep.source,
+        label=dep.label,
+        tenant_id=dep.tenant_id,
+        to_subsystem=dep.to_subsystem,
+        from_subsystem=dep.from_subsystem,
+        is_incoming=dep.to_subsystem_id == subsystem_id,
+        endpoints=dep.endpoints,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -157,39 +186,9 @@ async def list_component_dependencies(
     )
     result = []
     for dep in outgoing:
-        result.append(
-            ComponentDependencyResponse(
-                id=dep.id,
-                from_subsystem_id=dep.from_subsystem_id,
-                to_subsystem_id=dep.to_subsystem_id,
-                dependency_type=dep.dependency_type,
-                direction=dep.direction,
-                protocol=dep.protocol,
-                port=dep.port,
-                source=dep.source,
-                tenant_id=dep.tenant_id,
-                to_subsystem=dep.to_subsystem,
-                from_subsystem=dep.from_subsystem,
-                is_incoming=False,
-            )
-        )
+        result.append(_build_comp_dep_response(dep, subsystem_id))
     for dep in incoming:
-        result.append(
-            ComponentDependencyResponse(
-                id=dep.id,
-                from_subsystem_id=dep.from_subsystem_id,
-                to_subsystem_id=dep.to_subsystem_id,
-                dependency_type=dep.dependency_type,
-                direction=dep.direction,
-                protocol=dep.protocol,
-                port=dep.port,
-                source=dep.source,
-                tenant_id=dep.tenant_id,
-                to_subsystem=dep.to_subsystem,
-                from_subsystem=dep.from_subsystem,
-                is_incoming=True,
-            )
-        )
+        result.append(_build_comp_dep_response(dep, subsystem_id))
     return result
 
 
@@ -207,20 +206,7 @@ async def create_component_dependency(
     dep = await dependency_service.create_component_dependency(
         db, subsystem_id, data, current_user.active_tenant_id
     )
-    return ComponentDependencyResponse(
-        id=dep.id,
-        from_subsystem_id=dep.from_subsystem_id,
-        to_subsystem_id=dep.to_subsystem_id,
-        dependency_type=dep.dependency_type,
-        direction=dep.direction,
-        protocol=dep.protocol,
-        port=dep.port,
-        source=dep.source,
-        tenant_id=dep.tenant_id,
-        to_subsystem=dep.to_subsystem,
-        from_subsystem=dep.from_subsystem,
-        is_incoming=False,
-    )
+    return _build_comp_dep_response(dep, subsystem_id)
 
 
 @router.delete(
@@ -252,17 +238,62 @@ async def update_component_dependency(
     dep = await dependency_service.update_component_dependency(
         db, dep_id, subsystem_id, data, current_user.active_tenant_id
     )
-    return ComponentDependencyResponse(
-        id=dep.id,
-        from_subsystem_id=dep.from_subsystem_id,
-        to_subsystem_id=dep.to_subsystem_id,
-        dependency_type=dep.dependency_type,
-        direction=dep.direction,
-        protocol=dep.protocol,
-        port=dep.port,
-        source=dep.source,
-        tenant_id=dep.tenant_id,
-        to_subsystem=dep.to_subsystem,
-        from_subsystem=dep.from_subsystem,
-        is_incoming=dep.to_subsystem_id == subsystem_id,
+    return _build_comp_dep_response(dep, subsystem_id)
+
+
+# ---------------------------------------------------------------------------
+# Component endpoint endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/subsystems/{subsystem_id}/dependencies/{dep_id}/endpoints",
+    response_model=ComponentDependencyResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_component_endpoint(
+    subsystem_id: int,
+    dep_id: int,
+    data: ComponentEndpointCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    dep = await dependency_service.create_component_endpoint(
+        db, dep_id, subsystem_id, data, current_user.active_tenant_id
     )
+    return _build_comp_dep_response(dep, subsystem_id)
+
+
+@router.patch(
+    "/subsystems/{subsystem_id}/dependencies/{dep_id}/endpoints/{endpoint_id}",
+    response_model=ComponentDependencyResponse,
+)
+async def update_component_endpoint(
+    subsystem_id: int,
+    dep_id: int,
+    endpoint_id: int,
+    data: ComponentEndpointUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    dep = await dependency_service.update_component_endpoint(
+        db, dep_id, endpoint_id, subsystem_id, data, current_user.active_tenant_id
+    )
+    return _build_comp_dep_response(dep, subsystem_id)
+
+
+@router.delete(
+    "/subsystems/{subsystem_id}/dependencies/{dep_id}/endpoints/{endpoint_id}",
+    response_model=ComponentDependencyResponse,
+)
+async def delete_component_endpoint(
+    subsystem_id: int,
+    dep_id: int,
+    endpoint_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    dep = await dependency_service.delete_component_endpoint(
+        db, dep_id, endpoint_id, subsystem_id, current_user.active_tenant_id
+    )
+    return _build_comp_dep_response(dep, subsystem_id)

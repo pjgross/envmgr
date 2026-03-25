@@ -71,6 +71,7 @@ import type {
   DependencyType,
   DependencyDirection,
   DependencySource,
+  HttpMethod,
   SystemDependencyResponse,
   ComponentDependencyResponse,
   ComponentDependencyCreate,
@@ -94,6 +95,16 @@ const DEP_SOURCE_OPTIONS: { value: DependencySource; label: string }[] = [
   { value: 'manual', label: 'Manual' },
   { value: 'terraform', label: 'Terraform' },
   { value: 'docker_compose', label: 'Docker Compose' },
+];
+
+const HTTP_METHOD_OPTIONS: { value: HttpMethod; label: string }[] = [
+  { value: 'get', label: 'GET' },
+  { value: 'post', label: 'POST' },
+  { value: 'put', label: 'PUT' },
+  { value: 'patch', label: 'PATCH' },
+  { value: 'delete', label: 'DELETE' },
+  { value: 'head', label: 'HEAD' },
+  { value: 'options', label: 'OPTIONS' },
 ];
 
 interface DepEditFormValues {
@@ -229,6 +240,13 @@ export default function SystemDetail() {
     port: '',
   });
   const [compDepEditFormError, setCompDepEditFormError] = useState('');
+
+  // Endpoint draft state (within comp dep edit dialog)
+  const [endpointDraftVisible, setEndpointDraftVisible] = useState(false);
+  const [endpointDraft, setEndpointDraft] = useState({ http_method: '' as HttpMethod | '', path: '', description: '' });
+  const [endpointDraftError, setEndpointDraftError] = useState('');
+  const [endpointSaving, setEndpointSaving] = useState(false);
+
   const [allSubsystems, setAllSubsystems] = useState<AllSubsystem[]>([]);
   const [allSubsystemsLoading, setAllSubsystemsLoading] = useState(false);
   // Component deps merged across all subsystems of this system
@@ -549,6 +567,57 @@ export default function SystemDetail() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setCompDepEditFormError(message || 'Failed to update component dependency');
+    }
+  };
+
+  const closeCompDepEditDialog = () => {
+    setCompDepEditTarget(null);
+    setEndpointDraftVisible(false);
+    setEndpointDraft({ http_method: '', path: '', description: '' });
+    setEndpointDraftError('');
+  };
+
+  const handleEndpointAdd = async () => {
+    if (!compDepEditTarget) return;
+    if (!endpointDraft.path.trim()) {
+      setEndpointDraftError('Path is required');
+      return;
+    }
+    setEndpointSaving(true);
+    setEndpointDraftError('');
+    try {
+      const updated = await dependencyService.createComponentEndpoint(
+        compDepEditTarget.from_subsystem_id,
+        compDepEditTarget.id,
+        {
+          http_method: endpointDraft.http_method || null,
+          path: endpointDraft.path.trim(),
+          description: endpointDraft.description.trim() || null,
+        }
+      );
+      setAllCompDeps((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      setCompDepEditTarget(updated);
+      setEndpointDraft({ http_method: '', path: '', description: '' });
+      setEndpointDraftVisible(false);
+    } catch {
+      setEndpointDraftError('Failed to add endpoint');
+    } finally {
+      setEndpointSaving(false);
+    }
+  };
+
+  const handleEndpointDelete = async (endpointId: number) => {
+    if (!compDepEditTarget) return;
+    try {
+      const updated = await dependencyService.deleteComponentEndpoint(
+        compDepEditTarget.from_subsystem_id,
+        compDepEditTarget.id,
+        endpointId
+      );
+      setAllCompDeps((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      setCompDepEditTarget(updated);
+    } catch {
+      // silently ignore — endpoint row will remain if delete fails
     }
   };
 
@@ -1443,7 +1512,7 @@ export default function SystemDetail() {
       </Dialog>
 
       {/* Edit Component Dependency Dialog */}
-      <Dialog open={Boolean(compDepEditTarget)} onClose={() => setCompDepEditTarget(null)} maxWidth="sm" fullWidth>
+      <Dialog open={Boolean(compDepEditTarget)} onClose={closeCompDepEditDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Component Dependency</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {compDepEditFormError && <Alert severity="error">{compDepEditFormError}</Alert>}
@@ -1510,9 +1579,116 @@ export default function SystemDetail() {
             fullWidth
             placeholder="e.g. 8080"
           />
+
+          {/* Endpoints section */}
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="subtitle2">Endpoints</Typography>
+              {!endpointDraftVisible && (
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setEndpointDraftVisible(true)}>
+                  Add Endpoint
+                </Button>
+              )}
+            </Box>
+
+            {(compDepEditTarget?.endpoints ?? []).length === 0 && !endpointDraftVisible && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                No endpoints documented yet.
+              </Typography>
+            )}
+
+            {(compDepEditTarget?.endpoints ?? []).map((ep) => (
+              <Box
+                key={ep.id}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  py: 0.75,
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                {ep.http_method && (
+                  <Chip
+                    label={ep.http_method.toUpperCase()}
+                    size="small"
+                    sx={{ fontFamily: 'monospace', fontWeight: 700, minWidth: 64, flexShrink: 0 }}
+                  />
+                )}
+                <Typography variant="body2" sx={{ flex: 1, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                  {ep.path}
+                </Typography>
+                {ep.description && (
+                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                    {ep.description}
+                  </Typography>
+                )}
+                <Tooltip title="Delete endpoint">
+                  <IconButton size="small" color="error" onClick={() => handleEndpointDelete(ep.id)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ))}
+
+            {endpointDraftVisible && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                {endpointDraftError && <Alert severity="error" sx={{ py: 0 }}>{endpointDraftError}</Alert>}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <FormControl sx={{ minWidth: 110 }}>
+                    <InputLabel size="small">Method</InputLabel>
+                    <Select
+                      size="small"
+                      label="Method"
+                      value={endpointDraft.http_method}
+                      onChange={(e) =>
+                        setEndpointDraft({ ...endpointDraft, http_method: e.target.value as HttpMethod | '' })
+                      }
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      {HTTP_METHOD_OPTIONS.map((o) => (
+                        <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    size="small"
+                    label="Path *"
+                    placeholder="/api/v1/resource"
+                    value={endpointDraft.path}
+                    onChange={(e) => setEndpointDraft({ ...endpointDraft, path: e.target.value })}
+                    sx={{ flex: 1 }}
+                  />
+                </Box>
+                <TextField
+                  size="small"
+                  label="Description"
+                  value={endpointDraft.description}
+                  onChange={(e) => setEndpointDraft({ ...endpointDraft, description: e.target.value })}
+                  fullWidth
+                />
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button size="small" variant="contained" onClick={handleEndpointAdd} disabled={endpointSaving}>
+                    Save
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEndpointDraftVisible(false);
+                      setEndpointDraft({ http_method: '', path: '', description: '' });
+                      setEndpointDraftError('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </Box>
+              </Box>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCompDepEditTarget(null)}>Cancel</Button>
+          <Button onClick={closeCompDepEditDialog}>Cancel</Button>
           <Button onClick={handleCompDepEditSave} variant="contained">
             Save
           </Button>

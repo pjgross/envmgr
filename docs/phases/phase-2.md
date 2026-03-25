@@ -11,7 +11,7 @@
 - Configurable change lifecycle per change type; at least one lifecycle includes an approval step
 - Outage flag on changes (is there an environment outage during the change?)
 - Change requests and bookings visible together on a unified environment schedule
-- Link changes to releases and deployments
+- Changes are used to link builds to test environments documenting a deployment
 - Change history and audit trail
 - Notifications on change status updates
 
