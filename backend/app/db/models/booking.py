@@ -2,22 +2,12 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, JSON
+from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, JSON, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Enum as SAEnum
 
 from app.db.base import Base
-
-
-class BookingType(str, enum.Enum):
-    SHARED = "shared"
-    EXCLUSIVE = "exclusive"
-
-
-class BookingStatus(str, enum.Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
+from app.db.models.booking_lifecycle import BookingType as BookingTypeModel
 
 
 class ContextTag(str, enum.Enum):
@@ -37,14 +27,11 @@ class Booking(Base):
     booked_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    booking_type: Mapped[BookingType] = mapped_column(
-        SAEnum(BookingType, native_enum=False), nullable=False
+    exclusive_use: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    booking_type_id: Mapped[int] = mapped_column(
+        ForeignKey("booking_type.id"), nullable=False, index=True
     )
-    status: Mapped[BookingStatus] = mapped_column(
-        SAEnum(BookingStatus, native_enum=False),
-        nullable=False,
-        default=BookingStatus.PENDING,
-    )
+    status: Mapped[str] = mapped_column(String(100), nullable=False, default="draft")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     recurrence_rule: Mapped[Optional[str]] = mapped_column(
         String(500), nullable=True
@@ -68,6 +55,7 @@ class Booking(Base):
     # Relationships
     environment: Mapped["Environment"] = relationship("Environment")
     booker: Mapped["User"] = relationship("User", foreign_keys=[booked_by])
+    booking_type_ref: Mapped["BookingTypeModel"] = relationship("BookingType", foreign_keys=[booking_type_id])
     occurrences: Mapped[list["Booking"]] = relationship(
         "Booking",
         foreign_keys=[recurrence_parent_id],

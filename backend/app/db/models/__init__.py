@@ -5,10 +5,10 @@ from app.db.models.custom_field import CustomFieldDefinition
 from app.db.models.system import System, SubSystem
 from app.db.models.environment import Environment, EnvironmentSystem
 from app.db.models.dependency import SystemDependency, ComponentDependency
-from app.db.models.booking import Booking, BookingType, BookingStatus, ContextTag
+from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_lifecycle import (
     BookingLifecycleTemplate,
-    BookingType as BookingTypeTable,
+    BookingType,
     BookingStatusHistory,
 )
 from app.db.models.version import EnvironmentSubSystemVersion
@@ -27,11 +27,9 @@ __all__ = [
     "SystemDependency",
     "ComponentDependency",
     "Booking",
-    "BookingType",
-    "BookingStatus",
     "ContextTag",
     "BookingLifecycleTemplate",
-    "BookingTypeTable",
+    "BookingType",
     "BookingStatusHistory",
     "EnvironmentSubSystemVersion",
     "EventLog",
