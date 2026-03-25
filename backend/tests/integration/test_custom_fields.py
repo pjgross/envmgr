@@ -7,6 +7,48 @@ from app.db.models.user import Tenant, User
 from app.core.security import get_password_hash
 
 
+DEFAULT_TEST_DEFINITION = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+        {"key": "approved", "label": "Approved", "is_initial": False, "is_terminal": False},
+        {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
+        {"key": "closed", "label": "Closed", "is_initial": False, "is_terminal": True},
+    ],
+    "transitions": [
+        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "Release Manager", "Developer"]},
+        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "approved", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin", "Release Manager"]},
+    ],
+    "field_permissions": {
+        "draft": {"editable_fields": ["project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"], "editable_by": ["Admin", "Release Manager", "Developer"]},
+        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+        "approved": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+        "rejected": {"editable_fields": [], "editable_by": []},
+        "closed": {"editable_fields": [], "editable_by": []},
+    }
+}
+
+
+@pytest_asyncio.fixture
+async def default_booking_type_id(client: AsyncClient, auth_headers: dict) -> int:
+    tmpl_resp = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "Test Lifecycle CF", "definition": DEFAULT_TEST_DEFINITION},
+    )
+    assert tmpl_resp.status_code == 201, tmpl_resp.text
+    template_id = tmpl_resp.json()["id"]
+    bt_resp = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={"name": "Test Type CF", "lifecycle_template_id": template_id},
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+    return bt_resp.json()["id"]
+
+
 # ---------------------------------------------------------------------------
 # Second-tenant fixtures for isolation tests
 # ---------------------------------------------------------------------------
@@ -197,7 +239,7 @@ async def test_non_admin_cannot_manage_fields(client: AsyncClient, db_session, t
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_required_field_blocks_booking_creation(client: AsyncClient, auth_headers: dict):
+async def test_required_field_blocks_booking_creation(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     # Define a required text field on bookings
     await _create_field(client, auth_headers, label="Ticket Ref", field_key="ticket_ref", required=True)
     # Create an environment to book
@@ -213,14 +255,15 @@ async def test_required_field_blocks_booking_creation(client: AsyncClient, auth_
         "project_name": "Test",
         "start_date": "2026-05-01T10:00:00Z",
         "end_date": "2026-05-01T14:00:00Z",
-        "booking_type": "shared",
+        "booking_type_id": default_booking_type_id,
+        "exclusive_use": False,
     })
     assert resp.status_code == 422
     assert "ticket_ref" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_required_field_passes_when_provided(client: AsyncClient, auth_headers: dict):
+async def test_required_field_passes_when_provided(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     await _create_field(client, auth_headers, label="Ticket Ref", field_key="ticket_ref", required=True)
     env_resp = await client.post(
         "/api/v1/environments/",
@@ -233,7 +276,8 @@ async def test_required_field_passes_when_provided(client: AsyncClient, auth_hea
         "project_name": "Test",
         "start_date": "2026-05-01T10:00:00Z",
         "end_date": "2026-05-01T14:00:00Z",
-        "booking_type": "shared",
+        "booking_type_id": default_booking_type_id,
+        "exclusive_use": False,
         "custom_fields": {"ticket_ref": "JIRA-123"},
     })
     assert resp.status_code == 201
@@ -241,7 +285,7 @@ async def test_required_field_passes_when_provided(client: AsyncClient, auth_hea
 
 
 @pytest.mark.asyncio
-async def test_number_field_rejects_non_numeric(client: AsyncClient, auth_headers: dict):
+async def test_number_field_rejects_non_numeric(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     await _create_field(client, auth_headers, label="Team Size", field_key="team_size", field_type="number", required=False)
     env_resp = await client.post(
         "/api/v1/environments/",
@@ -254,14 +298,15 @@ async def test_number_field_rejects_non_numeric(client: AsyncClient, auth_header
         "project_name": "Test",
         "start_date": "2026-05-01T10:00:00Z",
         "end_date": "2026-05-01T14:00:00Z",
-        "booking_type": "shared",
+        "booking_type_id": default_booking_type_id,
+        "exclusive_use": False,
         "custom_fields": {"team_size": "not-a-number"},
     })
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_unknown_custom_field_keys_are_accepted(client: AsyncClient, auth_headers: dict):
+async def test_unknown_custom_field_keys_are_accepted(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     """Unknown keys (e.g. from soft-deleted fields) must not cause errors."""
     env_resp = await client.post(
         "/api/v1/environments/",
@@ -274,7 +319,8 @@ async def test_unknown_custom_field_keys_are_accepted(client: AsyncClient, auth_
         "project_name": "Test",
         "start_date": "2026-05-01T10:00:00Z",
         "end_date": "2026-05-01T14:00:00Z",
-        "booking_type": "shared",
+        "booking_type_id": default_booking_type_id,
+        "exclusive_use": False,
         "custom_fields": {"orphaned_old_key": "some value"},
     })
     assert resp.status_code == 201

@@ -14,6 +14,48 @@ from app.db.models.environment import Environment
 from app.core.security import get_password_hash
 
 
+DEFAULT_TEST_DEFINITION = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+        {"key": "approved", "label": "Approved", "is_initial": False, "is_terminal": False},
+        {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
+        {"key": "closed", "label": "Closed", "is_initial": False, "is_terminal": True},
+    ],
+    "transitions": [
+        {"from_state": "draft", "to_state": "submitted", "label": "Submit", "allowed_roles": ["Admin", "Release Manager", "Developer"]},
+        {"from_state": "submitted", "to_state": "approved", "label": "Approve", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "submitted", "to_state": "rejected", "label": "Reject", "allowed_roles": ["Admin", "Release Manager"]},
+        {"from_state": "approved", "to_state": "closed", "label": "Close", "allowed_roles": ["Admin", "Release Manager"]},
+    ],
+    "field_permissions": {
+        "draft": {"editable_fields": ["project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"], "editable_by": ["Admin", "Release Manager", "Developer"]},
+        "submitted": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+        "approved": {"editable_fields": ["notes"], "editable_by": ["Admin", "Release Manager"]},
+        "rejected": {"editable_fields": [], "editable_by": []},
+        "closed": {"editable_fields": [], "editable_by": []},
+    }
+}
+
+
+@pytest_asyncio.fixture
+async def default_booking_type_id(client: AsyncClient, auth_headers: dict) -> int:
+    tmpl_resp = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "Test Lifecycle Events", "definition": DEFAULT_TEST_DEFINITION},
+    )
+    assert tmpl_resp.status_code == 201, tmpl_resp.text
+    template_id = tmpl_resp.json()["id"]
+    bt_resp = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={"name": "Test Type Events", "lifecycle_template_id": template_id},
+    )
+    assert bt_resp.status_code == 201, bt_resp.text
+    return bt_resp.json()["id"]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures for a second tenant (isolation tests)
 # ---------------------------------------------------------------------------
@@ -81,13 +123,14 @@ async def _create_system(client, auth_headers, name="EventTestSystem") -> int:
     return resp.json()["id"]
 
 
-async def _create_booking(client, auth_headers, env_id: int, **overrides) -> dict:
+async def _create_booking(client, auth_headers, env_id: int, booking_type_id: int, **overrides) -> dict:
     payload = {
         "environment_id": env_id,
         "project_name": "Event Test Project",
         "start_date": "2026-05-01T10:00:00Z",
         "end_date": "2026-05-01T14:00:00Z",
-        "booking_type": "shared",
+        "booking_type_id": booking_type_id,
+        "exclusive_use": False,
         **overrides,
     }
     resp = await client.post("/api/v1/bookings/", headers=auth_headers, json=payload)
@@ -201,10 +244,10 @@ async def test_update_system_emits_event(client: AsyncClient, auth_headers, db_s
 
 
 @pytest.mark.asyncio
-async def test_create_booking_emits_event(client: AsyncClient, auth_headers, db_session):
+async def test_create_booking_emits_event(client: AsyncClient, auth_headers, db_session, default_booking_type_id: int):
     """Creating a booking produces a BookingCreated EventLog row."""
     env_id = await _create_env(client, auth_headers, "CreateBookingEnv")
-    booking = await _create_booking(client, auth_headers, env_id)
+    booking = await _create_booking(client, auth_headers, env_id, default_booking_type_id)
     booking_id = booking["id"]
 
     events = await _get_events(db_session, "BookingCreated", booking_id)
@@ -216,48 +259,71 @@ async def test_create_booking_emits_event(client: AsyncClient, auth_headers, db_
 
 
 @pytest.mark.asyncio
-async def test_approve_booking_emits_event(client: AsyncClient, auth_headers, db_session):
-    """Approving a booking produces a BookingApproved EventLog row."""
+async def test_approve_booking_emits_event(client: AsyncClient, auth_headers, db_session, default_booking_type_id: int):
+    """Approving a booking produces a BookingStateTransitioned EventLog row."""
     env_id = await _create_env(client, auth_headers, "ApproveBookingEnv")
-    booking = await _create_booking(client, auth_headers, env_id)
+    booking = await _create_booking(client, auth_headers, env_id, default_booking_type_id)
     booking_id = booking["id"]
 
-    resp = await client.post(
-        f"/api/v1/bookings/{booking_id}/approve", headers=auth_headers
+    # Submit first (required before approve)
+    submit_resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "submitted"},
     )
-    assert resp.status_code == 200
+    assert submit_resp.status_code == 200, submit_resp.text
 
-    events = await _get_events(db_session, "BookingApproved", booking_id)
-    assert len(events) == 1
-    evt = events[0]
+    resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "approved"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    events = await _get_events(db_session, "BookingStateTransitioned", booking_id)
+    approve_events = [e for e in events if e.payload.get("to_state") == "approved"]
+    assert len(approve_events) == 1
+    evt = approve_events[0]
     assert evt.aggregate_type == "Booking"
     assert evt.published_at is None
-    assert evt.payload["environment_id"] == env_id
+    assert evt.payload["to_state"] == "approved"
 
 
 @pytest.mark.asyncio
-async def test_reject_booking_emits_event(client: AsyncClient, auth_headers, db_session):
-    """Rejecting a booking produces a BookingRejected EventLog row."""
+async def test_reject_booking_emits_event(client: AsyncClient, auth_headers, db_session, default_booking_type_id: int):
+    """Rejecting a booking produces a BookingStateTransitioned EventLog row."""
     env_id = await _create_env(client, auth_headers, "RejectBookingEnv")
-    booking = await _create_booking(client, auth_headers, env_id)
+    booking = await _create_booking(client, auth_headers, env_id, default_booking_type_id)
     booking_id = booking["id"]
 
-    resp = await client.post(
-        f"/api/v1/bookings/{booking_id}/reject", headers=auth_headers
+    # Submit first (required before reject)
+    submit_resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "submitted"},
     )
-    assert resp.status_code == 200
+    assert submit_resp.status_code == 200, submit_resp.text
 
-    events = await _get_events(db_session, "BookingRejected", booking_id)
-    assert len(events) == 1
-    assert events[0].aggregate_type == "Booking"
-    assert events[0].published_at is None
+    resp = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "rejected"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    events = await _get_events(db_session, "BookingStateTransitioned", booking_id)
+    reject_events = [e for e in events if e.payload.get("to_state") == "rejected"]
+    assert len(reject_events) == 1
+    assert reject_events[0].aggregate_type == "Booking"
+    assert reject_events[0].published_at is None
+    assert reject_events[0].payload["to_state"] == "rejected"
 
 
 @pytest.mark.asyncio
-async def test_cancel_booking_emits_event(client: AsyncClient, auth_headers, db_session):
+async def test_cancel_booking_emits_event(client: AsyncClient, auth_headers, db_session, default_booking_type_id: int):
     """Cancelling a booking produces a BookingCancelled EventLog row."""
     env_id = await _create_env(client, auth_headers, "CancelBookingEnv")
-    booking = await _create_booking(client, auth_headers, env_id)
+    booking = await _create_booking(client, auth_headers, env_id, default_booking_type_id)
     booking_id = booking["id"]
 
     resp = await client.post(
