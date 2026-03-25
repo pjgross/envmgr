@@ -1,6 +1,6 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useDispatch, useSelector } from 'react-redux'
+import { useDispatch } from 'react-redux'
 import {
   Alert,
   Box,
@@ -12,8 +12,8 @@ import {
   Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import { AppDispatch, RootState } from '../../store'
-import { fetchBookingTypes } from '../../store/bookingLifecycleSlice'
+import { AppDispatch } from '../../store'
+import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice'
 import { bookingService } from '../../services/bookingService'
 import type { BookingResponse } from '../../types/booking'
 import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle'
@@ -37,11 +37,6 @@ export default function BookingDetail() {
   const navigate = useNavigate()
   const dispatch = useDispatch<AppDispatch>()
 
-  // Auth
-  const currentUserRole = useSelector((state: RootState) => state.auth.user?.role)
-
-  // Redux lifecycle data
-  const { bookingTypes, templates } = useSelector((state: RootState) => state.bookingLifecycle)
 
   // Local state
   const [booking, setBooking] = useState<BookingResponse | null>(null)
@@ -53,6 +48,7 @@ export default function BookingDetail() {
   // Load on mount
   useEffect(() => {
     dispatch(fetchBookingTypes())
+    dispatch(fetchLifecycleTemplates())
 
     const load = async () => {
       setLoading(true)
@@ -78,17 +74,6 @@ export default function BookingDetail() {
 
     load()
   }, [bookingId, dispatch])
-
-  // Field-level edit permissions
-  const editableFields = useMemo(() => {
-    if (!booking) return []
-    const bt = bookingTypes.find((t) => t.id === booking.booking_type_id)
-    const tmpl = templates.find((t) => t.id === bt?.lifecycle_template_id)
-    if (!tmpl || !currentUserRole) return []
-    const perm = tmpl.definition.field_permissions[booking.status]
-    if (!perm || !perm.editable_by.includes(currentUserRole)) return []
-    return perm.editable_fields
-  }, [booking, bookingTypes, templates, currentUserRole])
 
   // Transition handler
   const handleTransition = async (toState: string, label: string) => {
@@ -245,25 +230,7 @@ export default function BookingDetail() {
           <Typography variant="body2">{booking.context_tag}</Typography>
 
           <Typography variant="body2" color="text.secondary" sx={{ pt: 0.5 }}>Notes</Typography>
-          <Box>
-            {editableFields.includes('notes') ? (
-              <textarea
-                defaultValue={booking.notes ?? ''}
-                rows={3}
-                style={{
-                  width: '100%',
-                  fontFamily: 'inherit',
-                  fontSize: '0.875rem',
-                  padding: '4px 8px',
-                  borderRadius: 4,
-                  border: '1px solid #ccc',
-                  resize: 'vertical',
-                }}
-              />
-            ) : (
-              <Typography variant="body2">{booking.notes ?? '—'}</Typography>
-            )}
-          </Box>
+          <Typography variant="body2">{booking.notes ?? '—'}</Typography>
         </Box>
       </Paper>
 

@@ -31,16 +31,22 @@ import BookingForm from './BookingForm'
 // --- Status filter -----------------------------------------------------------
 
 const STATUS_OPTIONS: Array<{ label: string; value: BookingStatus | 'all' }> = [
-  { label: 'All',      value: 'all' },
-  { label: 'Pending',  value: 'pending' },
-  { label: 'Approved', value: 'approved' },
-  { label: 'Rejected', value: 'rejected' },
+  { label: 'All',                value: 'all' },
+  { label: 'Draft',              value: 'draft' },
+  { label: 'Submitted',          value: 'submitted' },
+  { label: 'Approved',           value: 'approved' },
+  { label: 'Rejected',           value: 'rejected' },
+  { label: 'Ext. Requested',     value: 'extension_requested' },
+  { label: 'Closed',             value: 'closed' },
 ]
 
-const STATUS_COLORS: Record<BookingStatus, 'warning' | 'success' | 'error'> = {
-  pending:  'warning',
-  approved: 'success',
-  rejected: 'error',
+const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | 'error' | 'info'> = {
+  draft:               'default',
+  submitted:           'warning',
+  approved:            'success',
+  rejected:            'error',
+  extension_requested: 'warning',
+  closed:              'info',
 }
 
 // --- Column visibility localStorage ------------------------------------------
