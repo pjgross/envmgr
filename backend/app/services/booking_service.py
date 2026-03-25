@@ -102,7 +102,36 @@ async def create_booking(
             },
         )
 
-    await validate_custom_fields(db, current_user.active_tenant_id, "booking", data.custom_fields)
+    # Resolve visible custom field keys from the booking type's lifecycle template initial state.
+    # State-driven visibility supersedes the required flag: only enforce required for visible fields.
+    visible_cf_keys: Optional[set[str]] = None
+    bt_result = await db.execute(
+        select(BookingTypeModel).where(
+            BookingTypeModel.id == data.booking_type_id,
+            BookingTypeModel.tenant_id == current_user.active_tenant_id,
+            BookingTypeModel.deleted_at.is_(None),
+        )
+    )
+    booking_type = bt_result.scalar_one_or_none()
+    if booking_type:
+        tmpl_result = await db.execute(
+            select(BookingLifecycleTemplate).where(
+                BookingLifecycleTemplate.id == booking_type.lifecycle_template_id,
+                BookingLifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+        template = tmpl_result.scalar_one_or_none()
+        if template:
+            definition = template.definition or {}
+            initial_state = next(
+                (s for s in definition.get("states", []) if s.get("is_initial")), None
+            )
+            if initial_state:
+                state_perm = definition.get("field_permissions", {}).get(initial_state["key"], {})
+                cf_config = state_perm.get("custom_fields") or {}
+                visible_cf_keys = set(cf_config.keys())
+
+    await validate_custom_fields(db, current_user.active_tenant_id, "booking", data.custom_fields, visible_cf_keys)
 
     # Determine context_tag
     if data.context_tag is not None and data.context_tag != ContextTag.NONE:
