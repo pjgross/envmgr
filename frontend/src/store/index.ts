@@ -9,6 +9,7 @@ import bookingReducer from './bookingSlice'
 import versionReducer from './versionSlice'
 import customFieldReducer from './customFieldSlice'
 import topologyReducer from './topologySlice'
+import bookingLifecycleReducer from './bookingLifecycleSlice'
 
 export const store = configureStore({
     reducer: {
@@ -22,6 +23,7 @@ export const store = configureStore({
         version: versionReducer,
         customField: customFieldReducer,
         topology: topologyReducer,
+        bookingLifecycle: bookingLifecycleReducer,
     },
 })
 
