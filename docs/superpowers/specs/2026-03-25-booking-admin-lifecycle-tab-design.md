@@ -36,6 +36,8 @@ Columns: Name, States (count from `definition.states.length`), Used By (`N type(
 Row actions: "Copy" button (existing behaviour — dispatches `copyLifecycleTemplate`).
 Header action: "New Template" button opens the creation dialog.
 
+**Note:** The "New Template" button and creation dialog are net-new functionality — today's `BookingConfiguration.tsx` has no template creation capability (only Copy).
+
 ### 3. New Template Creation Dialog
 
 A single `Dialog` (`maxWidth="md"`, `fullWidth`) with these sections:
@@ -67,10 +69,33 @@ A single `Dialog` (`maxWidth="md"`, `fullWidth`) with these sections:
 - All transitions must reference state keys that exist in the states list
 - At least one allowed role per transition
 
-On success: dispatches `createLifecycleTemplate` thunk, closes dialog, list refreshes automatically via Redux state update.
+On success: dispatches `createLifecycleTemplate` thunk, closes dialog, list refreshes automatically via Redux state update (`createLifecycleTemplate.fulfilled` pushes the new template into `state.templates`).
 On error: shows an `Alert` inside the dialog with the error message.
 
-### 4. EntityConfig changes
+**Create payload shape:**
+```ts
+{
+  name: string,
+  description: string | null,
+  is_default: false,
+  definition: {
+    states: LifecycleState[],
+    transitions: LifecycleTransition[],
+    field_permissions: {}   // explicitly pass empty object; backend validates but accepts {}
+  }
+}
+```
+
+### 4. Data Fetching Responsibilities
+
+Each panel owns its own `useEffect` fetch on mount:
+
+- `BookingTypesPanel` dispatches both `fetchBookingTypes()` **and** `fetchLifecycleTemplates()` — it needs templates loaded for the "New Type" dialog's template dropdown.
+- `LifecycleTemplatesPanel` dispatches `fetchLifecycleTemplates()` and `fetchBookingTypes()` — it needs booking types for the "Used By" count column.
+
+Both panels read from the shared `bookingLifecycle` Redux slice, so double-dispatching is safe (idempotent fetches).
+
+### 5. EntityConfig changes
 
 `EntityConfig.tsx` is updated to:
 - Import and render `BookingTypesPanel` and `LifecycleTemplatesPanel` when `tab === 1 && entityType === 'booking'`
