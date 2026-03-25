@@ -30,10 +30,6 @@ def _index_exists(conn, index_name: str, table_name: str) -> bool:
     return any(idx["name"] == index_name for idx in inspector.get_indexes(table_name))
 
 
-def _column_exists(conn, table_name: str, column_name: str) -> bool:
-    inspector = Inspector.from_engine(conn)
-    return any(col["name"] == column_name for col in inspector.get_columns(table_name))
-
 
 def upgrade() -> None:
     conn = op.get_bind()
