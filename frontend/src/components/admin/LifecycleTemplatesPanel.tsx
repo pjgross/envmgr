@@ -145,9 +145,10 @@ export default function LifecycleTemplatesPanel() {
     for (const [stateKey, perm] of Object.entries(template.definition.field_permissions ?? {})) {
       const permAny = perm as unknown as Record<string, unknown>;
       if (permAny.editable_fields !== undefined) {
-        // Old shape: convert to new shape
+        // Old shape: convert to new shape; filter out legacy invalid role strings
+        const validRolesSet = new Set(ALL_ROLES);
         const oldEditableFields = (permAny.editable_fields as string[]) ?? [];
-        const oldEditableBy = (permAny.editable_by as string[]) ?? [];
+        const oldEditableBy = ((permAny.editable_by as string[]) ?? []).filter((r) => validRolesSet.has(r));
         fp[stateKey] = {
           standard_fields: Object.fromEntries(
             STANDARD_FIELDS.map((f) => [

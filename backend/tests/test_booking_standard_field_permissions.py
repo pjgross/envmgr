@@ -51,12 +51,14 @@ def test_invalid_standard_field_name():
         LifecycleDefinition.model_validate(d)
 
 
-def test_invalid_role_in_standard_field():
-    """standard_fields with invalid role raises ValidationError."""
-    fields = {**MANDATORY_EDITABLE, "notes": {"editable_by": ["NotARealRole"]}}
+def test_invalid_role_in_standard_field_is_accepted():
+    """standard_fields with unknown role strings are accepted (no strict role validation).
+    Legacy data may contain non-standard role strings (e.g. 'ReleaseManager' without space)
+    which must not cause 422 on save — consistent with the LifecycleTransition behaviour."""
+    fields = {**MANDATORY_EDITABLE, "notes": {"editable_by": ["NotARealRole", "ReleaseManager"]}}
     d = _make_definition(fields)
-    with pytest.raises(ValidationError):
-        LifecycleDefinition.model_validate(d)
+    # Should not raise
+    LifecycleDefinition.model_validate(d)
 
 
 def test_mandatory_field_missing_from_initial_state():

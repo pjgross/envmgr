@@ -48,8 +48,9 @@ async def test_create_template_with_custom_field_permissions(client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_create_template_with_invalid_role_in_custom_field(client: AsyncClient, auth_headers: dict):
-    """custom_fields.editable_by with an invalid role returns 422."""
+async def test_create_template_with_unknown_role_in_custom_field_is_accepted(client: AsyncClient, auth_headers: dict):
+    """custom_fields.editable_by with unknown role strings are accepted (no strict role validation).
+    Legacy data may contain non-standard role strings — consistent with LifecycleTransition behaviour."""
     bad_def = {
         "states": [{"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False}],
         "transitions": [],
@@ -70,9 +71,9 @@ async def test_create_template_with_invalid_role_in_custom_field(client: AsyncCl
     resp = await client.post(
         "/api/v1/tenant/lifecycle-templates",
         headers=auth_headers,
-        json={"name": "Bad Roles", "definition": bad_def},
+        json={"name": "Unknown Roles", "definition": bad_def},
     )
-    assert resp.status_code == 422, resp.text
+    assert resp.status_code == 201, resp.text
 
 
 from app.services.booking_lifecycle_service import get_custom_field_permissions
