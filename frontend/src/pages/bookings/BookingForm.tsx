@@ -182,18 +182,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
               fullWidth
             />
 
-            {/* Booking Type */}
-            <FormControl>
-              <FormLabel>Booking Type</FormLabel>
-              <RadioGroup
-                row
-                value={bookingTypeId}
-                onChange={(e) => setBookingTypeId(Number(e.target.value))}
-              >
-                <FormControlLabel value="shared" control={<Radio />} label="Shared" />
-                <FormControlLabel value="exclusive" control={<Radio />} label="Exclusive" />
-              </RadioGroup>
-            </FormControl>
+            {/* Booking Type — placeholder until Task 13 adds dropdown */}
 
             {/* Start / End Date */}
             <TextField

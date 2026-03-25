@@ -132,7 +132,7 @@ export default function BookingList() {
         format(new Date(params.row.end_date), 'dd MMM yyyy'),
     },
     {
-      field: 'booking_type',
+      field: 'booking_type_id',
       headerName: 'Type',
       flex: 0.8,
       hideable: false,
