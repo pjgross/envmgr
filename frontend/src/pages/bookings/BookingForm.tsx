@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -25,7 +25,7 @@ import { AppDispatch, RootState } from '../../store';
 import { createBooking, fetchBookings } from '../../store/bookingSlice';
 import type { BookingCreate, ContextTag } from '../../types/booking';
 import { fetchDefinitions } from '../../store/customFieldSlice';
-import { fetchBookingTypes } from '../../store/bookingLifecycleSlice';
+import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 
 interface BookingFormProps {
@@ -64,7 +64,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const environments = useSelector((state: RootState) => state.environment.environments);
   const { loading } = useSelector((state: RootState) => state.booking);
   const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? []);
-  const { bookingTypes } = useSelector((s: RootState) => s.bookingLifecycle);
+  const { bookingTypes, templates } = useSelector((s: RootState) => s.bookingLifecycle);
 
   const [envId, setEnvId] = useState<number | ''>(defaultEnvId ?? '');
   const [projectName, setProjectName] = useState('');
@@ -86,6 +86,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   useEffect(() => {
     dispatch(fetchDefinitions('booking'));
     dispatch(fetchBookingTypes());
+    dispatch(fetchLifecycleTemplates());
   }, [dispatch]);
 
   // Auto-select first active booking type once loaded
@@ -94,6 +95,19 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
       setBookingTypeId(bookingTypes.find((bt) => bt.is_active)?.id ?? '');
     }
   }, [bookingTypes, bookingTypeId]);
+
+  const visibleCustomFieldDefs = useMemo(() => {
+    if (!bookingTypeId) return [];
+    const bt = bookingTypes.find((t) => t.id === bookingTypeId);
+    if (!bt) return [];
+    const template = templates.find((t) => t.id === bt.lifecycle_template_id);
+    if (!template) return [];
+    const initialState = template.definition.states.find((s) => s.is_initial);
+    if (!initialState) return [];
+    const cfPerms = template.definition.field_permissions?.[initialState.key]?.custom_fields ?? {};
+    const visibleKeys = new Set(Object.keys(cfPerms));
+    return customFieldDefs.filter((d) => visibleKeys.has(d.field_key));
+  }, [bookingTypeId, bookingTypes, templates, customFieldDefs]);
 
   // Feedback state
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
@@ -326,7 +340,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
 
             {/* Custom Fields */}
             <CustomFieldsSection
-              definitions={customFieldDefs}
+              definitions={visibleCustomFieldDefs}
               values={customFieldValues}
               onChange={setCustomFieldValues}
             />
