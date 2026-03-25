@@ -4,6 +4,8 @@ import type {
   SystemDependencyCreate,
   ComponentDependencyResponse,
   ComponentDependencyCreate,
+  ComponentEndpointCreate,
+  ComponentEndpointUpdate,
   VerifyResponse,
 } from '../types/dependency';
 
@@ -45,6 +47,28 @@ export const dependencyService = {
     data: Partial<ComponentDependencyCreate>
   ): Promise<ComponentDependencyResponse> =>
     api.patch<ComponentDependencyResponse>(`/subsystems/${subsystemId}/dependencies/${depId}`, data).then((r) => r.data),
+
+  createComponentEndpoint: (
+    subsystemId: number,
+    depId: number,
+    data: ComponentEndpointCreate
+  ): Promise<ComponentDependencyResponse> =>
+    api.post(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints`, data).then((r) => r.data),
+
+  updateComponentEndpoint: (
+    subsystemId: number,
+    depId: number,
+    endpointId: number,
+    data: ComponentEndpointUpdate
+  ): Promise<ComponentDependencyResponse> =>
+    api.patch(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints/${endpointId}`, data).then((r) => r.data),
+
+  deleteComponentEndpoint: (
+    subsystemId: number,
+    depId: number,
+    endpointId: number
+  ): Promise<ComponentDependencyResponse> =>
+    api.delete(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints/${endpointId}`).then((r) => r.data),
 
   verifyEnvironment: (envId: number): Promise<VerifyResponse> =>
     api.get(`/environments/${envId}/verify`).then((r) => r.data),

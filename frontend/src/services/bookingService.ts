@@ -1,5 +1,6 @@
 import api from './api';
 import type { BookingResponse, BookingCreate, BookingCreateResponse } from '../types/booking';
+import type { BookingStatusHistory, AllowedTransition } from '../types/bookingLifecycle';
 
 export const bookingService = {
   listBookings: (params?: {
@@ -30,4 +31,13 @@ export const bookingService = {
 
   deleteSeries: (id: number): Promise<void> =>
     api.delete(`/bookings/${id}`).then((r) => r.data),
+
+  transitionState: (id: number, to_state: string, notes?: string): Promise<BookingResponse> =>
+    api.post(`/bookings/${id}/transition`, { to_state, notes }).then((r) => r.data),
+
+  getHistory: (id: number): Promise<BookingStatusHistory[]> =>
+    api.get(`/bookings/${id}/history`).then((r) => r.data),
+
+  getAllowedTransitions: (id: number): Promise<AllowedTransition[]> =>
+    api.get(`/bookings/${id}/allowed-transitions`).then((r) => r.data),
 };
