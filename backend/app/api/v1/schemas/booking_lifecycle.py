@@ -1,15 +1,18 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import BaseModel, field_validator, model_validator, ConfigDict
 
 
 # ── JSONB definition sub-schemas ────────────────────────────────────────────
 
-VALID_FIELD_NAMES = {
-    "project_name", "start_date", "end_date", "notes", "exclusive_use", "custom_fields"
+VALID_ROLES = {"Admin", "Release Manager", "Test Manager", "Developer", "Viewer"}
+
+VALID_STANDARD_FIELD_NAMES = {
+    "project_name", "start_date", "end_date", "booking_type",
+    "notes", "exclusive_use", "context_tag",
 }
 
-VALID_ROLES = {"Admin", "Release Manager", "Test Manager", "Developer", "Viewer"}
+MANDATORY_STANDARD_FIELDS = {"project_name", "start_date", "end_date", "booking_type"}
 
 
 class LifecycleState(BaseModel):
@@ -38,17 +41,28 @@ class CustomFieldPermission(BaseModel):
         return v
 
 
-class LifecycleFieldPermission(BaseModel):
-    editable_fields: list[str]
+class StandardFieldPermission(BaseModel):
     editable_by: list[str]
+
+    @field_validator("editable_by")
+    @classmethod
+    def validate_roles(cls, v: list[str]) -> list[str]:
+        invalid = set(v) - VALID_ROLES
+        if invalid:
+            raise ValueError(f"Invalid roles: {invalid}. Must be one of {VALID_ROLES}")
+        return v
+
+
+class LifecycleFieldPermission(BaseModel):
+    standard_fields: dict[str, StandardFieldPermission] = {}
     custom_fields: Optional[dict[str, CustomFieldPermission]] = None
 
-    @field_validator("editable_fields")
+    @field_validator("standard_fields")
     @classmethod
-    def validate_fields(cls, v: list[str]) -> list[str]:
-        invalid = set(v) - VALID_FIELD_NAMES
+    def validate_field_names(cls, v: dict) -> dict:
+        invalid = set(v.keys()) - VALID_STANDARD_FIELD_NAMES
         if invalid:
-            raise ValueError(f"Invalid field names: {invalid}. Must be one of {VALID_FIELD_NAMES}")
+            raise ValueError(f"Invalid standard field names: {invalid}. Must be one of {VALID_STANDARD_FIELD_NAMES}")
         return v
 
 
@@ -64,6 +78,26 @@ class LifecycleDefinition(BaseModel):
         if len(initial) != 1:
             raise ValueError("Exactly one state must have is_initial=True")
         return v
+
+    @model_validator(mode="after")
+    def validate_mandatory_fields_in_initial_state(self) -> "LifecycleDefinition":
+        initial = next((s for s in self.states if s.is_initial), None)
+        if initial is None:
+            return self  # validate_one_initial will catch this
+        perm = self.field_permissions.get(initial.key)
+        if perm is None:
+            raise ValueError(
+                f"Initial state '{initial.key}' has no field_permissions entry. "
+                f"Mandatory fields {MANDATORY_STANDARD_FIELDS} must each have at least one editable role."
+            )
+        for field in MANDATORY_STANDARD_FIELDS:
+            sf = perm.standard_fields.get(field)
+            if sf is None or len(sf.editable_by) == 0:
+                raise ValueError(
+                    f"Mandatory field '{field}' in initial state '{initial.key}' "
+                    f"must have at least one role in editable_by."
+                )
+        return self
 
 
 # ── Request/Response schemas ─────────────────────────────────────────────────
