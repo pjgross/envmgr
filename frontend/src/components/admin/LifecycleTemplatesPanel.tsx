@@ -15,7 +15,10 @@ import {
   fetchLifecycleTemplates,
   copyLifecycleTemplate,
   createLifecycleTemplate,
+  updateLifecycleTemplate,
 } from '../../store/bookingLifecycleSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
+import type { BookingLifecycleTemplate } from '../../types/bookingLifecycle';
 
 const ROLES = ['Admin', 'Release Manager', 'Test Manager', 'Developer', 'Viewer'];
 
@@ -33,12 +36,19 @@ interface TransitionRow {
   allowed_roles: string[];
 }
 
+interface FieldPermState {
+  editable_fields: string[];
+  editable_by: string[];
+  custom_fields: Record<string, { editable_by: string[] }>;
+}
+
 const emptyState = (): StateRow => ({ key: '', label: '', is_initial: false, is_terminal: false });
 const emptyTransition = (): TransitionRow => ({ from_state: '', to_state: '', label: '', allowed_roles: [] });
 
 export default function LifecycleTemplatesPanel() {
   const dispatch = useDispatch<AppDispatch>();
   const { templates, bookingTypes, loading } = useSelector((s: RootState) => s.bookingLifecycle);
+  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? []);
 
   // Dialog state
   const [open, setOpen] = useState(false);
@@ -46,12 +56,15 @@ export default function LifecycleTemplatesPanel() {
   const [description, setDescription] = useState('');
   const [states, setStates] = useState<StateRow[]>([]);
   const [transitions, setTransitions] = useState<TransitionRow[]>([]);
+  const [fieldPerms, setFieldPerms] = useState<Record<string, FieldPermState>>({});
+  const [editTemplateId, setEditTemplateId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     dispatch(fetchLifecycleTemplates());
     dispatch(fetchBookingTypes());
+    dispatch(fetchDefinitions('booking'));
   }, [dispatch]);
 
   // --- Validation ---
@@ -81,49 +94,99 @@ export default function LifecycleTemplatesPanel() {
     setDescription('');
     setStates([]);
     setTransitions([]);
+    setFieldPerms({});
+    setEditTemplateId(null);
     setError(null);
     setOpen(true);
   };
 
-  const handleClose = () => setOpen(false);
+  const handleClose = () => {
+    setEditTemplateId(null);
+    setOpen(false);
+  };
 
-  const handleCreate = async () => {
+  const handleEditOpen = (template: BookingLifecycleTemplate) => {
+    setEditTemplateId(template.id);
+    setName(template.name);
+    setDescription(template.description ?? '');
+    setStates(template.definition.states.map((s) => ({
+      key: s.key, label: s.label, is_initial: s.is_initial, is_terminal: s.is_terminal,
+    })));
+    setTransitions(template.definition.transitions.map((t) => ({
+      from_state: t.from_state, to_state: t.to_state, label: t.label, allowed_roles: t.allowed_roles,
+    })));
+    const fp: Record<string, FieldPermState> = {};
+    for (const [stateKey, perm] of Object.entries(template.definition.field_permissions ?? {})) {
+      fp[stateKey] = {
+        editable_fields: perm.editable_fields ?? [],
+        editable_by: perm.editable_by ?? [],
+        custom_fields: (perm.custom_fields as Record<string, { editable_by: string[] }>) ?? {},
+      };
+    }
+    setFieldPerms(fp);
+    setError(null);
+    setOpen(true);
+  };
+
+  const handleSave = async () => {
     const err = validate();
     if (err) { setError(err); return; }
     setError(null);
     setSaving(true);
-    const result = await dispatch(createLifecycleTemplate({
-      name: name.trim(),
-      description: description.trim() || null,
-      is_default: false,
-      definition: {
-        states: states.map((s) => ({
-          key: s.key.trim(),
-          label: s.label.trim(),
-          is_initial: s.is_initial,
-          is_terminal: s.is_terminal,
-        })),
-        transitions: transitions.map((t) => ({
-          from_state: t.from_state,
-          to_state: t.to_state,
-          label: t.label.trim(),
-          allowed_roles: t.allowed_roles,
-        })),
-        field_permissions: {},
-      },
-    }));
+    const definition = {
+      states: states.map((s) => ({ key: s.key.trim(), label: s.label.trim(), is_initial: s.is_initial, is_terminal: s.is_terminal })),
+      transitions: transitions.map((t) => ({ from_state: t.from_state, to_state: t.to_state, label: t.label.trim(), allowed_roles: t.allowed_roles })),
+      field_permissions: Object.fromEntries(
+        stateKeys.map((key) => {
+          const perm = fieldPerms[key] ?? { editable_fields: [], editable_by: [], custom_fields: {} };
+          return [key, { editable_fields: perm.editable_fields, editable_by: perm.editable_by, custom_fields: perm.custom_fields }];
+        })
+      ),
+    };
+
+    let result;
+    if (editTemplateId !== null) {
+      result = await dispatch(updateLifecycleTemplate({ id: editTemplateId, data: { name: name.trim(), description: description.trim() || null, definition } }));
+    } else {
+      result = await dispatch(createLifecycleTemplate({ name: name.trim(), description: description.trim() || null, is_default: false, definition }));
+    }
     setSaving(false);
-    if (createLifecycleTemplate.rejected.match(result)) {
-      setError(result.error.message ?? 'Failed to create template');
+    if ('error' in result) {
+      setError((result as { error: { message?: string } }).error.message ?? 'Failed to save template');
       return;
     }
+    setEditTemplateId(null);
     handleClose();
   };
 
   // State row helpers
-  const updateState = (i: number, patch: Partial<StateRow>) =>
-    setStates((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
-  const removeState = (i: number) => setStates((prev) => prev.filter((_, idx) => idx !== i));
+  const updateState = (i: number, patch: Partial<StateRow>) => {
+    setStates((prev) => {
+      const oldKey = prev[i].key;
+      const newStates = prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s));
+      if (patch.key !== undefined && patch.key !== oldKey) {
+        setFieldPerms((fp) => {
+          const updated = { ...fp };
+          if (oldKey in updated) {
+            updated[patch.key!] = updated[oldKey];
+            delete updated[oldKey];
+          }
+          return updated;
+        });
+      }
+      return newStates;
+    });
+  };
+
+  const removeState = (i: number) => {
+    const key = states[i].key;
+    setStates((prev) => prev.filter((_, idx) => idx !== i));
+    setFieldPerms((fp) => {
+      const updated = { ...fp };
+      delete updated[key];
+      return updated;
+    });
+  };
 
   // Transition row helpers
   const updateTransition = (i: number, patch: Partial<TransitionRow>) =>
@@ -159,20 +222,28 @@ export default function LifecycleTemplatesPanel() {
     {
       field: 'actions',
       headerName: '',
-      width: 100,
+      width: 140,
       sortable: false,
       renderCell: (params) => (
-        <Button
-          size="small"
-          onClick={() =>
-            dispatch(copyLifecycleTemplate({
-              id: params.row.id as number,
-              name: `${params.row.name as string} (copy)`,
-            }))
-          }
-        >
-          Copy
-        </Button>
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          <Button
+            size="small"
+            onClick={() => handleEditOpen(params.row as BookingLifecycleTemplate)}
+          >
+            Edit
+          </Button>
+          <Button
+            size="small"
+            onClick={() =>
+              dispatch(copyLifecycleTemplate({
+                id: params.row.id as number,
+                name: `${params.row.name as string} (copy)`,
+              }))
+            }
+          >
+            Copy
+          </Button>
+        </Box>
       ),
     },
   ];
@@ -195,9 +266,9 @@ export default function LifecycleTemplatesPanel() {
         pageSizeOptions={[10, 25]}
       />
 
-      {/* New Template Dialog */}
+      {/* New / Edit Template Dialog */}
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-        <DialogTitle>New Lifecycle Template</DialogTitle>
+        <DialogTitle>{editTemplateId !== null ? 'Edit Lifecycle Template' : 'New Lifecycle Template'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {error && <Alert severity="error">{error}</Alert>}
 
@@ -351,11 +422,91 @@ export default function LifecycleTemplatesPanel() {
               </Box>
             ))}
           </Box>
+
+          <Divider />
+
+          {/* Field Permissions */}
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>Field Permissions (per state)</Typography>
+            {stateKeys.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">Add states first.</Typography>
+            ) : stateKeys.map((stateKey) => {
+              const perm = fieldPerms[stateKey] ?? { editable_fields: [], editable_by: [], custom_fields: {} };
+              const cfPerms = perm.custom_fields ?? {};
+              return (
+                <Box key={stateKey} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, mb: 1 }}>
+                  <Typography variant="caption" fontWeight="bold">{stateKey}</Typography>
+
+                  {customFieldDefs.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="caption" color="text.secondary">Custom Fields</Typography>
+                      {customFieldDefs.map((defn) => {
+                        const included = defn.field_key in cfPerms;
+                        const editableBy = cfPerms[defn.field_key]?.editable_by ?? [];
+                        return (
+                          <Box key={defn.field_key} sx={{ ml: 1, mt: 0.5 }}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  size="small"
+                                  checked={included}
+                                  onChange={(e) => {
+                                    setFieldPerms((fp) => {
+                                      const statePerm = fp[stateKey] ?? { editable_fields: [], editable_by: [], custom_fields: {} };
+                                      const cf = { ...statePerm.custom_fields };
+                                      if (e.target.checked) {
+                                        cf[defn.field_key] = { editable_by: [] };
+                                      } else {
+                                        delete cf[defn.field_key];
+                                      }
+                                      return { ...fp, [stateKey]: { ...statePerm, custom_fields: cf } };
+                                    });
+                                  }}
+                                />
+                              }
+                              label={defn.label}
+                            />
+                            {included && (
+                              <Box sx={{ ml: 3, display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 0.5 }}>
+                                {ROLES.map((role) => (
+                                  <Chip
+                                    key={role}
+                                    label={role}
+                                    size="small"
+                                    clickable
+                                    color={editableBy.includes(role) ? 'primary' : 'default'}
+                                    variant={editableBy.includes(role) ? 'filled' : 'outlined'}
+                                    onClick={() => {
+                                      setFieldPerms((fp) => {
+                                        const statePerm = fp[stateKey] ?? { editable_fields: [], editable_by: [], custom_fields: {} };
+                                        const cf = { ...statePerm.custom_fields };
+                                        const current = cf[defn.field_key]?.editable_by ?? [];
+                                        cf[defn.field_key] = {
+                                          editable_by: current.includes(role)
+                                            ? current.filter((r) => r !== role)
+                                            : [...current, role],
+                                        };
+                                        return { ...fp, [stateKey]: { ...statePerm, custom_fields: cf } };
+                                      });
+                                    }}
+                                  />
+                                ))}
+                              </Box>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={saving}>
-            {saving ? 'Creating...' : 'Create'}
+          <Button variant="contained" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : editTemplateId !== null ? 'Save Changes' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>
