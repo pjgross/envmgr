@@ -1,22 +1,30 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import {
   Alert,
   Box,
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Paper,
   Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { AppDispatch } from '../../store'
+import type { RootState } from '../../store'
 import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice'
+import { fetchDefinitions } from '../../store/customFieldSlice'
 import { bookingService } from '../../services/bookingService'
 import type { BookingResponse } from '../../types/booking'
 import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle'
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay'
+import CustomFieldsSection from '../../components/CustomFieldsSection'
 
 // --- Status colour map -------------------------------------------------------
 
@@ -36,7 +44,7 @@ export default function BookingDetail() {
   const bookingId = Number(id)
   const navigate = useNavigate()
   const dispatch = useDispatch<AppDispatch>()
-
+  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? [])
 
   // Local state
   const [booking, setBooking] = useState<BookingResponse | null>(null)
@@ -44,11 +52,15 @@ export default function BookingDetail() {
   const [history, setHistory] = useState<BookingStatusHistory[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editingCustomFields, setEditingCustomFields] = useState(false)
+  const [cfEditValues, setCfEditValues] = useState<Record<string, unknown>>({})
+  const [cfSaving, setCfSaving] = useState(false)
 
   // Load on mount
   useEffect(() => {
     dispatch(fetchBookingTypes())
     dispatch(fetchLifecycleTemplates())
+    dispatch(fetchDefinitions('booking'))
 
     const load = async () => {
       setLoading(true)
@@ -234,6 +246,37 @@ export default function BookingDetail() {
         </Box>
       </Paper>
 
+      {/* Custom Fields */}
+      {(() => {
+        const perms = booking.custom_field_permissions ?? {};
+        const visibleDefs = customFieldDefs.filter((d) => d.field_key in perms);
+        const editableDefs = visibleDefs.filter((d) => perms[d.field_key]?.editable);
+        if (visibleDefs.length === 0) return null;
+        return (
+          <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="subtitle2">Custom Fields</Typography>
+              {editableDefs.length > 0 && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setCfEditValues(
+                      Object.fromEntries(
+                        editableDefs.map((d) => [d.field_key, booking.custom_fields?.[d.field_key] ?? ''])
+                      )
+                    );
+                    setEditingCustomFields(true);
+                  }}
+                >
+                  Edit
+                </Button>
+              )}
+            </Box>
+            <CustomFieldsDisplay definitions={visibleDefs} values={booking.custom_fields} />
+          </Paper>
+        );
+      })()}
+
       <Divider />
 
       {/* History */}
@@ -278,6 +321,48 @@ export default function BookingDetail() {
           </Box>
         )}
       </Box>
+
+      {/* Edit Custom Fields Dialog */}
+      <Dialog open={editingCustomFields} onClose={() => setEditingCustomFields(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Custom Fields</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {(() => {
+            const perms = booking?.custom_field_permissions ?? {};
+            const editableDefs = customFieldDefs.filter((d) => perms[d.field_key]?.editable);
+            return (
+              <CustomFieldsSection
+                definitions={editableDefs}
+                values={cfEditValues}
+                onChange={setCfEditValues}
+              />
+            );
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditingCustomFields(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={cfSaving}
+            onClick={async () => {
+              setCfSaving(true);
+              try {
+                const updated = await bookingService.updateCustomFields(bookingId, cfEditValues);
+                setBooking(updated);
+                setEditingCustomFields(false);
+              } catch (err: unknown) {
+                const msg =
+                  (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+                  'Save failed';
+                setError(msg);
+              } finally {
+                setCfSaving(false);
+              }
+            }}
+          >
+            {cfSaving ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
