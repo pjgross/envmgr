@@ -18,12 +18,14 @@ import {
   Select,
   Snackbar,
   Alert,
+  Switch,
   TextField,
 } from '@mui/material';
 import { AppDispatch, RootState } from '../../store';
 import { createBooking, fetchBookings } from '../../store/bookingSlice';
 import type { BookingCreate, ContextTag } from '../../types/booking';
 import { fetchDefinitions } from '../../store/customFieldSlice';
+import { fetchBookingTypes } from '../../store/bookingLifecycleSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 
 interface BookingFormProps {
@@ -62,6 +64,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const environments = useSelector((state: RootState) => state.environment.environments);
   const { loading } = useSelector((state: RootState) => state.booking);
   const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? []);
+  const { bookingTypes } = useSelector((s: RootState) => s.bookingLifecycle);
 
   const [envId, setEnvId] = useState<number | ''>(defaultEnvId ?? '');
   const [projectName, setProjectName] = useState('');
@@ -70,6 +73,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const [endDate, setEndDate] = useState('');
   const [notes, setNotes] = useState('');
   const [contextTag, setContextTag] = useState<ContextTag>('none');
+  const [exclusiveUse, setExclusiveUse] = useState(false);
 
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
@@ -81,6 +85,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
 
   useEffect(() => {
     dispatch(fetchDefinitions('booking'));
+    dispatch(fetchBookingTypes());
   }, [dispatch]);
 
   // Feedback state
@@ -102,6 +107,7 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
       start_date: new Date(startDate).toISOString(),
       end_date: new Date(endDate).toISOString(),
       booking_type_id: bookingTypeId,
+      exclusive_use: exclusiveUse,
       notes: notes || undefined,
       recurrence_rule: rrule,
       context_tag: contextTag,
@@ -137,7 +143,8 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
   const handleClose = () => {
     setEnvId(defaultEnvId ?? '');
     setProjectName('');
-    setBookingTypeId(1);
+    setBookingTypeId(bookingTypes.find(bt => bt.is_active)?.id ?? 1);
+    setExclusiveUse(false);
     setStartDate('');
     setEndDate('');
     setNotes('');
@@ -156,6 +163,9 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>New Booking</DialogTitle>
         <DialogContent>
+          <Alert severity="info" sx={{ mb: 1, mt: 1 }}>
+            Booking will be saved as <strong>Draft</strong>. Submit when ready for approval.
+          </Alert>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             {/* Environment */}
             <FormControl fullWidth required>
@@ -182,7 +192,33 @@ export default function BookingForm({ open, onClose, defaultEnvId }: BookingForm
               fullWidth
             />
 
-            {/* Booking Type — placeholder until Task 13 adds dropdown */}
+            {/* Booking Type */}
+            <TextField
+              select
+              label="Booking Type"
+              required
+              value={bookingTypeId}
+              onChange={(e) => setBookingTypeId(Number(e.target.value))}
+              error={bookingTypes.length === 0}
+              helperText={bookingTypes.length === 0 ? 'No booking types configured — contact your admin' : undefined}
+              disabled={bookingTypes.length === 0}
+              fullWidth
+            >
+              {bookingTypes.filter((bt) => bt.is_active).map((bt) => (
+                <MenuItem key={bt.id} value={bt.id}>{bt.name}</MenuItem>
+              ))}
+            </TextField>
+
+            {/* Exclusive Use */}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={exclusiveUse}
+                  onChange={(e) => setExclusiveUse(e.target.checked)}
+                />
+              }
+              label="Request exclusive use of environment"
+            />
 
             {/* Start / End Date */}
             <TextField
