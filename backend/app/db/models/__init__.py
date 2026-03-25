@@ -6,6 +6,11 @@ from app.db.models.system import System, SubSystem
 from app.db.models.environment import Environment, EnvironmentSystem
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.booking import Booking, BookingType, BookingStatus, ContextTag
+from app.db.models.booking_lifecycle import (
+    BookingLifecycleTemplate,
+    BookingType as BookingTypeTable,
+    BookingStatusHistory,
+)
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.event_log import EventLog
 
@@ -25,6 +30,9 @@ __all__ = [
     "BookingType",
     "BookingStatus",
     "ContextTag",
+    "BookingLifecycleTemplate",
+    "BookingTypeTable",
+    "BookingStatusHistory",
     "EnvironmentSubSystemVersion",
     "EventLog",
 ]
