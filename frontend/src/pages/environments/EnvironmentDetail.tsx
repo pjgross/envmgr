@@ -53,12 +53,14 @@ import { recordVersion, updateVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
+import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
   EnvironmentSystemResponse,
   EnvironmentSystemCreate,
+  EnvironmentSubsystemResponse,
 } from '../../types/environment';
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
 
@@ -138,6 +140,7 @@ export default function EnvironmentDetail() {
   const [sysForm, setSysForm] = useState<SysFormValues>(emptySysForm);
   const [sysFormError, setSysFormError] = useState('');
   const [sysDeleteTarget, setSysDeleteTarget] = useState<EnvironmentSystemResponse | null>(null);
+  const [typeDialogTarget, setTypeDialogTarget] = useState<EnvironmentSubsystemResponse | null>(null);
 
   useEffect(() => {
     dispatch(fetchEnvironment(envId));
@@ -198,6 +201,7 @@ export default function EnvironmentDetail() {
         system_id: sysForm.system_id as number,
       };
       await dispatch(addSystemToEnvironment({ envId, data })).unwrap();
+      dispatch(fetchEnvSubsystems(envId));
       setSysDialogOpen(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -682,16 +686,18 @@ export default function EnvironmentDetail() {
               <TableHead>
                 <TableRow>
                   <TableCell>System / Subsystem</TableCell>
+                  <TableCell>Category</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Real / Mock</TableCell>
                   <TableCell>Mock Notes</TableCell>
                   <TableCell>Latest Version</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {envSubsystems.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={7} align="center">
                       <Typography color="text.secondary" py={3}>
                         No subsystems configured. Add systems with subsystems first.
                       </Typography>
@@ -718,6 +724,11 @@ export default function EnvironmentDetail() {
                         size="small"
                         variant="outlined"
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {sub.component_type_definition_name ?? '—'}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Chip
@@ -767,6 +778,16 @@ export default function EnvironmentDetail() {
                       ) : (
                         <Typography variant="body2" color="text.secondary">No version recorded</Typography>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip title="Set component type">
+                        <IconButton
+                          size="small"
+                          onClick={() => setTypeDialogTarget(sub)}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -934,6 +955,15 @@ export default function EnvironmentDetail() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {typeDialogTarget && (
+        <ComponentTypeAssignDialog
+          envId={envId}
+          subsystem={typeDialogTarget}
+          open={Boolean(typeDialogTarget)}
+          onClose={() => setTypeDialogTarget(null)}
+        />
+      )}
     </Box>
   );
 }
