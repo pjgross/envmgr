@@ -901,7 +901,7 @@ export default function SystemDetail() {
                 ))}
                 {subsystems.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">
+                    <TableCell colSpan={5} align="center">
                       <Typography color="text.secondary" py={3}>
                         No subsystems yet.
                       </Typography>
