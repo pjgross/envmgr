@@ -1,12 +1,15 @@
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, JSON, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.component_type import ComponentTypeDefinition
 
 
 class EnvironmentStatus(str, enum.Enum):
@@ -81,6 +84,14 @@ class EnvironmentSubSystem(Base):
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     is_mocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     mock_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    component_type_definition_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("component_type_definition.id"), nullable=True, index=True
+    )
+    custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    component_type_definition: Mapped[Optional["ComponentTypeDefinition"]] = relationship(
+        "ComponentTypeDefinition", lazy="select"
+    )
 
     __table_args__ = (
         UniqueConstraint("environment_id", "subsystem_id", name="uq_env_subsystem"),

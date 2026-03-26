@@ -8,7 +8,6 @@ from datetime import datetime
 
 from app.db.base import Base
 
-
 class ComponentType(str, enum.Enum):
     WEB_SERVICE = 'web_service'
     API_GATEWAY = 'api_gateway'
