@@ -854,7 +854,7 @@ export default function SystemDetail() {
               <TableHead>
                 <TableRow>
                   <TableCell>Name</TableCell>
-                  <TableCell>Type</TableCell>
+                  <TableCell>Category</TableCell>
                   <TableCell>Technology</TableCell>
                   <TableCell>Description</TableCell>
                   <TableCell align="right">Actions</TableCell>
@@ -901,7 +901,7 @@ export default function SystemDetail() {
                 ))}
                 {subsystems.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={6} align="center">
                       <Typography color="text.secondary" py={3}>
                         No subsystems yet.
                       </Typography>
