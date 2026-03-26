@@ -157,7 +157,8 @@ async def get_subsystem(
     db: AsyncSession, subsystem_id: int, system_id: int, tenant_id: int
 ) -> SubSystem:
     result = await db.execute(
-        select(SubSystem).where(
+        select(SubSystem)
+        .where(
             SubSystem.id == subsystem_id,
             SubSystem.system_id == system_id,
             SubSystem.tenant_id == tenant_id,
