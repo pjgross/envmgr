@@ -41,7 +41,6 @@ export interface SubSystemCreate {
   description?: string;
   component_type?: string;
   technology?: string;
-  component_type_definition_id?: number | null;
   custom_fields?: Record<string, unknown>;
 }
 
@@ -50,6 +49,5 @@ export interface SubSystemUpdate {
   description?: string;
   component_type?: string;
   technology?: string;
-  component_type_definition_id?: number | null;
   custom_fields?: Record<string, unknown>;
 }
