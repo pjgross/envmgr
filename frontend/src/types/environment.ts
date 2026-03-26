@@ -71,17 +71,22 @@ export interface EnvironmentSubsystemResponse {
   subsystem_id: number;
   subsystem_name: string;
   component_type: string;
+  component_type_definition_id: number | null;
+  component_type_definition_name: string | null;
   technology: string | null;
   system_id: number;
   system_name: string;
   is_mocked: boolean;
   mock_notes: string | null;
+  custom_fields: Record<string, unknown> | null;
   latest_version: VersionSummary | null;
 }
 
 export interface EnvironmentSubsystemUpdate {
   is_mocked?: boolean;
   mock_notes?: string | null;
+  component_type_definition_id?: number | null;
+  custom_fields?: Record<string, unknown> | null;
 }
 
 export interface EnvSubsystemNode {
