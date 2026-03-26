@@ -80,17 +80,22 @@ class EnvironmentSubsystemResponse(BaseModel):
     subsystem_id: int
     subsystem_name: str
     component_type: str
+    component_type_definition_id: Optional[int] = None
+    component_type_definition_name: Optional[str] = None
     technology: Optional[str] = None
     system_id: int
     system_name: str
     is_mocked: bool
     mock_notes: Optional[str] = None
+    custom_fields: Optional[dict] = None
     latest_version: Optional[VersionSummary] = None
 
 
 class EnvironmentSubsystemUpdate(BaseModel):
     is_mocked: Optional[bool] = None
     mock_notes: Optional[str] = None
+    component_type_definition_id: Optional[int] = None
+    custom_fields: Optional[dict] = None
 
 
 class EnvSubsystemNode(BaseModel):

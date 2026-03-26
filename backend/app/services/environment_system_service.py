@@ -9,6 +9,7 @@ from app.db.models.system import System, SubSystem
 from app.db.models.dependency import SystemDependency
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.services.environment_service import get_environment
+from app.services import component_type_service
 from app.api.v1.schemas.environment import (
     EnvironmentSystemCreate,
     EnvironmentSystemUpdate,
@@ -211,7 +212,10 @@ async def get_environment_subsystems(
             EnvironmentSubSystem.environment_id == env_id,
             EnvironmentSubSystem.tenant_id == tenant_id,
         )
-        .options(selectinload(EnvironmentSubSystem.subsystem))
+        .options(
+            selectinload(EnvironmentSubSystem.subsystem),
+            selectinload(EnvironmentSubSystem.component_type_definition),
+        )
     )
     rows = list(result.scalars().all())
 
@@ -266,11 +270,17 @@ async def get_environment_subsystems(
                 subsystem_id=row.subsystem_id,
                 subsystem_name=sub.name,
                 component_type=sub.component_type,
+                component_type_definition_id=row.component_type_definition_id,
+                component_type_definition_name=(
+                    row.component_type_definition.name
+                    if row.component_type_definition else None
+                ),
                 technology=sub.technology,
                 system_id=sub.system_id,
                 system_name=sub.system.name if sub.system else f"System#{sub.system_id}",
                 is_mocked=row.is_mocked,
                 mock_notes=row.mock_notes,
+                custom_fields=row.custom_fields,
                 latest_version=VersionSummary(
                     build_id=ver.build_id,
                     version_label=ver.version_label,
@@ -308,6 +318,25 @@ async def update_environment_subsystem(
         row.is_mocked = data.is_mocked
     if data.mock_notes is not None:
         row.mock_notes = data.mock_notes
+
+    # Handle component type definition assignment
+    if "component_type_definition_id" in data.model_fields_set:
+        if data.component_type_definition_id is None:
+            # Clear the type and custom fields
+            row.component_type_definition_id = None
+            row.custom_fields = None
+        else:
+            await component_type_service.get_definition(
+                db, data.component_type_definition_id, tenant_id
+            )
+            row.component_type_definition_id = data.component_type_definition_id
+
+    if data.custom_fields is not None:
+        if row.component_type_definition_id:
+            await component_type_service.validate_fields_against_type(
+                db, tenant_id, row.component_type_definition_id, data.custom_fields
+            )
+        row.custom_fields = data.custom_fields
 
     await db.flush()
 
