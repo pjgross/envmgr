@@ -51,8 +51,16 @@ class Booking(Base):
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    booking_request_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("booking_request.id"), nullable=True, index=True
+    )
 
     # Relationships
+    booking_request = relationship(
+        "BookingRequest",
+        back_populates="bookings",
+        foreign_keys=[booking_request_id],
+    )
     environment: Mapped["Environment"] = relationship("Environment")
     booker: Mapped["User"] = relationship("User", foreign_keys=[booked_by])
     booking_type_ref: Mapped["BookingTypeModel"] = relationship("BookingType", foreign_keys=[booking_type_id])
