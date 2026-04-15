@@ -59,6 +59,7 @@ from app.api.v1 import bookings as bookings_router
 from app.api.v1 import import_routes as import_router
 from app.api.v1 import topology as topology_router
 from app.api.v1 import booking_lifecycle as booking_lifecycle_router
+from app.api.v1 import component_types as component_types_router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -71,3 +72,4 @@ app.include_router(bookings_router.router, prefix="/api/v1/bookings", tags=["Boo
 app.include_router(import_router.router, prefix="/api/v1/import", tags=["Import"])
 app.include_router(topology_router.router, prefix="/api/v1", tags=["Topology"])
 app.include_router(booking_lifecycle_router.router, prefix="/api/v1/tenant", tags=["Booking Lifecycle"])
+app.include_router(component_types_router.router, prefix="/api/v1/component-types", tags=["Component Types"])

@@ -2,6 +2,7 @@
 from app.db.base import Base
 from app.db.models.user import Tenant, User
 from app.db.models.custom_field import CustomFieldDefinition
+from app.db.models.component_type import ComponentTypeDefinition
 from app.db.models.system import System, SubSystem
 from app.db.models.environment import Environment, EnvironmentSystem
 from app.db.models.dependency import SystemDependency, ComponentDependency
@@ -20,6 +21,7 @@ __all__ = [
     "Tenant",
     "User",
     "CustomFieldDefinition",
+    "ComponentTypeDefinition",
     "System",
     "SubSystem",
     "Environment",

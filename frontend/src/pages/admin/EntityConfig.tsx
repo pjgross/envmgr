@@ -4,11 +4,13 @@ import { Box, Chip, Divider, Tab, Tabs, Typography } from '@mui/material';
 import CustomFieldDefinitionManager from '../../components/admin/CustomFieldDefinitionManager';
 import BookingTypesPanel from '../../components/admin/BookingTypesPanel';
 import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
+import ComponentTypesPanel from '../../components/admin/ComponentTypesPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
   system: 'Systems',
   subsystem: 'Subsystems',
+  'component-types': 'Component Types',
   environment: 'Environments',
   booking: 'Bookings',
 };
@@ -19,6 +21,18 @@ export default function EntityConfig() {
 
   if (!entityType || !ENTITY_LABELS[entityType]) {
     return <Typography>Unknown entity type.</Typography>;
+  }
+
+  if (entityType === 'component-types') {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h5" gutterBottom>Component Types</Typography>
+        <Typography color="text.secondary" sx={{ mb: 3 }}>
+          Define component types with custom field schemas for subsystems.
+        </Typography>
+        <ComponentTypesPanel />
+      </Box>
+    );
   }
 
   const et = entityType as EntityType;

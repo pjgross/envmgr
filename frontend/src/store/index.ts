@@ -10,6 +10,7 @@ import versionReducer from './versionSlice'
 import customFieldReducer from './customFieldSlice'
 import topologyReducer from './topologySlice'
 import bookingLifecycleReducer from './bookingLifecycleSlice'
+import componentTypeReducer from './componentTypeSlice'
 
 export const store = configureStore({
     reducer: {
@@ -24,6 +25,7 @@ export const store = configureStore({
         customField: customFieldReducer,
         topology: topologyReducer,
         bookingLifecycle: bookingLifecycleReducer,
+        componentType: componentTypeReducer,
     },
 })
 

@@ -9,6 +9,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import MemoryIcon from '@mui/icons-material/Memory';
 import LanguageIcon from '@mui/icons-material/Language';
 import EventIcon from '@mui/icons-material/Event';
+import CategoryIcon from '@mui/icons-material/Category';
 
 const DRAWER_WIDTH = 220;
 
@@ -20,6 +21,7 @@ const adminNavItems = [
 const entityNavItems = [
   { label: 'Systems', path: '/admin/config/system', icon: <StorageIcon fontSize="small" /> },
   { label: 'Subsystems', path: '/admin/config/subsystem', icon: <MemoryIcon fontSize="small" /> },
+  { label: 'Component Types', path: '/admin/config/component-types', icon: <CategoryIcon fontSize="small" /> },
   { label: 'Environments', path: '/admin/config/environment', icon: <LanguageIcon fontSize="small" /> },
   { label: 'Bookings', path: '/admin/config/booking', icon: <EventIcon fontSize="small" /> },
 ];
