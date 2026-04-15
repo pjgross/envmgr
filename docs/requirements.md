@@ -380,7 +380,7 @@ Key events requiring notifications:
 | Phase | Requirement Domains Addressed |
 |-------|-------------------------------|
 | 0 ✅ | Infrastructure setup, Auth foundation, Base models |
-| 1 | Environment Modeling, Booking System (incl. recurring), Event Infrastructure |
+| 1 ✅ | Environment Modeling, Booking System (incl. recurring), Event Infrastructure |
 | 2 | Change Management |
 | 3 | Release Management (Enterprise + Project Releases, Templates, Dependencies, Events, System Roles, Gantt View, PIR), Jira Integration |
 | 4 | Build Tracking, Deployment Tracking (GitHub Actions) |

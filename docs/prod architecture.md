@@ -79,7 +79,7 @@ Examples: `user.py`, `environment.py`, `booking.py`
 - Include `tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)`
 - Filter by `tenant_id` in all queries
 - Include tenant context in JWT tokens
-- Enforce row-level security (PostgreSQL RLS policies — Phase 1)
+- Enforce row-level security (PostgreSQL RLS policies — deferred; app-level `tenant_id` filtering used throughout)
 
 **Tenant Context Flow**:
 1. User authenticates → JWT token includes `tenant_id`
@@ -115,7 +115,7 @@ async with db.begin():
 - Dev: local NATS container in docker-compose (`nats://localhost:4222`)
 - Prod: shared macmini NATS instance (`nats://macmini:4222`)
 - JetStream provides persistent, at-least-once delivery (replaces RabbitMQ durable queues)
-- Subjects follow pattern: `envmgr.<event_type>` (e.g., `envmgr.BookingCreated`)
+- Subjects follow pattern: `envmgr.events.<AggregateType>.<EventType>` (e.g., `envmgr.events.Booking.BookingCreated`); stream name: `ENVMGR_EVENTS`
 
 **Event Consumers** (`backend/app/workers/`):
 - **Neo4j sync consumer** — update topology graph (subscribes to entity change events)

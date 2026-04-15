@@ -9,7 +9,7 @@
 | Phase | Name | Status | Duration | Detail |
 |-------|------|--------|----------|--------|
 | 0 | Foundations & Guardrails | ✅ Complete | — | See below |
-| 1 | Environment Inventory + Shared Booking | 🔄 In Progress | 6–8 weeks | [phases/phase-1.md](phases/phase-1.md) |
+| 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
 | 2 | Change Management | ⏳ Planned | 4–6 weeks | [phases/phase-2.md](phases/phase-2.md) |
 | 3 | Releases, Templates, Enterprise Release, Jira | ⏳ Planned | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
@@ -22,7 +22,7 @@
 ## Phase 0: Foundations & Guardrails — ✅ Complete
 
 **Delivered**:
-- Docker Compose environment (PostgreSQL, Neo4j, Redis, RabbitMQ)
+- Docker Compose environment (PostgreSQL, Neo4j, Redis, NATS)
 - FastAPI backend structure (`api`, `core`, `db`, `services`, `workers`)
 - React frontend with TypeScript and Material-UI
 - Authentication system (JWT, bcrypt, login/logout)
@@ -34,7 +34,7 @@
 
 ---
 
-## Phase 1: Environment Inventory + Shared Booking — 🔄 In Progress
+## Phase 1: Environment Inventory + Shared Booking — ✅ Complete
 
 See [phases/phase-1.md](phases/phase-1.md) for the full task checklist.
 
