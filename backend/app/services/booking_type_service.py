@@ -50,6 +50,13 @@ async def get_type(db: AsyncSession, type_id: int, tenant_id: int) -> BookingTyp
     return bt
 
 
+async def delete_type(db: AsyncSession, type_id: int, tenant_id: int) -> None:
+    from datetime import datetime, timezone
+    bt = await get_type(db, type_id, tenant_id)
+    bt.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
 async def update_type(
     db: AsyncSession, type_id: int, data: BookingTypeUpdate, tenant_id: int
 ) -> BookingType:

@@ -16,6 +16,7 @@ import {
   copyLifecycleTemplate,
   createLifecycleTemplate,
   updateLifecycleTemplate,
+  deleteLifecycleTemplate,
 } from '../../store/bookingLifecycleSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingLifecycleTemplate } from '../../types/bookingLifecycle';
@@ -70,6 +71,11 @@ export default function LifecycleTemplatesPanel() {
   const [error, setError] = useState<string | null>(null);
   const [fieldPermErrors, setFieldPermErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Delete confirm dialog
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTemplateId, setDeleteTemplateId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch(fetchLifecycleTemplates());
@@ -279,6 +285,24 @@ export default function LifecycleTemplatesPanel() {
 
   const stateKeys = states.map((s) => s.key.trim()).filter(Boolean);
 
+  const handleDeleteOpen = (id: number) => {
+    setDeleteTemplateId(id);
+    setDeleteError(null);
+    setDeleteOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (deleteTemplateId === null) return;
+    setDeleteError(null);
+    const result = await dispatch(deleteLifecycleTemplate(deleteTemplateId));
+    if (deleteLifecycleTemplate.rejected.match(result)) {
+      setDeleteError(result.error.message ?? 'Failed to delete template');
+      return;
+    }
+    setDeleteOpen(false);
+    setDeleteTemplateId(null);
+  };
+
   // --- DataGrid columns ---
 
   const columns: GridColDef[] = [
@@ -299,7 +323,7 @@ export default function LifecycleTemplatesPanel() {
     {
       field: 'actions',
       headerName: '',
-      width: 140,
+      width: 200,
       sortable: false,
       renderCell: (params) => (
         <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -319,6 +343,13 @@ export default function LifecycleTemplatesPanel() {
             }
           >
             Copy
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            onClick={() => handleDeleteOpen(params.row.id as number)}
+          >
+            Delete
           </Button>
         </Box>
       ),
@@ -342,6 +373,21 @@ export default function LifecycleTemplatesPanel() {
         disableRowSelectionOnClick
         pageSizeOptions={[10, 25]}
       />
+
+      {/* Delete confirm dialog */}
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete Lifecycle Template</DialogTitle>
+        <DialogContent>
+          {deleteError && <Alert severity="error" sx={{ mb: 1 }}>{deleteError}</Alert>}
+          <Typography>Are you sure you want to delete this template? This cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteConfirm}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* New / Edit Template Dialog */}
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>

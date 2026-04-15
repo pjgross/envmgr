@@ -30,4 +30,10 @@ export const bookingLifecycleService = {
 
   updateBookingType: (id: number, data: Partial<Pick<BookingTypeRecord, 'name' | 'description' | 'lifecycle_template_id' | 'color' | 'is_active'>>): Promise<BookingTypeRecord> =>
     api.put(`/tenant/booking-types/${id}`, data).then((r) => r.data),
+
+  deleteTemplate: (id: number): Promise<void> =>
+    api.delete(`/tenant/lifecycle-templates/${id}`).then(() => undefined),
+
+  deleteBookingType: (id: number): Promise<void> =>
+    api.delete(`/tenant/booking-types/${id}`).then(() => undefined),
 };

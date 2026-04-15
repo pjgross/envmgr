@@ -56,6 +56,16 @@ export const updateBookingType = createAsyncThunk(
     bookingLifecycleService.updateBookingType(id, data)
 );
 
+export const deleteLifecycleTemplate = createAsyncThunk(
+  'bookingLifecycle/deleteTemplate',
+  (id: number) => bookingLifecycleService.deleteTemplate(id).then(() => id)
+);
+
+export const deleteBookingType = createAsyncThunk(
+  'bookingLifecycle/deleteBookingType',
+  (id: number) => bookingLifecycleService.deleteBookingType(id).then(() => id)
+);
+
 const bookingLifecycleSlice = createSlice({
   name: 'bookingLifecycle',
   initialState,
@@ -101,6 +111,12 @@ const bookingLifecycleSlice = createSlice({
       .addCase(updateBookingType.fulfilled, (state, action) => {
         const idx = state.bookingTypes.findIndex(bt => bt.id === action.payload.id);
         if (idx !== -1) state.bookingTypes[idx] = action.payload;
+      })
+      .addCase(deleteLifecycleTemplate.fulfilled, (state, action) => {
+        state.templates = state.templates.filter(t => t.id !== action.payload);
+      })
+      .addCase(deleteBookingType.fulfilled, (state, action) => {
+        state.bookingTypes = state.bookingTypes.filter(bt => bt.id !== action.payload);
       });
   },
 });

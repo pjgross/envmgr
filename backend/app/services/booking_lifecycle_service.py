@@ -100,6 +100,26 @@ async def update_template(
     return template
 
 
+async def delete_template(db: AsyncSession, template_id: int, tenant_id: int) -> None:
+    template = await get_template(db, template_id, tenant_id)
+    # Guard: refuse if any active booking type references this template
+    in_use = (await db.execute(
+        select(BookingType).where(
+            BookingType.lifecycle_template_id == template_id,
+            BookingType.tenant_id == tenant_id,
+            BookingType.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if in_use:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete: template is in use by one or more booking types",
+        )
+    from datetime import datetime, timezone
+    template.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
 async def copy_template(
     db: AsyncSession, template_id: int, new_name: str, tenant_id: int
 ) -> BookingLifecycleTemplate:

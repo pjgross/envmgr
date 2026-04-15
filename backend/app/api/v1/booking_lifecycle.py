@@ -40,6 +40,15 @@ async def get_lifecycle_template(
     return await booking_lifecycle_service.get_template(db, template_id, current_user.active_tenant_id)
 
 
+@router.delete("/lifecycle-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lifecycle_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    await booking_lifecycle_service.delete_template(db, template_id, current_user.active_tenant_id)
+
+
 @router.put("/lifecycle-templates/{template_id}", response_model=LifecycleTemplateResponse)
 async def update_lifecycle_template(
     template_id: int,
@@ -86,6 +95,15 @@ async def get_booking_type(
     current_user=Depends(get_current_user),
 ):
     return await booking_type_service.get_type(db, type_id, current_user.active_tenant_id)
+
+
+@router.delete("/booking-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_booking_type(
+    type_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    await booking_type_service.delete_type(db, type_id, current_user.active_tenant_id)
 
 
 @router.put("/booking-types/{type_id}", response_model=BookingTypeResponse)
