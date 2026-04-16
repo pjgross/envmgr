@@ -1,10 +1,12 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
+from sqlalchemy import select
 
 from app.services import booking_request_service
 from app.db.models.environment import Environment
 from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
+from app.db.models.booking import Booking
 
 
 async def _seed_lifecycle_and_type(db_session, tenant):
@@ -134,3 +136,39 @@ async def test_create_request_reports_detected_conflicts(db_session, test_tenant
     new_child = next(b for b in new_req.bookings if b.environment_id == env_a.id)
     assert new_child.id in detected
     assert len(detected[new_child.id]) == 1
+
+
+@pytest.mark.asyncio
+async def test_preview_conflicts_reports_without_creating(db_session, test_tenant, test_user):
+    bt = await _seed_lifecycle_and_type(db_session, test_tenant)
+    env_a = await _make_env(db_session, test_tenant, "a")
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    # Existing booking occupies window
+    await booking_request_service.create_request(
+        db_session,
+        data={
+            "project_name": "old", "booking_type_id": bt.id,
+            "start_date": t0, "end_date": t0 + timedelta(days=5),
+            "environment_ids": [env_a.id], "notes": None, "context_tag": "none",
+            "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
+        },
+        current_user=test_user, tenant_id=test_tenant.id,
+    )
+
+    before = await db_session.execute(select(Booking))
+    before_count = len(before.scalars().all())
+
+    preview = await booking_request_service.preview_conflicts(
+        db_session,
+        environment_ids=[env_a.id],
+        start_date=t0 + timedelta(days=1),
+        end_date=t0 + timedelta(days=3),
+        tenant_id=test_tenant.id,
+    )
+    assert env_a.id in preview
+    assert len(preview[env_a.id]) == 1
+
+    after = await db_session.execute(select(Booking))
+    after_count = len(after.scalars().all())
+    assert after_count == before_count  # no rows created

@@ -1,4 +1,5 @@
 from typing import Any
+from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -117,3 +118,34 @@ async def create_request(
     # req.bookings without triggering async lazy-load outside a greenlet.
     await db.refresh(req, ["bookings"])
     return req, detected
+
+
+async def preview_conflicts(
+    db: AsyncSession,
+    *,
+    environment_ids: list[int],
+    start_date: datetime,
+    end_date: datetime,
+    tenant_id: int,
+) -> dict[int, list[Booking]]:
+    """Return a dict keyed by environment_id listing existing bookings that would overlap.
+    No database mutation."""
+    from sqlalchemy import and_, not_
+    results: dict[int, list[Booking]] = {}
+    for env_id in environment_ids:
+        stmt = (
+            select(Booking)
+            .where(
+                Booking.tenant_id == tenant_id,
+                Booking.environment_id == env_id,
+                Booking.deleted_at.is_(None),
+                not_(Booking.status.in_(conflict_service.TERMINAL_STATES)),
+                Booking.start_date < end_date,
+                Booking.end_date > start_date,
+            )
+            .order_by(Booking.start_date)
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        if rows:
+            results[env_id] = list(rows)
+    return results
