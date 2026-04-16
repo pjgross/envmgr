@@ -7,10 +7,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   Paper,
   Typography,
@@ -24,9 +20,9 @@ import { bookingService } from '../../services/bookingService'
 import type { BookingResponse } from '../../types/booking'
 import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle'
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay'
-import CustomFieldsSection from '../../components/CustomFieldsSection'
 import TransitionButtons from '../../components/bookings/TransitionButtons'
 import EditStandardFieldsDialog from '../../components/bookings/EditStandardFieldsDialog'
+import EditCustomFieldsDialog from '../../components/bookings/EditCustomFieldsDialog'
 
 // --- Status colour map -------------------------------------------------------
 
@@ -56,8 +52,6 @@ export default function BookingDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editingCustomFields, setEditingCustomFields] = useState(false)
-  const [cfEditValues, setCfEditValues] = useState<Record<string, unknown>>({})
-  const [cfSaving, setCfSaving] = useState(false)
   const [editingStandardFields, setEditingStandardFields] = useState(false)
 
   // Load on mount
@@ -263,14 +257,7 @@ export default function BookingDetail() {
               {editableDefs.length > 0 && (
                 <Button
                   size="small"
-                  onClick={() => {
-                    setCfEditValues(
-                      Object.fromEntries(
-                        editableDefs.map((d) => [d.field_key, booking.custom_fields?.[d.field_key] ?? ''])
-                      )
-                    );
-                    setEditingCustomFields(true);
-                  }}
+                  onClick={() => setEditingCustomFields(true)}
                 >
                   Edit
                 </Button>
@@ -340,46 +327,17 @@ export default function BookingDetail() {
       )}
 
       {/* Edit Custom Fields Dialog */}
-      <Dialog open={editingCustomFields} onClose={() => setEditingCustomFields(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Edit Custom Fields</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          {(() => {
-            const perms = booking?.custom_field_permissions ?? {};
-            const editableDefs = customFieldDefs.filter((d) => perms[d.field_key]?.editable);
-            return (
-              <CustomFieldsSection
-                definitions={editableDefs}
-                values={cfEditValues}
-                onChange={setCfEditValues}
-              />
-            );
-          })()}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditingCustomFields(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            disabled={cfSaving}
-            onClick={async () => {
-              setCfSaving(true);
-              try {
-                const updated = await bookingService.updateCustomFields(bookingId, cfEditValues);
-                setBooking(updated);
-                setEditingCustomFields(false);
-              } catch (err: unknown) {
-                const msg =
-                  (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-                  'Save failed';
-                setError(msg);
-              } finally {
-                setCfSaving(false);
-              }
-            }}
-          >
-            {cfSaving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {booking && (
+        <EditCustomFieldsDialog
+          open={editingCustomFields}
+          booking={booking}
+          definitions={customFieldDefs}
+          onClose={() => setEditingCustomFields(false)}
+          onSaved={setBooking}
+          saver={(values) => bookingService.updateCustomFields(bookingId, values)}
+          onError={setError}
+        />
+      )}
     </Box>
   )
 }
