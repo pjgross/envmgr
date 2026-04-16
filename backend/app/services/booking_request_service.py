@@ -251,3 +251,104 @@ async def remove_environment(
         payload={"request_id": req.id, "booking_id": child.id},
         tenant_id=tenant_id,
     )
+
+
+# Fields editable at the request level — must match the spec's PATCH endpoint
+STANDARD_REQUEST_FIELDS = {
+    "project_name",
+    "booking_type_id",
+    "start_date",
+    "end_date",
+    "notes",
+    "context_tag",
+    "exclusive_use_requested",
+    "delegate_user_ids",
+}
+
+
+# Mirror columns on Booking to keep dual-reads consistent during the migration window.
+_CHILD_MIRROR = {
+    "project_name": "project_name",
+    "booking_type_id": "booking_type_id",
+    "start_date": "start_date",
+    "end_date": "end_date",
+    "notes": "notes",
+    "context_tag": "context_tag",
+    "exclusive_use_requested": "exclusive_use",
+}
+
+
+async def update_standard_fields(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    values: dict[str, Any],
+    current_user: User,
+    tenant_id: int,
+) -> BookingRequest:
+    req = await _get_request(db, request_id, tenant_id)
+    unknown = set(values) - STANDARD_REQUEST_FIELDS
+    if unknown:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown fields: {unknown}")
+
+    # TODO permission gating using lifecycle field_permissions —
+    # follow the same check used in booking_service.update_standard_fields today.
+    # For now we allow the request owner to edit any standard field; sharpen in Task 16 once
+    # the API wires permission checks.
+
+    for k, v in values.items():
+        if k == "context_tag" and v is not None:
+            setattr(req, k, ContextTag(v))
+        else:
+            setattr(req, k, v)
+
+    # Cascade to children via dual-write mirror
+    children = (await db.execute(
+        select(Booking).where(
+            Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
+        )
+    )).scalars().all()
+    for child in children:
+        for parent_field, child_field in _CHILD_MIRROR.items():
+            if parent_field in values:
+                val = values[parent_field]
+                if child_field == "context_tag" and val is not None:
+                    val = ContextTag(val)
+                setattr(child, child_field, val)
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="BookingRequestUpdated",
+        aggregate_id=req.id,
+        aggregate_type="BookingRequest",
+        payload={"request_id": req.id, "fields": list(values.keys())},
+        tenant_id=tenant_id,
+    )
+
+    # Eagerly load the bookings relationship so callers (and tests) can access
+    # req.bookings without triggering async lazy-load outside a greenlet.
+    await db.refresh(req, ["bookings"])
+    return req
+
+
+async def update_custom_fields(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    values: dict[str, Any],
+    current_user: User,
+    tenant_id: int,
+) -> BookingRequest:
+    req = await _get_request(db, request_id, tenant_id)
+    req.custom_fields = values
+
+    children = (await db.execute(
+        select(Booking).where(
+            Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
+        )
+    )).scalars().all()
+    for c in children:
+        c.custom_fields = values
+    await db.flush()
+    return req

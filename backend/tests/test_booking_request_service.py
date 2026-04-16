@@ -254,3 +254,35 @@ async def test_remove_environment_soft_deletes(db_session, test_tenant, test_use
     )
     await db_session.refresh(child_b)
     assert child_b.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_update_standard_fields_cascades_to_children(db_session, test_tenant, test_user):
+    bt = await _seed_lifecycle_and_type(db_session, test_tenant)
+    env_a = await _make_env(db_session, test_tenant, "a")
+    env_b = await _make_env(db_session, test_tenant, "b")
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    req, _ = await booking_request_service.create_request(
+        db_session,
+        data={
+            "project_name": "old", "booking_type_id": bt.id,
+            "start_date": t0, "end_date": t0 + timedelta(days=2),
+            "environment_ids": [env_a.id, env_b.id], "notes": None, "context_tag": "none",
+            "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
+        },
+        current_user=test_user, tenant_id=test_tenant.id,
+    )
+
+    updated = await booking_request_service.update_standard_fields(
+        db_session,
+        request_id=req.id,
+        values={"project_name": "new"},
+        current_user=test_user,
+        tenant_id=test_tenant.id,
+    )
+    assert updated.project_name == "new"
+    # Child dual-write also updated
+    for child in updated.bookings:
+        await db_session.refresh(child)
+        assert child.project_name == "new"
