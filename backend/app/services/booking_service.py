@@ -6,7 +6,7 @@ from dateutil.rrule import rrulestr
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload
 
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
@@ -70,7 +70,6 @@ async def check_overlap(
     # If new booking is exclusive or any existing is exclusive → blocked
     has_exclusive = exclusive_use or any(
         b.booking_request.exclusive_use_requested for b in overlapping
-        if b.booking_request is not None
     )
 
     if has_exclusive:
@@ -154,6 +153,7 @@ async def create_booking(
     else:
         ctx = ContextTag.NONE
 
+    # delegate_user_ids not supported via this legacy endpoint; use POST /booking-requests/ for delegates
     # Create the parent BookingRequest first — every Booking must have one.
     booking_request = BookingRequest(
         tenant_id=current_user.active_tenant_id,

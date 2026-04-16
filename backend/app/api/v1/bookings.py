@@ -25,15 +25,15 @@ def _to_response(booking) -> BookingResponse:
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
     req = booking.booking_request
-    if req is not None:
-        resp.project_name = req.project_name
-        resp.booked_by = req.booked_by
-        resp.booked_by_username = req.booker.username if getattr(req, "booker", None) else None
-        resp.booking_type_id = req.booking_type_id
-        resp.exclusive_use = req.exclusive_use_requested
-        resp.notes = req.notes
-        resp.context_tag = req.context_tag
-        resp.custom_fields = req.custom_fields
+    assert req is not None, f"Booking {booking.id} missing booking_request"
+    resp.project_name = req.project_name
+    resp.booked_by = req.booked_by
+    resp.booked_by_username = req.booker.username if getattr(req, "booker", None) else None
+    resp.booking_type_id = req.booking_type_id
+    resp.exclusive_use = req.exclusive_use_requested
+    resp.notes = req.notes
+    resp.context_tag = req.context_tag
+    resp.custom_fields = req.custom_fields
     return resp
 
 
