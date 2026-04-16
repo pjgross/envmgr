@@ -189,9 +189,13 @@ async def test_exclusive_booking_blocked(client: AsyncClient, auth_headers, defa
     assert resp1.status_code == 201
     shared_id = resp1.json()["booking"]["id"]
 
-    # Submit the shared booking first, then approve it
+    # Submit the shared booking first, then approve it via /transition
     await _submit_booking(client, auth_headers, shared_id)
-    approve_resp = await client.post(f"/api/v1/bookings/{shared_id}/approve", headers=auth_headers)
+    approve_resp = await client.post(
+        f"/api/v1/bookings/{shared_id}/transition",
+        headers=auth_headers,
+        json={"to_state": "approved"},
+    )
     assert approve_resp.status_code == 200
 
     # Now try to create an exclusive booking on the same time slot
@@ -269,76 +273,6 @@ async def test_list_bookings_date_range(client: AsyncClient, auth_headers, defau
     names = [b["project_name"] for b in resp.json()]
     assert "AprilProj" in names
     assert "MayProj" not in names
-
-
-@pytest.mark.asyncio
-async def test_approve_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
-    """POST /bookings/{id}/approve sets status to approved."""
-    env_id = await _create_env(client, auth_headers, "ApproveEnv")
-    create_resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
-    booking_id = create_resp.json()["booking"]["id"]
-
-    await _submit_booking(client, auth_headers, booking_id)
-
-    resp = await client.post(f"/api/v1/bookings/{booking_id}/approve", headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "approved"
-
-
-@pytest.mark.asyncio
-async def test_reject_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
-    """POST /bookings/{id}/reject sets status to rejected."""
-    env_id = await _create_env(client, auth_headers, "RejectEnv")
-    create_resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id)
-    booking_id = create_resp.json()["booking"]["id"]
-
-    await _submit_booking(client, auth_headers, booking_id)
-
-    resp = await client.post(f"/api/v1/bookings/{booking_id}/reject", headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "rejected"
-
-
-@pytest.mark.asyncio
-async def test_approve_parent_approves_children(client: AsyncClient, auth_headers, default_booking_type_id: int):
-    """Approving a parent recurring booking also approves all submitted children."""
-    env_id = await _create_env(client, auth_headers, "RecurApproveEnv")
-
-    create_resp = await client.post(
-        "/api/v1/bookings/",
-        headers=auth_headers,
-        json={
-            "environment_id": env_id,
-            "project_name": "RecurProj",
-            "start_date": "2026-04-01T10:00:00Z",
-            "end_date": "2026-04-01T14:00:00Z",
-            "booking_type_id": default_booking_type_id,
-            "exclusive_use": False,
-            "recurrence_rule": "FREQ=WEEKLY;COUNT=3",
-        },
-    )
-    assert create_resp.status_code == 201
-    parent_id = create_resp.json()["booking"]["id"]
-
-    # Get all bookings for this project and submit each one
-    list_resp = await client.get("/api/v1/bookings/", headers=auth_headers)
-    all_bookings = list_resp.json()
-    project_bookings = [b for b in all_bookings if b["project_name"] == "RecurProj"]
-    for b in project_bookings:
-        await _submit_booking(client, auth_headers, b["id"])
-
-    # Approve the parent
-    approve_resp = await client.post(
-        f"/api/v1/bookings/{parent_id}/approve", headers=auth_headers
-    )
-    assert approve_resp.status_code == 200
-
-    # List all bookings and check all are approved
-    list_resp = await client.get("/api/v1/bookings/", headers=auth_headers)
-    bookings = list_resp.json()
-    project_bookings = [b for b in bookings if b["project_name"] == "RecurProj"]
-    assert all(b["status"] == "approved" for b in project_bookings), \
-        f"Not all approved: {[(b['id'], b['status']) for b in project_bookings]}"
 
 
 @pytest.mark.asyncio
@@ -456,28 +390,6 @@ async def test_delete_series(client: AsyncClient, auth_headers, default_booking_
     list_resp2 = await client.get("/api/v1/bookings/", headers=auth_headers)
     remaining = [b for b in list_resp2.json() if b["project_name"] == "SeriesProj"]
     assert len(remaining) == 0
-
-
-@pytest.mark.asyncio
-async def test_cancel_booking(client: AsyncClient, auth_headers, default_booking_type_id: int):
-    """POST /bookings/{id}/cancel by owner soft-deletes the booking."""
-    env_id = await _create_env(client, auth_headers, "CancelBookingEnv")
-    create_resp = await _create_booking(client, auth_headers, env_id, booking_type_id=default_booking_type_id, project_name="CancelMe")
-    booking_id = create_resp.json()["booking"]["id"]
-
-    cancel_resp = await client.post(
-        f"/api/v1/bookings/{booking_id}/cancel", headers=auth_headers
-    )
-    assert cancel_resp.status_code == 204
-
-    # Booking should be gone from list
-    list_resp = await client.get("/api/v1/bookings/", headers=auth_headers)
-    names = [b["project_name"] for b in list_resp.json()]
-    assert "CancelMe" not in names
-
-    # GET should return 404
-    get_resp = await client.get(f"/api/v1/bookings/{booking_id}", headers=auth_headers)
-    assert get_resp.status_code == 404
 
 
 @pytest.mark.asyncio

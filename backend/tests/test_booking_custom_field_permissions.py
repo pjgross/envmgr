@@ -232,35 +232,3 @@ async def test_get_booking_includes_custom_field_permissions(client: AsyncClient
     assert data["custom_field_permissions"]["release_notes"] == {"visible": True, "editable": True}
 
 
-@pytest.mark.asyncio
-async def test_patch_custom_fields_updates_booking(client: AsyncClient, auth_headers: dict):
-    """PATCH /bookings/{id}/custom-fields updates the custom_fields JSON."""
-    booking_id = await _setup_booking_with_cf_template(client, auth_headers)
-
-    resp = await client.patch(
-        f"/api/v1/bookings/{booking_id}/custom-fields",
-        headers=auth_headers,
-        json={"release_notes": "updated notes"},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["custom_fields"]["release_notes"] == "updated notes"
-
-
-@pytest.mark.asyncio
-async def test_patch_custom_fields_hidden_field_rejected(client: AsyncClient, auth_headers: dict):
-    """PATCH /bookings/{id}/custom-fields rejects update for a field not visible in current state."""
-    booking_id = await _setup_booking_with_cf_template(client, auth_headers)
-
-    # Transition to submitted where release_notes is hidden (custom_fields: {})
-    await client.post(
-        f"/api/v1/bookings/{booking_id}/transition",
-        headers=auth_headers,
-        json={"to_state": "submitted"},
-    )
-
-    resp = await client.patch(
-        f"/api/v1/bookings/{booking_id}/custom-fields",
-        headers=auth_headers,
-        json={"release_notes": "trying to edit hidden field"},
-    )
-    assert resp.status_code == 403, resp.text

@@ -168,24 +168,6 @@ async def test_allowed_transitions_returns_transitions(client: AsyncClient, auth
 
 
 @pytest.mark.asyncio
-async def test_approve_shortcut_only_works_from_submitted(client: AsyncClient, auth_headers: dict):
-    """POST /approve returns 400 if booking is not in submitted state."""
-    booking_type_id = await _setup_booking_type(client, auth_headers)
-    env_id = await _setup_env(client, auth_headers, "TransitionEnv5")
-
-    create_resp = await _create_booking(
-        client, auth_headers, env_id, booking_type_id,
-        project_name="Test Project 5",
-        start_date="2026-10-01T10:00:00Z",
-        end_date="2026-10-07T10:00:00Z",
-    )
-    booking_id = create_resp.json()["booking"]["id"]
-
-    resp = await client.post(f"/api/v1/bookings/{booking_id}/approve", headers=auth_headers)
-    assert resp.status_code == 400  # booking is in draft, not submitted
-
-
-@pytest.mark.asyncio
 async def test_transition_invalid_role(client: AsyncClient, auth_headers: dict, db_session, test_tenant):
     """A user with 'Developer' role gets 403 when attempting a transition that requires Admin or Release Manager."""
     booking_type_id = await _setup_booking_type(client, auth_headers)

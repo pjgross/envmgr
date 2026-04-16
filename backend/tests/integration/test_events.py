@@ -326,24 +326,6 @@ async def test_reject_booking_emits_event(client: AsyncClient, auth_headers, db_
     assert reject_events[0].payload["to_state"] == "rejected"
 
 
-@pytest.mark.asyncio
-async def test_cancel_booking_emits_event(client: AsyncClient, auth_headers, db_session, default_booking_type_id: int):
-    """Cancelling a booking produces a BookingCancelled EventLog row."""
-    env_id = await _create_env(client, auth_headers, "CancelBookingEnv")
-    booking = await _create_booking(client, auth_headers, env_id, default_booking_type_id)
-    booking_id = booking["id"]
-
-    resp = await client.post(
-        f"/api/v1/bookings/{booking_id}/cancel", headers=auth_headers
-    )
-    assert resp.status_code == 204
-
-    events = await _get_events(db_session, "BookingCancelled", booking_id)
-    assert len(events) == 1
-    assert events[0].aggregate_type == "Booking"
-    assert events[0].published_at is None
-
-
 # ---------------------------------------------------------------------------
 # Tenant isolation test
 # ---------------------------------------------------------------------------

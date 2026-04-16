@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -17,19 +17,6 @@ from app.api.v1.schemas.booking import (
 )
 
 router = APIRouter()
-
-
-async def require_admin_or_rm(current_user=Depends(get_current_user)):
-    """Require Admin or Release Manager role."""
-    if not (
-        current_user.is_master_admin
-        or current_user.role in ("Admin", "Release Manager")
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin or Release Manager required",
-        )
-    return current_user
 
 
 def _to_response(booking) -> BookingResponse:
@@ -106,50 +93,6 @@ async def update_standard_fields(
         db, booking, current_user.role
     )
     return resp
-
-
-@router.patch("/{booking_id}/custom-fields", response_model=BookingResponse)
-async def update_custom_fields(
-    booking_id: int,
-    values: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    booking = await booking_service.update_custom_fields(db, booking_id, values, current_user)
-    resp = _to_response(booking)
-    resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
-        db, booking, current_user.role
-    )
-    return resp
-
-
-@router.post("/{booking_id}/approve", response_model=BookingResponse)
-async def approve_booking(
-    booking_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_rm),
-):
-    booking = await booking_service.approve_booking(db, booking_id, current_user)
-    return _to_response(booking)
-
-
-@router.post("/{booking_id}/reject", response_model=BookingResponse)
-async def reject_booking(
-    booking_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin_or_rm),
-):
-    booking = await booking_service.reject_booking(db, booking_id, current_user)
-    return _to_response(booking)
-
-
-@router.post("/{booking_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
-async def cancel_booking(
-    booking_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    await booking_service.cancel_booking(db, booking_id, current_user)
 
 
 @router.post("/{booking_id}/transition", response_model=BookingResponse)

@@ -7,8 +7,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.db.models.booking import Booking, ContextTag
+from app.db.models.booking_request import BookingRequest
 from app.db.models.booking_lifecycle import (
     BookingStatusHistory,
     BookingType as BookingTypeModel,
@@ -23,6 +25,46 @@ from app.services.booking_lifecycle_service import (
     get_custom_field_permissions,
 )
 from app.api.v1.schemas.booking_lifecycle import VALID_STANDARD_FIELD_NAMES
+
+
+async def _effective_shared(db: AsyncSession, booking: Booking) -> dict:
+    """Return the shared fields for a booking, preferring the parent booking_request when present.
+    Used during the migration window to keep behaviour consistent once duplicate columns are dropped."""
+    if booking.booking_request_id is None:
+        return {
+            "project_name": booking.project_name,
+            "booking_type_id": booking.booking_type_id,
+            "notes": booking.notes,
+            "context_tag": booking.context_tag,
+            "custom_fields": booking.custom_fields,
+            "booked_by": booking.booked_by,
+            "exclusive_use_requested": booking.exclusive_use,
+        }
+    req = (await db.execute(
+        select(BookingRequest).where(BookingRequest.id == booking.booking_request_id)
+    )).scalar_one()
+    return {
+        "project_name": req.project_name,
+        "booking_type_id": req.booking_type_id,
+        "notes": req.notes,
+        "context_tag": req.context_tag,
+        "custom_fields": req.custom_fields,
+        "booked_by": req.booked_by,
+        "exclusive_use_requested": req.exclusive_use_requested,
+    }
+
+
+def _apply_shared_to_booking(booking: Booking, shared: dict) -> None:
+    """Apply shim-derived shared field values onto the in-memory Booking for response serialisation.
+    Uses `set_committed_value` so SQLAlchemy does NOT mark these attributes as dirty — keeps the
+    read-side swap from triggering a write-back on the auto-commit at request end."""
+    set_committed_value(booking, "project_name", shared["project_name"])
+    set_committed_value(booking, "booking_type_id", shared["booking_type_id"])
+    set_committed_value(booking, "notes", shared["notes"])
+    set_committed_value(booking, "context_tag", shared["context_tag"])
+    set_committed_value(booking, "custom_fields", shared["custom_fields"])
+    set_committed_value(booking, "booked_by", shared["booked_by"])
+    set_committed_value(booking, "exclusive_use", shared["exclusive_use_requested"])
 
 
 @dataclass
@@ -249,6 +291,9 @@ async def get_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Book
     booking = result.scalar_one_or_none()
     if booking is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    # Dual-read shim: prefer parent booking_request shared fields when present.
+    shared = await _effective_shared(db, booking)
+    _apply_shared_to_booking(booking, shared)
     return booking
 
 
@@ -279,7 +324,12 @@ async def list_bookings(
         query = query.where(Booking.status == booking_status)
     query = query.order_by(Booking.start_date.asc())
     result = await db.execute(query)
-    return list(result.scalars().all())
+    bookings = list(result.scalars().all())
+    # Dual-read shim: prefer parent booking_request shared fields when present.
+    for booking in bookings:
+        shared = await _effective_shared(db, booking)
+        _apply_shared_to_booking(booking, shared)
+    return bookings
 
 
 async def transition_state(
@@ -378,63 +428,6 @@ async def get_booking_allowed_transitions(
     if not template:
         raise HTTPException(status_code=404, detail="Lifecycle template not found")
     return get_allowed_transitions(template.definition, booking.status, current_user.role)
-
-
-async def approve_booking(db: AsyncSession, booking_id: int, current_user) -> Booking:
-    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
-    if booking.status != "submitted":
-        raise HTTPException(status_code=400, detail="Can only approve bookings in 'submitted' state")
-
-    # Cascade-approve submitted children if this is a parent booking
-    if booking.recurrence_parent_id is None:
-        children_result = await db.execute(
-            select(Booking.id).where(
-                Booking.recurrence_parent_id == booking_id,
-                Booking.status == "submitted",
-                Booking.deleted_at.is_(None),
-            )
-        )
-        child_ids = list(children_result.scalars().all())
-        for child_id in child_ids:
-            await transition_state(db, child_id, "approved", current_user)
-
-    return await transition_state(db, booking_id, "approved", current_user)
-
-
-async def reject_booking(db: AsyncSession, booking_id: int, current_user) -> Booking:
-    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
-    if booking.status != "submitted":
-        raise HTTPException(status_code=400, detail="Can only reject bookings in 'submitted' state")
-    return await transition_state(db, booking_id, "rejected", current_user)
-
-
-async def cancel_booking(db: AsyncSession, booking_id: int, current_user) -> None:
-    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
-
-    # Verify ownership or admin/RM role
-    is_owner = booking.booked_by == current_user.id
-    is_privileged = current_user.is_master_admin or current_user.role in ("Admin", "Release Manager")
-    if not (is_owner or is_privileged):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to cancel this booking",
-        )
-
-    booking.deleted_at = datetime.now(timezone.utc)
-    await db.flush()
-    await publish_event(
-        db,
-        event_type="BookingCancelled",
-        aggregate_id=booking.id,
-        aggregate_type="Booking",
-        payload={
-            "id": booking.id,
-            "project_name": booking.project_name,
-            "environment_id": booking.environment_id,
-            "tenant_id": booking.tenant_id,
-        },
-        tenant_id=booking.tenant_id,
-    )
 
 
 async def delete_occurrence(db: AsyncSession, booking_id: int, current_user) -> None:
@@ -562,22 +555,26 @@ async def update_standard_fields(
     values: dict,
     current_user,
 ) -> Booking:
-    """Update standard fields on a booking subject to lifecycle permissions.
-    `values` is a dict of model column names (e.g. {"booking_type_id": 3, "notes": "..."}).
-    All submitted keys are treated as attempted changes regardless of whether the value
-    differs from the current stored value.
-    Raises HTTP 403 if any submitted key is not in VALID_STANDARD_FIELD_NAMES (unknown field)
-    or is not editable for the user's role in the current state (permission denied).
-    Each key maps directly to a Booking model column — no JSON merge, no partial-update pattern.
+    """Update per-env overrides on a booking.
+
+    Only `start_date` and `end_date` are editable at the booking (per-env) level.
+    All other standard fields moved to the booking_request; callers must use
+    `booking_request_service.update_standard_fields` for those.
+
+    Permissions are still enforced via the lifecycle template (fail-closed if
+    template is missing).
     """
-    # Field name mapping: column name -> permission key
-    COLUMN_TO_PERM_KEY = {
-        "booking_type_id": "booking_type",
-    }
-    VALID_COLUMN_NAMES = {
-        "project_name", "start_date", "end_date", "booking_type_id",
-        "notes", "exclusive_use", "context_tag",
-    }
+    ALLOWED_ENV_OVERRIDES = {"start_date", "end_date"}
+
+    unknown = set(values) - ALLOWED_ENV_OVERRIDES
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Fields {sorted(unknown)} are no longer editable on a booking; "
+                "use PATCH /booking-requests/{id}/standard-fields instead"
+            ),
+        )
 
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
@@ -602,56 +599,21 @@ async def update_standard_fields(
     # Fail-closed: if template not found, editable_perm_keys stays empty
 
     for col_name in values:
-        if col_name not in VALID_COLUMN_NAMES:
+        if col_name not in editable_perm_keys:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Field '{col_name}' is not a valid standard field",
-            )
-        perm_key = COLUMN_TO_PERM_KEY.get(col_name, col_name)
-        if perm_key not in editable_perm_keys:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Field '{perm_key}' is not editable in state '{booking.status}' for your role",
+                detail=f"Field '{col_name}' is not editable in state '{booking.status}' for your role",
             )
 
     for col_name, value in values.items():
+        if col_name in {"start_date", "end_date"} and isinstance(value, str):
+            # Accept ISO-8601 strings (with trailing Z) — coerce to timezone-aware datetime.
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         setattr(booking, col_name, value)
 
     await db.flush()
     await db.refresh(booking)
-    return booking
-
-
-async def update_custom_fields(
-    db: AsyncSession,
-    booking_id: int,
-    values: dict,
-    current_user,
-) -> Booking:
-    """
-    Update the custom_fields JSON on a booking.
-    Only fields that are visible AND editable for the current user's role in the
-    current state are permitted. Raises 403 if any submitted key is not editable.
-    """
-    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
-    perms = await get_custom_field_perms_for_booking(db, booking, current_user.role)
-
-    for key in values:
-        entry = perms.get(key)
-        if entry is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Field '{key}' is not visible in state '{booking.status}'",
-            )
-        if not entry["editable"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Field '{key}' is not editable in state '{booking.status}' for your role",
-            )
-
-    # Merge into existing values (partial update — do not wipe unlisted keys)
-    existing = booking.custom_fields or {}
-    booking.custom_fields = {**existing, **values}
-    await db.flush()
-    await db.refresh(booking)
+    # Re-apply dual-read shim after refresh so response uses parent fields where applicable.
+    shared = await _effective_shared(db, booking)
+    _apply_shared_to_booking(booking, shared)
     return booking

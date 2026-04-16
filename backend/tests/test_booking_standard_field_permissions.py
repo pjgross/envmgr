@@ -315,52 +315,72 @@ async def sf_booking(client: AsyncClient, auth_headers: dict) -> dict:
 async def test_update_standard_fields_success(
     client: AsyncClient, auth_headers: dict, sf_booking: dict
 ):
-    """PATCH notes field as Admin succeeds and returns updated value."""
+    """PATCH start_date/end_date (per-env overrides) as Admin succeeds."""
+    booking_id = sf_booking["id"]
+    resp = await client.patch(
+        f"/api/v1/bookings/{booking_id}/standard-fields",
+        headers=auth_headers,
+        json={
+            "start_date": "2026-06-02T10:00:00Z",
+            "end_date": "2026-06-02T14:00:00Z",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["start_date"].startswith("2026-06-02T10:00:00")
+    assert data["end_date"].startswith("2026-06-02T14:00:00")
+
+
+@pytest.mark.asyncio
+async def test_update_standard_fields_rejects_non_override_fields(
+    client: AsyncClient, auth_headers: dict, sf_booking: dict
+):
+    """PATCH with non-override shared fields (notes, exclusive_use, etc.) returns 400.
+    These fields moved to the booking_request — must use PATCH /booking-requests/{id}/standard-fields."""
     booking_id = sf_booking["id"]
     resp = await client.patch(
         f"/api/v1/bookings/{booking_id}/standard-fields",
         headers=auth_headers,
         json={"notes": "Updated notes via PATCH"},
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["notes"] == "Updated notes via PATCH"
+    assert resp.status_code == 400, resp.text
 
 
 @pytest.mark.asyncio
 async def test_update_standard_fields_forbidden(
-    client: AsyncClient, db_session, test_tenant, sf_booking: dict
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, sf_booking: dict
 ):
-    """PATCH exclusive_use as Developer (role without permission) returns 403."""
+    """PATCH start_date as a role that has no permission on it returns 403."""
     from app.db.models.user import User
     from app.core.security import get_password_hash
 
-    # Create a Developer user
-    dev_user = User(
+    # Create a Release Manager user (per INTEGRATION_TEST_DEFINITION draft.standard_fields,
+    # only Admin and Developer can edit start_date/end_date; Release Manager cannot).
+    rm_user = User(
         tenant_id=test_tenant.id,
-        username="sfdev",
-        email="sfdev@test.com",
+        username="sfrm",
+        email="sfrm@test.com",
         password_hash=get_password_hash("password123"),
-        role="Developer",
+        role="Release Manager",
         is_active=True,
     )
-    db_session.add(dev_user)
+    db_session.add(rm_user)
     await db_session.commit()
-    await db_session.refresh(dev_user)
+    await db_session.refresh(rm_user)
 
     login_resp = await client.post("/api/v1/auth/login", json={
-        "username": "sfdev",
+        "username": "sfrm",
         "password": "password123",
         "tenant_slug": test_tenant.slug,
     })
     assert login_resp.status_code == 200, login_resp.text
-    dev_headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+    rm_headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
 
     booking_id = sf_booking["id"]
     resp = await client.patch(
         f"/api/v1/bookings/{booking_id}/standard-fields",
-        headers=dev_headers,
-        json={"exclusive_use": True},
+        headers=rm_headers,
+        json={"start_date": "2026-06-03T10:00:00Z"},
     )
     assert resp.status_code == 403, resp.text
 
@@ -372,11 +392,11 @@ async def test_update_standard_fields_get_includes_permissions(
     """GET booking detail includes standard_field_permissions with all 7 fields."""
     booking_id = sf_booking["id"]
 
-    # First perform an update so we know the booking has the right state
+    # First perform a per-env override update so we know the booking has the right state
     patch_resp = await client.patch(
         f"/api/v1/bookings/{booking_id}/standard-fields",
         headers=auth_headers,
-        json={"notes": "Permission check notes"},
+        json={"start_date": "2026-06-02T10:00:00Z"},
     )
     assert patch_resp.status_code == 200, patch_resp.text
 
