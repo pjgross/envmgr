@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -16,17 +17,20 @@ import {
   InputLabel,
   MenuItem,
   Select,
-  Snackbar,
   Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { AppDispatch, RootState } from '../../store';
-import { fetchBookings, approveBooking, rejectBooking, cancelBooking } from '../../store/bookingSlice';
+import { fetchBookings } from '../../store/bookingSlice';
 import { fetchEnvironments } from '../../store/environmentSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingResponse } from '../../types/booking';
+import type { AllowedTransition } from '../../types/bookingLifecycle';
+import { bookingService } from '../../services/bookingService';
 import BookingForm from './BookingForm';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
+import TransitionButtons from '../../components/bookings/TransitionButtons';
+import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#9e9e9e',
@@ -35,9 +39,14 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function bookingToEvent(booking: BookingResponse): EventInput {
+  const title =
+    booking.request?.project_name && booking.environment_name
+      ? `${booking.request.project_name} — ${booking.environment_name}`
+      : booking.project_name;
+
   return {
     id: booking.id.toString(),
-    title: booking.project_name,
+    title,
     start: booking.start_date,
     end: booking.end_date,
     backgroundColor: STATUS_COLORS[booking.status] ?? '#1976d2',
@@ -48,22 +57,19 @@ function bookingToEvent(booking: BookingResponse): EventInput {
 
 export default function BookingCalendar() {
   const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
   const { bookings, loading } = useSelector((state: RootState) => state.booking);
   const environments = useSelector((state: RootState) => state.environment.environments);
-  const user = useSelector((state: RootState) => state.auth.user);
   const bookingCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
   );
 
   const [selectedBooking, setSelectedBooking] = useState<BookingResponse | null>(null);
+  const [selectedTransitions, setSelectedTransitions] = useState<AllowedTransition[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [envFilter, setEnvFilter] = useState<number | ''>('');
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
-    open: false,
-    message: '',
-    severity: 'success',
-  });
 
   useEffect(() => {
     dispatch(fetchEnvironments());
@@ -76,45 +82,34 @@ export default function BookingCalendar() {
     dispatch(fetchBookings(envId !== '' ? { environment_id: envId as number } : undefined));
   };
 
-  const handleEventClick = (info: EventClickArg) => {
+  const handleEventClick = async (info: EventClickArg) => {
     const booking: BookingResponse = info.event.extendedProps.booking;
     setSelectedBooking(booking);
+    setTransitionError(null);
     setDrawerOpen(true);
-  };
-
-  const canApproveReject =
-    user?.is_master_admin || user?.role === 'Admin' || user?.role === 'Release Manager';
-
-  const canCancel = (booking: BookingResponse) =>
-    booking.booked_by === user?.id || user?.is_master_admin || user?.role === 'Admin';
-
-  const handleApprove = async () => {
-    if (!selectedBooking) return;
-    const result = await dispatch(approveBooking(selectedBooking.id));
-    if (approveBooking.fulfilled.match(result)) {
-      setSelectedBooking(result.payload);
-      setSnackbar({ open: true, message: 'Booking approved.', severity: 'success' });
-      dispatch(fetchBookings(envFilter !== '' ? { environment_id: envFilter as number } : undefined));
+    try {
+      const transitions = await bookingService.getAllowedTransitions(booking.id);
+      setSelectedTransitions(transitions);
+    } catch {
+      setSelectedTransitions([]);
     }
   };
 
-  const handleReject = async () => {
+  const handleTransition = async (toState: string) => {
     if (!selectedBooking) return;
-    const result = await dispatch(rejectBooking(selectedBooking.id));
-    if (rejectBooking.fulfilled.match(result)) {
-      setSelectedBooking(result.payload);
-      setSnackbar({ open: true, message: 'Booking rejected.', severity: 'success' });
+    setTransitionError(null);
+    try {
+      await bookingService.transitionState(selectedBooking.id, toState);
+      const [updated, transitions] = await Promise.all([
+        bookingService.getBooking(selectedBooking.id),
+        bookingService.getAllowedTransitions(selectedBooking.id),
+      ]);
+      setSelectedBooking(updated);
+      setSelectedTransitions(transitions);
       dispatch(fetchBookings(envFilter !== '' ? { environment_id: envFilter as number } : undefined));
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!selectedBooking) return;
-    const result = await dispatch(cancelBooking(selectedBooking.id));
-    if (cancelBooking.fulfilled.match(result)) {
-      setDrawerOpen(false);
-      setSelectedBooking(null);
-      setSnackbar({ open: true, message: 'Booking cancelled.', severity: 'success' });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Transition failed';
+      setTransitionError(message);
     }
   };
 
@@ -179,19 +174,28 @@ export default function BookingCalendar() {
       >
         {selectedBooking && (
           <Box>
-            <Typography variant="h6" gutterBottom>
-              {selectedBooking.project_name}
+            <Typography
+              variant="h6"
+              gutterBottom
+              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+              onClick={() => navigate(`/bookings/${selectedBooking.id}`)}
+            >
+              {selectedBooking.request?.project_name ?? selectedBooking.project_name}
             </Typography>
 
-            <Chip
-              label={selectedBooking.status}
-              size="small"
-              sx={{
-                bgcolor: STATUS_COLORS[selectedBooking.status],
-                color: '#fff',
-                mb: 2,
-              }}
-            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Chip
+                label={selectedBooking.status}
+                size="small"
+                sx={{
+                  bgcolor: STATUS_COLORS[selectedBooking.status],
+                  color: '#fff',
+                }}
+              />
+              {selectedBooking.has_unacknowledged_conflicts && (
+                <ConflictIndicator />
+              )}
+            </Box>
 
             <Divider sx={{ mb: 2 }} />
 
@@ -275,23 +279,26 @@ export default function BookingCalendar() {
 
             <Divider sx={{ my: 2 }} />
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {canApproveReject && selectedBooking.status === 'pending' && (
-                <>
-                  <Button variant="contained" color="success" onClick={handleApprove}>
-                    Approve
-                  </Button>
-                  <Button variant="contained" color="error" onClick={handleReject}>
-                    Reject
-                  </Button>
-                </>
-              )}
-              {canCancel(selectedBooking) && selectedBooking.status !== 'rejected' && (
-                <Button variant="outlined" color="error" onClick={handleCancel}>
-                  Cancel Booking
-                </Button>
-              )}
-            </Box>
+            {transitionError && (
+              <Alert severity="error" sx={{ mb: 1 }}>
+                {transitionError}
+              </Alert>
+            )}
+
+            <TransitionButtons
+              transitions={selectedTransitions}
+              onTransition={handleTransition}
+              size="small"
+            />
+
+            <Button
+              variant="text"
+              size="small"
+              sx={{ mt: 1 }}
+              onClick={() => navigate(`/bookings/${selectedBooking.id}`)}
+            >
+              View full details
+            </Button>
           </Box>
         )}
       </Drawer>
@@ -302,18 +309,6 @@ export default function BookingCalendar() {
         onClose={() => setFormOpen(false)}
         defaultEnvId={envFilter !== '' ? (envFilter as number) : undefined}
       />
-
-      {/* Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 }
