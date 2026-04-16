@@ -13,6 +13,8 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.db.base import Base, get_db
 from app.db.models.user import Tenant, User
+from app.db.models.environment import Environment
+from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
 from app.core.security import get_password_hash
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -88,6 +90,48 @@ async def test_user(db_session, test_tenant) -> User:
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_environment(db_session, test_tenant) -> Environment:
+    """A persisted environment in test_tenant."""
+    env = Environment(
+        tenant_id=test_tenant.id,
+        name="test-env",
+        environment_type="dev",
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    return env
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_booking_type(db_session, test_tenant) -> BookingType:
+    """A booking type backed by a lifecycle template with a 'draft' initial state."""
+    tpl = BookingLifecycleTemplate(
+        tenant_id=test_tenant.id,
+        name="default",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    bt = BookingType(
+        tenant_id=test_tenant.id,
+        name="Standard",
+        lifecycle_template_id=tpl.id,
+    )
+    db_session.add(bt)
+    await db_session.commit()
+    await db_session.refresh(bt)
+    return bt
 
 
 @pytest_asyncio.fixture(scope="function")
