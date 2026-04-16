@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EnvBookingSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     environment_id: int
     environment_name: Optional[str] = None
@@ -11,9 +13,6 @@ class EnvBookingSummary(BaseModel):
     end_date: datetime
     status: str
     has_unacknowledged_conflicts: bool = False
-
-    class Config:
-        from_attributes = True
 
 
 class BookingRequestCreate(BaseModel):
@@ -51,6 +50,8 @@ class AddEnvironmentRequest(BaseModel):
 
 
 class BookingRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     tenant_id: int
     project_name: str
@@ -65,9 +66,6 @@ class BookingRequestResponse(BaseModel):
     delegate_user_ids: Optional[list[int]]
     rollup_status: str
     bookings: list[EnvBookingSummary]
-
-    class Config:
-        from_attributes = True
 
 
 class BookingRequestCreateResponse(BaseModel):
