@@ -15,7 +15,10 @@ from app.db.base import Base, get_db
 from app.db.models.user import Tenant, User
 from app.db.models.environment import Environment
 from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
+from app.db.models.booking_request import BookingRequest
+from app.db.models.booking import Booking
 from app.core.security import get_password_hash
+from datetime import datetime, timezone, timedelta
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -145,3 +148,75 @@ async def auth_headers(client, test_tenant, test_user) -> dict:
     assert response.status_code == 200
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_booking(db_session, test_tenant, test_environment, test_user, test_booking_type):
+    """A persisted booking request with a single child booking."""
+    now = datetime.now(timezone.utc)
+    start = now + timedelta(days=1)
+    end = start + timedelta(days=2)
+
+    # Create booking request
+    req = BookingRequest(
+        tenant_id=test_tenant.id,
+        project_name="Test Project",
+        booking_type_id=test_booking_type.id,
+        start_date=start,
+        end_date=end,
+        booked_by=test_user.id,
+    )
+    db_session.add(req)
+    await db_session.flush()
+
+    # Create booking linked to request
+    booking = Booking(
+        tenant_id=test_tenant.id,
+        environment_id=test_environment.id,
+        project_name="Test Project",
+        booked_by=test_user.id,
+        start_date=start,
+        end_date=end,
+        booking_type_id=test_booking_type.id,
+        booking_request_id=req.id,
+    )
+    db_session.add(booking)
+    await db_session.commit()
+    await db_session.refresh(booking)
+    return booking
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_conflicting_booking(db_session, test_tenant, test_environment, test_user, test_booking_type):
+    """A persisted booking request with a single child booking that overlaps with test_booking."""
+    now = datetime.now(timezone.utc)
+    start = now + timedelta(days=1, hours=12)  # overlaps with test_booking
+    end = start + timedelta(days=1)
+
+    # Create booking request
+    req = BookingRequest(
+        tenant_id=test_tenant.id,
+        project_name="Conflicting Project",
+        booking_type_id=test_booking_type.id,
+        start_date=start,
+        end_date=end,
+        booked_by=test_user.id,
+    )
+    db_session.add(req)
+    await db_session.flush()
+
+    # Create booking linked to request
+    booking = Booking(
+        tenant_id=test_tenant.id,
+        environment_id=test_environment.id,
+        project_name="Conflicting Project",
+        booked_by=test_user.id,
+        start_date=start,
+        end_date=end,
+        booking_type_id=test_booking_type.id,
+        booking_request_id=req.id,
+    )
+    db_session.add(booking)
+    await db_session.commit()
+    await db_session.refresh(booking)
+    return booking
