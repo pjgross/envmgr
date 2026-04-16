@@ -6,7 +6,7 @@ type Props = {
   open: boolean
   booking: BookingResponse
   onClose: () => void
-  onSaved: (updated: BookingResponse) => void
+  onSaved: (updated: BookingResponse) => void | Promise<void>
   saver: (payload: { start_date?: string; end_date?: string }) => Promise<BookingResponse>
   onError?: (msg: string) => void
 }
@@ -20,7 +20,7 @@ export default function EditEnvOverridesDialog({ open, booking, onClose, onSaved
     setSaving(true)
     try {
       const updated = await saver({ start_date: start, end_date: end })
-      onSaved(updated)
+      await onSaved(updated)
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Save failed'

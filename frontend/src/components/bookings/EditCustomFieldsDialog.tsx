@@ -11,7 +11,7 @@ export type EditCustomFieldsDialogProps = {
   booking: BookingResponse
   definitions: CustomFieldDefinition[]
   onClose: () => void
-  onSaved: (updated: BookingResponse) => void
+  onSaved: (updated: BookingResponse) => void | Promise<void>
   saver: (values: Record<string, unknown>) => Promise<BookingResponse>
   onError?: (msg: string) => void
 }
@@ -30,7 +30,7 @@ export default function EditCustomFieldsDialog({
     setSaving(true)
     try {
       const updated = await saver(values)
-      onSaved(updated)
+      await onSaved(updated)
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Save failed'

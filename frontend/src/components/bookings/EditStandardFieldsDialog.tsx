@@ -13,7 +13,7 @@ export type EditStandardFieldsDialogProps = {
   booking: BookingResponse
   bookingTypes: BookingType[]
   onClose: () => void
-  onSaved: (updated: BookingResponse) => void
+  onSaved: (updated: BookingResponse) => void | Promise<void>
   saver: (payload: Record<string, unknown>) => Promise<BookingResponse>
   onError?: (msg: string) => void
 }
@@ -44,7 +44,7 @@ export default function EditStandardFieldsDialog({
         end_date: 'end_date',
         booking_type: 'booking_type_id',
         notes: 'notes',
-        exclusive_use: 'exclusive_use',
+        exclusive_use: 'exclusive_use_requested',
         context_tag: 'context_tag',
       }
       const payload: Record<string, unknown> = {}
@@ -52,7 +52,7 @@ export default function EditStandardFieldsDialog({
         if (sfPerms[key]?.editable) payload[apiKey] = values[key]
       }
       const updated = await saver(payload)
-      onSaved(updated)
+      await onSaved(updated)
       onClose()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Save failed'
