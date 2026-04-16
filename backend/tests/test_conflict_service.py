@@ -18,17 +18,26 @@ async def _make_env(db_session, test_tenant, name: str = "env1") -> Environment:
 
 
 async def _make_booking(db_session, test_tenant, test_user, env, start, end, status="submitted") -> Booking:
+    """Create a BookingRequest + child Booking for testing conflict detection."""
+    req = BookingRequest(
+        tenant_id=test_tenant.id,
+        project_name="p",
+        booking_type_id=1,  # dummy — not traversed for overlap
+        start_date=start,
+        end_date=end,
+        booked_by=test_user.id,
+        context_tag="none",
+        exclusive_use_requested=False,
+    )
+    db_session.add(req)
+    await db_session.flush()
     b = Booking(
         tenant_id=test_tenant.id,
         environment_id=env.id,
-        project_name="p",
-        booked_by=test_user.id,
+        booking_request_id=req.id,
         start_date=start,
         end_date=end,
-        exclusive_use=False,
-        booking_type_id=1,  # dummy — not traversed for overlap
         status=status,
-        context_tag="none",
     )
     db_session.add(b)
     await db_session.flush()

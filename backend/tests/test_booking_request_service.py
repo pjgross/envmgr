@@ -282,7 +282,6 @@ async def test_update_standard_fields_cascades_to_children(db_session, test_tena
         tenant_id=test_tenant.id,
     )
     assert updated.project_name == "new"
-    # Child dual-write also updated
-    for child in updated.bookings:
-        await db_session.refresh(child)
-        assert child.project_name == "new"
+    # Children still linked to the same request (no dual-write needed — they read via booking_request)
+    assert len(updated.bookings) == 2
+    assert all(b.booking_request_id == updated.id for b in updated.bookings)

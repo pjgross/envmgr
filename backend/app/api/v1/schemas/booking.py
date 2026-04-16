@@ -44,22 +44,24 @@ class BookingResponse(BaseModel):
 
     id: int
     environment_id: int
-    environment_name: Optional[str] = None  # populated manually in service
-    project_name: str
-    booked_by: int
-    booked_by_username: Optional[str] = None  # populated manually in service
+    environment_name: Optional[str] = None  # populated manually in endpoint
+    # Fields sourced from the parent booking_request (populated manually in endpoint)
+    project_name: Optional[str] = None
+    booked_by: Optional[int] = None
+    booked_by_username: Optional[str] = None  # populated manually in endpoint
+    booking_type_id: Optional[int] = None
+    exclusive_use: Optional[bool] = None
+    notes: Optional[str] = None
+    context_tag: Optional[ContextTag] = None
+    custom_fields: Optional[dict] = None
+    # Per-env override fields (on Booking directly)
     start_date: datetime
     end_date: datetime
-    booking_type_id: int
-    exclusive_use: bool
     status: str
-    notes: Optional[str] = None
     recurrence_rule: Optional[str] = None
     recurrence_parent_id: Optional[int] = None
     release_id: Optional[int] = None
     test_phase_id: Optional[int] = None
-    context_tag: ContextTag
-    custom_fields: Optional[dict] = None
     custom_field_permissions: Optional[dict[str, dict]] = None
     standard_field_permissions: Optional[dict[str, dict]] = None
     tenant_id: int

@@ -6,8 +6,7 @@ from dateutil.rrule import rrulestr
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm import selectinload, joinedload
 
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
@@ -25,49 +24,6 @@ from app.services.booking_lifecycle_service import (
     get_custom_field_permissions,
 )
 from app.api.v1.schemas.booking_lifecycle import VALID_STANDARD_FIELD_NAMES
-
-
-async def _effective_shared(db: AsyncSession, booking: Booking) -> dict:
-    """Return the shared fields for a booking, preferring the parent booking_request when present.
-    Used during the migration window to keep behaviour consistent once duplicate columns are dropped."""
-    if booking.booking_request_id is None:
-        return {
-            "project_name": booking.project_name,
-            "booking_type_id": booking.booking_type_id,
-            "notes": booking.notes,
-            "context_tag": booking.context_tag,
-            "custom_fields": booking.custom_fields,
-            "booked_by": booking.booked_by,
-            "exclusive_use_requested": booking.exclusive_use,
-        }
-    req = (await db.execute(
-        select(BookingRequest).where(BookingRequest.id == booking.booking_request_id)
-    )).scalar_one()
-    return {
-        "project_name": req.project_name,
-        "booking_type_id": req.booking_type_id,
-        "notes": req.notes,
-        "context_tag": req.context_tag,
-        "custom_fields": req.custom_fields,
-        "booked_by": req.booked_by,
-        "exclusive_use_requested": req.exclusive_use_requested,
-    }
-
-
-def _apply_shared_to_booking(booking: Booking, shared: dict) -> None:
-    """Apply shim-derived shared field values onto the in-memory Booking for response serialisation.
-    Uses `set_committed_value` so SQLAlchemy does NOT mark these attributes as dirty — keeps the
-    read-side swap from triggering a write-back on the auto-commit at request end.
-    No-op when booking_request_id is None (booking owns its own values)."""
-    if booking.booking_request_id is None:
-        return
-    set_committed_value(booking, "project_name", shared["project_name"])
-    set_committed_value(booking, "booking_type_id", shared["booking_type_id"])
-    set_committed_value(booking, "notes", shared["notes"])
-    set_committed_value(booking, "context_tag", shared["context_tag"])
-    set_committed_value(booking, "custom_fields", shared["custom_fields"])
-    set_committed_value(booking, "booked_by", shared["booked_by"])
-    set_committed_value(booking, "exclusive_use", shared["exclusive_use_requested"])
 
 
 @dataclass
@@ -90,13 +46,17 @@ async def check_overlap(
     Find bookings that overlap with [start, end] for this environment.
     Overlap condition: existing.start_date < end AND existing.end_date > start
     """
-    query = select(Booking).where(
-        Booking.environment_id == env_id,
-        Booking.tenant_id == tenant_id,
-        Booking.deleted_at.is_(None),
-        Booking.status != "rejected",
-        Booking.start_date < end,
-        Booking.end_date > start,
+    query = (
+        select(Booking)
+        .options(selectinload(Booking.booking_request))
+        .where(
+            Booking.environment_id == env_id,
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+            Booking.status != "rejected",
+            Booking.start_date < end,
+            Booking.end_date > start,
+        )
     )
     if exclude_id is not None:
         query = query.where(Booking.id != exclude_id)
@@ -108,7 +68,10 @@ async def check_overlap(
         return OverlapResult(blocked=False)
 
     # If new booking is exclusive or any existing is exclusive → blocked
-    has_exclusive = exclusive_use or any(b.exclusive_use for b in overlapping)
+    has_exclusive = exclusive_use or any(
+        b.booking_request.exclusive_use_requested for b in overlapping
+        if b.booking_request is not None
+    )
 
     if has_exclusive:
         return OverlapResult(
@@ -129,6 +92,9 @@ async def create_booking(
     """
     Returns (parent_booking, overlap_warnings_list).
     Raises 409 if exclusive conflict exists.
+
+    Creates a BookingRequest parent plus a single-env Booking child (and optionally
+    recurring children).  The legacy single-env POST /bookings/ endpoint delegates here.
     """
     overlap = await check_overlap(
         db,
@@ -188,22 +154,32 @@ async def create_booking(
     else:
         ctx = ContextTag.NONE
 
-    parent = Booking(
-        environment_id=data.environment_id,
+    # Create the parent BookingRequest first — every Booking must have one.
+    booking_request = BookingRequest(
+        tenant_id=current_user.active_tenant_id,
         project_name=data.project_name,
-        booked_by=current_user.id,
+        booking_type_id=data.booking_type_id,
         start_date=data.start_date,
         end_date=data.end_date,
-        exclusive_use=data.exclusive_use,
-        booking_type_id=data.booking_type_id,
-        status="draft",
         notes=data.notes,
+        context_tag=ctx,
+        exclusive_use_requested=data.exclusive_use,
+        custom_fields=data.custom_fields,
+        booked_by=current_user.id,
+    )
+    db.add(booking_request)
+    await db.flush()
+
+    parent = Booking(
+        environment_id=data.environment_id,
+        booking_request_id=booking_request.id,
+        start_date=data.start_date,
+        end_date=data.end_date,
+        status="draft",
         recurrence_rule=data.recurrence_rule,
         recurrence_parent_id=None,
         release_id=data.release_id,
         test_phase_id=data.test_phase_id,
-        context_tag=ctx,
-        custom_fields=data.custom_fields,
         tenant_id=current_user.active_tenant_id,
     )
     db.add(parent)
@@ -240,20 +216,14 @@ async def create_booking(
         for dt in occurrences:
             child = Booking(
                 environment_id=data.environment_id,
-                project_name=data.project_name,
-                booked_by=current_user.id,
+                booking_request_id=booking_request.id,
                 start_date=dt,
                 end_date=dt + duration,
-                exclusive_use=data.exclusive_use,
-                booking_type_id=data.booking_type_id,
                 status="draft",
-                notes=data.notes,
                 recurrence_rule=None,  # children don't store the rule
                 recurrence_parent_id=parent.id,
                 release_id=data.release_id,
                 test_phase_id=data.test_phase_id,
-                context_tag=ctx,
-                custom_fields=data.custom_fields,
                 tenant_id=current_user.active_tenant_id,
             )
             db.add(child)
@@ -269,7 +239,7 @@ async def create_booking(
         aggregate_type="Booking",
         payload={
             "id": parent.id,
-            "project_name": parent.project_name,
+            "project_name": parent.booking_request.project_name,
             "environment_id": parent.environment_id,
             "tenant_id": parent.tenant_id,
         },
@@ -283,7 +253,7 @@ async def get_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Book
         select(Booking)
         .options(
             selectinload(Booking.environment),
-            selectinload(Booking.booker),
+            selectinload(Booking.booking_request).selectinload(BookingRequest.booker),
         )
         .where(
             Booking.id == booking_id,
@@ -294,9 +264,6 @@ async def get_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Book
     booking = result.scalar_one_or_none()
     if booking is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
-    # Dual-read shim: prefer parent booking_request shared fields when present.
-    shared = await _effective_shared(db, booking)
-    _apply_shared_to_booking(booking, shared)
     return booking
 
 
@@ -312,7 +279,7 @@ async def list_bookings(
         select(Booking)
         .options(
             selectinload(Booking.environment),
-            selectinload(Booking.booker),
+            selectinload(Booking.booking_request).selectinload(BookingRequest.booker),
         )
         .where(
             Booking.tenant_id == tenant_id,
@@ -327,12 +294,7 @@ async def list_bookings(
         query = query.where(Booking.status == booking_status)
     query = query.order_by(Booking.start_date.asc())
     result = await db.execute(query)
-    bookings = list(result.scalars().all())
-    # Dual-read shim: prefer parent booking_request shared fields when present.
-    for booking in bookings:
-        shared = await _effective_shared(db, booking)
-        _apply_shared_to_booking(booking, shared)
-    return bookings
+    return list(result.scalars().all())
 
 
 async def transition_state(
@@ -344,9 +306,10 @@ async def transition_state(
 ) -> Booking:
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
-    # Load lifecycle template via booking type
+    # Load lifecycle template via booking type (from booking_request)
+    booking_type_id = booking.booking_request.booking_type_id
     result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
     )
     booking_type_obj = result.scalar_one_or_none()
     if not booking_type_obj:
@@ -396,9 +359,8 @@ async def transition_state(
         tenant_id=booking.tenant_id,
     )
     await db.refresh(booking)
-    # Re-apply dual-read shim after refresh so response uses parent fields where applicable.
-    shared = await _effective_shared(db, booking)
-    _apply_shared_to_booking(booking, shared)
+    # Reload with relationships after refresh
+    booking = await get_booking(db, booking.id, booking.tenant_id)
     return booking
 
 
@@ -419,8 +381,9 @@ async def get_booking_allowed_transitions(
     db: AsyncSession, booking_id: int, current_user
 ) -> list[dict]:
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+    booking_type_id = booking.booking_request.booking_type_id
     result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
     )
     booking_type_obj = result.scalar_one_or_none()
     if not booking_type_obj:
@@ -440,7 +403,7 @@ async def delete_occurrence(db: AsyncSession, booking_id: int, current_user) -> 
     """Soft-delete a single booking occurrence."""
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
-    is_owner = booking.booked_by == current_user.id
+    is_owner = booking.booking_request.booked_by == current_user.id
     is_privileged = current_user.is_master_admin or current_user.role in ("Admin", "Release Manager")
     if not (is_owner or is_privileged):
         raise HTTPException(
@@ -457,7 +420,7 @@ async def delete_series(db: AsyncSession, booking_id: int, current_user) -> None
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
     # Allow if owner or Admin/Release Manager/master admin
-    is_owner = booking.booked_by == current_user.id
+    is_owner = booking.booking_request.booked_by == current_user.id
     is_privileged = current_user.is_master_admin or current_user.role in ("Admin", "Release Manager")
     if not (is_owner or is_privileged):
         raise HTTPException(
@@ -495,8 +458,9 @@ async def get_custom_field_perms_for_booking(
     custom_field_permissions map for the booking's current state and user role.
     Returns empty dict if the booking type or template is not found.
     """
+    booking_type_id = booking.booking_request.booking_type_id
     bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
     )
     booking_type_obj = bt_result.scalar_one_or_none()
     if not booking_type_obj:
@@ -539,8 +503,9 @@ async def get_standard_field_perms_for_booking(
     """Return editable status for all 7 standard fields for the booking's current state and user role.
     All 7 standard fields are always present in the response.
     Returns {"project_name": {"editable": True}, "start_date": {"editable": False}, ...}"""
+    booking_type_id = booking.booking_request.booking_type_id
     bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
     )
     bt = bt_result.scalar_one_or_none()
     if not bt:
@@ -584,9 +549,10 @@ async def update_standard_fields(
 
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
-    # Load template via booking type (two-step)
+    # Load template via booking type (from booking_request)
+    booking_type_id = booking.booking_request.booking_type_id
     bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking.booking_type_id)
+        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
     )
     booking_type_obj = bt_result.scalar_one_or_none()
 
@@ -624,8 +590,6 @@ async def update_standard_fields(
         setattr(booking, col_name, value)
 
     await db.flush()
-    await db.refresh(booking)
-    # Re-apply dual-read shim after refresh so response uses parent fields where applicable.
-    shared = await _effective_shared(db, booking)
-    _apply_shared_to_booking(booking, shared)
+    # Reload with relationships after flush
+    booking = await get_booking(db, booking.id, booking.tenant_id)
     return booking

@@ -2,12 +2,11 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, ForeignKey, Integer, JSON, Boolean
+from sqlalchemy import String, Text, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Enum as SAEnum
 
 from app.db.base import Base
-from app.db.models.booking_lifecycle import BookingType as BookingTypeModel
 
 
 class ContextTag(str, enum.Enum):
@@ -23,16 +22,9 @@ class Booking(Base):
         ForeignKey("environment.id"), nullable=False, index=True
     )
     environment_group_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # no FK yet (Phase 7)
-    project_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    booked_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    exclusive_use: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    booking_type_id: Mapped[int] = mapped_column(
-        ForeignKey("booking_type.id"), nullable=False, index=True
-    )
     status: Mapped[str] = mapped_column(String(100), nullable=False, default="draft")
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     recurrence_rule: Mapped[Optional[str]] = mapped_column(
         String(500), nullable=True
     )  # RRULE on parent only
@@ -43,16 +35,10 @@ class Booking(Base):
     )
     release_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # no FK yet (Phase 3)
     test_phase_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # no FK yet
-    context_tag: Mapped[ContextTag] = mapped_column(
-        SAEnum(ContextTag, native_enum=False),
-        nullable=False,
-        default=ContextTag.NONE,
-    )
-    custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    booking_request_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("booking_request.id"), nullable=True, index=True
+    booking_request_id: Mapped[int] = mapped_column(
+        ForeignKey("booking_request.id"), nullable=False, index=True
     )
 
     # Relationships
@@ -62,8 +48,6 @@ class Booking(Base):
         foreign_keys=[booking_request_id],
     )
     environment: Mapped["Environment"] = relationship("Environment")
-    booker: Mapped["User"] = relationship("User", foreign_keys=[booked_by])
-    booking_type_ref: Mapped["BookingTypeModel"] = relationship("BookingType", foreign_keys=[booking_type_id])
     occurrences: Mapped[list["Booking"]] = relationship(
         "Booking",
         foreign_keys=[recurrence_parent_id],

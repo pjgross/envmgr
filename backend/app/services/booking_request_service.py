@@ -85,16 +85,9 @@ async def create_request(
             tenant_id=tenant_id,
             booking_request_id=req.id,
             environment_id=env_id,
-            project_name=data["project_name"],  # dual-write during migration window
-            booked_by=current_user.id,
             start_date=data["start_date"],
             end_date=data["end_date"],
-            exclusive_use=data.get("exclusive_use_requested", False),
-            booking_type_id=data["booking_type_id"],
             status=initial_state,
-            notes=data.get("notes"),
-            context_tag=ContextTag(data.get("context_tag", "none")),
-            custom_fields=data.get("custom_fields"),
         )
         db.add(child)
         children.append(child)
@@ -197,16 +190,9 @@ async def add_environment(
         tenant_id=tenant_id,
         booking_request_id=req.id,
         environment_id=environment_id,
-        project_name=req.project_name,
-        booked_by=req.booked_by,
         start_date=start_date or req.start_date,
         end_date=end_date or req.end_date,
-        exclusive_use=req.exclusive_use_requested,
-        booking_type_id=req.booking_type_id,
         status=initial_state,
-        notes=req.notes,
-        context_tag=req.context_tag,
-        custom_fields=req.custom_fields,
     )
     db.add(child)
     await db.flush()
@@ -266,18 +252,6 @@ STANDARD_REQUEST_FIELDS = {
 }
 
 
-# Mirror columns on Booking to keep dual-reads consistent during the migration window.
-_CHILD_MIRROR = {
-    "project_name": "project_name",
-    "booking_type_id": "booking_type_id",
-    "start_date": "start_date",
-    "end_date": "end_date",
-    "notes": "notes",
-    "context_tag": "context_tag",
-    "exclusive_use_requested": "exclusive_use",
-}
-
-
 async def update_standard_fields(
     db: AsyncSession,
     *,
@@ -302,19 +276,18 @@ async def update_standard_fields(
         else:
             setattr(req, k, v)
 
-    # Cascade to children via dual-write mirror
-    children = (await db.execute(
-        select(Booking).where(
-            Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
-        )
-    )).scalars().all()
-    for child in children:
-        for parent_field, child_field in _CHILD_MIRROR.items():
-            if parent_field in values:
-                val = values[parent_field]
-                if child_field == "context_tag" and val is not None:
-                    val = ContextTag(val)
-                setattr(child, child_field, val)
+    # Cascade start_date/end_date overrides to child Bookings so per-env dates stay in sync.
+    if "start_date" in values or "end_date" in values:
+        children = (await db.execute(
+            select(Booking).where(
+                Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
+            )
+        )).scalars().all()
+        for child in children:
+            if "start_date" in values:
+                child.start_date = values["start_date"]
+            if "end_date" in values:
+                child.end_date = values["end_date"]
     await db.flush()
 
     await publish_event(
@@ -342,14 +315,6 @@ async def update_custom_fields(
 ) -> BookingRequest:
     req = await _get_request(db, request_id, tenant_id)
     req.custom_fields = values
-
-    children = (await db.execute(
-        select(Booking).where(
-            Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
-        )
-    )).scalars().all()
-    for c in children:
-        c.custom_fields = values
     await db.flush()
 
     # Eagerly load the bookings relationship so callers (and tests) can access
