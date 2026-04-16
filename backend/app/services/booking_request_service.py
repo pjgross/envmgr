@@ -130,7 +130,7 @@ async def preview_conflicts(
 ) -> dict[int, list[Booking]]:
     """Return a dict keyed by environment_id listing existing bookings that would overlap.
     No database mutation."""
-    from sqlalchemy import and_, not_
+    from sqlalchemy import not_
     results: dict[int, list[Booking]] = {}
     for env_id in environment_ids:
         stmt = (
