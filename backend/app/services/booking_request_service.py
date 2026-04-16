@@ -351,4 +351,8 @@ async def update_custom_fields(
     for c in children:
         c.custom_fields = values
     await db.flush()
+
+    # Eagerly load the bookings relationship so callers (and tests) can access
+    # req.bookings without triggering async lazy-load outside a greenlet.
+    await db.refresh(req, ["bookings"])
     return req
