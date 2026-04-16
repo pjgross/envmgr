@@ -6,6 +6,7 @@ import systemReducer from './systemSlice'
 import environmentReducer from './environmentSlice'
 import dependencyReducer from './dependencySlice'
 import bookingReducer from './bookingSlice'
+import bookingRequestReducer from './bookingRequestSlice'
 import versionReducer from './versionSlice'
 import customFieldReducer from './customFieldSlice'
 import topologyReducer from './topologySlice'
@@ -21,6 +22,7 @@ export const store = configureStore({
         environment: environmentReducer,
         dependency: dependencyReducer,
         booking: bookingReducer,
+        bookingRequest: bookingRequestReducer,
         version: versionReducer,
         customField: customFieldReducer,
         topology: topologyReducer,
