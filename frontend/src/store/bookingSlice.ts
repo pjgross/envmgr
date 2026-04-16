@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { bookingService } from '../services/bookingService';
 import type { BookingResponse, BookingCreate } from '../types/booking';
+import type { ConflictItem } from '../types/conflict';
 
 interface BookingState {
   bookings: BookingResponse[];
@@ -8,6 +9,7 @@ interface BookingState {
   loading: boolean;
   error: string | null;
   overlapWarnings: number[];
+  conflicts: Record<number, ConflictItem[]>;
 }
 
 const initialState: BookingState = {
@@ -16,6 +18,7 @@ const initialState: BookingState = {
   loading: false,
   error: null,
   overlapWarnings: [],
+  conflicts: {},
 };
 
 export const fetchBookings = createAsyncThunk(
@@ -33,19 +36,6 @@ export const getBooking = createAsyncThunk('booking/getBooking', (id: number) =>
   bookingService.getBooking(id)
 );
 
-export const approveBooking = createAsyncThunk('booking/approveBooking', (id: number) =>
-  bookingService.approveBooking(id)
-);
-
-export const rejectBooking = createAsyncThunk('booking/rejectBooking', (id: number) =>
-  bookingService.rejectBooking(id)
-);
-
-export const cancelBooking = createAsyncThunk('booking/cancelBooking', async (id: number) => {
-  await bookingService.cancelBooking(id);
-  return id;
-});
-
 export const deleteOccurrence = createAsyncThunk(
   'booking/deleteOccurrence',
   async (id: number) => {
@@ -58,6 +48,25 @@ export const deleteSeries = createAsyncThunk('booking/deleteSeries', async (id: 
   await bookingService.deleteSeries(id);
   return id;
 });
+
+export const fetchConflicts = createAsyncThunk(
+  'booking/fetchConflicts',
+  async (id: number) => {
+    const conflicts = await bookingService.getConflicts(id);
+    return { bookingId: id, conflicts };
+  },
+);
+
+export const acknowledgeConflict = createAsyncThunk(
+  'booking/ackConflict',
+  async (args: { id: number; otherId: number; willing_to_share: boolean; notes?: string }) => {
+    const ack = await bookingService.acknowledgeConflict(args.id, args.otherId, {
+      willing_to_share: args.willing_to_share,
+      notes: args.notes,
+    });
+    return { bookingId: args.id, otherId: args.otherId, ack };
+  },
+);
 
 const bookingSlice = createSlice({
   name: 'booking',
@@ -113,54 +122,6 @@ const bookingSlice = createSlice({
         state.loading = false;
         state.error = action.error.message ?? 'Failed to fetch booking';
       })
-      // approveBooking
-      .addCase(approveBooking.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(approveBooking.fulfilled, (state, action) => {
-        const idx = state.bookings.findIndex((b) => b.id === action.payload.id);
-        if (idx !== -1) state.bookings[idx] = action.payload;
-        if (state.selectedBooking?.id === action.payload.id) {
-          state.selectedBooking = action.payload;
-        }
-        state.loading = false;
-      })
-      .addCase(approveBooking.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.error.message ?? 'Failed to approve booking';
-      })
-      // rejectBooking
-      .addCase(rejectBooking.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(rejectBooking.fulfilled, (state, action) => {
-        const idx = state.bookings.findIndex((b) => b.id === action.payload.id);
-        if (idx !== -1) state.bookings[idx] = action.payload;
-        if (state.selectedBooking?.id === action.payload.id) {
-          state.selectedBooking = action.payload;
-        }
-        state.loading = false;
-      })
-      .addCase(rejectBooking.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.error.message ?? 'Failed to reject booking';
-      })
-      // cancelBooking
-      .addCase(cancelBooking.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(cancelBooking.fulfilled, (state, action) => {
-        state.bookings = state.bookings.filter((b) => b.id !== action.payload);
-        if (state.selectedBooking?.id === action.payload) state.selectedBooking = null;
-        state.loading = false;
-      })
-      .addCase(cancelBooking.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.error.message ?? 'Failed to cancel booking';
-      })
       // deleteOccurrence
       .addCase(deleteOccurrence.pending, (state) => {
         state.loading = true;
@@ -192,6 +153,25 @@ const bookingSlice = createSlice({
       .addCase(deleteSeries.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message ?? 'Failed to delete series';
+      })
+      // fetchConflicts
+      .addCase(fetchConflicts.fulfilled, (state, action) => {
+        state.conflicts[action.payload.bookingId] = action.payload.conflicts;
+      })
+      .addCase(fetchConflicts.rejected, (state, action) => {
+        state.error = action.error.message ?? 'Failed to fetch conflicts';
+      })
+      // acknowledgeConflict
+      .addCase(acknowledgeConflict.fulfilled, (state, action) => {
+        const { bookingId, otherId, ack } = action.payload;
+        const items = state.conflicts[bookingId];
+        if (items) {
+          const item = items.find((c) => c.other_booking.id === otherId);
+          if (item) item.ack = ack;
+        }
+      })
+      .addCase(acknowledgeConflict.rejected, (state, action) => {
+        state.error = action.error.message ?? 'Failed to acknowledge conflict';
       });
   },
 });
