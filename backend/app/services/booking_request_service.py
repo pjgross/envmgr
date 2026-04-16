@@ -1,5 +1,5 @@
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -149,3 +149,105 @@ async def preview_conflicts(
         if rows:
             results[env_id] = list(rows)
     return results
+
+
+async def _get_request(db: AsyncSession, request_id: int, tenant_id: int) -> BookingRequest:
+    req = (await db.execute(
+        select(BookingRequest).where(
+            BookingRequest.id == request_id, BookingRequest.tenant_id == tenant_id
+        )
+    )).scalar_one_or_none()
+    if req is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
+    return req
+
+
+async def add_environment(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    environment_id: int,
+    start_date: datetime | None,
+    end_date: datetime | None,
+    current_user: User,
+    tenant_id: int,
+) -> Booking:
+    req = await _get_request(db, request_id, tenant_id)
+
+    env = (await db.execute(
+        select(Environment).where(Environment.id == environment_id, Environment.tenant_id == tenant_id)
+    )).scalar_one_or_none()
+    if env is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+
+    # Reject if env already has a non-deleted child in this request
+    existing = (await db.execute(
+        select(Booking).where(
+            Booking.booking_request_id == req.id,
+            Booking.environment_id == environment_id,
+            Booking.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Environment already in request")
+
+    initial_state = await _load_initial_state(db, req.booking_type_id, tenant_id)
+
+    child = Booking(
+        tenant_id=tenant_id,
+        booking_request_id=req.id,
+        environment_id=environment_id,
+        project_name=req.project_name,
+        booked_by=req.booked_by,
+        start_date=start_date or req.start_date,
+        end_date=end_date or req.end_date,
+        exclusive_use=req.exclusive_use_requested,
+        booking_type_id=req.booking_type_id,
+        status=initial_state,
+        notes=req.notes,
+        context_tag=req.context_tag,
+        custom_fields=req.custom_fields,
+    )
+    db.add(child)
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="BookingEnvironmentAdded",
+        aggregate_id=req.id,
+        aggregate_type="BookingRequest",
+        payload={"request_id": req.id, "booking_id": child.id, "environment_id": environment_id},
+        tenant_id=tenant_id,
+    )
+    return child
+
+
+async def remove_environment(
+    db: AsyncSession,
+    *,
+    request_id: int,
+    booking_id: int,
+    current_user: User,
+    tenant_id: int,
+) -> None:
+    req = await _get_request(db, request_id, tenant_id)
+    child = (await db.execute(
+        select(Booking).where(
+            Booking.id == booking_id,
+            Booking.booking_request_id == req.id,
+            Booking.tenant_id == tenant_id,
+        )
+    )).scalar_one_or_none()
+    if child is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment booking not found in request")
+
+    child.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
+    await publish_event(
+        db,
+        event_type="BookingEnvironmentRemoved",
+        aggregate_id=req.id,
+        aggregate_type="BookingRequest",
+        payload={"request_id": req.id, "booking_id": child.id},
+        tenant_id=tenant_id,
+    )
