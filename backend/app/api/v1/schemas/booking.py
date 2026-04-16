@@ -6,6 +6,24 @@ from pydantic import BaseModel, ConfigDict
 from app.db.models.booking import ContextTag
 
 
+class BookingRequestSummary(BaseModel):
+    """Parent BookingRequest summary embedded in booking responses."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_name: str
+    booking_type_id: int
+    booked_by: int
+    booked_by_username: Optional[str] = None
+    context_tag: ContextTag
+    exclusive_use_requested: bool
+    start_date: datetime
+    end_date: datetime
+    notes: Optional[str] = None
+    delegate_user_ids: Optional[list[int]] = None
+    custom_fields: Optional[dict] = None
+
+
 class BookingCreate(BaseModel):
     environment_id: int
     project_name: str
@@ -47,6 +65,9 @@ class BookingResponse(BaseModel):
     tenant_id: int
     created_at: datetime
     updated_at: datetime
+    booking_request_id: Optional[int] = None
+    request: Optional[BookingRequestSummary] = None
+    has_unacknowledged_conflicts: bool = False
 
 
 class BookingCreateResponse(BaseModel):

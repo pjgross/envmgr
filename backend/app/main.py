@@ -60,6 +60,8 @@ from app.api.v1 import import_routes as import_router
 from app.api.v1 import topology as topology_router
 from app.api.v1 import booking_lifecycle as booking_lifecycle_router
 from app.api.v1 import component_types as component_types_router
+from app.api.v1 import booking_requests as booking_requests_router
+from app.api.v1 import conflicts as conflicts_router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -73,3 +75,5 @@ app.include_router(import_router.router, prefix="/api/v1/import", tags=["Import"
 app.include_router(topology_router.router, prefix="/api/v1", tags=["Topology"])
 app.include_router(booking_lifecycle_router.router, prefix="/api/v1/tenant", tags=["Booking Lifecycle"])
 app.include_router(component_types_router.router, prefix="/api/v1/component-types", tags=["Component Types"])
+app.include_router(booking_requests_router.router, prefix="/api/v1")
+app.include_router(conflicts_router.router, prefix="/api/v1")

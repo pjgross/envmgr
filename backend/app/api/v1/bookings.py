@@ -6,11 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import booking_service
+from app.services import booking_service, booking_request_service, conflict_service
 from app.api.v1.schemas.booking import (
     BookingCreate,
     BookingResponse,
     BookingCreateResponse,
+    BookingRequestSummary,
     BookingTransitionRequest,
     BookingStatusHistoryResponse,
     AllowedTransitionResponse,
@@ -25,6 +26,13 @@ def _to_response(booking) -> BookingResponse:
     resp.environment_name = booking.environment.name if booking.environment else None
     resp.booked_by_username = booking.booker.username if booking.booker else None
     return resp
+
+
+def _request_summary(req) -> BookingRequestSummary:
+    """Compose a BookingRequestSummary from a BookingRequest ORM object."""
+    summary = BookingRequestSummary.model_validate(req)
+    summary.booked_by_username = req.booker.username if getattr(req, "booker", None) else None
+    return summary
 
 
 @router.get("/", response_model=list[BookingResponse])
@@ -44,7 +52,14 @@ async def list_bookings(
         end=end,
         booking_status=booking_status,
     )
-    return [_to_response(b) for b in bookings]
+    responses: list[BookingResponse] = []
+    for b in bookings:
+        resp = _to_response(b)
+        resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
+            db, b.id, current_user.active_tenant_id
+        )
+        responses.append(resp)
+    return responses
 
 
 @router.post("/", response_model=BookingCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -74,6 +89,14 @@ async def get_booking(
     resp.standard_field_permissions = await booking_service.get_standard_field_perms_for_booking(
         db, booking, current_user.role
     )
+    resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
+        db, booking.id, current_user.active_tenant_id
+    )
+    if booking.booking_request_id is not None:
+        request_obj = await booking_request_service._get_request(
+            db, booking.booking_request_id, current_user.active_tenant_id
+        )
+        resp.request = _request_summary(request_obj)
     return resp
 
 
