@@ -25,6 +25,7 @@ import { AppDispatch } from '../../store'
 import type { RootState } from '../../store'
 import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice'
 import { fetchDefinitions } from '../../store/customFieldSlice'
+import { fetchEnvironments } from '../../store/environmentSlice'
 import { bookingService } from '../../services/bookingService'
 import { bookingRequestService } from '../../services/bookingRequestService'
 import type { BookingResponse } from '../../types/booking'
@@ -85,6 +86,7 @@ export default function BookingDetail() {
     dispatch(fetchBookingTypes())
     dispatch(fetchLifecycleTemplates())
     dispatch(fetchDefinitions('booking'))
+    dispatch(fetchEnvironments())
 
     const load = async () => {
       setLoading(true)
@@ -143,6 +145,13 @@ export default function BookingDetail() {
     }
   }
 
+  // Reset add-env dialog fields
+  const resetAddEnvForm = () => {
+    setAddEnvId('')
+    setAddEnvStart('')
+    setAddEnvEnd('')
+  }
+
   // Add-env confirm handler
   const handleAddEnvConfirm = async () => {
     if (!bookingRequest || addEnvId === '') return
@@ -156,9 +165,7 @@ export default function BookingDetail() {
       const req = await bookingRequestService.get(bookingRequest.id)
       setBookingRequest(req)
       setAddEnvOpen(false)
-      setAddEnvId('')
-      setAddEnvStart('')
-      setAddEnvEnd('')
+      resetAddEnvForm()
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
@@ -256,18 +263,32 @@ export default function BookingDetail() {
           highlightBookingId={booking.id}
           onTransition={async (id, toState, label) => {
             const notes = toState === 'draft' ? (window.prompt(`Reason for "${label}":`) ?? undefined) : undefined
-            await bookingService.transitionState(id, toState, notes)
-            const req = await bookingRequestService.get(bookingRequest.id)
-            setBookingRequest(req)
-            if (id === booking.id) {
-              const b = await bookingService.getBooking(id)
-              setBooking(b)
+            try {
+              await bookingService.transitionState(id, toState, notes)
+              const req = await bookingRequestService.get(bookingRequest.id)
+              setBookingRequest(req)
+              if (id === booking.id) {
+                const b = await bookingService.getBooking(id)
+                setBooking(b)
+              }
+            } catch (err: unknown) {
+              const msg =
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+                'Transition failed'
+              setError(msg)
             }
           }}
           onRemove={async (id) => {
-            await bookingRequestService.removeEnvironment(bookingRequest.id, id)
-            const req = await bookingRequestService.get(bookingRequest.id)
-            setBookingRequest(req)
+            try {
+              await bookingRequestService.removeEnvironment(bookingRequest.id, id)
+              const req = await bookingRequestService.get(bookingRequest.id)
+              setBookingRequest(req)
+            } catch (err: unknown) {
+              const msg =
+                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+                'Failed to remove environment'
+              setError(msg)
+            }
           }}
           onAddClick={() => setAddEnvOpen(true)}
         />
@@ -485,7 +506,7 @@ export default function BookingDetail() {
       )}
 
       {/* Add Environment Dialog */}
-      <Dialog open={addEnvOpen} onClose={() => setAddEnvOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={addEnvOpen} onClose={() => { setAddEnvOpen(false); resetAddEnvForm() }} maxWidth="xs" fullWidth>
         <DialogTitle>Add Environment</DialogTitle>
         <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <FormControl fullWidth size="small">
@@ -514,7 +535,7 @@ export default function BookingDetail() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddEnvOpen(false)}>Cancel</Button>
+          <Button onClick={() => { setAddEnvOpen(false); resetAddEnvForm() }}>Cancel</Button>
           <Button
             variant="contained"
             disabled={addEnvId === '' || addEnvSaving}
