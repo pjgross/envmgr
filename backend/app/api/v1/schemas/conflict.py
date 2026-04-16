@@ -16,7 +16,7 @@ class ConflictAckRead(BaseModel):
 
 class ConflictItem(BaseModel):
     other_booking: EnvBookingSummary
-    ack: Optional[ConflictAckRead]
+    ack: Optional[ConflictAckRead] = None
 
 
 class ConflictAckUpsert(BaseModel):
