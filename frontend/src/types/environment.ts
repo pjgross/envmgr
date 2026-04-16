@@ -108,3 +108,6 @@ export interface EnvironmentTopologyData {
   outside_subsystems: EnvSubsystemNode[];
   outside_dependencies: ComponentDependencyResponse[];
 }
+
+// Alias for use in components (e.g., EnvironmentPicker)
+export type Environment = EnvironmentResponse;
