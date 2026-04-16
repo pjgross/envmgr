@@ -30,6 +30,16 @@ export interface BookingResponse {
   tenant_id: number;
   created_at: string;
   updated_at: string;
+  has_unacknowledged_conflicts?: boolean;
+  booking_request_id?: number | null;
+  request?: {
+    id: number;
+    project_name: string;
+    booking_type_id: number;
+    booked_by: number;
+    booked_by_username?: string;
+    delegate_user_ids: number[] | null;
+  } | null;
 }
 
 export interface BookingCreate {
