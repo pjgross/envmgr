@@ -1,31 +1,32 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import {
   Alert,
   Box,
   Button,
   Chip,
+  Divider,
+  IconButton,
+  Menu,
+  MenuItem,
   Typography,
 } from '@mui/material'
-import CheckIcon from '@mui/icons-material/Check'
-import CloseIcon from '@mui/icons-material/Close'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import {
   DataGrid,
   GridColDef,
   GridColumnVisibilityModel,
-  GridRowSelectionModel,
   GridValueGetterParams,
 } from '@mui/x-data-grid'
 import { format } from 'date-fns'
 import { AppDispatch, RootState } from '../../store'
-import {
-  fetchBookings,
-  approveBooking,
-  rejectBooking,
-} from '../../store/bookingSlice'
+import { fetchBookings } from '../../store/bookingSlice'
 import { fetchDefinitions } from '../../store/customFieldSlice'
 import type { BookingResponse, BookingStatus } from '../../types/booking'
+import type { AllowedTransition } from '../../types/bookingLifecycle'
+import { bookingService } from '../../services/bookingService'
+import ConflictIndicator from '../../components/bookings/ConflictIndicator'
 import BookingForm from './BookingForm'
 
 // --- Status filter -----------------------------------------------------------
@@ -71,6 +72,7 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 
 export default function BookingList() {
   const dispatch = useDispatch<AppDispatch>()
+  const navigate = useNavigate()
   const { bookings, loading, error } = useSelector((state: RootState) => state.booking)
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
@@ -78,12 +80,16 @@ export default function BookingList() {
   const user = useSelector((state: RootState) => state.auth.user)
 
   const [statusFilter, setStatusFilter] = useState<BookingStatus | 'all'>('all')
-  const [rowSelectionModel, setRowSelectionModel] = useState<GridRowSelectionModel>([])
-  const [isBulkLoading, setIsBulkLoading] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
     () => loadColumnModel(user?.id)
   )
+
+  // Kebab menu state: tracks which row's menu is open and the anchor element
+  const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; rowId: number } | null>(null)
+
+  // Per-row transition cache keyed by booking id
+  const [transitionCache, setTransitionCache] = useState<Record<number, AllowedTransition[]>>({})
 
   useEffect(() => {
     dispatch(fetchBookings())
@@ -96,6 +102,53 @@ export default function BookingList() {
     statusFilter === 'all'
       ? bookings
       : bookings.filter((b) => b.status === statusFilter)
+
+  // --- Kebab menu handlers ---
+
+  const handleMenuOpen = async (el: HTMLElement, rowId: number) => {
+    setMenuAnchor({ el, rowId })
+    // Lazily fetch transitions if not cached
+    if (!(rowId in transitionCache)) {
+      try {
+        const transitions = await bookingService.getAllowedTransitions(rowId)
+        setTransitionCache((prev) => ({ ...prev, [rowId]: transitions }))
+      } catch {
+        setTransitionCache((prev) => ({ ...prev, [rowId]: [] }))
+      }
+    }
+  }
+
+  const handleMenuClose = () => {
+    setMenuAnchor(null)
+  }
+
+  const handleOpenDetail = (rowId: number) => {
+    handleMenuClose()
+    navigate(`/bookings/${rowId}`)
+  }
+
+  const handleTransition = async (rowId: number, toState: string) => {
+    handleMenuClose()
+    // Invalidate cache entry so next open re-fetches fresh transitions
+    setTransitionCache((prev) => {
+      const next = { ...prev }
+      delete next[rowId]
+      return next
+    })
+    try {
+      await bookingService.transitionState(rowId, toState)
+      dispatch(fetchBookings())
+    } catch {
+      // Errors will surface via the bookings error state on next fetch
+    }
+  }
+
+  // --- Column visibility ---
+
+  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
+    setColumnVisibilityModel(model)
+    saveColumnModel(user?.id, model)
+  }
 
   // --- Columns ---
 
@@ -176,6 +229,33 @@ export default function BookingList() {
         />
       ),
     },
+    {
+      field: 'conflicts',
+      headerName: 'Conflicts',
+      width: 90,
+      hideable: false,
+      sortable: false,
+      renderCell: ({ row }) => (
+        <ConflictIndicator hasUnacknowledged={row.has_unacknowledged_conflicts} />
+      ),
+    },
+    {
+      field: 'actions',
+      headerName: '',
+      width: 48,
+      hideable: false,
+      sortable: false,
+      disableColumnMenu: true,
+      renderCell: ({ row }) => (
+        <IconButton
+          size="small"
+          onClick={(e) => handleMenuOpen(e.currentTarget, row.id)}
+          aria-label="row actions"
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      ),
+    },
   ]
 
   const customFieldColumns: GridColDef<BookingResponse>[] = customFieldDefs.map((def) => ({
@@ -188,38 +268,11 @@ export default function BookingList() {
 
   const columns = [...coreColumns, ...customFieldColumns]
 
-  // --- Bulk actions ---
-
-  const handleBulkApprove = async () => {
-    setIsBulkLoading(true)
-    const results = await Promise.allSettled(
-      rowSelectionModel.map((id) => dispatch(approveBooking(Number(id))))
-    )
-    // Only clear rows that were successfully processed
-    const successIds = rowSelectionModel.filter((_, i) => results[i].status === 'fulfilled')
-    setRowSelectionModel((prev) => prev.filter((id) => !successIds.includes(id)))
-    setIsBulkLoading(false)
-  }
-
-  const handleBulkReject = async () => {
-    setIsBulkLoading(true)
-    const results = await Promise.allSettled(
-      rowSelectionModel.map((id) => dispatch(rejectBooking(Number(id))))
-    )
-    const successIds = rowSelectionModel.filter((_, i) => results[i].status === 'fulfilled')
-    setRowSelectionModel((prev) => prev.filter((id) => !successIds.includes(id)))
-    setIsBulkLoading(false)
-  }
-
-  // --- Column visibility ---
-
-  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
-    setColumnVisibilityModel(model)
-    saveColumnModel(user?.id, model)
-  }
-
-  // Only show loading overlay on initial load (not during bulk operations)
+  // Only show loading overlay on initial load
   const isInitialLoading = loading && bookings.length === 0
+
+  // Transitions for the currently open menu row
+  const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null
 
   return (
     <Box sx={{ p: 3 }}>
@@ -252,65 +305,11 @@ export default function BookingList() {
         </Alert>
       )}
 
-      {/* Selection toolbar */}
-      {rowSelectionModel.length > 0 && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            px: 2,
-            py: 1,
-            mb: 0,
-            bgcolor: 'primary.50',
-            border: '1px solid',
-            borderColor: 'primary.200',
-            borderBottom: 'none',
-            borderRadius: '4px 4px 0 0',
-          }}
-        >
-          <Typography variant="body2" color="primary" fontWeight={500}>
-            {rowSelectionModel.length} selected
-          </Typography>
-          <Button
-            size="small"
-            color="success"
-            variant="contained"
-            startIcon={<CheckIcon />}
-            disabled={isBulkLoading}
-            onClick={handleBulkApprove}
-          >
-            Approve
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            variant="contained"
-            startIcon={<CloseIcon />}
-            disabled={isBulkLoading}
-            onClick={handleBulkReject}
-          >
-            Reject
-          </Button>
-          <Box sx={{ flexGrow: 1 }} />
-          <Button
-            size="small"
-            color="inherit"
-            onClick={() => setRowSelectionModel([])}
-          >
-            Clear
-          </Button>
-        </Box>
-      )}
-
       {/* DataGrid */}
       <DataGrid
         rows={filteredBookings}
         columns={columns}
         loading={isInitialLoading}
-        checkboxSelection
-        rowSelectionModel={rowSelectionModel}
-        onRowSelectionModelChange={setRowSelectionModel}
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={handleColumnVisibilityChange}
         pageSizeOptions={[25, 50, 100]}
@@ -318,6 +317,31 @@ export default function BookingList() {
         sx={{ border: 1, borderColor: 'divider' }}
         disableRowSelectionOnClick
       />
+
+      {/* Per-row kebab menu */}
+      <Menu
+        anchorEl={menuAnchor?.el}
+        open={Boolean(menuAnchor)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={() => menuAnchor && handleOpenDetail(menuAnchor.rowId)}>
+          Open
+        </MenuItem>
+        {activeTransitions && activeTransitions.length > 0 && (
+          <Divider />
+        )}
+        {activeTransitions === null && (
+          <MenuItem disabled>Loading...</MenuItem>
+        )}
+        {activeTransitions?.map((t) => (
+          <MenuItem
+            key={t.to_state}
+            onClick={() => menuAnchor && handleTransition(menuAnchor.rowId, t.to_state)}
+          >
+            {t.label}
+          </MenuItem>
+        ))}
+      </Menu>
 
       {/* New Booking dialog */}
       <BookingForm open={formOpen} onClose={() => setFormOpen(false)} />
