@@ -57,7 +57,10 @@ async def _effective_shared(db: AsyncSession, booking: Booking) -> dict:
 def _apply_shared_to_booking(booking: Booking, shared: dict) -> None:
     """Apply shim-derived shared field values onto the in-memory Booking for response serialisation.
     Uses `set_committed_value` so SQLAlchemy does NOT mark these attributes as dirty — keeps the
-    read-side swap from triggering a write-back on the auto-commit at request end."""
+    read-side swap from triggering a write-back on the auto-commit at request end.
+    No-op when booking_request_id is None (booking owns its own values)."""
+    if booking.booking_request_id is None:
+        return
     set_committed_value(booking, "project_name", shared["project_name"])
     set_committed_value(booking, "booking_type_id", shared["booking_type_id"])
     set_committed_value(booking, "notes", shared["notes"])
@@ -393,6 +396,9 @@ async def transition_state(
         tenant_id=booking.tenant_id,
     )
     await db.refresh(booking)
+    # Re-apply dual-read shim after refresh so response uses parent fields where applicable.
+    shared = await _effective_shared(db, booking)
+    _apply_shared_to_booking(booking, shared)
     return booking
 
 
@@ -608,7 +614,13 @@ async def update_standard_fields(
     for col_name, value in values.items():
         if col_name in {"start_date", "end_date"} and isinstance(value, str):
             # Accept ISO-8601 strings (with trailing Z) — coerce to timezone-aware datetime.
-            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            try:
+                value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid ISO-8601 datetime for {col_name}",
+                )
         setattr(booking, col_name, value)
 
     await db.flush()
