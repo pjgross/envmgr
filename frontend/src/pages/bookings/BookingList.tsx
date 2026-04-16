@@ -91,6 +91,9 @@ export default function BookingList() {
   // Per-row transition cache keyed by booking id
   const [transitionCache, setTransitionCache] = useState<Record<number, AllowedTransition[]>>({})
 
+  // Transition error state for local error feedback
+  const [transitionError, setTransitionError] = useState<string | null>(null)
+
   useEffect(() => {
     dispatch(fetchBookings())
     dispatch(fetchDefinitions('booking'))
@@ -138,8 +141,9 @@ export default function BookingList() {
     try {
       await bookingService.transitionState(rowId, toState)
       dispatch(fetchBookings())
-    } catch {
-      // Errors will surface via the bookings error state on next fetch
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Transition failed'
+      setTransitionError(msg)
     }
   }
 
@@ -302,6 +306,13 @@ export default function BookingList() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
+        </Alert>
+      )}
+
+      {/* Transition Error */}
+      {transitionError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setTransitionError(null)}>
+          {transitionError}
         </Alert>
       )}
 
