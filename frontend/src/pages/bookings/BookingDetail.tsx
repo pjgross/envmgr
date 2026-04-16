@@ -5,7 +5,6 @@ import {
   Alert,
   Box,
   Button,
-  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -13,13 +12,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
-  TextField,
   Typography,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
@@ -33,6 +26,7 @@ import type { BookingStatusHistory, AllowedTransition } from '../../types/bookin
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay'
 import CustomFieldsSection from '../../components/CustomFieldsSection'
 import TransitionButtons from '../../components/bookings/TransitionButtons'
+import EditStandardFieldsDialog from '../../components/bookings/EditStandardFieldsDialog'
 
 // --- Status colour map -------------------------------------------------------
 
@@ -65,8 +59,6 @@ export default function BookingDetail() {
   const [cfEditValues, setCfEditValues] = useState<Record<string, unknown>>({})
   const [cfSaving, setCfSaving] = useState(false)
   const [editingStandardFields, setEditingStandardFields] = useState(false)
-  const [sfEditValues, setSfEditValues] = useState<Record<string, unknown>>({})
-  const [sfSaving, setSfSaving] = useState(false)
 
   // Load on mount
   useEffect(() => {
@@ -198,18 +190,7 @@ export default function BookingDetail() {
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
               <Button
                 size="small"
-                onClick={() => {
-                  setSfEditValues({
-                    project_name: booking.project_name,
-                    start_date: booking.start_date.slice(0, 10),
-                    end_date: booking.end_date.slice(0, 10),
-                    booking_type: booking.booking_type_id,
-                    notes: booking.notes ?? '',
-                    exclusive_use: booking.exclusive_use,
-                    context_tag: booking.context_tag,
-                  });
-                  setEditingStandardFields(true);
-                }}
+                onClick={() => setEditingStandardFields(true)}
               >
                 Edit
               </Button>
@@ -346,132 +327,17 @@ export default function BookingDetail() {
       </Box>
 
       {/* Edit Standard Fields Dialog */}
-      <Dialog open={editingStandardFields} onClose={() => setEditingStandardFields(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Edit Standard Fields</DialogTitle>
-        <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {(() => {
-            const sfPerms = booking?.standard_field_permissions ?? {};
-            const canEdit = (field: string) => sfPerms[field]?.editable === true;
-            return (
-              <>
-                <TextField
-                  label="Project Name"
-                  value={(sfEditValues.project_name as string) ?? ''}
-                  onChange={(e) => setSfEditValues((v) => ({ ...v, project_name: e.target.value }))}
-                  disabled={!canEdit('project_name')}
-                  fullWidth
-                  size="small"
-                />
-                <TextField
-                  label="Start Date"
-                  type="date"
-                  value={(sfEditValues.start_date as string) ?? ''}
-                  onChange={(e) => setSfEditValues((v) => ({ ...v, start_date: e.target.value }))}
-                  disabled={!canEdit('start_date')}
-                  fullWidth
-                  size="small"
-                  InputLabelProps={{ shrink: true }}
-                />
-                <TextField
-                  label="End Date"
-                  type="date"
-                  value={(sfEditValues.end_date as string) ?? ''}
-                  onChange={(e) => setSfEditValues((v) => ({ ...v, end_date: e.target.value }))}
-                  disabled={!canEdit('end_date')}
-                  fullWidth
-                  size="small"
-                  InputLabelProps={{ shrink: true }}
-                />
-                <FormControl fullWidth size="small" disabled={!canEdit('booking_type')}>
-                  <InputLabel>Booking Type</InputLabel>
-                  <Select
-                    label="Booking Type"
-                    value={(sfEditValues.booking_type as number) ?? ''}
-                    onChange={(e) => setSfEditValues((v) => ({ ...v, booking_type: e.target.value }))}
-                  >
-                    {bookingTypes.map((bt) => (
-                      <MenuItem key={bt.id} value={bt.id}>{bt.name}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <TextField
-                  label="Notes"
-                  value={(sfEditValues.notes as string) ?? ''}
-                  onChange={(e) => setSfEditValues((v) => ({ ...v, notes: e.target.value }))}
-                  disabled={!canEdit('notes')}
-                  fullWidth
-                  size="small"
-                  multiline
-                  minRows={3}
-                />
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={(sfEditValues.exclusive_use as boolean) ?? false}
-                      onChange={(e) => setSfEditValues((v) => ({ ...v, exclusive_use: e.target.checked }))}
-                      disabled={!canEdit('exclusive_use')}
-                    />
-                  }
-                  label="Exclusive Use"
-                />
-                <FormControl fullWidth size="small" disabled={!canEdit('context_tag')}>
-                  <InputLabel>Context Tag</InputLabel>
-                  <Select
-                    label="Context Tag"
-                    value={(sfEditValues.context_tag as string) ?? 'none'}
-                    onChange={(e) => setSfEditValues((v) => ({ ...v, context_tag: e.target.value }))}
-                  >
-                    <MenuItem value="none">None</MenuItem>
-                    <MenuItem value="deployment">Deployment</MenuItem>
-                    <MenuItem value="regression">Regression</MenuItem>
-                  </Select>
-                </FormControl>
-              </>
-            );
-          })()}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditingStandardFields(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            disabled={sfSaving}
-            onClick={async () => {
-              setSfSaving(true);
-              try {
-                // Only send editable fields
-                const sfPerms = booking?.standard_field_permissions ?? {};
-                const payload: Record<string, unknown> = {};
-                const fieldMap: Record<string, string> = {
-                  project_name: 'project_name',
-                  start_date: 'start_date',
-                  end_date: 'end_date',
-                  booking_type: 'booking_type_id',
-                  notes: 'notes',
-                  exclusive_use: 'exclusive_use',
-                  context_tag: 'context_tag',
-                };
-                for (const [key, apiKey] of Object.entries(fieldMap)) {
-                  if (sfPerms[key]?.editable) {
-                    payload[apiKey] = sfEditValues[key];
-                  }
-                }
-                const updated = await bookingService.updateStandardFields(bookingId, payload);
-                setBooking(updated);
-                setEditingStandardFields(false);
-              } catch (err: unknown) {
-                const msg =
-                  (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-                  'Save failed';
-                setError(msg);
-              } finally {
-                setSfSaving(false);
-              }
-            }}
-          >
-            {sfSaving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {booking && (
+        <EditStandardFieldsDialog
+          open={editingStandardFields}
+          booking={booking}
+          bookingTypes={bookingTypes}
+          onClose={() => setEditingStandardFields(false)}
+          onSaved={setBooking}
+          saver={(payload) => bookingService.updateStandardFields(bookingId, payload)}
+          onError={setError}
+        />
+      )}
 
       {/* Edit Custom Fields Dialog */}
       <Dialog open={editingCustomFields} onClose={() => setEditingCustomFields(false)} maxWidth="sm" fullWidth>
