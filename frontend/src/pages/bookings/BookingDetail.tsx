@@ -32,6 +32,7 @@ import type { BookingResponse } from '../../types/booking'
 import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle'
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay'
 import CustomFieldsSection from '../../components/CustomFieldsSection'
+import TransitionButtons from '../../components/bookings/TransitionButtons'
 
 // --- Status colour map -------------------------------------------------------
 
@@ -181,24 +182,8 @@ export default function BookingDetail() {
 
       {/* Action buttons from allowed transitions */}
       {allowedTransitions.length > 0 && (
-        <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {allowedTransitions.map((t) => (
-            <Button
-              key={t.to_state}
-              variant="contained"
-              color={
-                t.to_state === 'rejected'
-                  ? 'error'
-                  : t.to_state === 'approved'
-                  ? 'success'
-                  : 'primary'
-              }
-              onClick={() => handleTransition(t.to_state, t.label)}
-              size="small"
-            >
-              {t.label}
-            </Button>
-          ))}
+        <Box sx={{ mb: 3 }}>
+          <TransitionButtons transitions={allowedTransitions} onTransition={handleTransition} />
         </Box>
       )}
 
