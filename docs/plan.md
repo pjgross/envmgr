@@ -10,7 +10,7 @@
 |-------|------|--------|----------|--------|
 | 0 | Foundations & Guardrails | ✅ Complete | — | See below |
 | 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
-| 2 | Change Management | ⏳ Planned | 4–6 weeks | [phases/phase-2.md](phases/phase-2.md) |
+| 2 | Change Management | 🚧 Implementation complete, pending MR | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
 | 3 | Releases, Templates, Enterprise Release, Jira | ⏳ Planned | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
@@ -42,11 +42,19 @@ See [phases/phase-1.md](phases/phase-1.md) for the full task checklist.
 
 ---
 
-## Phase 2: Change Management — ⏳ Planned
+## Phase 2: Change Management — 🚧 Implementation complete, pending MR
 
-See [phases/phase-2.md](phases/phase-2.md).
+See [phases/phase-2.md](phases/phase-2.md) for the full commit trail and acceptance checklist.
 
-**Objectives**: Change request (TECR) CRUD on sub-resources, configurable lifecycle per change type, outage flag, unified environment schedule (bookings + TECRs), link changes to releases and deployments, change history and audit trail.
+**Delivered on `feature/phase-2-change-management`** (2026-04-18):
+- Lifecycle infrastructure generalised: `booking_lifecycle_template` → `lifecycle_template` with `entity_type` column; `lifecycle_service` works across bookings + change requests + (later) releases
+- `ChangeRequest` + `ChangeHistory` domain models; CRUD API at `/api/v1/change-requests`; seed `Simple Approval` + `Emergency` default lifecycles on tenant creation
+- Unified `GET /api/v1/environments/{id}/schedule` returning `{bookings, change_requests, deployments: []}`
+- Outage × booking conflict preview endpoint + non-blocking form warning
+- Frontend: CR list / form / detail / edit dialog pages, generalised admin `LifecycleTemplatesPanel`, `EnvironmentSchedule` FullCalendar tab on `EnvironmentDetail`
+- Backend suite: 256 passed
+
+**Deferred**: change-notification consumer (cross-cutting, needed for bookings too); frontend unit tests (Tier 3 modernisation).
 
 ---
 
