@@ -1,14 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { Link } from 'react-router-dom'
 import {
   Box,
   Typography,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
   Chip,
   Button,
   CircularProgress,
@@ -20,12 +15,25 @@ import {
   TextField,
   Paper,
 } from '@mui/material'
+import type { GridColDef } from '@mui/x-data-grid'
 import { fetchTenants, createTenant, disableTenant, signInAsTenant } from '../../store/adminSlice'
 import type { RootState, AppDispatch } from '../../store'
+import DataTable from '../../components/DataTable'
+import { useSnackbar } from '../../hooks/useSnackbar'
+
+interface TenantRow {
+  id: number
+  name: string
+  slug: string
+  is_active: boolean
+  created_at: string
+}
 
 export default function TenantList() {
   const dispatch = useDispatch<AppDispatch>()
   const { tenants, loading, error } = useSelector((state: RootState) => state.admin)
+  const currentUserId = useSelector((state: RootState) => state.auth.user?.id)
+  const snackbar = useSnackbar()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -47,126 +55,153 @@ export default function TenantList() {
       setNewName('')
       setNewSlug('')
       setFormError('')
+      snackbar.success('Tenant created')
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Failed to create tenant')
     }
   }
 
-  const handleDisable = async (id: number) => {
-    if (window.confirm('Disable this tenant? All users will lose access.')) {
-      try {
-        await dispatch(disableTenant(id)).unwrap()
-      } catch {
-        alert('Failed to disable tenant')
+  const handleDisable = useCallback(
+    async (id: number) => {
+      if (window.confirm('Disable this tenant? All users will lose access.')) {
+        try {
+          await dispatch(disableTenant(id)).unwrap()
+          snackbar.success('Tenant disabled')
+        } catch {
+          snackbar.error('Failed to disable tenant')
+        }
       }
-    }
-  }
+    },
+    [dispatch, snackbar],
+  )
 
-  const handleSignInAs = async (id: number) => {
-    try {
-      await dispatch(signInAsTenant(id)).unwrap()
-    } catch {
-      alert('Failed to sign in as tenant')
-    }
-  }
+  const handleSignInAs = useCallback(
+    async (id: number) => {
+      try {
+        await dispatch(signInAsTenant(id)).unwrap()
+      } catch {
+        snackbar.error('Failed to sign in as tenant')
+      }
+    },
+    [dispatch, snackbar],
+  )
+
+  const columns = useMemo<GridColDef<TenantRow>[]>(
+    () => [
+      {
+        field: 'name',
+        headerName: 'Name',
+        flex: 1,
+        minWidth: 160,
+        renderCell: (params) => (
+          <Link to={`/admin/tenants/${params.row.id}`}>{params.row.name}</Link>
+        ),
+      },
+      { field: 'slug', headerName: 'Slug', flex: 1, minWidth: 140 },
+      {
+        field: 'is_active',
+        headerName: 'Status',
+        width: 120,
+        sortable: true,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.is_active ? 'Active' : 'Disabled'}
+            color={params.row.is_active ? 'success' : 'default'}
+            size="small"
+          />
+        ),
+      },
+      {
+        field: 'created_at',
+        headerName: 'Created',
+        width: 140,
+        valueGetter: (params) => new Date(params.row.created_at),
+        valueFormatter: (params) =>
+          params.value instanceof Date ? params.value.toLocaleDateString() : '',
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 220,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleSignInAs(params.row.id)}
+            >
+              Sign In As
+            </Button>
+            {params.row.is_active && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={() => handleDisable(params.row.id)}
+              >
+                Disable
+              </Button>
+            )}
+          </Box>
+        ),
+      },
+    ],
+    [handleDisable, handleSignInAs],
+  )
 
   return (
     <Box sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h5">Tenants</Typography>
-          <Button variant="contained" onClick={() => setCreateOpen(true)}>
-            New Tenant
-          </Button>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+        <Typography variant="h5">Tenants</Typography>
+        <Button variant="contained" onClick={() => setCreateOpen(true)}>
+          New Tenant
+        </Button>
+      </Box>
 
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        {loading ? (
-          <CircularProgress />
-        ) : (
-          <Paper>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Slug</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Created</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {tenants.map((tenant) => (
-                  <TableRow key={tenant.id}>
-                    <TableCell>
-                      <Link to={`/admin/tenants/${tenant.id}`}>{tenant.name}</Link>
-                    </TableCell>
-                    <TableCell>{tenant.slug}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={tenant.is_active ? 'Active' : 'Disabled'}
-                        color={tenant.is_active ? 'success' : 'default'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>{new Date(tenant.created_at).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        sx={{ mr: 1 }}
-                        onClick={() => handleSignInAs(tenant.id)}
-                      >
-                        Sign In As
-                      </Button>
-                      {tenant.is_active && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={() => handleDisable(tenant.id)}
-                        >
-                          Disable
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {tenants.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center">No tenants found</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Paper>
-        )}
+      {loading ? (
+        <CircularProgress />
+      ) : (
+        <Paper sx={{ height: 600, width: '100%' }}>
+          <DataTable<TenantRow>
+            storageKey="admin-tenants-columns"
+            userId={currentUserId}
+            rows={tenants}
+            columns={columns}
+            emptyMessage="No tenants found"
+            disableColumnMenu={false}
+          />
+        </Paper>
+      )}
 
-        <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Create Tenant</DialogTitle>
-          <DialogContent>
-            {formError && <Alert severity="error" sx={{ mb: 2 }}>{formError}</Alert>}
-            <TextField
-              label="Name"
-              fullWidth
-              margin="normal"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <TextField
-              label="Slug"
-              fullWidth
-              margin="normal"
-              value={newSlug}
-              onChange={(e) => setNewSlug(e.target.value)}
-              helperText="URL-friendly identifier (e.g. acme-corp)"
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button variant="contained" onClick={handleCreate}>Create</Button>
-          </DialogActions>
-        </Dialog>
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Tenant</DialogTitle>
+        <DialogContent>
+          {formError && <Alert severity="error" sx={{ mb: 2 }}>{formError}</Alert>}
+          <TextField
+            label="Name"
+            fullWidth
+            margin="normal"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <TextField
+            label="Slug"
+            fullWidth
+            margin="normal"
+            value={newSlug}
+            onChange={(e) => setNewSlug(e.target.value)}
+            helperText="URL-friendly identifier (e.g. acme-corp)"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreate}>Create</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

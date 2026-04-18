@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert, Box, Button, Checkbox, FormControlLabel, Paper, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
@@ -24,7 +24,7 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
   const hasRendered = useRef(false)
   const reloadGen = useRef(0)
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     const myGen = ++reloadGen.current
     const [conflictsRes, receivedRes] = await Promise.allSettled([
       bookingService.getConflicts(bookingId),
@@ -44,12 +44,12 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
       setReceivedError(formatApiError(receivedRes.reason, 'Failed to load received feedback'))
     }
     setLoading(false)
-  }
+  }, [bookingId])
 
   useEffect(() => {
     hasRendered.current = false
     reload()
-  }, [bookingId])
+  }, [bookingId, reload])
 
   const shouldRenderNow =
     items.length > 0 ||

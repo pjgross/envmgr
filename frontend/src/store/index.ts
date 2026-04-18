@@ -12,10 +12,12 @@ import customFieldReducer from './customFieldSlice'
 import topologyReducer from './topologySlice'
 import bookingLifecycleReducer from './bookingLifecycleSlice'
 import componentTypeReducer from './componentTypeSlice'
+import uiReducer from './uiSlice'
 
 export const store = configureStore({
     reducer: {
         auth: authReducer,
+        ui: uiReducer,
         admin: adminReducer,
         tenantAdmin: tenantAdminReducer,
         system: systemReducer,

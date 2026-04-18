@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -31,6 +31,8 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../../components/DataTable';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -285,6 +287,227 @@ export default function EnvironmentDetail() {
   // Systems already assigned (to exclude from add dropdown)
   const assignedSystemIds = new Set(environmentSystems.map((s) => s.system_id));
   const availableSystems = systems.filter((s) => !assignedSystemIds.has(s.id));
+
+  // --- Systems tab: unified row model (present + missing) ----------------------
+  type SystemsRow =
+    | { id: string; kind: 'present'; envSys: EnvironmentSystemResponse; systemName: string }
+    | { id: string; kind: 'missing'; sys: { id: number; name: string; description: string | null }; systemName: string };
+
+  const systemsRows: SystemsRow[] = useMemo(() => {
+    const present: SystemsRow[] = environmentSystems.map((envSys) => ({
+      id: `present-${envSys.id}`,
+      kind: 'present',
+      envSys,
+      systemName: envSys.system.name,
+    }));
+    const missing: SystemsRow[] = missingSystems.map((sys) => ({
+      id: `missing-${sys.id}`,
+      kind: 'missing',
+      sys,
+      systemName: sys.name,
+    }));
+    return [...present, ...missing];
+  }, [environmentSystems, missingSystems]);
+
+  const systemsColumns: GridColDef<SystemsRow>[] = useMemo(
+    () => [
+      {
+        field: 'systemName',
+        headerName: 'System',
+        flex: 1,
+        minWidth: 240,
+        renderCell: (params) => {
+          const row = params.row;
+          if (row.kind === 'present') {
+            return (
+              <Typography variant="body2" fontWeight="medium">
+                {row.envSys.system.name}
+              </Typography>
+            );
+          }
+          return (
+            <Box>
+              <Typography variant="body2">{row.sys.name}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Required by a dependency — not yet in environment
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 160,
+        sortable: false,
+        filterable: false,
+        align: 'right',
+        headerAlign: 'right',
+        renderCell: (params) => {
+          const row = params.row;
+          if (row.kind === 'present') {
+            return (
+              <Tooltip title="Remove">
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={() => setSysDeleteTarget(row.envSys)}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            );
+          }
+          return (
+            <Tooltip title="Add to environment">
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setSysForm({ system_id: row.sys.id });
+                  setSysFormError('');
+                  setSysDialogOpen(true);
+                }}
+              >
+                Add
+              </Button>
+            </Tooltip>
+          );
+        },
+      },
+    ],
+    [],
+  );
+
+  // --- Components tab: envSubsystems row model ---------------------------------
+  const subsystemsColumns: GridColDef<EnvironmentSubsystemResponse>[] = useMemo(
+    () => [
+      {
+        field: 'subsystem_name',
+        headerName: 'System / Subsystem',
+        flex: 1,
+        minWidth: 220,
+        renderCell: (params) => (
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              {params.row.system_name}
+            </Typography>
+            <Typography variant="body2" fontWeight="medium">
+              {params.row.subsystem_name}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        field: 'component_type',
+        headerName: 'Category',
+        width: 160,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.component_type.replace(/_/g, ' ')}
+            size="small"
+            variant="outlined"
+          />
+        ),
+      },
+      {
+        field: 'component_type_definition_name',
+        headerName: 'Type',
+        width: 160,
+        valueGetter: (params) => params.row.component_type_definition_name ?? '—',
+      },
+      {
+        field: 'is_mocked',
+        headerName: 'Real / Mock',
+        width: 120,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.is_mocked ? 'Mock' : 'Real'}
+            size="small"
+            color={params.row.is_mocked ? 'warning' : 'success'}
+            onClick={() =>
+              dispatch(
+                updateEnvSubsystem({
+                  envId,
+                  subsystemId: params.row.subsystem_id,
+                  data: { is_mocked: !params.row.is_mocked },
+                }),
+              )
+            }
+            sx={{ cursor: 'pointer' }}
+          />
+        ),
+      },
+      {
+        field: 'mock_notes',
+        headerName: 'Mock Notes',
+        flex: 1,
+        minWidth: 220,
+        sortable: false,
+        renderCell: (params) =>
+          params.row.is_mocked ? (
+            <TextField
+              size="small"
+              placeholder="Mock notes (optional)"
+              value={params.row.mock_notes ?? ''}
+              onChange={(e) =>
+                dispatch(
+                  updateEnvSubsystem({
+                    envId,
+                    subsystemId: params.row.subsystem_id,
+                    data: { mock_notes: e.target.value || null },
+                  }),
+                )
+              }
+              sx={{ minWidth: 200 }}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">—</Typography>
+          ),
+      },
+      {
+        field: 'latest_version',
+        headerName: 'Latest Version',
+        width: 200,
+        sortable: false,
+        renderCell: (params) => {
+          if (params.row.is_mocked)
+            return <Typography variant="body2" color="text.secondary">—</Typography>;
+          const v = params.row.latest_version;
+          if (!v)
+            return (
+              <Typography variant="body2" color="text.secondary">
+                No version recorded
+              </Typography>
+            );
+          return (
+            <Box>
+              <Typography variant="body2">{v.version_label}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {v.build_id} · {new Date(v.installed_at).toLocaleDateString()}
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 100,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <Tooltip title="Set component type">
+            <IconButton size="small" onClick={() => setTypeDialogTarget(params.row)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [dispatch, envId],
+  );
 
   if (loading && !currentEnvironment) {
     return (
@@ -602,73 +825,21 @@ export default function EnvironmentDetail() {
             </Button>
           </Box>
 
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>System</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {environmentSystems.map((envSys) => (
-                  <TableRow key={envSys.id} hover>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="medium">
-                        {envSys.system.name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Remove">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => setSysDeleteTarget(envSys)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {missingSystems.map((sys) => (
-                  <TableRow key={`missing-${sys.id}`} sx={{ opacity: 0.5 }}>
-                    <TableCell>
-                      <Typography variant="body2">{sys.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Required by a dependency — not yet in environment
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="Add to environment">
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<AddIcon />}
-                          onClick={() => {
-                            setSysForm({ system_id: sys.id });
-                            setSysFormError('');
-                            setSysDialogOpen(true);
-                          }}
-                        >
-                          Add
-                        </Button>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {environmentSystems.length === 0 && missingSystems.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={2} align="center">
-                      <Typography color="text.secondary" py={3}>
-                        No systems assigned to this environment yet.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Paper sx={{ height: 520, width: '100%' }}>
+            <DataTable<SystemsRow>
+              storageKey="env-systems-columns"
+              rows={systemsRows}
+              columns={systemsColumns}
+              loading={loading}
+              emptyMessage="No systems assigned to this environment yet."
+              getRowClassName={(params) =>
+                params.row.kind === 'missing' ? 'row-missing-system' : ''
+              }
+              sx={{
+                '& .row-missing-system': { opacity: 0.55 },
+              }}
+            />
+          </Paper>
         </Box>
       )}
 
@@ -681,119 +852,20 @@ export default function EnvironmentDetail() {
             </Button>
           </Box>
 
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>System / Subsystem</TableCell>
-                  <TableCell>Category</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Real / Mock</TableCell>
-                  <TableCell>Mock Notes</TableCell>
-                  <TableCell>Latest Version</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {envSubsystems.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={7} align="center">
-                      <Typography color="text.secondary" py={3}>
-                        No subsystems configured. Add systems with subsystems first.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-                {envSubsystems.map((sub) => (
-                  <TableRow
-                    key={sub.subsystem_id}
-                    hover
-                    sx={{ opacity: sub.is_mocked ? 0.6 : 1 }}
-                  >
-                    <TableCell>
-                      <Typography variant="caption" color="text.secondary">
-                        {sub.system_name}
-                      </Typography>
-                      <Typography variant="body2" fontWeight="medium">
-                        {sub.subsystem_name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={sub.component_type.replace(/_/g, ' ')}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {sub.component_type_definition_name ?? '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={sub.is_mocked ? 'Mock' : 'Real'}
-                        size="small"
-                        color={sub.is_mocked ? 'warning' : 'success'}
-                        onClick={() =>
-                          dispatch(updateEnvSubsystem({
-                            envId,
-                            subsystemId: sub.subsystem_id,
-                            data: { is_mocked: !sub.is_mocked },
-                          }))
-                        }
-                        sx={{ cursor: 'pointer' }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {sub.is_mocked ? (
-                        <TextField
-                          size="small"
-                          placeholder="Mock notes (optional)"
-                          value={sub.mock_notes ?? ''}
-                          onChange={(e) =>
-                            dispatch(updateEnvSubsystem({
-                              envId,
-                              subsystemId: sub.subsystem_id,
-                              data: { mock_notes: e.target.value || null },
-                            }))
-                          }
-                          sx={{ minWidth: 200 }}
-                        />
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">—</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {sub.is_mocked ? (
-                        <Typography variant="body2" color="text.secondary">—</Typography>
-                      ) : sub.latest_version ? (
-                        <Box>
-                          <Typography variant="body2">{sub.latest_version.version_label}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {sub.latest_version.build_id} ·{' '}
-                            {new Date(sub.latest_version.installed_at).toLocaleDateString()}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">No version recorded</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Tooltip title="Set component type">
-                        <IconButton
-                          size="small"
-                          onClick={() => setTypeDialogTarget(sub)}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Paper sx={{ height: 600, width: '100%' }}>
+            <DataTable<EnvironmentSubsystemResponse>
+              storageKey="env-components-columns"
+              rows={envSubsystems}
+              columns={subsystemsColumns}
+              loading={loading}
+              getRowId={(row) => row.subsystem_id}
+              emptyMessage="No subsystems configured. Add systems with subsystems first."
+              getRowClassName={(params) => (params.row.is_mocked ? 'row-mocked' : '')}
+              sx={{
+                '& .row-mocked': { opacity: 0.75 },
+              }}
+            />
+          </Paper>
         </Box>
       )}
 

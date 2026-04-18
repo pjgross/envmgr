@@ -19,7 +19,11 @@ import {
     Tooltip,
     Typography,
     Avatar,
+    useMediaQuery,
+    useTheme,
 } from '@mui/material'
+import { ErrorBoundary } from 'react-error-boundary'
+import MenuIcon from '@mui/icons-material/Menu'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -32,8 +36,13 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import ListIcon from '@mui/icons-material/List'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import Brightness4Icon from '@mui/icons-material/Brightness4'
+import Brightness7Icon from '@mui/icons-material/Brightness7'
+import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness'
 import { RootState } from '../store'
 import { logout } from '../store/authSlice'
+import { setThemeMode, type ThemeModePreference } from '../store/uiSlice'
+import ErrorFallback from './ErrorFallback'
 
 const DRAWER_WIDTH = 240
 
@@ -65,6 +74,10 @@ export default function AppLayout() {
     const navigate = useNavigate()
     const location = useLocation()
     const user = useSelector((state: RootState) => state.auth.user)
+    const themeMode = useSelector((state: RootState) => state.ui.themeMode)
+    const muiTheme = useTheme()
+    const isDesktop = useMediaQuery(muiTheme.breakpoints.up('md'))
+    const [mobileOpen, setMobileOpen] = useState(false)
     const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null)
     const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => {
       const initial: Record<string, boolean> = {}
@@ -78,6 +91,15 @@ export default function AppLayout() {
       return initial
     })
 
+    const closeMobileDrawer = () => {
+        if (!isDesktop) setMobileOpen(false)
+    }
+
+    const navigateAndClose = (path: string) => {
+        navigate(path)
+        closeMobileDrawer()
+    }
+
     const handleLogout = () => {
         setMenuAnchor(null)
         dispatch(logout())
@@ -89,6 +111,26 @@ export default function AppLayout() {
         navigate(path)
     }
 
+    const cycleThemeMode = () => {
+        const next: Record<ThemeModePreference, ThemeModePreference> = {
+            light: 'dark',
+            dark: 'system',
+            system: 'light',
+        }
+        dispatch(setThemeMode(next[themeMode]))
+    }
+
+    const themeIcon =
+        themeMode === 'light' ? (
+            <Brightness7Icon fontSize="small" />
+        ) : themeMode === 'dark' ? (
+            <Brightness4Icon fontSize="small" />
+        ) : (
+            <SettingsBrightnessIcon fontSize="small" />
+        )
+    const themeLabel =
+        themeMode === 'light' ? 'Light mode' : themeMode === 'dark' ? 'Dark mode' : 'System theme'
+
     return (
         <Box sx={{ display: 'flex' }}>
             {/* Top AppBar */}
@@ -97,6 +139,17 @@ export default function AppLayout() {
                 sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
             >
                 <Toolbar>
+                    {!isDesktop && (
+                        <IconButton
+                            color="inherit"
+                            edge="start"
+                            onClick={() => setMobileOpen((open) => !open)}
+                            aria-label="Toggle navigation"
+                            sx={{ mr: 1 }}
+                        >
+                            <MenuIcon />
+                        </IconButton>
+                    )}
                     <Typography
                         variant="h6"
                         component="div"
@@ -142,6 +195,11 @@ export default function AppLayout() {
                             </MenuItem>
                         )}
                         {(user?.is_master_admin || user?.role === 'Admin') && <Divider />}
+                        <MenuItem onClick={cycleThemeMode}>
+                            <ListItemIcon>{themeIcon}</ListItemIcon>
+                            <ListItemText>{themeLabel}</ListItemText>
+                        </MenuItem>
+                        <Divider />
                         <MenuItem onClick={handleLogout}>
                             <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>Logout</ListItemText>
@@ -150,11 +208,14 @@ export default function AppLayout() {
                 </Toolbar>
             </AppBar>
 
-            {/* Persistent sidebar Drawer */}
+            {/* Sidebar Drawer — permanent on md+, temporary below */}
             <Drawer
-                variant="permanent"
+                variant={isDesktop ? 'permanent' : 'temporary'}
+                open={isDesktop ? true : mobileOpen}
+                onClose={() => setMobileOpen(false)}
+                ModalProps={{ keepMounted: true }}
                 sx={{
-                    width: DRAWER_WIDTH,
+                    width: isDesktop ? DRAWER_WIDTH : 0,
                     flexShrink: 0,
                     '& .MuiDrawer-paper': {
                         width: DRAWER_WIDTH,
@@ -193,7 +254,7 @@ export default function AppLayout() {
                                         <ListItemButton
                                           key={child.label}
                                           selected={isChildActive}
-                                          onClick={() => child.path && navigate(child.path)}
+                                          onClick={() => child.path && navigateAndClose(child.path)}
                                           sx={{ borderRadius: 1, mx: 1, mb: 0.5, pl: 4 }}
                                         >
                                           <ListItemIcon sx={{ minWidth: 36 }}>{child.icon}</ListItemIcon>
@@ -222,7 +283,7 @@ export default function AppLayout() {
                                 <ListItemButton
                                   selected={isActive}
                                   disabled={item.comingSoon}
-                                  onClick={() => !item.comingSoon && item.path && navigate(item.path)}
+                                  onClick={() => !item.comingSoon && item.path && navigateAndClose(item.path)}
                                   sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
                                 >
                                   <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
@@ -238,7 +299,7 @@ export default function AppLayout() {
                         {user?.role === 'Admin' && (
                             <ListItemButton
                                 selected={location.pathname.startsWith('/admin/config')}
-                                onClick={() => navigate('/admin/config/booking')}
+                                onClick={() => navigateAndClose('/admin/config/booking')}
                                 sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
                             >
                                 <ListItemIcon sx={{ minWidth: 36 }}>
@@ -251,17 +312,20 @@ export default function AppLayout() {
                 </Box>
             </Drawer>
 
-            {/* Main content area — offset by drawer width */}
+            {/* Main content area — offset by drawer width on desktop */}
             <Box
                 component="main"
                 sx={{
                     flexGrow: 1,
                     minHeight: '100vh',
                     bgcolor: 'background.default',
+                    width: { xs: '100%', md: `calc(100% - ${DRAWER_WIDTH}px)` },
                 }}
             >
                 <Toolbar />
-                <Outlet />
+                <ErrorBoundary FallbackComponent={ErrorFallback}>
+                    <Outlet />
+                </ErrorBoundary>
             </Box>
         </Box>
     )

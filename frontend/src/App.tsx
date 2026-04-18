@@ -1,6 +1,9 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import { RootState } from './store'
+import { authService } from './services/authService'
+import { setCredentials, logout } from './store/authSlice'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import TenantList from './pages/admin/TenantList'
@@ -19,6 +22,7 @@ import AdminLayout from './pages/admin/AdminLayout'
 import EntityConfig from './pages/admin/EntityConfig'
 import ImpersonationBanner from './components/ImpersonationBanner'
 import AppLayout from './components/AppLayout'
+import NotFound from './components/NotFound'
 
 function PrivateRoute({
     children,
@@ -37,7 +41,26 @@ function PrivateRoute({
 }
 
 function App() {
+    const dispatch = useDispatch()
     const isAuthenticated = useSelector((state: RootState) => state.auth.isAuthenticated)
+    const user = useSelector((state: RootState) => state.auth.user)
+    const token = useSelector((state: RootState) => state.auth.token)
+
+    useEffect(() => {
+        if (!isAuthenticated || user || !token) return
+        let cancelled = false
+        ;(async () => {
+            try {
+                const me = await authService.getCurrentUser()
+                if (!cancelled) dispatch(setCredentials({ user: me, token }))
+            } catch {
+                if (!cancelled) dispatch(logout())
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [isAuthenticated, user, token, dispatch])
 
     return (
         <BrowserRouter>
@@ -79,6 +102,7 @@ function App() {
                     </Route>
                 </Route>
                 <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />
+                <Route path="*" element={<NotFound />} />
             </Routes>
         </BrowserRouter>
     )
