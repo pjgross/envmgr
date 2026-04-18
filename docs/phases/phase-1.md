@@ -1,7 +1,7 @@
 # Phase 1: Environment Inventory + Shared Booking
 
 > Status: ✅ **Complete** | Roadmap: [../plan.md](../plan.md)
-> Completed: 2026-03-23
+> Core completed: 2026-03-23 | Extensions through: 2026-04-18
 
 ---
 
@@ -155,8 +155,39 @@ POST                        /api/v1/import/systems
 
 ---
 
+## Post-Completion Extensions (2026-03-24 → 2026-04-18)
+
+After the 2026-03-23 cutoff, Phase 1 kept accruing functional polish before Phase 2 kicked off. Each extension has its own plan under `docs/superpowers/plans/` and the matching design spec under `docs/superpowers/specs/`.
+
+### Backend additions
+
+| Area | What landed | Plan file |
+|------|-------------|-----------|
+| Custom fields | `CustomFieldDefinition` + per-entity `custom_fields` JSON on Environment, System, Booking, BookingRequest; tenant-scoped CRUD API | `2026-03-23-custom-fields.md` |
+| Topology verify | Environment topology diagram data (nodes + edges) + verify endpoint returning missing/mocked subsystems and component dep gaps | `2026-03-24-environment-subsystem-topology-verify.md` |
+| Configurable booking lifecycle | `BookingType`, `LifecycleTemplate` (states + transitions + field permissions), `BookingStatusHistory`; per-type lifecycle; `/bookings/{id}/transition` + `/allowed-transitions` replace hardcoded approve/reject/cancel | `2026-03-25-booking-lifecycle.md`, `2026-03-25-booking-admin-lifecycle-tab.md`, `2026-03-25-booking-custom-field-type-state-permissions.md`, `2026-03-25-lifecycle-standard-field-permissions.md` |
+| Component type catalog | `ComponentTypeDefinition` (tenant-level), assignment on EnvironmentSubSystem (real/mock toggle, mock notes) | `2026-03-26-environment-component-type-assignment.md` |
+| Multi-env booking requests | `BookingRequest` parent → N `Booking` children; `BookingConflictAck` for soft conflicts; preview-conflicts endpoint; delegate users; per-env overrides via `EditEnvOverridesDialog` | `2026-04-15-multi-env-booking-lifecycle.md` |
+| Received conflict feedback | `/bookings/{id}/received-feedback` + service aggregating other bookings' ack notes | `2026-04-18-received-conflict-feedback.md` |
+
+### Frontend additions
+
+- **DataGrid migrations**: Systems catalog and Environments list converted to MUI `DataGrid` with custom columns driven by `CustomFieldDefinition` (`2026-03-23-systems-environments-datagrid-custom-columns.md`).
+- **Booking list redesign**: per-row kebab → dynamic transition actions from lifecycle; inline conflict indicator; status + context filters.
+- **BookingForm**: multi-env picker, delegates autocomplete, debounced conflict preview, custom-fields subform.
+- **BookingDetail**: environments panel with per-env transition buttons, conflicts panel (your feedback + feedback received tabs), env-override edit dialog.
+- **Admin panels**: `BookingTypesPanel`, `LifecycleTemplatesPanel`, `ComponentTypesPanel`, `CustomFieldDefinitionManager` under `/admin/config/{entity}`.
+- **Tier 1 frontend modernisation** (`docs/frontend-modernisation-plan.md`): `notistack` snackbars, `react-error-boundary`, `NotFound` 404, `createAppTheme` factory with light/dark/system mode persisted to localStorage, responsive `AppLayout` drawer, `DataTable` wrapper (density + column-visibility persistence), form-stack primitives (`FormDialog`, `FormTextField`, `FormSelect`) with `react-hook-form` + `zod`, `.prettierrc` + `.eslintrc.cjs`, `formatApiError` helper.
+
+### Migrations added (selected)
+
+`add_custom_field_definition`, `add_booking_types_lifecycle`, `add_booking_status_history`, `add_component_type_definition`, `add_booking_request_conflict_ack`, `backfill_booking_request_id`, `drop_legacy_booking_columns`.
+
+---
+
 ## Known Issues / Tech Debt
 
-- `test_tenant_admin_cannot_escalate_to_master_admin` failing — pre-existing Phase 0 issue, not introduced in Phase 1
-- `security.py` still uses `datetime.utcnow()` (deprecated in Python 3.12) — low priority fix
-- `init_db()` + Alembic coexistence: `init_db` calls `create_all` at startup (useful for fresh dev envs) while Alembic handles production migrations; these can drift if not kept in sync
+- ~~`test_tenant_admin_cannot_escalate_to_master_admin` failing~~ — **fixed 2026-03-23** (commit `d3e3236` removed `is_master_admin` from `UserAdminUpdate` schema).
+- ~~`security.py` uses deprecated `datetime.utcnow()`~~ — **fixed 2026-04-18** (commit `6578bc9` switched JWT exp calculation to `datetime.now(timezone.utc)`).
+- `init_db()` + Alembic coexistence: `init_db` calls `create_all` at startup (useful for fresh dev envs) while Alembic handles production migrations; these can drift if not kept in sync. Mitigation is discipline — write manual Alembic DDL for every schema change.
+- Frontend modernisation Tiers 2-4 (calendar drag, bulk ops, URL filter persistence, breadcrumbs, inline DataGrid edit, Vitest + RTL, CI, a11y pass, TanStack Query migration) explicitly deferred — revisit after Phase 2 if server-state ergonomics or UX polish becomes a pain point.
