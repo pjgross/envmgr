@@ -441,6 +441,51 @@ async def soft_delete_change_request(
     await db.flush()
 
 
+# ── Outage × booking conflict preview (Phase 2 Step 5) ──────────────────────
+
+async def preview_outage_conflicts(
+    db: AsyncSession,
+    *,
+    environment_id: int,
+    outage_start: datetime,
+    outage_end: datetime,
+    tenant_id: int,
+) -> list[dict]:
+    """Return bookings in `environment_id` whose window overlaps the outage
+    window. Intended as an advisory signal in the CR form — overlap here
+    does not block CR creation, it just lets the user see what they're
+    affecting.
+    """
+    from sqlalchemy.orm import selectinload
+    from app.db.models.booking import Booking
+
+    stmt = (
+        select(Booking)
+        .options(selectinload(Booking.booking_request))
+        .where(
+            Booking.environment_id == environment_id,
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+            Booking.status != "rejected",
+            Booking.end_date > outage_start,
+            Booking.start_date < outage_end,
+        )
+        .order_by(Booking.start_date.asc())
+    )
+    bookings = list((await db.execute(stmt)).scalars().all())
+    return [
+        {
+            "id": b.id,
+            "environment_id": b.environment_id,
+            "project_name": b.booking_request.project_name,
+            "start_date": b.start_date,
+            "end_date": b.end_date,
+            "status": b.status,
+        }
+        for b in bookings
+    ]
+
+
 # ── Unified environment schedule (Phase 2 Step 4) ───────────────────────────
 
 async def get_environment_schedule(

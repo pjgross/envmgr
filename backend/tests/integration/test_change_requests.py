@@ -371,6 +371,68 @@ async def test_soft_delete_hides_from_list_and_get(
 
 
 @pytest.mark.asyncio
+async def test_preview_outage_conflicts_returns_overlapping_bookings(
+    client: AsyncClient,
+    auth_headers,
+    test_environment,
+    test_booking,  # +1d → +3d from now in test_environment
+):
+    # test_booking is scheduled roughly +1d → +3d; craft an outage window that overlaps.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    r = await client.post(
+        "/api/v1/change-requests/preview-outage-conflicts",
+        headers=auth_headers,
+        json={
+            "environment_id": test_environment.id,
+            "outage_start": (now + timedelta(days=1, hours=6)).isoformat(),
+            "outage_end": (now + timedelta(days=1, hours=12)).isoformat(),
+        },
+    )
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert len(payload["conflicting_bookings"]) == 1
+    assert payload["conflicting_bookings"][0]["id"] == test_booking.id
+
+
+@pytest.mark.asyncio
+async def test_preview_outage_conflicts_empty_when_no_overlap(
+    client: AsyncClient,
+    auth_headers,
+    test_environment,
+    test_booking,
+):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    r = await client.post(
+        "/api/v1/change-requests/preview-outage-conflicts",
+        headers=auth_headers,
+        json={
+            "environment_id": test_environment.id,
+            "outage_start": (now + timedelta(days=30)).isoformat(),
+            "outage_end": (now + timedelta(days=31)).isoformat(),
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["conflicting_bookings"] == []
+
+
+@pytest.mark.asyncio
+async def test_preview_outage_conflicts_rejects_reversed_window(
+    client: AsyncClient, auth_headers, test_environment,
+):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    r = await client.post(
+        "/api/v1/change-requests/preview-outage-conflicts",
+        headers=auth_headers,
+        json={
+            "environment_id": test_environment.id,
+            "outage_start": (now + timedelta(days=2)).isoformat(),
+            "outage_end": (now + timedelta(days=1)).isoformat(),
+        },
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_tenant_isolation(
     client, db_session, auth_headers, test_subsystem, test_environment, test_cr_lifecycle,
 ):

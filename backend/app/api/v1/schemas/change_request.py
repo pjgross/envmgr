@@ -119,3 +119,31 @@ class ChangeRequestResponse(BaseModel):
 
 class ChangeRequestDetailResponse(ChangeRequestResponse):
     history: list[ChangeHistoryEntry] = []
+
+
+# ── Outage × booking conflict preview (Step 5) ──────────────────────────────
+
+class PreviewOutageConflictsRequest(BaseModel):
+    environment_id: int
+    outage_start: datetime
+    outage_end: datetime
+
+    @model_validator(mode="after")
+    def _check(self) -> "PreviewOutageConflictsRequest":
+        _require_chronological(self.outage_start, self.outage_end, "outage")
+        return self
+
+
+class OutageConflictBooking(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    environment_id: int
+    project_name: str
+    start_date: datetime
+    end_date: datetime
+    status: str
+
+
+class PreviewOutageConflictsResponse(BaseModel):
+    conflicting_bookings: list[OutageConflictBooking] = []

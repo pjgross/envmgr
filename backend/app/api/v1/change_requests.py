@@ -14,6 +14,8 @@ from app.api.v1.schemas.change_request import (
     ChangeRequestDetailResponse,
     ChangeRequestTransition,
     ChangeHistoryEntry,
+    PreviewOutageConflictsRequest,
+    PreviewOutageConflictsResponse,
 )
 
 
@@ -50,6 +52,25 @@ async def create_change_request(
     return await change_request_service.create_change_request(
         db, data, current_user, current_user.active_tenant_id
     )
+
+
+@router.post("/preview-outage-conflicts", response_model=PreviewOutageConflictsResponse)
+async def preview_outage_conflicts(
+    data: PreviewOutageConflictsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Advisory: list bookings in an environment whose window overlaps the
+    proposed outage. Does not create or reserve anything; purely read-side.
+    """
+    conflicts = await change_request_service.preview_outage_conflicts(
+        db,
+        environment_id=data.environment_id,
+        outage_start=data.outage_start,
+        outage_end=data.outage_end,
+        tenant_id=current_user.active_tenant_id,
+    )
+    return {"conflicting_bookings": conflicts}
 
 
 @router.get("/{cr_id}", response_model=ChangeRequestDetailResponse)
