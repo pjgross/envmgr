@@ -439,3 +439,102 @@ async def soft_delete_change_request(
     cr = await _get_cr(db, cr_id, tenant_id)
     cr.deleted_at = datetime.now(timezone.utc)
     await db.flush()
+
+
+# ── Unified environment schedule (Phase 2 Step 4) ───────────────────────────
+
+async def get_environment_schedule(
+    db: AsyncSession,
+    env_id: int,
+    tenant_id: int,
+    start_date: datetime,
+    end_date: datetime,
+) -> dict:
+    """Return bookings + change requests overlapping the [start_date, end_date]
+    window for `env_id`, plus a reserved `deployments` placeholder (Phase 4).
+
+    Overlap condition: row.end > start AND row.start < end.
+    Caller is responsible for validating env_id belongs to the tenant (the
+    environment-scoped route does this via its own lookup); this service
+    method filters by tenant_id on both subselects defensively.
+    """
+    from sqlalchemy.orm import selectinload
+
+    from app.db.models.booking import Booking
+    from app.db.models.booking_request import BookingRequest
+    from app.db.models.environment import Environment
+
+    # Ensure environment exists + tenant scoping (also the source of truth
+    # for the response's environment_id echo).
+    env = (
+        await db.execute(
+            select(Environment).where(
+                Environment.id == env_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if env is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+
+    bookings_stmt = (
+        select(Booking)
+        .options(selectinload(Booking.booking_request))
+        .where(
+            Booking.environment_id == env_id,
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+            Booking.end_date > start_date,
+            Booking.start_date < end_date,
+        )
+        .order_by(Booking.start_date.asc())
+    )
+    bookings = list((await db.execute(bookings_stmt)).scalars().all())
+
+    cr_stmt = (
+        select(ChangeRequest)
+        .where(
+            ChangeRequest.environment_id == env_id,
+            ChangeRequest.tenant_id == tenant_id,
+            ChangeRequest.deleted_at.is_(None),
+            ChangeRequest.scheduled_end > start_date,
+            ChangeRequest.scheduled_start < end_date,
+        )
+        .order_by(ChangeRequest.scheduled_start.asc())
+    )
+    change_requests = list((await db.execute(cr_stmt)).scalars().all())
+
+    return {
+        "environment_id": env_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "bookings": [
+            {
+                "id": b.id,
+                "environment_id": b.environment_id,
+                "project_name": b.booking_request.project_name,
+                "start_date": b.start_date,
+                "end_date": b.end_date,
+                "status": b.status,
+            }
+            for b in bookings
+        ],
+        "change_requests": [
+            {
+                "id": cr.id,
+                "environment_id": cr.environment_id,
+                "subsystem_id": cr.subsystem_id,
+                "title": cr.title,
+                "change_type": cr.change_type,
+                "status": cr.status,
+                "scheduled_start": cr.scheduled_start,
+                "scheduled_end": cr.scheduled_end,
+                "has_outage": cr.has_outage,
+                "outage_start": cr.outage_start,
+                "outage_end": cr.outage_end,
+            }
+            for cr in change_requests
+        ],
+        "deployments": [],
+    }
