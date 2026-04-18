@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timezone
 from httpx import AsyncClient
 
 
@@ -20,9 +21,6 @@ async def test_upsert_conflict_ack(client: AsyncClient, auth_headers: dict, test
     ack = resp.json()
     assert ack["willing_to_share"] is True
     assert ack["notes"] == "coordinated account ranges"
-
-
-from datetime import datetime, timezone
 
 
 @pytest.mark.asyncio
