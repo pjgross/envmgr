@@ -12,6 +12,7 @@ import {
 } from '@mui/material'
 import { setCredentials } from '../store/authSlice'
 import { authService } from '../services/authService'
+import { formatApiError } from '../services/apiError'
 
 export default function Login() {
     const navigate = useNavigate()
@@ -40,8 +41,8 @@ export default function Login() {
             }))
 
             navigate('/dashboard')
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Login failed')
+        } catch (err: unknown) {
+            setError(formatApiError(err, 'Login failed'))
         } finally {
             setLoading(false)
         }

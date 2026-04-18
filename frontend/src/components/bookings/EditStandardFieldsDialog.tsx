@@ -5,6 +5,7 @@ import {
   FormControl, InputLabel, Select, MenuItem,
 } from '@mui/material'
 import type { BookingResponse } from '../../types/booking'
+import { formatApiError } from '../../services/apiError'
 
 type BookingType = { id: number; name: string }
 
@@ -49,14 +50,19 @@ export default function EditStandardFieldsDialog({
       }
       const payload: Record<string, unknown> = {}
       for (const [key, apiKey] of Object.entries(fieldMap)) {
-        if (sfPerms[key]?.editable) payload[apiKey] = values[key]
+        if (!sfPerms[key]?.editable) continue
+        const v = values[key]
+        if ((key === 'start_date' || key === 'end_date') && typeof v === 'string' && v) {
+          payload[apiKey] = new Date(v).toISOString()
+        } else {
+          payload[apiKey] = v
+        }
       }
       const updated = await saver(payload)
       await onSaved(updated)
       onClose()
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Save failed'
-      onError?.(msg)
+      onError?.(formatApiError(err, 'Save failed'))
     } finally {
       setSaving(false)
     }

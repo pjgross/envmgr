@@ -39,6 +39,7 @@ import EnvironmentsPanel from '../../components/bookings/EnvironmentsPanel'
 import ConflictsPanel from '../../components/bookings/ConflictsPanel'
 import ConflictIndicator from '../../components/bookings/ConflictIndicator'
 import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog'
+import { formatApiError } from '../../services/apiError'
 
 // --- Status colour map -------------------------------------------------------
 
@@ -111,10 +112,7 @@ export default function BookingDetail() {
           }
         }
       } catch (err: unknown) {
-        const msg =
-          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-          'Failed to load booking'
-        setError(msg)
+        setError(formatApiError(err, 'Failed to load booking'))
       } finally {
         setLoading(false)
       }
@@ -138,10 +136,7 @@ export default function BookingDetail() {
       setAllowedTransitions(transitions)
       setHistory(hist)
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        'Transition failed'
-      setError(msg)
+      setError(formatApiError(err, 'Transition failed'))
     }
   }
 
@@ -167,10 +162,7 @@ export default function BookingDetail() {
       setAddEnvOpen(false)
       resetAddEnvForm()
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        'Failed to add environment'
-      setError(msg)
+      setError(formatApiError(err, 'Failed to add environment'))
     } finally {
       setAddEnvSaving(false)
     }
@@ -272,10 +264,7 @@ export default function BookingDetail() {
                 setBooking(b)
               }
             } catch (err: unknown) {
-              const msg =
-                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-                'Transition failed'
-              setError(msg)
+              setError(formatApiError(err, 'Transition failed'))
             }
           }}
           onRemove={async (id) => {
@@ -284,10 +273,7 @@ export default function BookingDetail() {
               const req = await bookingRequestService.get(bookingRequest.id)
               setBookingRequest(req)
             } catch (err: unknown) {
-              const msg =
-                (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-                'Failed to remove environment'
-              setError(msg)
+              setError(formatApiError(err, 'Failed to remove environment'))
             }
           }}
           onAddClick={() => setAddEnvOpen(true)}

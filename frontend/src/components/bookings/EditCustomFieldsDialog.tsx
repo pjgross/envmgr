@@ -5,6 +5,7 @@ import {
 import type { BookingResponse } from '../../types/booking'
 import type { CustomFieldDefinition } from '../../types/customField'
 import CustomFieldsSection from '../CustomFieldsSection'
+import { formatApiError } from '../../services/apiError'
 
 export type EditCustomFieldsDialogProps = {
   open: boolean
@@ -33,8 +34,7 @@ export default function EditCustomFieldsDialog({
       await onSaved(updated)
       onClose()
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Save failed'
-      onError?.(msg)
+      onError?.(formatApiError(err, 'Save failed'))
     } finally {
       setSaving(false)
     }

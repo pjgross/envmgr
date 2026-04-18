@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField } from '@mui/material'
 import type { BookingResponse } from '../../types/booking'
+import { formatApiError } from '../../services/apiError'
 
 type Props = {
   open: boolean
@@ -19,12 +20,14 @@ export default function EditEnvOverridesDialog({ open, booking, onClose, onSaved
   const handleSave = async () => {
     setSaving(true)
     try {
-      const updated = await saver({ start_date: start, end_date: end })
+      const updated = await saver({
+        start_date: new Date(start).toISOString(),
+        end_date: new Date(end).toISOString(),
+      })
       await onSaved(updated)
       onClose()
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Save failed'
-      onError?.(msg)
+      onError?.(formatApiError(err, 'Save failed'))
     } finally {
       setSaving(false)
     }

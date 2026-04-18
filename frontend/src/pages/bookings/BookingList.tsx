@@ -27,6 +27,7 @@ import type { BookingResponse, BookingStatus } from '../../types/booking'
 import type { AllowedTransition } from '../../types/bookingLifecycle'
 import { bookingService } from '../../services/bookingService'
 import ConflictIndicator from '../../components/bookings/ConflictIndicator'
+import { formatApiError } from '../../services/apiError'
 import BookingForm from './BookingForm'
 
 // --- Status filter -----------------------------------------------------------
@@ -142,8 +143,7 @@ export default function BookingList() {
       await bookingService.transitionState(rowId, toState)
       dispatch(fetchBookings())
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Transition failed'
-      setTransitionError(msg)
+      setTransitionError(formatApiError(err, 'Transition failed'))
     }
   }
 

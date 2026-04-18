@@ -60,6 +60,7 @@ import {
 import { fetchTopology } from '../../store/topologySlice';
 import { dependencyService } from '../../services/dependencyService';
 import api from '../../services/api';
+import { formatApiError } from '../../services/apiError';
 import type {
   SystemUpdate,
   SubSystemResponse,
@@ -659,8 +660,7 @@ export default function SystemDetail() {
       dispatch(fetchSubSystems(currentSystem.id));
       dispatch(fetchTopology(currentSystem.id));
     } catch (err: unknown) {
-      const anyErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      setDcImportError(anyErr?.response?.data?.detail ?? anyErr?.message ?? 'Import failed');
+      setDcImportError(formatApiError(err, 'Import failed'));
     } finally {
       setDcImportLoading(false);
     }
@@ -690,8 +690,7 @@ export default function SystemDetail() {
       dispatch(fetchSubSystems(currentSystem.id));
       dispatch(fetchTopology(currentSystem.id));
     } catch (err: unknown) {
-      const anyErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      setTfImportError(anyErr?.response?.data?.detail ?? anyErr?.message ?? 'Import failed');
+      setTfImportError(formatApiError(err, 'Import failed'));
     } finally {
       setTfImportLoading(false);
     }
