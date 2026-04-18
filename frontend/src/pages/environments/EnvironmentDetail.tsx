@@ -38,6 +38,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import StorageIcon from '@mui/icons-material/Storage';
+import EnvSubsystemHostsDialog from '../../components/EnvSubsystemHostsDialog';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -144,6 +146,8 @@ export default function EnvironmentDetail() {
   const [sysForm, setSysForm] = useState<SysFormValues>(emptySysForm);
   const [sysFormError, setSysFormError] = useState('');
   const [sysDeleteTarget, setSysDeleteTarget] = useState<EnvironmentSystemResponse | null>(null);
+  const [hostsDialogTarget, setHostsDialogTarget] =
+    useState<EnvironmentSubsystemResponse | null>(null);
   const [typeDialogTarget, setTypeDialogTarget] = useState<EnvironmentSubsystemResponse | null>(
     null
   );
@@ -508,6 +512,23 @@ export default function EnvironmentDetail() {
             </Box>
           );
         },
+      },
+      {
+        field: 'hosts',
+        headerName: 'Hosts',
+        width: 140,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <Button
+            size="small"
+            startIcon={<StorageIcon fontSize="small" />}
+            onClick={() => setHostsDialogTarget(params.row)}
+            sx={{ textTransform: 'none' }}
+          >
+            Manage…
+          </Button>
+        ),
       },
       {
         field: 'actions',
@@ -1108,6 +1129,16 @@ export default function EnvironmentDetail() {
           subsystem={typeDialogTarget}
           open={Boolean(typeDialogTarget)}
           onClose={() => setTypeDialogTarget(null)}
+        />
+      )}
+
+      {hostsDialogTarget && (
+        <EnvSubsystemHostsDialog
+          envId={envId}
+          subsystemId={hostsDialogTarget.subsystem_id}
+          subsystemLabel={`${hostsDialogTarget.system_name} / ${hostsDialogTarget.subsystem_name}`}
+          open={Boolean(hostsDialogTarget)}
+          onClose={() => setHostsDialogTarget(null)}
         />
       )}
     </Box>

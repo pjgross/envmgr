@@ -1,4 +1,5 @@
 import type { AllowedTransition } from './bookingLifecycle';
+import type { InfrastructureComponentSummary } from './infrastructureComponent';
 
 export type ChangeType = 'configuration' | 'infrastructure' | 'code_deployment';
 
@@ -8,6 +9,11 @@ export const CHANGE_TYPE_LABELS: Record<ChangeType, string> = {
   code_deployment: 'Code Deployment',
 };
 
+export interface EnvironmentSummary {
+  id: number;
+  name: string;
+}
+
 export interface ChangeRequestResponse {
   id: number;
   tenant_id: number;
@@ -16,8 +22,12 @@ export interface ChangeRequestResponse {
   change_type: ChangeType;
   status: string;
   lifecycle_id: number;
-  subsystem_id: number;
-  environment_id: number;
+  subsystem_id: number | null;
+  environment_ids: number[];
+  host_ids: number[];
+  environments: EnvironmentSummary[];
+  hosts: InfrastructureComponentSummary[];
+  derived_environment_ids: number[];
   release_id: number | null;
   has_outage: boolean;
   outage_start: string | null;
@@ -51,8 +61,9 @@ export interface ChangeRequestCreatePayload {
   description?: string | null;
   change_type: ChangeType;
   lifecycle_id: number;
-  subsystem_id: number;
-  environment_id: number;
+  subsystem_id?: number | null;
+  environment_ids?: number[];
+  host_ids?: number[];
   release_id?: number | null;
   has_outage?: boolean;
   outage_start?: string | null;
@@ -66,6 +77,9 @@ export interface ChangeRequestUpdatePayload {
   title?: string;
   description?: string | null;
   change_type?: ChangeType;
+  subsystem_id?: number | null;
+  environment_ids?: number[];
+  host_ids?: number[];
   release_id?: number | null;
   has_outage?: boolean;
   outage_start?: string | null;
@@ -82,6 +96,7 @@ export interface ChangeRequestTransitionPayload {
 
 export interface ChangeRequestListFilters {
   environment_id?: number;
+  host_id?: number;
   subsystem_id?: number;
   status?: string;
   scheduled_from?: string;
@@ -91,21 +106,30 @@ export interface ChangeRequestListFilters {
 export interface OutageConflictBooking {
   id: number;
   environment_id: number;
+  environment_name: string;
   project_name: string;
   start_date: string;
   end_date: string;
   status: string;
 }
 
-export interface PreviewOutageConflictsPayload {
+export interface OutageConflictEnvironment {
   environment_id: number;
+  environment_name: string;
+  conflicts: OutageConflictBooking[];
+}
+
+export interface PreviewOutageConflictsPayload {
+  environment_ids?: number[];
+  host_ids?: number[];
   outage_start: string;
   outage_end: string;
+  exclude_change_request_id?: number | null;
 }
 
 export interface PreviewOutageConflictsResponse {
-  conflicting_bookings: OutageConflictBooking[];
+  environments: OutageConflictEnvironment[];
+  derived_environment_ids: number[];
 }
 
-// Re-export for convenience so consumers can get CR transition type from one import.
 export type { AllowedTransition };

@@ -190,3 +190,36 @@ The booking-lifecycle extension work after the 2026-03-23 Phase 1 cutoff built m
 - **No frontend unit tests for CR pages** — matches Phase 1 baseline. Vitest infra exists (Tier 1 modernisation) but no tests yet. Deferred per `docs/frontend-modernisation-plan.md` Tier 3.
 - **`release_id` on `ChangeRequest`** — currently nullable `Integer` column without FK; Phase 3 adds `Release` table and the FK constraint.
 - **`deployments: []` in schedule response** — Phase 4 populates.
+
+---
+
+## Phase 2.5 — Hosts and multi-target change requests (Phase 6 pull-forward)
+
+Shipped on `feature/phase-2-change-management` after the main Phase 2 body.
+
+### Why
+Change requests could only be raised against a single subsystem in a single environment, so platform-level changes (reboot macmini, AWS ECS upgrade) had no natural home and stakeholders in other environments were blind to them.
+
+### What changed
+- **New `InfrastructureComponent` model** (`backend/app/db/models/infrastructure_component.py`) — Phase 6-shaped with `component_type`, `provider`, `region`, `location`, `source`, `external_id`, `tags`, so later Terraform / Docker Compose parsers slot in without schema churn.
+- **New junction `environment_subsystem_host`** — M:M between a deployed subsystem and the hosts it runs on (replicas, multi-AZ).
+- **New junctions `change_request_environment` + `change_request_host`** — a CR targets any combination of environments and hosts; the legacy `change_request.environment_id` FK is dropped (backfilled into the junction) and `subsystem_id` is now nullable.
+- **Affected-env derivation**: host-scoped CRs resolve to the union of every environment whose subsystems live on that host, exposed as `derived_environment_ids` on every CR payload and surfaced in the outage-preview response.
+- **Outage preview extended**: `/change-requests/preview-outage-conflicts` now takes `environment_ids + host_ids`, resolves the effective env set, and returns conflicts grouped per env.
+- **Environment schedule** pulls in any CR whose env junction matches *or* whose hosts are attached to subsystems in that env.
+- **Frontend**: new Hosts list page (`/infrastructure/hosts`), hosts multi-select on the CR form, a hosts sub-dialog on the environment subsystem row (primary/replica roles), and multi-env/multi-host chip columns on the CR list and detail pages.
+
+### Explicitly deferred to Phase 6 proper
+- Terraform `.tf` / `.tfstate` parser writing into `infrastructure_component` (source=`terraform`)
+- Docker Compose parser
+- GitHub repo scanner / App integration
+- Neo4j topology sync of `infrastructure_component` + `environment_subsystem_host` + `change_request_host`
+- React Flow topology page and environment-comparison diff
+- Drift detection
+
+### Migrations
+- `p3s1infra` — adds `infrastructure_component` and `environment_subsystem_host`.
+- `p3s2crmt` — adds CR env/host junctions, backfills from `change_request.environment_id`, drops that column, relaxes `subsystem_id` to nullable.
+
+### Test coverage
+10 new integration tests in `tests/integration/test_infrastructure_components.py` (host CRUD, idempotent junction PUT, CR multi-target validation, derived-env outage preview, host CR schedule pickup, env/host diff history). Existing Phase 2 tests updated for the new payload shape. Full suite: 266 passed.

@@ -1,6 +1,6 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 2 implementation complete on `feature/phase-2-change-management`, pending MR review (Phase 1 ✅ | Phase 2 🚧 | Phase 3 next up)
+> **Current Phase**: Phase 2 implementation complete on `feature/phase-2-change-management`, plus a Phase 6 pull-forward adding Hosts / InfrastructureComponent and multi-target change requests; pending MR review (Phase 1 ✅ | Phase 2 🚧 | Phase 2.5 hosts 🚧 | Phase 3 next up)
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)

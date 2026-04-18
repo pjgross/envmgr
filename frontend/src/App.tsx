@@ -19,6 +19,7 @@ import BookingList from './pages/bookings/BookingList';
 import BookingDetail from './pages/bookings/BookingDetail';
 import ChangeRequestList from './pages/change-requests/ChangeRequestList';
 import ChangeRequestDetail from './pages/change-requests/ChangeRequestDetail';
+import InfrastructureComponentList from './pages/infrastructure/InfrastructureComponentList';
 import ImportPage from './pages/import/ImportPage';
 import AdminLayout from './pages/admin/AdminLayout';
 import EntityConfig from './pages/admin/EntityConfig';
@@ -114,6 +115,7 @@ function App() {
           <Route path="/bookings/:id" element={<BookingDetail />} />
           <Route path="/change-requests" element={<ChangeRequestList />} />
           <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
+          <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
           <Route path="/import" element={<ImportPage />} />
           <Route
             path="/admin/config"

@@ -35,6 +35,7 @@ import UploadIcon from '@mui/icons-material/Upload';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ListIcon from '@mui/icons-material/List';
 import BuildIcon from '@mui/icons-material/Build';
+import StorageIcon from '@mui/icons-material/Storage';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
@@ -68,6 +69,7 @@ const navItems: NavItem[] = [
     ],
   },
   { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
+  { label: 'Hosts', path: '/infrastructure/hosts', icon: <StorageIcon /> },
   { label: 'Import', path: '/import', icon: <UploadIcon /> },
 ];
 

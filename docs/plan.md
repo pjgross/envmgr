@@ -11,10 +11,11 @@
 | 0 | Foundations & Guardrails | ✅ Complete | — | See below |
 | 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
 | 2 | Change Management | 🚧 Implementation complete, pending MR | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
+| 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | 🚧 Implementation complete, pending MR | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
 | 3 | Releases, Templates, Enterprise Release, Jira | ⏳ Planned | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
-| 6 | Infrastructure Topology | ⏳ Planned | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
+| 6 | Infrastructure Topology | 🟡 Model pulled forward — Terraform/Neo4j/React Flow still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
 | 7 | Multi-Project Coordination | ⏳ Planned | 4–6 weeks | [phases/phase-7.md](phases/phase-7.md) |
 
 ---

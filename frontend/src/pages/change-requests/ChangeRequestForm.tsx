@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Box, FormControlLabel, MenuItem, Switch } from '@mui/material';
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Chip,
+  FormControlLabel,
+  MenuItem,
+  Switch,
+  TextField,
+  Typography,
+} from '@mui/material';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { fetchEnvironments, fetchEnvSubsystems } from '../../store/environmentSlice';
+import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
 import {
   fetchLifecycleTemplates,
   selectTemplatesForEntity,
@@ -22,7 +33,7 @@ import { changeRequestService } from '../../services/changeRequestService';
 import type {
   ChangeRequestCreatePayload,
   ChangeType,
-  OutageConflictBooking,
+  OutageConflictEnvironment,
 } from '../../types/changeRequest';
 
 interface ChangeRequestFormProps {
@@ -42,7 +53,8 @@ const schema = z
     description: z.string(),
     change_type: z.enum(['configuration', 'infrastructure', 'code_deployment']),
     lifecycle_id: z.number().nullable(),
-    environment_id: z.number().nullable(),
+    environment_ids: z.array(z.number()),
+    host_ids: z.array(z.number()),
     subsystem_id: z.number().nullable(),
     scheduled_start: z.string().min(1, 'Scheduled start is required'),
     scheduled_end: z.string().min(1, 'Scheduled end is required'),
@@ -55,13 +67,9 @@ const schema = z
     path: ['lifecycle_id'],
     message: 'Lifecycle is required',
   })
-  .refine((v) => v.environment_id != null, {
-    path: ['environment_id'],
-    message: 'Environment is required',
-  })
-  .refine((v) => v.subsystem_id != null, {
-    path: ['subsystem_id'],
-    message: 'Subsystem is required',
+  .refine((v) => v.environment_ids.length > 0 || v.host_ids.length > 0, {
+    path: ['environment_ids'],
+    message: 'Select at least one environment or host',
   })
   .refine((v) => new Date(v.scheduled_end) > new Date(v.scheduled_start), {
     path: ['scheduled_end'],
@@ -84,7 +92,8 @@ const buildDefaults = (): FormValues => ({
   description: '',
   change_type: 'configuration',
   lifecycle_id: null,
-  environment_id: null,
+  environment_ids: [],
+  host_ids: [],
   subsystem_id: null,
   scheduled_start: '',
   scheduled_end: '',
@@ -101,6 +110,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
 
   const environments = useSelector((s: RootState) => s.environment.environments);
   const envSubsystems = useSelector((s: RootState) => s.environment.envSubsystems);
+  const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
   const lifecycles = useSelector(selectTemplatesForEntity('change_request'));
   const customFieldDefs = useSelector(
     (s: RootState) => s.customField.definitions['change_request'] ?? []
@@ -113,19 +123,22 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
   });
   const { control, watch, setValue, reset } = form;
 
-  const environmentId = watch('environment_id');
+  const environmentIds = watch('environment_ids');
+  const hostIds = watch('host_ids');
   const hasOutage = watch('has_outage');
 
-  // Outage-vs-booking advisory preview (debounced)
-  const [outageConflicts, setOutageConflicts] = useState<OutageConflictBooking[]>([]);
+  const [outageConflicts, setOutageConflicts] = useState<OutageConflictEnvironment[]>([]);
+  const [derivedEnvIds, setDerivedEnvIds] = useState<number[]>([]);
   const outageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const previewEnv = useWatch({ control, name: 'environment_id' });
+  const previewEnvIds = useWatch({ control, name: 'environment_ids' });
+  const previewHostIds = useWatch({ control, name: 'host_ids' });
   const previewStart = useWatch({ control, name: 'outage_start' });
   const previewEnd = useWatch({ control, name: 'outage_end' });
   const previewHasOutage = useWatch({ control, name: 'has_outage' });
 
   useEffect(() => {
     dispatch(fetchEnvironments());
+    dispatch(fetchInfrastructureComponents());
     dispatch(fetchLifecycleTemplates('change_request'));
     dispatch(fetchDefinitions('change_request'));
   }, [dispatch]);
@@ -138,36 +151,46 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
     }
   }, [open, lifecycles, setValue, form]);
 
+  // When environment selection is exactly one, fetch its subsystems for the optional picker
+  const singleEnvId = environmentIds.length === 1 && hostIds.length === 0
+    ? environmentIds[0]
+    : null;
   useEffect(() => {
-    if (environmentId != null) {
-      dispatch(fetchEnvSubsystems(environmentId));
-      setValue('subsystem_id', null);
+    if (singleEnvId != null) {
+      dispatch(fetchEnvSubsystems(singleEnvId));
     }
-  }, [environmentId, dispatch, setValue]);
+    setValue('subsystem_id', null);
+  }, [singleEnvId, dispatch, setValue]);
 
-  // Debounced outage conflict preview. Silent on errors — advisory only.
   useEffect(() => {
     if (outageDebounceRef.current) clearTimeout(outageDebounceRef.current);
-    if (!previewHasOutage || previewEnv == null || !previewStart || !previewEnd) {
+    const hasTargets =
+      (previewEnvIds && previewEnvIds.length > 0) ||
+      (previewHostIds && previewHostIds.length > 0);
+    if (!previewHasOutage || !hasTargets || !previewStart || !previewEnd) {
       setOutageConflicts([]);
+      setDerivedEnvIds([]);
       return;
     }
     outageDebounceRef.current = setTimeout(async () => {
       try {
         const result = await changeRequestService.previewOutageConflicts({
-          environment_id: previewEnv,
+          environment_ids: previewEnvIds,
+          host_ids: previewHostIds,
           outage_start: new Date(previewStart).toISOString(),
           outage_end: new Date(previewEnd).toISOString(),
         });
-        setOutageConflicts(result.conflicting_bookings);
+        setOutageConflicts(result.environments);
+        setDerivedEnvIds(result.derived_environment_ids);
       } catch {
         setOutageConflicts([]);
+        setDerivedEnvIds([]);
       }
     }, 400);
     return () => {
       if (outageDebounceRef.current) clearTimeout(outageDebounceRef.current);
     };
-  }, [previewHasOutage, previewEnv, previewStart, previewEnd]);
+  }, [previewHasOutage, previewEnvIds, previewHostIds, previewStart, previewEnd]);
 
   const subsystemOptions = useMemo(
     () =>
@@ -178,9 +201,15 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
     [envSubsystems]
   );
 
+  const envById = useMemo(() => new Map(environments.map((e) => [e.id, e])), [environments]);
+  const hostById = useMemo(() => new Map(hosts.map((h) => [h.id, h])), [hosts]);
+
+  const totalConflicts = outageConflicts.reduce((acc, e) => acc + e.conflicts.length, 0);
+
   const handleClose = () => {
     reset(buildDefaults());
     setOutageConflicts([]);
+    setDerivedEnvIds([]);
     onClose();
   };
 
@@ -190,8 +219,9 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
       description: values.description || null,
       change_type: values.change_type,
       lifecycle_id: values.lifecycle_id as number,
-      environment_id: values.environment_id as number,
-      subsystem_id: values.subsystem_id as number,
+      environment_ids: values.environment_ids,
+      host_ids: values.host_ids,
+      subsystem_id: values.subsystem_id,
       scheduled_start: new Date(values.scheduled_start).toISOString(),
       scheduled_end: new Date(values.scheduled_end).toISOString(),
       has_outage: values.has_outage,
@@ -234,9 +264,8 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
       submittingLabel="Creating..."
     >
       <Alert severity="info" sx={{ mb: 1, mt: 1 }}>
-        Change requests follow the <strong>Simple Approval</strong> or
-        <strong> Emergency</strong> lifecycle — pick the one that matches the urgency of
-        this change.
+        A change request must target at least one environment or host. Host-scoped
+        changes automatically surface every environment whose subsystems run on that host.
       </Alert>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
         <FormTextField<FormValues> name="title" label="Title" required fullWidth />
@@ -258,34 +287,84 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
           ))}
         </FormSelect>
 
-        <FormSelect<FormValues> name="environment_id" label="Environment" required fullWidth>
-          {environments.map((e) => (
-            <MenuItem key={e.id} value={e.id}>
-              {e.name}
-            </MenuItem>
-          ))}
-        </FormSelect>
+        <Controller
+          control={control}
+          name="environment_ids"
+          render={({ field, fieldState }) => (
+            <Autocomplete
+              multiple
+              options={environments}
+              value={field.value.map((id) => envById.get(id)).filter(Boolean) as typeof environments}
+              onChange={(_, v) => field.onChange(v.map((e) => e.id))}
+              getOptionLabel={(e) => e.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderTags={(value, getTagProps) =>
+                value.map((opt, index) => (
+                  <Chip size="small" label={opt.name} {...getTagProps({ index })} key={opt.id} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Environments"
+                  placeholder="Select one or more environments"
+                  error={!!fieldState.error}
+                  helperText={fieldState.error?.message}
+                />
+              )}
+            />
+          )}
+        />
 
-        <FormSelect<FormValues>
-          name="subsystem_id"
-          label="Subsystem"
-          required
-          fullWidth
-          disabled={environmentId == null}
-          helperText={
-            environmentId == null
-              ? 'Pick an environment first'
-              : subsystemOptions.length === 0
+        <Controller
+          control={control}
+          name="host_ids"
+          render={({ field }) => (
+            <Autocomplete
+              multiple
+              options={hosts}
+              value={field.value.map((id) => hostById.get(id)).filter(Boolean) as typeof hosts}
+              onChange={(_, v) => field.onChange(v.map((h) => h.id))}
+              getOptionLabel={(h) => `${h.name} (${h.component_type})`}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderTags={(value, getTagProps) =>
+                value.map((opt, index) => (
+                  <Chip size="small" label={opt.name} {...getTagProps({ index })} key={opt.id} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Hosts"
+                  placeholder="Select one or more hosts"
+                  helperText="Affected environments are derived automatically from host attachments"
+                />
+              )}
+            />
+          )}
+        />
+
+        {singleEnvId != null && (
+          <FormSelect<FormValues>
+            name="subsystem_id"
+            label="Subsystem (optional)"
+            fullWidth
+            helperText={
+              subsystemOptions.length === 0
                 ? 'This environment has no subsystems configured'
-                : undefined
-          }
-        >
-          {subsystemOptions.map((s) => (
-            <MenuItem key={s.id} value={s.id}>
-              {s.label}
+                : 'Narrow the change to one subsystem in this environment'
+            }
+          >
+            <MenuItem value="">
+              <em>None (env-wide)</em>
             </MenuItem>
-          ))}
-        </FormSelect>
+            {subsystemOptions.map((s) => (
+              <MenuItem key={s.id} value={s.id}>
+                {s.label}
+              </MenuItem>
+            ))}
+          </FormSelect>
+        )}
 
         <FormTextField<FormValues>
           name="scheduled_start"
@@ -315,7 +394,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
                   onChange={(e) => field.onChange(e.target.checked)}
                 />
               }
-              label="This change causes an environment outage"
+              label="This change causes an outage"
             />
           )}
         />
@@ -337,29 +416,54 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
               fullWidth
             />
 
-            {outageConflicts.length > 0 && (
-              <Alert severity="warning">
+            {derivedEnvIds.length > 0 && (
+              <Alert severity="info">
+                The following environment
+                {derivedEnvIds.length === 1 ? ' is' : 's are'} affected via the selected
+                host
+                {previewHostIds.length === 1 ? '' : 's'}:{' '}
                 <strong>
-                  {outageConflicts.length} booking
-                  {outageConflicts.length === 1 ? '' : 's'}
-                </strong>{' '}
-                overlap this outage window. You can proceed; affected teams will want to
-                know.
-                <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2 }}>
-                  {outageConflicts.map((b) => (
-                    <li key={b.id}>
-                      <strong>{b.project_name}</strong> (
-                      {new Date(b.start_date).toLocaleString()} –{' '}
-                      {new Date(b.end_date).toLocaleString()}) — status {b.status}
-                    </li>
+                  {derivedEnvIds
+                    .map((id) => envById.get(id)?.name ?? `#${id}`)
+                    .join(', ')}
+                </strong>
+                .
+              </Alert>
+            )}
+
+            {totalConflicts > 0 && (
+              <Alert severity="warning">
+                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                  {totalConflicts} booking{totalConflicts === 1 ? '' : 's'} across{' '}
+                  {outageConflicts.filter((e) => e.conflicts.length > 0).length} environment
+                  {outageConflicts.filter((e) => e.conflicts.length > 0).length === 1
+                    ? ''
+                    : 's'}{' '}
+                  overlap this outage window. You can proceed; affected teams will want to know.
+                </Typography>
+                {outageConflicts
+                  .filter((e) => e.conflicts.length > 0)
+                  .map((env) => (
+                    <Box key={env.environment_id} sx={{ mt: 1 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 'medium' }}>
+                        {env.environment_name}:
+                      </Typography>
+                      <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2 }}>
+                        {env.conflicts.map((b) => (
+                          <li key={b.id}>
+                            <strong>{b.project_name}</strong> (
+                            {new Date(b.start_date).toLocaleString()} –{' '}
+                            {new Date(b.end_date).toLocaleString()})
+                          </li>
+                        ))}
+                      </Box>
+                    </Box>
                   ))}
-                </Box>
               </Alert>
             )}
           </>
         )}
 
-        {/* Custom fields for change_request entity */}
         <Controller
           control={control}
           name="custom_field_values"

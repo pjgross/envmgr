@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Alert, Box, FormControlLabel, MenuItem, Switch } from '@mui/material';
+import { Alert, Autocomplete, Box, Chip, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { updateChangeRequest } from '../../store/changeRequestSlice';
+import { fetchEnvironments } from '../../store/environmentSlice';
+import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
 import FormDialog from '../../components/form/FormDialog';
 import FormTextField from '../../components/form/FormTextField';
 import FormSelect from '../../components/form/FormSelect';
@@ -44,12 +46,18 @@ const schema = z
     title: z.string().trim().min(1, 'Title is required'),
     description: z.string(),
     change_type: z.enum(['configuration', 'infrastructure', 'code_deployment']),
+    environment_ids: z.array(z.number()),
+    host_ids: z.array(z.number()),
     scheduled_start: z.string().min(1, 'Scheduled start is required'),
     scheduled_end: z.string().min(1, 'Scheduled end is required'),
     has_outage: z.boolean(),
     outage_start: z.string(),
     outage_end: z.string(),
     custom_field_values: z.record(z.string(), z.unknown()),
+  })
+  .refine((v) => v.environment_ids.length > 0 || v.host_ids.length > 0, {
+    path: ['environment_ids'],
+    message: 'Select at least one environment or host',
   })
   .refine((v) => new Date(v.scheduled_end) > new Date(v.scheduled_start), {
     path: ['scheduled_end'],
@@ -73,6 +81,8 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
   const customFieldDefs = useSelector(
     (s: RootState) => s.customField.definitions['change_request'] ?? []
   );
+  const environments = useSelector((s: RootState) => s.environment.environments);
+  const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -80,6 +90,8 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
       title: changeRequest.title,
       description: changeRequest.description ?? '',
       change_type: changeRequest.change_type,
+      environment_ids: changeRequest.environment_ids,
+      host_ids: changeRequest.host_ids,
       scheduled_start: isoToLocalInput(changeRequest.scheduled_start),
       scheduled_end: isoToLocalInput(changeRequest.scheduled_end),
       has_outage: changeRequest.has_outage,
@@ -95,15 +107,18 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
 
   useEffect(() => {
     dispatch(fetchDefinitions('change_request'));
+    dispatch(fetchEnvironments());
+    dispatch(fetchInfrastructureComponents());
   }, [dispatch]);
 
-  // Re-seed form whenever a new CR is passed in (dialog reuse after navigation)
   useEffect(() => {
     if (!open) return;
     reset({
       title: changeRequest.title,
       description: changeRequest.description ?? '',
       change_type: changeRequest.change_type,
+      environment_ids: changeRequest.environment_ids,
+      host_ids: changeRequest.host_ids,
       scheduled_start: isoToLocalInput(changeRequest.scheduled_start),
       scheduled_end: isoToLocalInput(changeRequest.scheduled_end),
       has_outage: changeRequest.has_outage,
@@ -118,6 +133,8 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
       title: values.title.trim(),
       description: values.description || null,
       change_type: values.change_type,
+      environment_ids: values.environment_ids,
+      host_ids: values.host_ids,
       scheduled_start: new Date(values.scheduled_start).toISOString(),
       scheduled_end: new Date(values.scheduled_end).toISOString(),
       has_outage: values.has_outage,
@@ -160,8 +177,8 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
       submittingLabel="Saving..."
     >
       <Alert severity="info" sx={{ mb: 1, mt: 1 }}>
-        Lifecycle, environment, and subsystem can't be changed after creation. To move a
-        change to a different subsystem, cancel this one and raise a new one.
+        Lifecycle and subsystem can't be changed after creation. You can adjust the
+        environments and hosts this change targets.
       </Alert>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
         <FormTextField<FormValues> name="title" label="Title" required fullWidth />
@@ -173,6 +190,69 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
             </MenuItem>
           ))}
         </FormSelect>
+
+        <Controller
+          control={control}
+          name="environment_ids"
+          render={({ field, fieldState }) => (
+            <Autocomplete
+              multiple
+              options={environments}
+              value={
+                field.value
+                  .map((id) => environments.find((e) => e.id === id))
+                  .filter(Boolean) as typeof environments
+              }
+              onChange={(_, v) => field.onChange(v.map((e) => e.id))}
+              getOptionLabel={(e) => e.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderTags={(value, getTagProps) =>
+                value.map((opt, index) => (
+                  <Chip size="small" label={opt.name} {...getTagProps({ index })} key={opt.id} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Environments"
+                  error={!!fieldState.error}
+                  helperText={fieldState.error?.message}
+                />
+              )}
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="host_ids"
+          render={({ field }) => (
+            <Autocomplete
+              multiple
+              options={hosts}
+              value={
+                field.value
+                  .map((id) => hosts.find((h) => h.id === id))
+                  .filter(Boolean) as typeof hosts
+              }
+              onChange={(_, v) => field.onChange(v.map((h) => h.id))}
+              getOptionLabel={(h) => `${h.name} (${h.component_type})`}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderTags={(value, getTagProps) =>
+                value.map((opt, index) => (
+                  <Chip size="small" label={opt.name} {...getTagProps({ index })} key={opt.id} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Hosts"
+                  helperText="Affected envs derived automatically"
+                />
+              )}
+            />
+          )}
+        />
 
         <FormTextField<FormValues>
           name="scheduled_start"

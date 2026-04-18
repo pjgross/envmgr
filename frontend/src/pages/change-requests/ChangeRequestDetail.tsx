@@ -165,17 +165,69 @@ export default function ChangeRequestDetail() {
               {CHANGE_TYPE_LABELS[detail.change_type] ?? detail.change_type}
             </Typography>
           </Box>
-          <Box>
+          <Box sx={{ minWidth: 200 }}>
             <Typography variant="caption" color="text.secondary">
-              Environment
+              Environments
             </Typography>
-            <Typography variant="body2">#{detail.environment_id}</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+              {detail.environments.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  —
+                </Typography>
+              ) : (
+                detail.environments.map((e) => (
+                  <Chip
+                    key={e.id}
+                    size="small"
+                    label={e.name}
+                    color={
+                      detail.derived_environment_ids.includes(e.id) ? 'info' : 'default'
+                    }
+                    variant="outlined"
+                  />
+                ))
+              )}
+              {detail.derived_environment_ids
+                .filter((id) => !detail.environments.some((e) => e.id === id))
+                .map((id) => (
+                  <Chip
+                    key={`derived-${id}`}
+                    size="small"
+                    label={`env #${id} (derived)`}
+                    color="info"
+                    variant="outlined"
+                  />
+                ))}
+            </Box>
+          </Box>
+          <Box sx={{ minWidth: 200 }}>
+            <Typography variant="caption" color="text.secondary">
+              Hosts
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+              {detail.hosts.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  —
+                </Typography>
+              ) : (
+                detail.hosts.map((h) => (
+                  <Chip
+                    key={h.id}
+                    size="small"
+                    label={`${h.name}${h.region ? ` · ${h.region}` : ''}`}
+                    variant="outlined"
+                  />
+                ))
+              )}
+            </Box>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">
               Subsystem
             </Typography>
-            <Typography variant="body2">#{detail.subsystem_id}</Typography>
+            <Typography variant="body2">
+              {detail.subsystem_id == null ? '—' : `#${detail.subsystem_id}`}
+            </Typography>
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">
