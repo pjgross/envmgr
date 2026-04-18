@@ -4,7 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.services import conflict_service
-from app.api.v1.schemas.conflict import ConflictAckUpsert, ConflictAckRead, ConflictItem
+from app.api.v1.schemas.conflict import (
+    ConflictAckUpsert,
+    ConflictAckRead,
+    ConflictItem,
+    ReceivedFeedbackItem,
+    UserRef,
+    RequestContextRef,
+)
 from app.api.v1.schemas.booking_request import EnvBookingSummary
 
 router = APIRouter(prefix="/bookings", tags=["conflicts"])
@@ -48,3 +55,41 @@ async def ack_conflict(
         tenant_id=current_user.active_tenant_id,
     )
     return ConflictAckRead.model_validate(ack)
+
+
+@router.get(
+    "/{booking_id}/received-feedback",
+    response_model=list[ReceivedFeedbackItem],
+)
+async def list_received_feedback(
+    booking_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    rows = await conflict_service.list_received_feedback(
+        db, booking_id, current_user.active_tenant_id
+    )
+    return [
+        ReceivedFeedbackItem(
+            willing_to_share=r.ack.willing_to_share,
+            notes=r.ack.notes,
+            acknowledged_at=r.ack.acknowledged_at,
+            acknowledged_by=UserRef.model_validate(r.acknowledged_by),
+            source_booking=EnvBookingSummary(
+                id=r.source_booking.id,
+                environment_id=r.source_booking.environment_id,
+                start_date=r.source_booking.start_date,
+                end_date=r.source_booking.end_date,
+                status=r.source_booking.status,
+            ),
+            source_request=RequestContextRef(
+                id=r.source_request.id,
+                project_name=r.source_request.project_name,
+                notes=r.source_request.notes,
+                context_tag=r.source_request.context_tag,
+                exclusive_use_requested=r.source_request.exclusive_use_requested,
+                booked_by=UserRef.model_validate(r.booked_by),
+            ),
+        )
+        for r in rows
+    ]
