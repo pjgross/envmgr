@@ -1,7 +1,7 @@
 import api from './api';
 import type { BookingResponse, BookingCreate, BookingCreateResponse } from '../types/booking';
 import type { BookingStatusHistory, AllowedTransition } from '../types/bookingLifecycle';
-import type { ConflictItem, ConflictAck } from '../types/conflict';
+import type { ConflictItem, ConflictAck, ReceivedFeedbackItem } from '../types/conflict';
 
 export const bookingService = {
   listBookings: (params?: {
@@ -45,4 +45,7 @@ export const bookingService = {
     payload: { willing_to_share: boolean; notes?: string },
   ): Promise<ConflictAck> =>
     api.put(`/bookings/${id}/conflicts/${otherId}/ack`, payload).then((r) => r.data),
+
+  getReceivedFeedback: (id: number): Promise<ReceivedFeedbackItem[]> =>
+    api.get(`/bookings/${id}/received-feedback`).then((r) => r.data),
 };
