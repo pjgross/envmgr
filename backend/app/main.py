@@ -63,6 +63,7 @@ from app.api.v1 import component_types as component_types_router
 from app.api.v1 import booking_requests as booking_requests_router
 from app.api.v1 import conflicts as conflicts_router
 from app.api.v1 import change_requests as change_requests_router
+from app.api.v1 import infrastructure_components as infrastructure_components_router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -79,3 +80,8 @@ app.include_router(component_types_router.router, prefix="/api/v1/component-type
 app.include_router(booking_requests_router.router, prefix="/api/v1")
 app.include_router(conflicts_router.router, prefix="/api/v1")
 app.include_router(change_requests_router.router, prefix="/api/v1")
+app.include_router(
+    infrastructure_components_router.router,
+    prefix="/api/v1/infrastructure-components",
+    tags=["Infrastructure"],
+)

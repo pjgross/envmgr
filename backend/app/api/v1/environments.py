@@ -24,6 +24,11 @@ from app.api.v1.schemas.environment import (
 from app.api.v1.schemas.dependency import VerifyResponse
 from app.api.v1.schemas.version import VersionCreate, VersionUpdate, VersionResponse
 from app.api.v1.schemas.schedule import EnvironmentScheduleResponse
+from app.api.v1.schemas.infrastructure_component import (
+    EnvironmentSubSystemHostResponse,
+    EnvironmentSubSystemHostsResponse,
+    HostAttachment,
+)
 
 router = APIRouter()
 
@@ -199,6 +204,44 @@ async def update_environment_subsystem(
     return await environment_system_service.update_environment_subsystem(
         db, env_id, subsystem_id, data, current_user.active_tenant_id
     )
+
+
+# ---------------------------------------------------------------------------
+# EnvironmentSubSystem host attachments
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{env_id}/subsystems/{subsystem_id}/hosts",
+    response_model=EnvironmentSubSystemHostsResponse,
+)
+async def list_env_subsystem_hosts(
+    env_id: int,
+    subsystem_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    hosts = await environment_system_service.list_env_subsystem_hosts(
+        db, env_id, subsystem_id, current_user.active_tenant_id
+    )
+    return EnvironmentSubSystemHostsResponse(hosts=hosts)
+
+
+@router.put(
+    "/{env_id}/subsystems/{subsystem_id}/hosts",
+    response_model=EnvironmentSubSystemHostsResponse,
+)
+async def set_env_subsystem_hosts(
+    env_id: int,
+    subsystem_id: int,
+    attachments: list[HostAttachment],
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    hosts = await environment_system_service.set_env_subsystem_hosts(
+        db, env_id, subsystem_id, attachments, current_user.active_tenant_id
+    )
+    return EnvironmentSubSystemHostsResponse(hosts=hosts)
 
 
 # ---------------------------------------------------------------------------

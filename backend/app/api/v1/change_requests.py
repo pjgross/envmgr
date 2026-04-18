@@ -22,9 +22,14 @@ from app.api.v1.schemas.change_request import (
 router = APIRouter(prefix="/change-requests", tags=["Change Requests"])
 
 
+async def _shape(db: AsyncSession, cr, tenant_id: int) -> dict:
+    return await change_request_service.build_cr_response_dict(db, cr, tenant_id)
+
+
 @router.get("", response_model=list[ChangeRequestResponse])
 async def list_change_requests(
     environment_id: Optional[int] = Query(None),
+    host_id: Optional[int] = Query(None),
     subsystem_id: Optional[int] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     scheduled_from: Optional[datetime] = Query(None),
@@ -32,15 +37,18 @@ async def list_change_requests(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await change_request_service.list_change_requests(
+    tenant_id = current_user.active_tenant_id
+    crs = await change_request_service.list_change_requests(
         db,
-        current_user.active_tenant_id,
+        tenant_id,
         environment_id=environment_id,
+        host_id=host_id,
         subsystem_id=subsystem_id,
         status_filter=status_filter,
         scheduled_from=scheduled_from,
         scheduled_to=scheduled_to,
     )
+    return [await _shape(db, cr, tenant_id) for cr in crs]
 
 
 @router.post("", response_model=ChangeRequestResponse, status_code=status.HTTP_201_CREATED)
@@ -49,9 +57,11 @@ async def create_change_request(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await change_request_service.create_change_request(
-        db, data, current_user, current_user.active_tenant_id
+    tenant_id = current_user.active_tenant_id
+    cr = await change_request_service.create_change_request(
+        db, data, current_user, tenant_id
     )
+    return await _shape(db, cr, tenant_id)
 
 
 @router.post("/preview-outage-conflicts", response_model=PreviewOutageConflictsResponse)
@@ -60,17 +70,18 @@ async def preview_outage_conflicts(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Advisory: list bookings in an environment whose window overlaps the
-    proposed outage. Does not create or reserve anything; purely read-side.
+    """Advisory: list booking conflicts grouped by each environment in the
+    effective set (explicit environment_ids ∪ envs derived from host_ids).
     """
-    conflicts = await change_request_service.preview_outage_conflicts(
+    return await change_request_service.preview_outage_conflicts(
         db,
-        environment_id=data.environment_id,
+        environment_ids=data.environment_ids,
+        host_ids=data.host_ids,
         outage_start=data.outage_start,
         outage_end=data.outage_end,
         tenant_id=current_user.active_tenant_id,
+        exclude_change_request_id=data.exclude_change_request_id,
     )
-    return {"conflicting_bookings": conflicts}
 
 
 @router.get("/{cr_id}", response_model=ChangeRequestDetailResponse)
@@ -79,16 +90,12 @@ async def get_change_request_detail(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    cr = await change_request_service.get_change_request(
-        db, cr_id, current_user.active_tenant_id
-    )
-    history = await change_request_service.list_history(
-        db, cr_id, current_user.active_tenant_id
-    )
-    # Pydantic v2 model_validate handles the history list via ChangeHistoryEntry
-    detail = ChangeRequestDetailResponse.model_validate(cr)
-    detail.history = [ChangeHistoryEntry.model_validate(h) for h in history]
-    return detail
+    tenant_id = current_user.active_tenant_id
+    cr = await change_request_service.get_change_request(db, cr_id, tenant_id)
+    history = await change_request_service.list_history(db, cr_id, tenant_id)
+    payload = await _shape(db, cr, tenant_id)
+    payload["history"] = [ChangeHistoryEntry.model_validate(h).model_dump() for h in history]
+    return payload
 
 
 @router.patch("/{cr_id}", response_model=ChangeRequestResponse)
@@ -98,9 +105,11 @@ async def update_change_request(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await change_request_service.update_change_request(
-        db, cr_id, data, current_user, current_user.active_tenant_id
+    tenant_id = current_user.active_tenant_id
+    cr = await change_request_service.update_change_request(
+        db, cr_id, data, current_user, tenant_id
     )
+    return await _shape(db, cr, tenant_id)
 
 
 @router.post("/{cr_id}/transition", response_model=ChangeRequestResponse)
@@ -110,14 +119,11 @@ async def transition_change_request(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await change_request_service.transition_status(
-        db,
-        cr_id,
-        data.to_state,
-        current_user,
-        current_user.active_tenant_id,
-        notes=data.notes,
+    tenant_id = current_user.active_tenant_id
+    cr = await change_request_service.transition_status(
+        db, cr_id, data.to_state, current_user, tenant_id, notes=data.notes,
     )
+    return await _shape(db, cr, tenant_id)
 
 
 @router.get("/{cr_id}/allowed-transitions")

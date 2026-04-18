@@ -26,7 +26,9 @@ class ScheduleChangeRequest(BaseModel):
 
     id: int
     environment_id: int
-    subsystem_id: int
+    environment_ids: list[int] = []
+    host_ids: list[int] = []
+    subsystem_id: Optional[int] = None
     title: str
     change_type: str
     status: str

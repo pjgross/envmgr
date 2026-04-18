@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.api.v1.schemas.infrastructure_component import InfrastructureComponentSummary
 
-# Change type enum values (must match ChangeType in models/change_request.py)
+
 VALID_CHANGE_TYPES = {"configuration", "infrastructure", "code_deployment"}
 
 
@@ -28,8 +29,9 @@ class ChangeRequestCreate(BaseModel):
     description: Optional[str] = None
     change_type: str
     lifecycle_id: int
-    subsystem_id: int
-    environment_id: int
+    subsystem_id: Optional[int] = None
+    environment_ids: list[int] = Field(default_factory=list)
+    host_ids: list[int] = Field(default_factory=list)
     release_id: Optional[int] = None
     has_outage: bool = False
     outage_start: Optional[datetime] = None
@@ -44,6 +46,10 @@ class ChangeRequestCreate(BaseModel):
             raise ValueError(
                 f"change_type must be one of {sorted(VALID_CHANGE_TYPES)}"
             )
+        if not self.environment_ids and not self.host_ids:
+            raise ValueError(
+                "At least one of environment_ids or host_ids is required"
+            )
         _require_chronological(self.scheduled_start, self.scheduled_end, "scheduled")
         _validate_outage(self.has_outage, self.outage_start, self.outage_end)
         return self
@@ -55,6 +61,9 @@ class ChangeRequestUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=250)
     description: Optional[str] = None
     change_type: Optional[str] = None
+    subsystem_id: Optional[int] = None
+    environment_ids: Optional[list[int]] = None
+    host_ids: Optional[list[int]] = None
     release_id: Optional[int] = None
     has_outage: Optional[bool] = None
     outage_start: Optional[datetime] = None
@@ -93,7 +102,15 @@ class ChangeHistoryEntry(BaseModel):
     notes: Optional[str]
 
 
+class EnvironmentSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
 class ChangeRequestResponse(BaseModel):
+    """Response shape — resolved lists replace the legacy single environment_id FK."""
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -103,8 +120,12 @@ class ChangeRequestResponse(BaseModel):
     change_type: str
     status: str
     lifecycle_id: int
-    subsystem_id: int
-    environment_id: int
+    subsystem_id: Optional[int]
+    environment_ids: list[int] = []
+    host_ids: list[int] = []
+    environments: list[EnvironmentSummary] = []
+    hosts: list[InfrastructureComponentSummary] = []
+    derived_environment_ids: list[int] = []
     release_id: Optional[int]
     has_outage: bool
     outage_start: Optional[datetime]
@@ -121,16 +142,22 @@ class ChangeRequestDetailResponse(ChangeRequestResponse):
     history: list[ChangeHistoryEntry] = []
 
 
-# ── Outage × booking conflict preview (Step 5) ──────────────────────────────
+# ── Outage × booking conflict preview ───────────────────────────────────────
 
 class PreviewOutageConflictsRequest(BaseModel):
-    environment_id: int
+    environment_ids: list[int] = Field(default_factory=list)
+    host_ids: list[int] = Field(default_factory=list)
     outage_start: datetime
     outage_end: datetime
+    exclude_change_request_id: Optional[int] = None
 
     @model_validator(mode="after")
     def _check(self) -> "PreviewOutageConflictsRequest":
         _require_chronological(self.outage_start, self.outage_end, "outage")
+        if not self.environment_ids and not self.host_ids:
+            raise ValueError(
+                "At least one of environment_ids or host_ids is required"
+            )
         return self
 
 
@@ -139,11 +166,19 @@ class OutageConflictBooking(BaseModel):
 
     id: int
     environment_id: int
+    environment_name: str
     project_name: str
     start_date: datetime
     end_date: datetime
     status: str
 
 
+class OutageConflictEnvironment(BaseModel):
+    environment_id: int
+    environment_name: str
+    conflicts: list[OutageConflictBooking] = []
+
+
 class PreviewOutageConflictsResponse(BaseModel):
-    conflicting_bookings: list[OutageConflictBooking] = []
+    environments: list[OutageConflictEnvironment] = []
+    derived_environment_ids: list[int] = []

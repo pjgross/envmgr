@@ -1,23 +1,38 @@
 """Change Request service — CRUD, lifecycle transitions, event publishing.
 
-Mirrors the booking_request_service shape where reasonable. Lifecycle mechanics
-(transition validation, allowed transitions, field permissions) are delegated
-to the generic `app.services.lifecycle_service` — see Phase 2 Step 1.
+Multi-target aware (Phase 3): a CR can target any combination of environments
+and infrastructure components (hosts). When a host is targeted, affected
+environments are derived through the `environment_subsystem_host` junction and
+exposed to consumers as `derived_environment_ids`.
+
+Lifecycle mechanics (transition validation, allowed transitions, field
+permissions) are delegated to the generic `app.services.lifecycle_service`.
 """
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.events import publish_event
-from app.db.models.change_request import ChangeRequest, ChangeHistory
-from app.db.models.environment import Environment
+from app.db.models.change_request import (
+    ChangeHistory,
+    ChangeRequest,
+    ChangeRequestEnvironment,
+    ChangeRequestHost,
+)
+from app.db.models.environment import (
+    Environment,
+    EnvironmentSubSystem,
+    EnvironmentSubSystemHost,
+)
+from app.db.models.infrastructure_component import InfrastructureComponent
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.system import SubSystem
 from app.db.models.user import User
-from app.services import lifecycle_service
+from app.services import lifecycle_service, infrastructure_component_service
 from app.api.v1.schemas.change_request import (
     ChangeRequestCreate,
     ChangeRequestUpdate,
@@ -80,11 +95,6 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
 
 
 async def seed_default_lifecycles(db: AsyncSession, tenant_id: int) -> None:
-    """Insert the two default change-request lifecycle templates for a tenant.
-
-    Idempotent: skips any template whose name already exists for
-    (tenant_id, entity_type='change_request').
-    """
     existing_names = set(
         (
             await db.execute(
@@ -144,9 +154,56 @@ async def _initial_state(tpl: LifecycleTemplate) -> str:
     )
 
 
-async def _validate_subsystem_environment(
-    db: AsyncSession, subsystem_id: int, environment_id: int, tenant_id: int
+async def _validate_environments(
+    db: AsyncSession, environment_ids: list[int], tenant_id: int
 ) -> None:
+    if not environment_ids:
+        return
+    result = await db.execute(
+        select(Environment.id).where(
+            Environment.id.in_(environment_ids),
+            Environment.tenant_id == tenant_id,
+            Environment.deleted_at.is_(None),
+        )
+    )
+    found = {row[0] for row in result.all()}
+    missing = set(environment_ids) - found
+    if missing:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"environment_ids contain invalid entries: {sorted(missing)}",
+        )
+
+
+async def _validate_hosts(
+    db: AsyncSession, host_ids: list[int], tenant_id: int
+) -> None:
+    if not host_ids:
+        return
+    result = await db.execute(
+        select(InfrastructureComponent.id).where(
+            InfrastructureComponent.id.in_(host_ids),
+            InfrastructureComponent.tenant_id == tenant_id,
+            InfrastructureComponent.deleted_at.is_(None),
+        )
+    )
+    found = {row[0] for row in result.all()}
+    missing = set(host_ids) - found
+    if missing:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"host_ids contain invalid entries: {sorted(missing)}",
+        )
+
+
+async def _validate_subsystem_scope(
+    db: AsyncSession,
+    subsystem_id: Optional[int],
+    environment_ids: list[int],
+    tenant_id: int,
+) -> None:
+    if subsystem_id is None:
+        return
     sub = (
         await db.execute(
             select(SubSystem).where(
@@ -161,28 +218,25 @@ async def _validate_subsystem_environment(
             status.HTTP_400_BAD_REQUEST,
             "subsystem_id must refer to an active subsystem in this tenant",
         )
-    env = (
-        await db.execute(
-            select(Environment).where(
-                Environment.id == environment_id,
-                Environment.tenant_id == tenant_id,
-                Environment.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if env is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "environment_id must refer to an active environment in this tenant",
-        )
+
+
+def _cr_load_options() -> list:
+    return [
+        selectinload(ChangeRequest.environments).selectinload(ChangeRequestEnvironment.environment),
+        selectinload(ChangeRequest.hosts).selectinload(ChangeRequestHost.infrastructure_component),
+    ]
 
 
 async def _get_cr(
     db: AsyncSession, cr_id: int, tenant_id: int, include_deleted: bool = False
 ) -> ChangeRequest:
-    stmt = select(ChangeRequest).where(
-        ChangeRequest.id == cr_id,
-        ChangeRequest.tenant_id == tenant_id,
+    stmt = (
+        select(ChangeRequest)
+        .options(*_cr_load_options())
+        .where(
+            ChangeRequest.id == cr_id,
+            ChangeRequest.tenant_id == tenant_id,
+        )
     )
     if not include_deleted:
         stmt = stmt.where(ChangeRequest.deleted_at.is_(None))
@@ -190,6 +244,82 @@ async def _get_cr(
     if cr is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Change request not found")
     return cr
+
+
+def _env_ids(cr: ChangeRequest) -> list[int]:
+    return sorted({row.environment_id for row in cr.environments})
+
+
+def _host_ids(cr: ChangeRequest) -> list[int]:
+    return sorted({row.infrastructure_component_id for row in cr.hosts})
+
+
+async def build_cr_response_dict(
+    db: AsyncSession, cr: ChangeRequest, tenant_id: int
+) -> dict:
+    """Shape an ORM row into the ChangeRequestResponse payload, resolving
+    junction collections and deriving host-sourced environments.
+    """
+    environment_ids = _env_ids(cr)
+    host_ids = _host_ids(cr)
+
+    derived_env_ids = sorted(
+        set(
+            await infrastructure_component_service.environments_affected_by_hosts(
+                db, tenant_id, host_ids
+            )
+        )
+        - set(environment_ids)
+    )
+
+    environments_payload = sorted(
+        (
+            {"id": row.environment.id, "name": row.environment.name}
+            for row in cr.environments
+            if row.environment is not None
+        ),
+        key=lambda e: e["id"],
+    )
+    hosts_payload = sorted(
+        (
+            {
+                "id": row.infrastructure_component.id,
+                "name": row.infrastructure_component.name,
+                "component_type": row.infrastructure_component.component_type,
+                "provider": row.infrastructure_component.provider,
+                "region": row.infrastructure_component.region,
+            }
+            for row in cr.hosts
+            if row.infrastructure_component is not None
+        ),
+        key=lambda h: h["id"],
+    )
+
+    return {
+        "id": cr.id,
+        "tenant_id": cr.tenant_id,
+        "title": cr.title,
+        "description": cr.description,
+        "change_type": cr.change_type,
+        "status": cr.status,
+        "lifecycle_id": cr.lifecycle_id,
+        "subsystem_id": cr.subsystem_id,
+        "environment_ids": environment_ids,
+        "host_ids": host_ids,
+        "environments": environments_payload,
+        "hosts": hosts_payload,
+        "derived_environment_ids": derived_env_ids,
+        "release_id": cr.release_id,
+        "has_outage": cr.has_outage,
+        "outage_start": cr.outage_start,
+        "outage_end": cr.outage_end,
+        "scheduled_start": cr.scheduled_start,
+        "scheduled_end": cr.scheduled_end,
+        "custom_fields": cr.custom_fields,
+        "raised_by": cr.raised_by,
+        "created_at": cr.created_at,
+        "updated_at": cr.updated_at,
+    }
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -200,10 +330,19 @@ async def create_change_request(
     current_user: User,
     tenant_id: int,
 ) -> ChangeRequest:
+    environment_ids = sorted(set(data.environment_ids or []))
+    host_ids = sorted(set(data.host_ids or []))
+
+    if not environment_ids and not host_ids:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "At least one environment_ids or host_ids entry is required",
+        )
+
     tpl = await _load_lifecycle(db, data.lifecycle_id, tenant_id)
-    await _validate_subsystem_environment(
-        db, data.subsystem_id, data.environment_id, tenant_id
-    )
+    await _validate_environments(db, environment_ids, tenant_id)
+    await _validate_hosts(db, host_ids, tenant_id)
+    await _validate_subsystem_scope(db, data.subsystem_id, environment_ids, tenant_id)
     initial_state = await _initial_state(tpl)
 
     cr = ChangeRequest(
@@ -214,7 +353,6 @@ async def create_change_request(
         status=initial_state,
         lifecycle_id=data.lifecycle_id,
         subsystem_id=data.subsystem_id,
-        environment_id=data.environment_id,
         release_id=data.release_id,
         has_outage=data.has_outage,
         outage_start=data.outage_start,
@@ -227,6 +365,23 @@ async def create_change_request(
     db.add(cr)
     await db.flush()
 
+    for env_id in environment_ids:
+        db.add(
+            ChangeRequestEnvironment(
+                change_request_id=cr.id,
+                environment_id=env_id,
+                tenant_id=tenant_id,
+            )
+        )
+    for host_id in host_ids:
+        db.add(
+            ChangeRequestHost(
+                change_request_id=cr.id,
+                infrastructure_component_id=host_id,
+                tenant_id=tenant_id,
+            )
+        )
+
     db.add(
         ChangeHistory(
             change_request_id=cr.id,
@@ -238,6 +393,15 @@ async def create_change_request(
     )
     await db.flush()
 
+    derived_env_ids = sorted(
+        set(
+            await infrastructure_component_service.environments_affected_by_hosts(
+                db, tenant_id, host_ids
+            )
+        )
+        - set(environment_ids)
+    )
+
     await publish_event(
         db,
         event_type="ChangeRequestCreated",
@@ -247,14 +411,15 @@ async def create_change_request(
             "id": cr.id,
             "title": cr.title,
             "change_type": cr.change_type,
-            "environment_id": cr.environment_id,
+            "environment_ids": environment_ids,
+            "host_ids": host_ids,
+            "derived_environment_ids": derived_env_ids,
             "subsystem_id": cr.subsystem_id,
             "status": cr.status,
         },
         tenant_id=tenant_id,
     )
-    await db.refresh(cr)
-    return cr
+    return await _get_cr(db, cr.id, tenant_id)
 
 
 async def get_change_request(
@@ -268,17 +433,34 @@ async def list_change_requests(
     tenant_id: int,
     *,
     environment_id: Optional[int] = None,
+    host_id: Optional[int] = None,
     subsystem_id: Optional[int] = None,
     status_filter: Optional[str] = None,
     scheduled_from: Optional[datetime] = None,
     scheduled_to: Optional[datetime] = None,
 ) -> list[ChangeRequest]:
-    stmt = select(ChangeRequest).where(
-        ChangeRequest.tenant_id == tenant_id,
-        ChangeRequest.deleted_at.is_(None),
+    stmt = (
+        select(ChangeRequest)
+        .options(*_cr_load_options())
+        .where(
+            ChangeRequest.tenant_id == tenant_id,
+            ChangeRequest.deleted_at.is_(None),
+        )
     )
     if environment_id is not None:
-        stmt = stmt.where(ChangeRequest.environment_id == environment_id)
+        stmt = stmt.where(
+            exists().where(
+                (ChangeRequestEnvironment.change_request_id == ChangeRequest.id)
+                & (ChangeRequestEnvironment.environment_id == environment_id)
+            )
+        )
+    if host_id is not None:
+        stmt = stmt.where(
+            exists().where(
+                (ChangeRequestHost.change_request_id == ChangeRequest.id)
+                & (ChangeRequestHost.infrastructure_component_id == host_id)
+            )
+        )
     if subsystem_id is not None:
         stmt = stmt.where(ChangeRequest.subsystem_id == subsystem_id)
     if status_filter is not None:
@@ -294,7 +476,6 @@ async def list_change_requests(
 async def list_history(
     db: AsyncSession, cr_id: int, tenant_id: int
 ) -> list[ChangeHistory]:
-    # Tenant scoping via the parent CR
     await _get_cr(db, cr_id, tenant_id)
     rows = (
         await db.execute(
@@ -304,6 +485,73 @@ async def list_history(
         )
     ).scalars()
     return list(rows)
+
+
+async def _diff_target_lists(
+    db: AsyncSession,
+    cr: ChangeRequest,
+    *,
+    desired_env_ids: Optional[list[int]],
+    desired_host_ids: Optional[list[int]],
+    tenant_id: int,
+    current_user: User,
+) -> None:
+    """Apply env / host junction diffs. Writes ChangeHistory rows per direction."""
+    now = datetime.now(timezone.utc)
+
+    if desired_env_ids is not None:
+        desired_env_ids = sorted(set(desired_env_ids))
+        current_env_ids = _env_ids(cr)
+        if desired_env_ids != current_env_ids:
+            await _validate_environments(db, desired_env_ids, tenant_id)
+            cr.environments = [
+                row for row in cr.environments if row.environment_id in desired_env_ids
+            ]
+            for env_id in set(desired_env_ids) - set(current_env_ids):
+                cr.environments.append(
+                    ChangeRequestEnvironment(
+                        change_request_id=cr.id,
+                        environment_id=env_id,
+                        tenant_id=tenant_id,
+                    )
+                )
+            db.add(
+                ChangeHistory(
+                    change_request_id=cr.id,
+                    field_name="environments",
+                    old_value={"ids": current_env_ids},
+                    new_value={"ids": desired_env_ids},
+                    changed_by=current_user.id,
+                    changed_at=now,
+                )
+            )
+
+    if desired_host_ids is not None:
+        desired_host_ids = sorted(set(desired_host_ids))
+        current_host_ids = _host_ids(cr)
+        if desired_host_ids != current_host_ids:
+            await _validate_hosts(db, desired_host_ids, tenant_id)
+            cr.hosts = [
+                row for row in cr.hosts if row.infrastructure_component_id in desired_host_ids
+            ]
+            for host_id in set(desired_host_ids) - set(current_host_ids):
+                cr.hosts.append(
+                    ChangeRequestHost(
+                        change_request_id=cr.id,
+                        infrastructure_component_id=host_id,
+                        tenant_id=tenant_id,
+                    )
+                )
+            db.add(
+                ChangeHistory(
+                    change_request_id=cr.id,
+                    field_name="hosts",
+                    old_value={"ids": current_host_ids},
+                    new_value={"ids": desired_host_ids},
+                    changed_by=current_user.id,
+                    changed_at=now,
+                )
+            )
 
 
 async def update_change_request(
@@ -317,7 +565,25 @@ async def update_change_request(
     changed = data.model_dump(exclude_unset=True)
     now = datetime.now(timezone.utc)
 
+    desired_env_ids = changed.pop("environment_ids", None)
+    desired_host_ids = changed.pop("host_ids", None)
+
+    scalar_fields = {
+        "title",
+        "description",
+        "change_type",
+        "subsystem_id",
+        "release_id",
+        "has_outage",
+        "outage_start",
+        "outage_end",
+        "scheduled_start",
+        "scheduled_end",
+        "custom_fields",
+    }
     for field, new_value in changed.items():
+        if field not in scalar_fields:
+            continue
         old_value = getattr(cr, field)
         if old_value == new_value:
             continue
@@ -326,14 +592,37 @@ async def update_change_request(
             ChangeHistory(
                 change_request_id=cr.id,
                 field_name=field,
-                old_value={"value": old_value} if not isinstance(old_value, (datetime,)) else {"value": old_value.isoformat()},
-                new_value={"value": new_value} if not isinstance(new_value, (datetime,)) else {"value": new_value.isoformat()},
+                old_value={"value": old_value.isoformat() if isinstance(old_value, datetime) else old_value},
+                new_value={"value": new_value.isoformat() if isinstance(new_value, datetime) else new_value},
                 changed_by=current_user.id,
                 changed_at=now,
             )
         )
 
-    # Re-run outage consistency check after update
+    await _diff_target_lists(
+        db,
+        cr,
+        desired_env_ids=desired_env_ids,
+        desired_host_ids=desired_host_ids,
+        tenant_id=tenant_id,
+        current_user=current_user,
+    )
+
+    effective_env_ids = (
+        sorted(set(desired_env_ids)) if desired_env_ids is not None else _env_ids(cr)
+    )
+    effective_host_ids = (
+        sorted(set(desired_host_ids)) if desired_host_ids is not None else _host_ids(cr)
+    )
+    if not effective_env_ids and not effective_host_ids:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "A change request must target at least one environment or host",
+        )
+    await _validate_subsystem_scope(
+        db, cr.subsystem_id, effective_env_ids, tenant_id
+    )
+
     if cr.has_outage and (cr.outage_start is None or cr.outage_end is None):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -351,8 +640,7 @@ async def update_change_request(
         )
 
     await db.flush()
-    await db.refresh(cr)
-    return cr
+    return await _get_cr(db, cr.id, tenant_id)
 
 
 async def transition_status(
@@ -416,8 +704,7 @@ async def transition_status(
             tenant_id=tenant_id,
         )
 
-    await db.refresh(cr)
-    return cr
+    return await _get_cr(db, cr.id, tenant_id)
 
 
 async def get_allowed_transitions(
@@ -441,29 +728,24 @@ async def soft_delete_change_request(
     await db.flush()
 
 
-# ── Outage × booking conflict preview (Phase 2 Step 5) ──────────────────────
+# ── Outage × booking conflict preview ───────────────────────────────────────
 
-async def preview_outage_conflicts(
+async def _booking_conflicts_for_env(
     db: AsyncSession,
-    *,
-    environment_id: int,
+    env_id: int,
+    tenant_id: int,
     outage_start: datetime,
     outage_end: datetime,
-    tenant_id: int,
+    exclude_change_request_id: Optional[int] = None,
 ) -> list[dict]:
-    """Return bookings in `environment_id` whose window overlaps the outage
-    window. Intended as an advisory signal in the CR form — overlap here
-    does not block CR creation, it just lets the user see what they're
-    affecting.
-    """
-    from sqlalchemy.orm import selectinload
     from app.db.models.booking import Booking
 
     stmt = (
-        select(Booking)
+        select(Booking, Environment.name)
+        .join(Environment, Environment.id == Booking.environment_id)
         .options(selectinload(Booking.booking_request))
         .where(
-            Booking.environment_id == environment_id,
+            Booking.environment_id == env_id,
             Booking.tenant_id == tenant_id,
             Booking.deleted_at.is_(None),
             Booking.status != "rejected",
@@ -472,21 +754,85 @@ async def preview_outage_conflicts(
         )
         .order_by(Booking.start_date.asc())
     )
-    bookings = list((await db.execute(stmt)).scalars().all())
+    rows = (await db.execute(stmt)).all()
     return [
         {
             "id": b.id,
             "environment_id": b.environment_id,
+            "environment_name": env_name,
             "project_name": b.booking_request.project_name,
             "start_date": b.start_date,
             "end_date": b.end_date,
             "status": b.status,
         }
-        for b in bookings
+        for b, env_name in rows
     ]
 
 
-# ── Unified environment schedule (Phase 2 Step 4) ───────────────────────────
+async def preview_outage_conflicts(
+    db: AsyncSession,
+    *,
+    environment_ids: list[int],
+    host_ids: list[int],
+    outage_start: datetime,
+    outage_end: datetime,
+    tenant_id: int,
+    exclude_change_request_id: Optional[int] = None,
+) -> dict:
+    """Return booking conflicts grouped by environment for the proposed outage.
+
+    Effective envs = explicit environment_ids ∪ envs derived from host_ids
+    via the `environment_subsystem_host` junction. The derived-only set is
+    echoed back so the UI can explain why additional envs appear.
+    """
+    explicit_env_ids = sorted(set(environment_ids))
+    host_ids = sorted(set(host_ids))
+
+    derived_env_ids = sorted(
+        set(
+            await infrastructure_component_service.environments_affected_by_hosts(
+                db, tenant_id, host_ids
+            )
+        )
+    )
+    derived_only = sorted(set(derived_env_ids) - set(explicit_env_ids))
+    effective_env_ids = sorted(set(explicit_env_ids) | set(derived_env_ids))
+
+    # Environment names for response labelling
+    env_name_map: dict[int, str] = {}
+    if effective_env_ids:
+        env_rows = await db.execute(
+            select(Environment.id, Environment.name).where(
+                Environment.id.in_(effective_env_ids),
+                Environment.tenant_id == tenant_id,
+            )
+        )
+        env_name_map = {row[0]: row[1] for row in env_rows.all()}
+
+    per_env: list[dict] = []
+    for env_id in effective_env_ids:
+        conflicts = await _booking_conflicts_for_env(
+            db,
+            env_id,
+            tenant_id,
+            outage_start,
+            outage_end,
+            exclude_change_request_id=exclude_change_request_id,
+        )
+        per_env.append(
+            {
+                "environment_id": env_id,
+                "environment_name": env_name_map.get(env_id, f"Environment#{env_id}"),
+                "conflicts": conflicts,
+            }
+        )
+    return {
+        "environments": per_env,
+        "derived_environment_ids": derived_only,
+    }
+
+
+# ── Unified environment schedule ────────────────────────────────────────────
 
 async def get_environment_schedule(
     db: AsyncSession,
@@ -495,22 +841,18 @@ async def get_environment_schedule(
     start_date: datetime,
     end_date: datetime,
 ) -> dict:
-    """Return bookings + change requests overlapping the [start_date, end_date]
-    window for `env_id`, plus a reserved `deployments` placeholder (Phase 4).
+    """Return bookings + change requests overlapping `[start_date, end_date]`
+    for `env_id`.
 
-    Overlap condition: row.end > start AND row.start < end.
-    Caller is responsible for validating env_id belongs to the tenant (the
-    environment-scoped route does this via its own lookup); this service
-    method filters by tenant_id on both subselects defensively.
+    Change requests include rows where:
+      - env_id is in the CR's `change_request_environment` junction, OR
+      - any of the CR's hosts are attached to a subsystem in this env via
+        `environment_subsystem_host`.
+
+    `deployments` is reserved for Phase 4 and always `[]` today.
     """
-    from sqlalchemy.orm import selectinload
-
     from app.db.models.booking import Booking
-    from app.db.models.booking_request import BookingRequest
-    from app.db.models.environment import Environment
 
-    # Ensure environment exists + tenant scoping (also the source of truth
-    # for the response's environment_id echo).
     env = (
         await db.execute(
             select(Environment).where(
@@ -537,14 +879,36 @@ async def get_environment_schedule(
     )
     bookings = list((await db.execute(bookings_stmt)).scalars().all())
 
+    env_junction = (
+        select(ChangeRequestEnvironment.change_request_id)
+        .where(ChangeRequestEnvironment.environment_id == env_id)
+    )
+    host_junction = (
+        select(ChangeRequestHost.change_request_id)
+        .join(
+            EnvironmentSubSystemHost,
+            EnvironmentSubSystemHost.infrastructure_component_id
+            == ChangeRequestHost.infrastructure_component_id,
+        )
+        .join(
+            EnvironmentSubSystem,
+            EnvironmentSubSystem.id == EnvironmentSubSystemHost.environment_subsystem_id,
+        )
+        .where(EnvironmentSubSystem.environment_id == env_id)
+    )
+
     cr_stmt = (
         select(ChangeRequest)
+        .options(*_cr_load_options())
         .where(
-            ChangeRequest.environment_id == env_id,
             ChangeRequest.tenant_id == tenant_id,
             ChangeRequest.deleted_at.is_(None),
             ChangeRequest.scheduled_end > start_date,
             ChangeRequest.scheduled_start < end_date,
+            or_(
+                ChangeRequest.id.in_(env_junction),
+                ChangeRequest.id.in_(host_junction),
+            ),
         )
         .order_by(ChangeRequest.scheduled_start.asc())
     )
@@ -568,7 +932,9 @@ async def get_environment_schedule(
         "change_requests": [
             {
                 "id": cr.id,
-                "environment_id": cr.environment_id,
+                "environment_id": env_id,
+                "environment_ids": _env_ids(cr),
+                "host_ids": _host_ids(cr),
                 "subsystem_id": cr.subsystem_id,
                 "title": cr.title,
                 "change_type": cr.change_type,

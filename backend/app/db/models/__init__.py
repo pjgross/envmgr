@@ -4,7 +4,17 @@ from app.db.models.user import Tenant, User
 from app.db.models.custom_field import CustomFieldDefinition
 from app.db.models.component_type import ComponentTypeDefinition
 from app.db.models.system import System, SubSystem
-from app.db.models.environment import Environment, EnvironmentSystem
+from app.db.models.environment import (
+    Environment,
+    EnvironmentSystem,
+    EnvironmentSubSystem,
+    EnvironmentSubSystemHost,
+)
+from app.db.models.infrastructure_component import (
+    InfrastructureComponent,
+    InfrastructureComponentSource,
+    InfrastructureComponentType,
+)
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
@@ -14,7 +24,13 @@ from app.db.models.booking_lifecycle import (
     BookingType,
     BookingStatusHistory,
 )
-from app.db.models.change_request import ChangeRequest, ChangeHistory, ChangeType
+from app.db.models.change_request import (
+    ChangeRequest,
+    ChangeRequestEnvironment,
+    ChangeRequestHost,
+    ChangeHistory,
+    ChangeType,
+)
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.event_log import EventLog
 
@@ -29,6 +45,11 @@ __all__ = [
     "SubSystem",
     "Environment",
     "EnvironmentSystem",
+    "EnvironmentSubSystem",
+    "EnvironmentSubSystemHost",
+    "InfrastructureComponent",
+    "InfrastructureComponentSource",
+    "InfrastructureComponentType",
     "SystemDependency",
     "ComponentDependency",
     "Booking",
@@ -39,6 +60,8 @@ __all__ = [
     "BookingType",
     "BookingStatusHistory",
     "ChangeRequest",
+    "ChangeRequestEnvironment",
+    "ChangeRequestHost",
     "ChangeHistory",
     "ChangeType",
     "EnvironmentSubSystemVersion",

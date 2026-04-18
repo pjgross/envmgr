@@ -77,7 +77,8 @@ def _cr_payload(sub_id, env_id, lifecycle_id, **overrides):
         "change_type": "code_deployment",
         "lifecycle_id": lifecycle_id,
         "subsystem_id": sub_id,
-        "environment_id": env_id,
+        "environment_ids": [env_id] if env_id is not None else [],
+        "host_ids": [],
         "has_outage": False,
         "scheduled_start": (now + timedelta(days=1)).isoformat(),
         "scheduled_end": (now + timedelta(days=1, hours=2)).isoformat(),
@@ -103,7 +104,9 @@ async def test_create_change_request_happy_path(
     assert body["status"] == "draft"
     assert body["change_type"] == "code_deployment"
     assert body["subsystem_id"] == test_subsystem.id
-    assert body["environment_id"] == test_environment.id
+    assert body["environment_ids"] == [test_environment.id]
+    assert body["host_ids"] == []
+    assert body["derived_environment_ids"] == []
 
 
 @pytest.mark.asyncio
@@ -383,15 +386,20 @@ async def test_preview_outage_conflicts_returns_overlapping_bookings(
         "/api/v1/change-requests/preview-outage-conflicts",
         headers=auth_headers,
         json={
-            "environment_id": test_environment.id,
+            "environment_ids": [test_environment.id],
+            "host_ids": [],
             "outage_start": (now + timedelta(days=1, hours=6)).isoformat(),
             "outage_end": (now + timedelta(days=1, hours=12)).isoformat(),
         },
     )
     assert r.status_code == 200, r.text
     payload = r.json()
-    assert len(payload["conflicting_bookings"]) == 1
-    assert payload["conflicting_bookings"][0]["id"] == test_booking.id
+    assert payload["derived_environment_ids"] == []
+    assert len(payload["environments"]) == 1
+    env_block = payload["environments"][0]
+    assert env_block["environment_id"] == test_environment.id
+    assert len(env_block["conflicts"]) == 1
+    assert env_block["conflicts"][0]["id"] == test_booking.id
 
 
 @pytest.mark.asyncio
@@ -406,13 +414,16 @@ async def test_preview_outage_conflicts_empty_when_no_overlap(
         "/api/v1/change-requests/preview-outage-conflicts",
         headers=auth_headers,
         json={
-            "environment_id": test_environment.id,
+            "environment_ids": [test_environment.id],
+            "host_ids": [],
             "outage_start": (now + timedelta(days=30)).isoformat(),
             "outage_end": (now + timedelta(days=31)).isoformat(),
         },
     )
     assert r.status_code == 200
-    assert r.json()["conflicting_bookings"] == []
+    body = r.json()
+    assert body["derived_environment_ids"] == []
+    assert body["environments"][0]["conflicts"] == []
 
 
 @pytest.mark.asyncio
@@ -424,7 +435,8 @@ async def test_preview_outage_conflicts_rejects_reversed_window(
         "/api/v1/change-requests/preview-outage-conflicts",
         headers=auth_headers,
         json={
-            "environment_id": test_environment.id,
+            "environment_ids": [test_environment.id],
+            "host_ids": [],
             "outage_start": (now + timedelta(days=2)).isoformat(),
             "outage_end": (now + timedelta(days=1)).isoformat(),
         },
