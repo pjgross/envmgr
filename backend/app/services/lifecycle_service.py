@@ -7,21 +7,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_lifecycle import BookingType
 from app.api.v1.schemas.booking_lifecycle import (
+    ENTITY_FIELD_SPECS,
     LifecycleDefinition,
     LifecycleTemplateCreate,
     LifecycleTemplateUpdate,
     VALID_STANDARD_FIELD_NAMES,
+    validate_definition_for_entity,
 )
 
 
-def migrate_field_permissions(definition: dict) -> dict:
+def migrate_field_permissions(definition: dict, entity_type: str = "booking") -> dict:
     """Convert old editable_fields/editable_by shape to standard_fields per-field shape.
     A definition is old-shape if ANY state entry in field_permissions contains 'editable_fields'.
     Every such state entry is converted; entries already in new shape are left untouched.
     Returns the mutated definition dict.
-    Conversion rule: fields listed in editable_fields inherit editable_by;
-    all other standard field names (from VALID_STANDARD_FIELD_NAMES) get editable_by: [].
+
+    Conversion rule: fields listed in `editable_fields` inherit the state's
+    `editable_by`; all other standard field names for the given entity_type
+    get editable_by: []. Falls back to the booking spec if `entity_type`
+    isn't in ENTITY_FIELD_SPECS, so legacy data paths keep working.
     """
+    spec = ENTITY_FIELD_SPECS.get(entity_type) or ENTITY_FIELD_SPECS["booking"]
+    valid_fields = spec["valid"]
     field_perms = definition.get("field_permissions", {})
     for state_key, perm in field_perms.items():
         if "editable_fields" not in perm:
@@ -31,7 +38,7 @@ def migrate_field_permissions(definition: dict) -> dict:
         # Iterate over ALL valid standard field names so no field is silently dropped
         standard_fields = {
             f: {"editable_by": old_editable_by if f in old_editable_fields else []}
-            for f in VALID_STANDARD_FIELD_NAMES
+            for f in valid_fields
         }
         new_perm = {"standard_fields": standard_fields}
         if "custom_fields" in perm:
@@ -43,9 +50,12 @@ def migrate_field_permissions(definition: dict) -> dict:
 async def create_template(
     db: AsyncSession, data: LifecycleTemplateCreate, tenant_id: int, entity_type: str
 ) -> LifecycleTemplate:
-    # Validate JSONB definition via Pydantic (raises ValidationError -> 422)
-    LifecycleDefinition.model_validate(data.definition.model_dump())
-    definition_dict = migrate_field_permissions(data.definition.model_dump())
+    # Validate JSONB shape + enforce entity-specific field rules (-> 422)
+    try:
+        validate_definition_for_entity(data.definition, entity_type)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    definition_dict = migrate_field_permissions(data.definition.model_dump(), entity_type)
     template = LifecycleTemplate(
         tenant_id=tenant_id,
         entity_type=entity_type,
@@ -105,8 +115,13 @@ async def update_template(
     if data.is_default is not None:
         template.is_default = data.is_default
     if data.definition is not None:
-        LifecycleDefinition.model_validate(data.definition.model_dump())
-        template.definition = migrate_field_permissions(data.definition.model_dump())
+        try:
+            validate_definition_for_entity(data.definition, template.entity_type)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        template.definition = migrate_field_permissions(
+            data.definition.model_dump(), template.entity_type
+        )
     await db.flush()
     await db.refresh(template)
     return template
@@ -145,7 +160,9 @@ async def copy_template(
         name=new_name,
         description=original.description,
         is_default=False,
-        definition=migrate_field_permissions(copy.deepcopy(original.definition)),
+        definition=migrate_field_permissions(
+            copy.deepcopy(original.definition), original.entity_type
+        ),
     )
     db.add(new_template)
     await db.flush()

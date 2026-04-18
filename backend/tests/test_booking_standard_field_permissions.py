@@ -7,6 +7,7 @@ from app.api.v1.schemas.booking_lifecycle import (
     StandardFieldPermission,
     VALID_STANDARD_FIELD_NAMES,
     MANDATORY_STANDARD_FIELDS,
+    validate_definition_for_entity,
 )
 
 # --- Minimal valid definition with all mandatory fields editable in initial state ---
@@ -44,11 +45,15 @@ def test_valid_standard_fields():
 
 
 def test_invalid_standard_field_name():
-    """standard_fields with unknown key is rejected with 422-style ValidationError."""
+    """standard_fields with an unknown key is rejected by the entity-aware
+    service-layer validator (Pydantic no longer enforces field names since
+    the valid set varies per entity_type).
+    """
     fields = {**MANDATORY_EDITABLE, "nonexistent_field": {"editable_by": ["Admin"]}}
     d = _make_definition(fields)
-    with pytest.raises(ValidationError, match="Invalid standard field names"):
-        LifecycleDefinition.model_validate(d)
+    definition = LifecycleDefinition.model_validate(d)
+    with pytest.raises(ValueError, match="Invalid standard field names"):
+        validate_definition_for_entity(definition, "booking")
 
 
 def test_invalid_role_in_standard_field_is_accepted():
@@ -62,19 +67,23 @@ def test_invalid_role_in_standard_field_is_accepted():
 
 
 def test_mandatory_field_missing_from_initial_state():
-    """Initial state with a mandatory field missing from standard_fields is rejected."""
+    """Initial state missing a mandatory field is rejected by the service-layer
+    entity-aware validator."""
     incomplete = {k: v for k, v in MANDATORY_EDITABLE.items() if k != "start_date"}
     d = _make_definition(incomplete)
-    with pytest.raises(ValidationError, match="start_date"):
-        LifecycleDefinition.model_validate(d)
+    definition = LifecycleDefinition.model_validate(d)
+    with pytest.raises(ValueError, match="start_date"):
+        validate_definition_for_entity(definition, "booking")
 
 
 def test_mandatory_field_no_roles_in_initial_state():
-    """Mandatory field with empty editable_by in initial state is rejected."""
+    """Mandatory field with empty editable_by in initial state is rejected by
+    the service-layer entity-aware validator."""
     fields = {**MANDATORY_EDITABLE, "start_date": {"editable_by": []}}
     d = _make_definition(fields)
-    with pytest.raises(ValidationError, match="start_date"):
-        LifecycleDefinition.model_validate(d)
+    definition = LifecycleDefinition.model_validate(d)
+    with pytest.raises(ValueError, match="start_date"):
+        validate_definition_for_entity(definition, "booking")
 
 
 @pytest.mark.parametrize("field", ["notes", "exclusive_use", "context_tag"])
@@ -417,3 +426,48 @@ async def test_update_standard_fields_get_includes_permissions(
     # Admin should have all fields editable in draft state
     for field_name in expected_fields:
         assert perms[field_name]["editable"] is True, f"{field_name} should be editable for Admin"
+
+
+# --- Entity-aware validation (Phase 2) ---
+
+def test_change_request_lifecycle_accepts_cr_field_names():
+    """A CR lifecycle with CR-appropriate standard_fields passes validation."""
+    cr_mandatory = {
+        "title": {"editable_by": ["Admin"]},
+        "change_type": {"editable_by": ["Admin"]},
+        "scheduled_start": {"editable_by": ["Admin"]},
+        "scheduled_end": {"editable_by": ["Admin"]},
+    }
+    d = _make_definition(cr_mandatory)
+    definition = LifecycleDefinition.model_validate(d)
+    # Should NOT raise
+    validate_definition_for_entity(definition, "change_request")
+
+
+def test_change_request_lifecycle_rejects_booking_field_names():
+    """Using booking field names on a CR lifecycle is flagged as invalid."""
+    booking_fields_on_cr = {
+        "project_name": {"editable_by": ["Admin"]},
+        "title": {"editable_by": ["Admin"]},
+        "change_type": {"editable_by": ["Admin"]},
+        "scheduled_start": {"editable_by": ["Admin"]},
+        "scheduled_end": {"editable_by": ["Admin"]},
+    }
+    d = _make_definition(booking_fields_on_cr)
+    definition = LifecycleDefinition.model_validate(d)
+    with pytest.raises(ValueError, match="project_name"):
+        validate_definition_for_entity(definition, "change_request")
+
+
+def test_change_request_lifecycle_requires_cr_mandatories():
+    """A CR lifecycle missing one of its mandatory fields is rejected."""
+    incomplete = {
+        "title": {"editable_by": ["Admin"]},
+        "change_type": {"editable_by": ["Admin"]},
+        # Missing scheduled_start
+        "scheduled_end": {"editable_by": ["Admin"]},
+    }
+    d = _make_definition(incomplete)
+    definition = LifecycleDefinition.model_validate(d)
+    with pytest.raises(ValueError, match="scheduled_start"):
+        validate_definition_for_entity(definition, "change_request")
