@@ -188,3 +188,183 @@ async def test_ack_allows_delegate(db_session, test_tenant, test_user):
         current_user=delegate, tenant_id=test_tenant.id,
     )
     assert ack.acknowledged_by == delegate.id
+
+
+async def _make_ack(
+    db_session,
+    *,
+    tenant_id: int,
+    booking_id: int,
+    other_booking_id: int,
+    user_id: int,
+    willing_to_share: bool | None,
+    notes: str | None,
+    at: datetime,
+) -> BookingConflictAck:
+    ack = BookingConflictAck(
+        tenant_id=tenant_id,
+        booking_id=booking_id,
+        other_booking_id=other_booking_id,
+        willing_to_share=willing_to_share,
+        notes=notes,
+        acknowledged_by=user_id,
+        acknowledged_at=at,
+    )
+    db_session.add(ack)
+    await db_session.flush()
+    return ack
+
+
+@pytest.mark.asyncio
+async def test_received_feedback_returns_acks_targeting_this_booking(
+    db_session, test_tenant, test_user
+):
+    env = await _make_env(db_session, test_tenant)
+    req_me = await _make_request_with_owner(db_session, test_tenant, test_user)
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    me = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    me.booking_request_id = req_me.id
+
+    other = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    other_req = await _make_request_with_owner(db_session, test_tenant, test_user)
+    other.booking_request_id = other_req.id
+    await db_session.flush()
+
+    await _make_ack(
+        db_session,
+        tenant_id=test_tenant.id,
+        booking_id=other.id,
+        other_booking_id=me.id,
+        user_id=test_user.id,
+        willing_to_share=True,
+        notes="we can share wed onwards",
+        at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
+    )
+
+    rows = await conflict_service.list_received_feedback(
+        db_session, me.id, test_tenant.id
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.ack.willing_to_share is True
+    assert row.ack.notes == "we can share wed onwards"
+    assert row.source_booking.id == other.id
+    assert row.source_request.id == other_req.id
+    assert row.acknowledged_by.id == test_user.id
+    assert row.booked_by.id == test_user.id
+
+
+@pytest.mark.asyncio
+async def test_received_feedback_excludes_empty_rows(db_session, test_tenant, test_user):
+    env = await _make_env(db_session, test_tenant)
+    req_me = await _make_request_with_owner(db_session, test_tenant, test_user)
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    me = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    me.booking_request_id = req_me.id
+
+    other = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    other_req = await _make_request_with_owner(db_session, test_tenant, test_user)
+    other.booking_request_id = other_req.id
+    await db_session.flush()
+
+    await _make_ack(
+        db_session,
+        tenant_id=test_tenant.id,
+        booking_id=other.id,
+        other_booking_id=me.id,
+        user_id=test_user.id,
+        willing_to_share=None,
+        notes=None,
+        at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
+    )
+
+    rows = await conflict_service.list_received_feedback(
+        db_session, me.id, test_tenant.id
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_received_feedback_tenant_isolation(db_session, test_tenant, test_user):
+    from app.db.models.user import Tenant
+
+    other_tenant = Tenant(name="Other", slug="other")
+    db_session.add(other_tenant)
+    await db_session.flush()
+
+    env = await _make_env(db_session, test_tenant)
+    req_me = await _make_request_with_owner(db_session, test_tenant, test_user)
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    me = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    me.booking_request_id = req_me.id
+
+    other = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    other_req = await _make_request_with_owner(db_session, test_tenant, test_user)
+    other.booking_request_id = other_req.id
+    await db_session.flush()
+
+    await _make_ack(
+        db_session,
+        tenant_id=test_tenant.id,
+        booking_id=other.id,
+        other_booking_id=me.id,
+        user_id=test_user.id,
+        willing_to_share=True,
+        notes="seen",
+        at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
+    )
+
+    rows = await conflict_service.list_received_feedback(
+        db_session, me.id, other_tenant.id
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_received_feedback_ordered_by_acknowledged_at_desc(
+    db_session, test_tenant, test_user
+):
+    env = await _make_env(db_session, test_tenant)
+    req_me = await _make_request_with_owner(db_session, test_tenant, test_user)
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    me = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    me.booking_request_id = req_me.id
+
+    early = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    early_req = await _make_request_with_owner(db_session, test_tenant, test_user)
+    early.booking_request_id = early_req.id
+
+    late = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    late_req = await _make_request_with_owner(db_session, test_tenant, test_user)
+    late.booking_request_id = late_req.id
+    await db_session.flush()
+
+    await _make_ack(
+        db_session,
+        tenant_id=test_tenant.id,
+        booking_id=early.id,
+        other_booking_id=me.id,
+        user_id=test_user.id,
+        willing_to_share=True,
+        notes="first",
+        at=datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc),
+    )
+    await _make_ack(
+        db_session,
+        tenant_id=test_tenant.id,
+        booking_id=late.id,
+        other_booking_id=me.id,
+        user_id=test_user.id,
+        willing_to_share=False,
+        notes="second",
+        at=datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc),
+    )
+
+    rows = await conflict_service.list_received_feedback(
+        db_session, me.id, test_tenant.id
+    )
+    assert [r.ack.notes for r in rows] == ["second", "first"]
