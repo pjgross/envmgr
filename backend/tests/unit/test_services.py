@@ -91,11 +91,18 @@ async def test_create_tenant_calls_db_add_and_commit():
     db = AsyncMock()
     db.execute = AsyncMock(return_value=execute_result)
     db.add = MagicMock()
+    db.flush = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
 
     data = TenantCreate(name="ACME", slug="acme")
-    await create_tenant(db, data)
+    # Patch the default-lifecycle seed so this unit test stays focused on
+    # the tenant-creation code path.
+    with patch(
+        "app.services.change_request_service.seed_default_lifecycles",
+        new=AsyncMock(),
+    ):
+        await create_tenant(db, data)
 
     db.add.assert_called_once()
     db.commit.assert_awaited_once()
@@ -117,11 +124,16 @@ async def test_create_tenant_uses_correct_fields():
     db = AsyncMock()
     db.execute = AsyncMock(return_value=execute_result)
     db.add = MagicMock()
+    db.flush = AsyncMock()
     db.commit = AsyncMock()
     db.refresh = AsyncMock(side_effect=capture_refresh)
 
     data = TenantCreate(name="Beta Corp", slug="beta-corp", settings={"key": "value"})
-    await create_tenant(db, data)
+    with patch(
+        "app.services.change_request_service.seed_default_lifecycles",
+        new=AsyncMock(),
+    ):
+        await create_tenant(db, data)
 
     added = db.add.call_args[0][0]
     assert added.name == "Beta Corp"
