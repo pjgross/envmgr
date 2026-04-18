@@ -187,13 +187,13 @@ export default function ChangeRequestDetail() {
                   />
                 ))
               )}
-              {detail.derived_environment_ids
-                .filter((id) => !detail.environments.some((e) => e.id === id))
-                .map((id) => (
+              {detail.derived_environments
+                .filter((e) => !detail.environments.some((ee) => ee.id === e.id))
+                .map((e) => (
                   <Chip
-                    key={`derived-${id}`}
+                    key={`derived-${e.id}`}
                     size="small"
-                    label={`env #${id} (derived)`}
+                    label={`${e.name} (derived)`}
                     color="info"
                     variant="outlined"
                   />

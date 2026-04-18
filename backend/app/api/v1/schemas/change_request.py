@@ -126,6 +126,7 @@ class ChangeRequestResponse(BaseModel):
     environments: list[EnvironmentSummary] = []
     hosts: list[InfrastructureComponentSummary] = []
     derived_environment_ids: list[int] = []
+    derived_environments: list[EnvironmentSummary] = []
     release_id: Optional[int]
     has_outage: bool
     outage_start: Optional[datetime]
@@ -182,3 +183,4 @@ class OutageConflictEnvironment(BaseModel):
 class PreviewOutageConflictsResponse(BaseModel):
     environments: list[OutageConflictEnvironment] = []
     derived_environment_ids: list[int] = []
+    derived_environments: list[EnvironmentSummary] = []

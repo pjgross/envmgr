@@ -28,6 +28,7 @@ export interface ChangeRequestResponse {
   environments: EnvironmentSummary[];
   hosts: InfrastructureComponentSummary[];
   derived_environment_ids: number[];
+  derived_environments: EnvironmentSummary[];
   release_id: number | null;
   has_outage: boolean;
   outage_start: string | null;
@@ -130,6 +131,7 @@ export interface PreviewOutageConflictsPayload {
 export interface PreviewOutageConflictsResponse {
   environments: OutageConflictEnvironment[];
   derived_environment_ids: number[];
+  derived_environments: EnvironmentSummary[];
 }
 
 export type { AllowedTransition };

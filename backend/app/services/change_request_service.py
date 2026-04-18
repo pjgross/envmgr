@@ -272,6 +272,20 @@ async def build_cr_response_dict(
         - set(environment_ids)
     )
 
+    derived_environments_payload: list[dict] = []
+    if derived_env_ids:
+        name_rows = await db.execute(
+            select(Environment.id, Environment.name).where(
+                Environment.id.in_(derived_env_ids),
+                Environment.tenant_id == tenant_id,
+            )
+        )
+        name_map = {row[0]: row[1] for row in name_rows.all()}
+        derived_environments_payload = [
+            {"id": i, "name": name_map.get(i, f"Environment#{i}")}
+            for i in derived_env_ids
+        ]
+
     environments_payload = sorted(
         (
             {"id": row.environment.id, "name": row.environment.name}
@@ -309,6 +323,7 @@ async def build_cr_response_dict(
         "environments": environments_payload,
         "hosts": hosts_payload,
         "derived_environment_ids": derived_env_ids,
+        "derived_environments": derived_environments_payload,
         "release_id": cr.release_id,
         "has_outage": cr.has_outage,
         "outage_start": cr.outage_start,
@@ -798,7 +813,6 @@ async def preview_outage_conflicts(
     derived_only = sorted(set(derived_env_ids) - set(explicit_env_ids))
     effective_env_ids = sorted(set(explicit_env_ids) | set(derived_env_ids))
 
-    # Environment names for response labelling
     env_name_map: dict[int, str] = {}
     if effective_env_ids:
         env_rows = await db.execute(
@@ -829,6 +843,10 @@ async def preview_outage_conflicts(
     return {
         "environments": per_env,
         "derived_environment_ids": derived_only,
+        "derived_environments": [
+            {"id": i, "name": env_name_map.get(i, f"Environment#{i}")}
+            for i in derived_only
+        ],
     }
 
 

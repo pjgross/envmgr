@@ -133,7 +133,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
   const hasOutage = watch('has_outage');
 
   const [outageConflicts, setOutageConflicts] = useState<OutageConflictEnvironment[]>([]);
-  const [derivedEnvIds, setDerivedEnvIds] = useState<number[]>([]);
+  const [derivedEnvs, setDerivedEnvs] = useState<{ id: number; name: string }[]>([]);
   const [hostImpact, setHostImpact] = useState<HostImpactEnvironment[]>([]);
   const [hostImpactLoading, setHostImpactLoading] = useState(false);
   const hostImpactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -202,7 +202,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
       (previewHostIds && previewHostIds.length > 0);
     if (!previewHasOutage || !hasTargets || !previewStart || !previewEnd) {
       setOutageConflicts([]);
-      setDerivedEnvIds([]);
+      setDerivedEnvs([]);
       return;
     }
     outageDebounceRef.current = setTimeout(async () => {
@@ -214,10 +214,10 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
           outage_end: new Date(previewEnd).toISOString(),
         });
         setOutageConflicts(result.environments);
-        setDerivedEnvIds(result.derived_environment_ids);
+        setDerivedEnvs(result.derived_environments);
       } catch {
         setOutageConflicts([]);
-        setDerivedEnvIds([]);
+        setDerivedEnvs([]);
       }
     }, 400);
     return () => {
@@ -242,7 +242,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
   const handleClose = () => {
     reset(buildDefaults());
     setOutageConflicts([]);
-    setDerivedEnvIds([]);
+    setDerivedEnvs([]);
     onClose();
   };
 
@@ -533,18 +533,13 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
               fullWidth
             />
 
-            {derivedEnvIds.length > 0 && (
+            {derivedEnvs.length > 0 && (
               <Alert severity="info">
                 The following environment
-                {derivedEnvIds.length === 1 ? ' is' : 's are'} affected via the selected
+                {derivedEnvs.length === 1 ? ' is' : 's are'} affected via the selected
                 host
                 {previewHostIds.length === 1 ? '' : 's'}:{' '}
-                <strong>
-                  {derivedEnvIds
-                    .map((id) => envById.get(id)?.name ?? `#${id}`)
-                    .join(', ')}
-                </strong>
-                .
+                <strong>{derivedEnvs.map((e) => e.name).join(', ')}</strong>.
               </Alert>
             )}
 
