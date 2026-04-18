@@ -1,6 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Alert, Autocomplete, Box, Chip, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material';
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Chip,
+  CircularProgress,
+  FormControlLabel,
+  MenuItem,
+  Paper,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from '@mui/material';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,11 +27,13 @@ import FormTextField from '../../components/form/FormTextField';
 import FormSelect from '../../components/form/FormSelect';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { infrastructureComponentService } from '../../services/infrastructureComponentService';
 import type {
   ChangeRequestDetailResponse,
   ChangeRequestUpdatePayload,
   ChangeType,
 } from '../../types/changeRequest';
+import type { HostImpactEnvironment } from '../../types/infrastructureComponent';
 
 interface Props {
   open: boolean;
@@ -104,6 +119,34 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
   const { control, watch, reset } = form;
 
   const hasOutage = watch('has_outage');
+  const hostIds = watch('host_ids');
+
+  const [hostImpact, setHostImpact] = useState<HostImpactEnvironment[]>([]);
+  const [hostImpactLoading, setHostImpactLoading] = useState(false);
+  const hostImpactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (hostImpactDebounceRef.current) clearTimeout(hostImpactDebounceRef.current);
+    if (!hostIds || hostIds.length === 0) {
+      setHostImpact([]);
+      setHostImpactLoading(false);
+      return;
+    }
+    setHostImpactLoading(true);
+    hostImpactDebounceRef.current = setTimeout(async () => {
+      try {
+        const result = await infrastructureComponentService.hostImpact(hostIds);
+        setHostImpact(result.environments);
+      } catch {
+        setHostImpact([]);
+      } finally {
+        setHostImpactLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (hostImpactDebounceRef.current) clearTimeout(hostImpactDebounceRef.current);
+    };
+  }, [hostIds]);
 
   useEffect(() => {
     dispatch(fetchDefinitions('change_request'));
@@ -253,6 +296,81 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
             />
           )}
         />
+
+        {hostIds.length > 0 && (
+          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'action.hover' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography variant="subtitle2">Host impact</Typography>
+              <Typography variant="caption" color="text.secondary">
+                (readonly)
+              </Typography>
+              {hostImpactLoading && <CircularProgress size={14} sx={{ ml: 0.5 }} />}
+            </Box>
+            {!hostImpactLoading && hostImpact.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No subsystems are currently deployed on the selected host
+                {hostIds.length === 1 ? '' : 's'}.
+              </Typography>
+            ) : (
+              <Stack spacing={1.5}>
+                {hostImpact.map((env) => (
+                  <Box key={env.environment_id}>
+                    <Typography variant="body2" fontWeight="medium">
+                      {env.environment_name}
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ ml: 1 }}
+                      >
+                        {env.subsystems.length} subsystem
+                        {env.subsystems.length === 1 ? '' : 's'} affected
+                      </Typography>
+                    </Typography>
+                    <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2.5 }}>
+                      {env.subsystems.map((sub) => (
+                        <Box component="li" key={sub.subsystem_id} sx={{ mb: 0.5 }}>
+                          <Typography variant="body2">
+                            <strong>{sub.subsystem_name}</strong>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ ml: 0.5 }}
+                            >
+                              · {sub.system_name}
+                            </Typography>
+                            {sub.is_mocked && (
+                              <Chip
+                                size="small"
+                                label="mock"
+                                color="warning"
+                                variant="outlined"
+                                sx={{ ml: 1, height: 18 }}
+                              />
+                            )}
+                          </Typography>
+                          <Box
+                            sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.25 }}
+                          >
+                            {sub.matches.map((m) => (
+                              <Chip
+                                key={`${sub.subsystem_id}-${m.host_id}`}
+                                size="small"
+                                variant="outlined"
+                                label={m.role ? `${m.host_name} · ${m.role}` : m.host_name}
+                              />
+                            ))}
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Paper>
+        )}
 
         <FormTextField<FormValues>
           name="scheduled_start"

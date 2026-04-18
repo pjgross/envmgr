@@ -2,6 +2,7 @@ import api from './api';
 import type {
   EnvironmentSubSystemHostsResponse,
   HostAttachment,
+  HostImpactResponse,
   InfrastructureComponentCreate,
   InfrastructureComponentResponse,
   InfrastructureComponentSource,
@@ -52,4 +53,17 @@ export const infrastructureComponentService = {
     api
       .put(`/environments/${envId}/subsystems/${subsystemId}/hosts`, attachments)
       .then((r) => r.data),
+
+  hostImpact: (hostIds: number[]): Promise<HostImpactResponse> => {
+    if (hostIds.length === 0) {
+      return Promise.resolve({ host_ids: [], environments: [] });
+    }
+    // Axios serialises array params as `host_ids=1&host_ids=2` with repeat serialiser
+    return api
+      .get('/infrastructure-components/impact', {
+        params: { host_ids: hostIds },
+        paramsSerializer: { indexes: null },
+      })
+      .then((r) => r.data);
+  },
 };

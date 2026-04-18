@@ -11,6 +11,7 @@ from app.db.models.infrastructure_component import (
 )
 from app.services import infrastructure_component_service
 from app.api.v1.schemas.infrastructure_component import (
+    HostImpactResponse,
     InfrastructureComponentCreate,
     InfrastructureComponentResponse,
     InfrastructureComponentUpdate,
@@ -48,6 +49,21 @@ async def create_component(
 ):
     return await infrastructure_component_service.create_infrastructure_component(
         db, data, current_user.active_tenant_id
+    )
+
+
+@router.get("/impact", response_model=HostImpactResponse)
+async def host_impact(
+    host_ids: list[int] = Query(default_factory=list),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Readonly: for each environment whose subsystems run on any of `host_ids`,
+    list the matching subsystems + host/role combinations. Used by the Change
+    Request form to show platform-change impact inline.
+    """
+    return await infrastructure_component_service.host_impact(
+        db, current_user.active_tenant_id, host_ids
     )
 
 

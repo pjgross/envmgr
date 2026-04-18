@@ -219,3 +219,116 @@ async def environments_affected_by_hosts(
         .distinct()
     )
     return [row[0] for row in result.all()]
+
+
+async def host_impact(
+    db: AsyncSession, tenant_id: int, host_ids: list[int]
+) -> dict:
+    """Shape used by the CR form impact panel.
+
+    Returns one entry per environment whose subsystems are deployed on any
+    of `host_ids`, with the matching subsystems and the specific hosts
+    (+ role) they run on. The frontend renders this readonly so the
+    environment manager sees impact without leaving the change form.
+
+    Response:
+        {
+          "host_ids": [1, 2],
+          "environments": [
+            {
+              "environment_id": 3,
+              "environment_name": "uat",
+              "subsystems": [
+                {
+                  "subsystem_id": 5,
+                  "subsystem_name": "api",
+                  "system_name": "Billing",
+                  "is_mocked": false,
+                  "matches": [{"host_id": 1, "host_name": "macmini", "role": "primary"}]
+                }
+              ]
+            }
+          ]
+        }
+    """
+    from sqlalchemy.orm import aliased
+
+    if not host_ids:
+        return {"host_ids": [], "environments": []}
+
+    from app.db.models.environment import Environment
+    from app.db.models.system import SubSystem, System
+
+    esh = EnvironmentSubSystemHost
+    es = EnvironmentSubSystem
+    ic = InfrastructureComponent
+    ss = aliased(SubSystem)
+    sy = aliased(System)
+    env = aliased(Environment)
+
+    stmt = (
+        select(
+            env.id.label("environment_id"),
+            env.name.label("environment_name"),
+            ss.id.label("subsystem_id"),
+            ss.name.label("subsystem_name"),
+            sy.name.label("system_name"),
+            es.is_mocked.label("is_mocked"),
+            ic.id.label("host_id"),
+            ic.name.label("host_name"),
+            esh.role.label("role"),
+        )
+        .join(es, es.id == esh.environment_subsystem_id)
+        .join(env, env.id == es.environment_id)
+        .join(ss, ss.id == es.subsystem_id)
+        .join(sy, sy.id == ss.system_id)
+        .join(ic, ic.id == esh.infrastructure_component_id)
+        .where(
+            esh.infrastructure_component_id.in_(host_ids),
+            esh.tenant_id == tenant_id,
+            esh.deleted_at.is_(None),
+            env.deleted_at.is_(None),
+        )
+        .order_by(env.name, ss.name, ic.name)
+    )
+    rows = (await db.execute(stmt)).all()
+
+    envs: dict[int, dict] = {}
+    for row in rows:
+        env_entry = envs.setdefault(
+            row.environment_id,
+            {
+                "environment_id": row.environment_id,
+                "environment_name": row.environment_name,
+                "subsystems": {},
+            },
+        )
+        sub_entry = env_entry["subsystems"].setdefault(
+            row.subsystem_id,
+            {
+                "subsystem_id": row.subsystem_id,
+                "subsystem_name": row.subsystem_name,
+                "system_name": row.system_name,
+                "is_mocked": row.is_mocked,
+                "matches": [],
+            },
+        )
+        sub_entry["matches"].append(
+            {
+                "host_id": row.host_id,
+                "host_name": row.host_name,
+                "role": row.role,
+            }
+        )
+
+    return {
+        "host_ids": sorted(set(host_ids)),
+        "environments": [
+            {
+                "environment_id": e["environment_id"],
+                "environment_name": e["environment_name"],
+                "subsystems": list(e["subsystems"].values()),
+            }
+            for e in envs.values()
+        ],
+    }

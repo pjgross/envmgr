@@ -83,3 +83,28 @@ class EnvironmentSubSystemHostResponse(BaseModel):
 
 class EnvironmentSubSystemHostsResponse(BaseModel):
     hosts: list[EnvironmentSubSystemHostResponse]
+
+
+class HostImpactMatch(BaseModel):
+    host_id: int
+    host_name: str
+    role: Optional[str] = None
+
+
+class HostImpactSubsystem(BaseModel):
+    subsystem_id: int
+    subsystem_name: str
+    system_name: str
+    is_mocked: bool
+    matches: list[HostImpactMatch]
+
+
+class HostImpactEnvironment(BaseModel):
+    environment_id: int
+    environment_name: str
+    subsystems: list[HostImpactSubsystem]
+
+
+class HostImpactResponse(BaseModel):
+    host_ids: list[int]
+    environments: list[HostImpactEnvironment]

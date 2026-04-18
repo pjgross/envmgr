@@ -80,6 +80,31 @@ export interface EnvironmentSubSystemHostsResponse {
   hosts: EnvironmentSubSystemHostResponse[];
 }
 
+export interface HostImpactMatch {
+  host_id: number;
+  host_name: string;
+  role: string | null;
+}
+
+export interface HostImpactSubsystem {
+  subsystem_id: number;
+  subsystem_name: string;
+  system_name: string;
+  is_mocked: boolean;
+  matches: HostImpactMatch[];
+}
+
+export interface HostImpactEnvironment {
+  environment_id: number;
+  environment_name: string;
+  subsystems: HostImpactSubsystem[];
+}
+
+export interface HostImpactResponse {
+  host_ids: number[];
+  environments: HostImpactEnvironment[];
+}
+
 export const COMPONENT_TYPE_OPTIONS: { value: InfrastructureComponentType; label: string }[] = [
   { value: 'server', label: 'Server / VM' },
   { value: 'container_runtime', label: 'Container runtime' },

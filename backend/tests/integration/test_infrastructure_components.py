@@ -336,6 +336,57 @@ async def test_host_scoped_cr_appears_in_derived_env_schedule(
 
 
 @pytest.mark.asyncio
+async def test_host_impact_groups_envs_and_subsystems(
+    client, auth_headers, test_environment, test_subsystem, test_env_subsystem
+):
+    h1 = (await client.post(
+        "/api/v1/infrastructure-components/", headers=auth_headers,
+        json=_host_payload(name="impact-host-1"),
+    )).json()
+    h2 = (await client.post(
+        "/api/v1/infrastructure-components/", headers=auth_headers,
+        json=_host_payload(name="impact-host-2"),
+    )).json()
+
+    attach = await client.put(
+        f"/api/v1/environments/{test_environment.id}/subsystems/{test_subsystem.id}/hosts",
+        headers=auth_headers,
+        json=[
+            {"infrastructure_component_id": h1["id"], "role": "primary"},
+            {"infrastructure_component_id": h2["id"], "role": "replica"},
+        ],
+    )
+    assert attach.status_code == 200, attach.text
+
+    r = await client.get(
+        "/api/v1/infrastructure-components/impact",
+        headers=auth_headers,
+        params=[("host_ids", h1["id"]), ("host_ids", h2["id"])],
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert sorted(body["host_ids"]) == sorted([h1["id"], h2["id"]])
+    assert len(body["environments"]) == 1
+    env_entry = body["environments"][0]
+    assert env_entry["environment_id"] == test_environment.id
+    assert len(env_entry["subsystems"]) == 1
+    sub_entry = env_entry["subsystems"][0]
+    assert sub_entry["subsystem_id"] == test_subsystem.id
+    match_by_host = {m["host_id"]: m for m in sub_entry["matches"]}
+    assert match_by_host[h1["id"]]["role"] == "primary"
+    assert match_by_host[h2["id"]]["role"] == "replica"
+
+
+@pytest.mark.asyncio
+async def test_host_impact_empty_for_no_host_ids(client, auth_headers):
+    r = await client.get(
+        "/api/v1/infrastructure-components/impact", headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.json() == {"host_ids": [], "environments": []}
+
+
+@pytest.mark.asyncio
 async def test_update_writes_env_host_diff_history(
     client, auth_headers, test_environment, test_subsystem, cr_lifecycle
 ):

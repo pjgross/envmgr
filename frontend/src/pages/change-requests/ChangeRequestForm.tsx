@@ -6,8 +6,11 @@ import {
   Autocomplete,
   Box,
   Chip,
+  CircularProgress,
   FormControlLabel,
   MenuItem,
+  Paper,
+  Stack,
   Switch,
   TextField,
   Typography,
@@ -30,11 +33,13 @@ import FormSelect from '../../components/form/FormSelect';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { changeRequestService } from '../../services/changeRequestService';
+import { infrastructureComponentService } from '../../services/infrastructureComponentService';
 import type {
   ChangeRequestCreatePayload,
   ChangeType,
   OutageConflictEnvironment,
 } from '../../types/changeRequest';
+import type { HostImpactEnvironment } from '../../types/infrastructureComponent';
 
 interface ChangeRequestFormProps {
   open: boolean;
@@ -129,6 +134,9 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
 
   const [outageConflicts, setOutageConflicts] = useState<OutageConflictEnvironment[]>([]);
   const [derivedEnvIds, setDerivedEnvIds] = useState<number[]>([]);
+  const [hostImpact, setHostImpact] = useState<HostImpactEnvironment[]>([]);
+  const [hostImpactLoading, setHostImpactLoading] = useState(false);
+  const hostImpactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const outageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewEnvIds = useWatch({ control, name: 'environment_ids' });
   const previewHostIds = useWatch({ control, name: 'host_ids' });
@@ -161,6 +169,31 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
     }
     setValue('subsystem_id', null);
   }, [singleEnvId, dispatch, setValue]);
+
+  // Host-impact panel: whenever selected hosts change, fetch the readonly
+  // environment-and-subsystem breakdown so the env manager sees what's affected.
+  useEffect(() => {
+    if (hostImpactDebounceRef.current) clearTimeout(hostImpactDebounceRef.current);
+    if (!hostIds || hostIds.length === 0) {
+      setHostImpact([]);
+      setHostImpactLoading(false);
+      return;
+    }
+    setHostImpactLoading(true);
+    hostImpactDebounceRef.current = setTimeout(async () => {
+      try {
+        const result = await infrastructureComponentService.hostImpact(hostIds);
+        setHostImpact(result.environments);
+      } catch {
+        setHostImpact([]);
+      } finally {
+        setHostImpactLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (hostImpactDebounceRef.current) clearTimeout(hostImpactDebounceRef.current);
+    };
+  }, [hostIds]);
 
   useEffect(() => {
     if (outageDebounceRef.current) clearTimeout(outageDebounceRef.current);
@@ -343,6 +376,90 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
             />
           )}
         />
+
+        {hostIds.length > 0 && (
+          <Paper
+            variant="outlined"
+            sx={{ p: 2, bgcolor: 'action.hover' }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography variant="subtitle2">Host impact</Typography>
+              <Typography variant="caption" color="text.secondary">
+                (readonly)
+              </Typography>
+              {hostImpactLoading && <CircularProgress size={14} sx={{ ml: 0.5 }} />}
+            </Box>
+            {!hostImpactLoading && hostImpact.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No subsystems are currently deployed on the selected host
+                {hostIds.length === 1 ? '' : 's'}. No environments will be impacted.
+              </Typography>
+            ) : (
+              <Stack spacing={1.5}>
+                {hostImpact.map((env) => (
+                  <Box key={env.environment_id}>
+                    <Typography variant="body2" fontWeight="medium">
+                      {env.environment_name}
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ ml: 1 }}
+                      >
+                        {env.subsystems.length} subsystem
+                        {env.subsystems.length === 1 ? '' : 's'} affected
+                      </Typography>
+                    </Typography>
+                    <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2.5 }}>
+                      {env.subsystems.map((sub) => (
+                        <Box
+                          component="li"
+                          key={sub.subsystem_id}
+                          sx={{ mb: 0.5 }}
+                        >
+                          <Typography variant="body2">
+                            <strong>{sub.subsystem_name}</strong>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ ml: 0.5 }}
+                            >
+                              · {sub.system_name}
+                            </Typography>
+                            {sub.is_mocked && (
+                              <Chip
+                                size="small"
+                                label="mock"
+                                color="warning"
+                                variant="outlined"
+                                sx={{ ml: 1, height: 18 }}
+                              />
+                            )}
+                          </Typography>
+                          <Box
+                            sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.25 }}
+                          >
+                            {sub.matches.map((m) => (
+                              <Chip
+                                key={`${sub.subsystem_id}-${m.host_id}`}
+                                size="small"
+                                variant="outlined"
+                                label={
+                                  m.role ? `${m.host_name} · ${m.role}` : m.host_name
+                                }
+                              />
+                            ))}
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Paper>
+        )}
 
         {singleEnvId != null && (
           <FormSelect<FormValues>
