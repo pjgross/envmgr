@@ -1,86 +1,99 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Checkbox, FormControlLabel, Paper, Tab, Tabs, TextField, Typography,
-} from '@mui/material'
-import { bookingService } from '../../services/bookingService'
-import type { ConflictItem, ReceivedFeedbackItem } from '../../types/conflict'
-import { formatApiError } from '../../services/apiError'
-import ReceivedFeedbackList from './ReceivedFeedbackList'
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  FormControlLabel,
+  Paper,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
+} from '@mui/material';
+import { bookingService } from '../../services/bookingService';
+import type { ConflictItem, ReceivedFeedbackItem } from '../../types/conflict';
+import { formatApiError } from '../../services/apiError';
+import ReceivedFeedbackList from './ReceivedFeedbackList';
 
 type Props = {
-  bookingId: number
-  canAcknowledge: boolean
-}
+  bookingId: number;
+  canAcknowledge: boolean;
+};
 
 export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
-  const [tab, setTab] = useState(0)
-  const [items, setItems] = useState<ConflictItem[]>([])
-  const [received, setReceived] = useState<ReceivedFeedbackItem[]>([])
-  const [pending, setPending] = useState<Record<number, { willing_to_share: boolean; notes: string }>>({})
-  const [conflictsError, setConflictsError] = useState<string | null>(null)
-  const [receivedError, setReceivedError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [savingIds, setSavingIds] = useState<Set<number>>(new Set())
-  const hasRendered = useRef(false)
-  const reloadGen = useRef(0)
+  const [tab, setTab] = useState(0);
+  const [items, setItems] = useState<ConflictItem[]>([]);
+  const [received, setReceived] = useState<ReceivedFeedbackItem[]>([]);
+  const [pending, setPending] = useState<
+    Record<number, { willing_to_share: boolean; notes: string }>
+  >({});
+  const [conflictsError, setConflictsError] = useState<string | null>(null);
+  const [receivedError, setReceivedError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
+  const hasRendered = useRef(false);
+  const reloadGen = useRef(0);
 
   const reload = useCallback(async () => {
-    const myGen = ++reloadGen.current
+    const myGen = ++reloadGen.current;
     const [conflictsRes, receivedRes] = await Promise.allSettled([
       bookingService.getConflicts(bookingId),
       bookingService.getReceivedFeedback(bookingId),
-    ])
-    if (myGen !== reloadGen.current) return   // superseded — drop results
+    ]);
+    if (myGen !== reloadGen.current) return; // superseded — drop results
     if (conflictsRes.status === 'fulfilled') {
-      setItems(conflictsRes.value)
-      setConflictsError(null)
+      setItems(conflictsRes.value);
+      setConflictsError(null);
     } else {
-      setConflictsError(formatApiError(conflictsRes.reason, 'Failed to load conflicts'))
+      setConflictsError(formatApiError(conflictsRes.reason, 'Failed to load conflicts'));
     }
     if (receivedRes.status === 'fulfilled') {
-      setReceived(receivedRes.value)
-      setReceivedError(null)
+      setReceived(receivedRes.value);
+      setReceivedError(null);
     } else {
-      setReceivedError(formatApiError(receivedRes.reason, 'Failed to load received feedback'))
+      setReceivedError(formatApiError(receivedRes.reason, 'Failed to load received feedback'));
     }
-    setLoading(false)
-  }, [bookingId])
+    setLoading(false);
+  }, [bookingId]);
 
   useEffect(() => {
-    hasRendered.current = false
-    reload()
-  }, [bookingId, reload])
+    hasRendered.current = false;
+    reload();
+  }, [bookingId, reload]);
 
   const shouldRenderNow =
-    items.length > 0 ||
-    received.length > 0 ||
-    conflictsError != null ||
-    receivedError != null
+    items.length > 0 || received.length > 0 || conflictsError != null || receivedError != null;
 
   if (shouldRenderNow) {
-    hasRendered.current = true
+    hasRendered.current = true;
   }
 
-  if (!loading && !shouldRenderNow && !hasRendered.current) return null
+  if (!loading && !shouldRenderNow && !hasRendered.current) return null;
 
   const saveAck = async (otherId: number) => {
-    const p = pending[otherId] ?? { willing_to_share: false, notes: '' }
-    setSavingIds((s) => new Set(s).add(otherId))
+    const p = pending[otherId] ?? { willing_to_share: false, notes: '' };
+    setSavingIds((s) => new Set(s).add(otherId));
     try {
-      await bookingService.acknowledgeConflict(bookingId, otherId, p)
-      await reload()
+      await bookingService.acknowledgeConflict(bookingId, otherId, p);
+      await reload();
     } finally {
       setSavingIds((s) => {
-        const next = new Set(s)
-        next.delete(otherId)
-        return next
-      })
+        const next = new Set(s);
+        next.delete(otherId);
+        return next;
+      });
     }
-  }
+  };
 
   return (
     <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label="Conflict feedback" sx={{ mb: 2 }}>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        aria-label="Conflict feedback"
+        sx={{ mb: 2 }}
+      >
         <Tab label={`Your feedback (${items.length})`} />
         <Tab label={`Feedback received (${received.length})`} />
       </Tabs>
@@ -101,30 +114,56 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
               const p = pending[it.other_booking.id] ?? {
                 willing_to_share: it.ack?.willing_to_share ?? false,
                 notes: it.ack?.notes ?? '',
-              }
+              };
               return (
-                <Box key={it.other_booking.id} sx={{ mb: 2, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Box
+                  key={it.other_booking.id}
+                  sx={{ mb: 2, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}
+                >
                   <Typography variant="body2">
-                    Booking #{it.other_booking.id} ({new Date(it.other_booking.start_date).toLocaleDateString()} – {new Date(it.other_booking.end_date).toLocaleDateString()}) — status {it.other_booking.status}
+                    Booking #{it.other_booking.id} (
+                    {new Date(it.other_booking.start_date).toLocaleDateString()} –{' '}
+                    {new Date(it.other_booking.end_date).toLocaleDateString()}) — status{' '}
+                    {it.other_booking.status}
                   </Typography>
                   <FormControlLabel
                     control={
                       <Checkbox
                         checked={p.willing_to_share}
                         disabled={!canAcknowledge}
-                        onChange={(e) => setPending((s) => ({ ...s, [it.other_booking.id]: { ...p, willing_to_share: e.target.checked } }))}
+                        onChange={(e) =>
+                          setPending((s) => ({
+                            ...s,
+                            [it.other_booking.id]: { ...p, willing_to_share: e.target.checked },
+                          }))
+                        }
                       />
                     }
                     label="Willing to share"
                   />
                   <TextField
-                    label="Notes" fullWidth size="small" multiline minRows={2}
+                    label="Notes"
+                    fullWidth
+                    size="small"
+                    multiline
+                    minRows={2}
                     value={p.notes}
                     disabled={!canAcknowledge}
-                    onChange={(e) => setPending((s) => ({ ...s, [it.other_booking.id]: { ...p, notes: e.target.value } }))}
+                    onChange={(e) =>
+                      setPending((s) => ({
+                        ...s,
+                        [it.other_booking.id]: { ...p, notes: e.target.value },
+                      }))
+                    }
                   />
                   {canAcknowledge && (
-                    <Button sx={{ mt: 1 }} size="small" variant="contained" onClick={() => saveAck(it.other_booking.id)} disabled={savingIds.has(it.other_booking.id)}>
+                    <Button
+                      sx={{ mt: 1 }}
+                      size="small"
+                      variant="contained"
+                      onClick={() => saveAck(it.other_booking.id)}
+                      disabled={savingIds.has(it.other_booking.id)}
+                    >
                       Save
                     </Button>
                   )}
@@ -134,7 +173,7 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
                     </Typography>
                   )}
                 </Box>
-              )
+              );
             })
           )}
         </Box>
@@ -151,5 +190,5 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
         </Box>
       )}
     </Paper>
-  )
+  );
 }

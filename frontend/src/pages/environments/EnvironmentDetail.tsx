@@ -73,7 +73,6 @@ const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default'
   decommissioned: 'error',
 };
 
-
 interface EnvFormValues {
   name: string;
   description: string;
@@ -102,9 +101,7 @@ export default function EnvironmentDetail() {
   const { verifyResult, loading: verifyLoading } = useSelector(
     (state: RootState) => state.dependency
   );
-  const { loading: versionsLoading } = useSelector(
-    (state: RootState) => state.version
-  );
+  const { loading: versionsLoading } = useSelector((state: RootState) => state.version);
   const envCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
@@ -134,7 +131,11 @@ export default function EnvironmentDetail() {
 
   // Version edit state
   const [editVersionTarget, setEditVersionTarget] = useState<VersionResponse | null>(null);
-  const [editVersionForm, setEditVersionForm] = useState<{ build_id: string; version_label: string; installed_at: string }>({ build_id: '', version_label: '', installed_at: '' });
+  const [editVersionForm, setEditVersionForm] = useState<{
+    build_id: string;
+    version_label: string;
+    installed_at: string;
+  }>({ build_id: '', version_label: '', installed_at: '' });
   const [editVersionError, setEditVersionError] = useState('');
 
   // System dialog state
@@ -142,7 +143,9 @@ export default function EnvironmentDetail() {
   const [sysForm, setSysForm] = useState<SysFormValues>(emptySysForm);
   const [sysFormError, setSysFormError] = useState('');
   const [sysDeleteTarget, setSysDeleteTarget] = useState<EnvironmentSystemResponse | null>(null);
-  const [typeDialogTarget, setTypeDialogTarget] = useState<EnvironmentSubsystemResponse | null>(null);
+  const [typeDialogTarget, setTypeDialogTarget] = useState<EnvironmentSubsystemResponse | null>(
+    null
+  );
 
   useEffect(() => {
     dispatch(fetchEnvironment(envId));
@@ -274,9 +277,12 @@ export default function EnvironmentDetail() {
     const data: VersionUpdate = {};
     if (editVersionForm.build_id) data.build_id = editVersionForm.build_id;
     if (editVersionForm.version_label) data.version_label = editVersionForm.version_label;
-    if (editVersionForm.installed_at) data.installed_at = new Date(editVersionForm.installed_at).toISOString();
+    if (editVersionForm.installed_at)
+      data.installed_at = new Date(editVersionForm.installed_at).toISOString();
     try {
-      await dispatch(updateVersion({ envId: currentEnvironment.id, versionId: editVersionTarget.id, data })).unwrap();
+      await dispatch(
+        updateVersion({ envId: currentEnvironment.id, versionId: editVersionTarget.id, data })
+      ).unwrap();
       setEditVersionTarget(null);
     } catch (e: unknown) {
       const msg = (e as { message?: string })?.message;
@@ -291,7 +297,12 @@ export default function EnvironmentDetail() {
   // --- Systems tab: unified row model (present + missing) ----------------------
   type SystemsRow =
     | { id: string; kind: 'present'; envSys: EnvironmentSystemResponse; systemName: string }
-    | { id: string; kind: 'missing'; sys: { id: number; name: string; description: string | null }; systemName: string };
+    | {
+        id: string;
+        kind: 'missing';
+        sys: { id: number; name: string; description: string | null };
+        systemName: string;
+      };
 
   const systemsRows: SystemsRow[] = useMemo(() => {
     const present: SystemsRow[] = environmentSystems.map((envSys) => ({
@@ -377,7 +388,7 @@ export default function EnvironmentDetail() {
         },
       },
     ],
-    [],
+    []
   );
 
   // --- Components tab: envSubsystems row model ---------------------------------
@@ -432,7 +443,7 @@ export default function EnvironmentDetail() {
                   envId,
                   subsystemId: params.row.subsystem_id,
                   data: { is_mocked: !params.row.is_mocked },
-                }),
+                })
               )
             }
             sx={{ cursor: 'pointer' }}
@@ -457,13 +468,15 @@ export default function EnvironmentDetail() {
                     envId,
                     subsystemId: params.row.subsystem_id,
                     data: { mock_notes: e.target.value || null },
-                  }),
+                  })
                 )
               }
               sx={{ minWidth: 200 }}
             />
           ) : (
-            <Typography variant="body2" color="text.secondary">—</Typography>
+            <Typography variant="body2" color="text.secondary">
+              —
+            </Typography>
           ),
       },
       {
@@ -473,7 +486,11 @@ export default function EnvironmentDetail() {
         sortable: false,
         renderCell: (params) => {
           if (params.row.is_mocked)
-            return <Typography variant="body2" color="text.secondary">—</Typography>;
+            return (
+              <Typography variant="body2" color="text.secondary">
+                —
+              </Typography>
+            );
           const v = params.row.latest_version;
           if (!v)
             return (
@@ -506,7 +523,7 @@ export default function EnvironmentDetail() {
         ),
       },
     ],
-    [dispatch, envId],
+    [dispatch, envId]
   );
 
   if (loading && !currentEnvironment) {
@@ -534,9 +551,8 @@ export default function EnvironmentDetail() {
     : [];
   const nonSatisfiedItems = allDepItems.filter((d) => d.status !== 'satisfied');
 
-  const nonSatisfiedComponentItems = verifyResult?.component_dependencies?.filter(
-    (d) => d.status !== 'satisfied'
-  ) ?? [];
+  const nonSatisfiedComponentItems =
+    verifyResult?.component_dependencies?.filter((d) => d.status !== 'satisfied') ?? [];
 
   return (
     <Box sx={{ p: 3 }}>
@@ -627,22 +643,30 @@ export default function EnvironmentDetail() {
             ) : (
               <Box>
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="overline" color="text.secondary">Name</Typography>
+                  <Typography variant="overline" color="text.secondary">
+                    Name
+                  </Typography>
                   <Typography>{currentEnvironment?.name}</Typography>
                 </Box>
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="overline" color="text.secondary">Description</Typography>
+                  <Typography variant="overline" color="text.secondary">
+                    Description
+                  </Typography>
                   <Typography>{currentEnvironment?.description ?? '—'}</Typography>
                 </Box>
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="overline" color="text.secondary">Environment Type</Typography>
+                  <Typography variant="overline" color="text.secondary">
+                    Environment Type
+                  </Typography>
                   <Typography>{currentEnvironment?.environment_type}</Typography>
                 </Box>
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="overline" color="text.secondary">Status</Typography>
+                  <Typography variant="overline" color="text.secondary">
+                    Status
+                  </Typography>
                   <Box>
                     {currentEnvironment && (
                       <Chip
@@ -665,7 +689,9 @@ export default function EnvironmentDetail() {
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ display: 'flex', gap: 4 }}>
                   <Box>
-                    <Typography variant="overline" color="text.secondary">Created</Typography>
+                    <Typography variant="overline" color="text.secondary">
+                      Created
+                    </Typography>
                     <Typography variant="body2">
                       {currentEnvironment
                         ? new Date(currentEnvironment.created_at).toLocaleString()
@@ -673,7 +699,9 @@ export default function EnvironmentDetail() {
                     </Typography>
                   </Box>
                   <Box>
-                    <Typography variant="overline" color="text.secondary">Updated</Typography>
+                    <Typography variant="overline" color="text.secondary">
+                      Updated
+                    </Typography>
                     <Typography variant="body2">
                       {currentEnvironment
                         ? new Date(currentEnvironment.updated_at).toLocaleString()
@@ -688,7 +716,14 @@ export default function EnvironmentDetail() {
           {/* Verify Environment Panel */}
           {!editMode && (
             <Paper sx={{ p: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  mb: 2,
+                }}
+              >
                 <Typography variant="h6">Dependency Verification</Typography>
                 <Button
                   variant="outlined"
@@ -703,9 +738,13 @@ export default function EnvironmentDetail() {
               {verifyResult && (
                 <>
                   {verifyResult.total_dependencies === 0 ? (
-                    <Alert severity="info">No dependencies declared for systems in this environment.</Alert>
-                  ) : verifyResult.missing_count === 0 && verifyResult.mocked_count === 0
-                    && (verifyResult.component_missing ?? 0) === 0 && (verifyResult.component_mocked ?? 0) === 0 ? (
+                    <Alert severity="info">
+                      No dependencies declared for systems in this environment.
+                    </Alert>
+                  ) : verifyResult.missing_count === 0 &&
+                    verifyResult.mocked_count === 0 &&
+                    (verifyResult.component_missing ?? 0) === 0 &&
+                    (verifyResult.component_mocked ?? 0) === 0 ? (
                     <Alert severity="success">All dependencies satisfied.</Alert>
                   ) : (
                     <>
@@ -769,11 +808,25 @@ export default function EnvironmentDetail() {
                   {/* Component Dependencies section */}
                   {(verifyResult.component_total ?? 0) > 0 && (
                     <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Component Dependencies</Typography>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                        Component Dependencies
+                      </Typography>
                       <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                        <Chip label={`${verifyResult.component_satisfied} satisfied`} color="success" size="small" />
-                        <Chip label={`${verifyResult.component_mocked} mocked`} color="warning" size="small" />
-                        <Chip label={`${verifyResult.component_missing} missing`} color="error" size="small" />
+                        <Chip
+                          label={`${verifyResult.component_satisfied} satisfied`}
+                          color="success"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.component_mocked} mocked`}
+                          color="warning"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.component_missing} missing`}
+                          color="error"
+                          size="small"
+                        />
                       </Box>
                       {nonSatisfiedComponentItems.length > 0 && (
                         <TableContainer>
@@ -792,7 +845,11 @@ export default function EnvironmentDetail() {
                                   <TableCell>{item.from_subsystem_name}</TableCell>
                                   <TableCell>{item.to_subsystem_name}</TableCell>
                                   <TableCell>
-                                    <Chip label={item.dependency_type.replace(/_/g, ' ')} size="small" variant="outlined" />
+                                    <Chip
+                                      label={item.dependency_type.replace(/_/g, ' ')}
+                                      size="small"
+                                      variant="outlined"
+                                    />
                                   </TableCell>
                                   <TableCell>
                                     <Chip
@@ -870,15 +927,22 @@ export default function EnvironmentDetail() {
       )}
 
       {/* Topology Tab */}
-      {tab === 3 && (
-        <EnvironmentTopologyDiagram envId={envId} />
-      )}
+      {tab === 3 && <EnvironmentTopologyDiagram envId={envId} />}
 
       {/* Edit Version Dialog */}
-      <Dialog open={editVersionTarget !== null} onClose={() => setEditVersionTarget(null)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={editVersionTarget !== null}
+        onClose={() => setEditVersionTarget(null)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Edit Version</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-          {editVersionError && <Alert severity="error" sx={{ mx: 2 }}>{editVersionError}</Alert>}
+          {editVersionError && (
+            <Alert severity="error" sx={{ mx: 2 }}>
+              {editVersionError}
+            </Alert>
+          )}
           <TextField
             label="Build ID *"
             value={editVersionForm.build_id}
@@ -913,7 +977,12 @@ export default function EnvironmentDetail() {
       </Dialog>
 
       {/* Record Version Dialog */}
-      <Dialog open={versionDialogOpen} onClose={() => setVersionDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={versionDialogOpen}
+        onClose={() => setVersionDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Record Version</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {versionFormError && <Alert severity="error">{versionFormError}</Alert>}

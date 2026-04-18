@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { Link } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -14,77 +14,77 @@ import {
   DialogActions,
   TextField,
   Paper,
-} from '@mui/material'
-import type { GridColDef } from '@mui/x-data-grid'
-import { fetchTenants, createTenant, disableTenant, signInAsTenant } from '../../store/adminSlice'
-import type { RootState, AppDispatch } from '../../store'
-import DataTable from '../../components/DataTable'
-import { useSnackbar } from '../../hooks/useSnackbar'
+} from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
+import { fetchTenants, createTenant, disableTenant, signInAsTenant } from '../../store/adminSlice';
+import type { RootState, AppDispatch } from '../../store';
+import DataTable from '../../components/DataTable';
+import { useSnackbar } from '../../hooks/useSnackbar';
 
 interface TenantRow {
-  id: number
-  name: string
-  slug: string
-  is_active: boolean
-  created_at: string
+  id: number;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 export default function TenantList() {
-  const dispatch = useDispatch<AppDispatch>()
-  const { tenants, loading, error } = useSelector((state: RootState) => state.admin)
-  const currentUserId = useSelector((state: RootState) => state.auth.user?.id)
-  const snackbar = useSnackbar()
+  const dispatch = useDispatch<AppDispatch>();
+  const { tenants, loading, error } = useSelector((state: RootState) => state.admin);
+  const currentUserId = useSelector((state: RootState) => state.auth.user?.id);
+  const snackbar = useSnackbar();
 
-  const [createOpen, setCreateOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newSlug, setNewSlug] = useState('')
-  const [formError, setFormError] = useState('')
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newSlug, setNewSlug] = useState('');
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    dispatch(fetchTenants())
-  }, [dispatch])
+    dispatch(fetchTenants());
+  }, [dispatch]);
 
   const handleCreate = async () => {
     if (!newName.trim() || !newSlug.trim()) {
-      setFormError('Name and slug are required')
-      return
+      setFormError('Name and slug are required');
+      return;
     }
     try {
-      await dispatch(createTenant({ name: newName.trim(), slug: newSlug.trim() })).unwrap()
-      setCreateOpen(false)
-      setNewName('')
-      setNewSlug('')
-      setFormError('')
-      snackbar.success('Tenant created')
+      await dispatch(createTenant({ name: newName.trim(), slug: newSlug.trim() })).unwrap();
+      setCreateOpen(false);
+      setNewName('');
+      setNewSlug('');
+      setFormError('');
+      snackbar.success('Tenant created');
     } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : 'Failed to create tenant')
+      setFormError(err instanceof Error ? err.message : 'Failed to create tenant');
     }
-  }
+  };
 
   const handleDisable = useCallback(
     async (id: number) => {
       if (window.confirm('Disable this tenant? All users will lose access.')) {
         try {
-          await dispatch(disableTenant(id)).unwrap()
-          snackbar.success('Tenant disabled')
+          await dispatch(disableTenant(id)).unwrap();
+          snackbar.success('Tenant disabled');
         } catch {
-          snackbar.error('Failed to disable tenant')
+          snackbar.error('Failed to disable tenant');
         }
       }
     },
-    [dispatch, snackbar],
-  )
+    [dispatch, snackbar]
+  );
 
   const handleSignInAs = useCallback(
     async (id: number) => {
       try {
-        await dispatch(signInAsTenant(id)).unwrap()
+        await dispatch(signInAsTenant(id)).unwrap();
       } catch {
-        snackbar.error('Failed to sign in as tenant')
+        snackbar.error('Failed to sign in as tenant');
       }
     },
-    [dispatch, snackbar],
-  )
+    [dispatch, snackbar]
+  );
 
   const columns = useMemo<GridColDef<TenantRow>[]>(
     () => [
@@ -127,11 +127,7 @@ export default function TenantList() {
         filterable: false,
         renderCell: (params) => (
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => handleSignInAs(params.row.id)}
-            >
+            <Button size="small" variant="outlined" onClick={() => handleSignInAs(params.row.id)}>
               Sign In As
             </Button>
             {params.row.is_active && (
@@ -148,8 +144,8 @@ export default function TenantList() {
         ),
       },
     ],
-    [handleDisable, handleSignInAs],
-  )
+    [handleDisable, handleSignInAs]
+  );
 
   return (
     <Box sx={{ p: 3 }}>
@@ -160,7 +156,11 @@ export default function TenantList() {
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {loading ? (
         <CircularProgress />
@@ -180,7 +180,11 @@ export default function TenantList() {
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create Tenant</DialogTitle>
         <DialogContent>
-          {formError && <Alert severity="error" sx={{ mb: 2 }}>{formError}</Alert>}
+          {formError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {formError}
+            </Alert>
+          )}
           <TextField
             label="Name"
             fullWidth
@@ -199,9 +203,11 @@ export default function TenantList() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate}>Create</Button>
+          <Button variant="contained" onClick={handleCreate}>
+            Create
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
-  )
+  );
 }

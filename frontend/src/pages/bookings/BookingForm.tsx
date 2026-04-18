@@ -66,13 +66,20 @@ const buildDefaults = (envIds: number[]): BookingFormValues => ({
   customFieldValues: {},
 });
 
-export default function BookingForm({ open, onClose, defaultEnvId, defaultEnvIds }: BookingFormProps) {
+export default function BookingForm({
+  open,
+  onClose,
+  defaultEnvId,
+  defaultEnvIds,
+}: BookingFormProps) {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const snackbar = useSnackbar();
 
   const environments = useSelector((state: RootState) => state.environment.environments);
-  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? []);
+  const customFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['booking'] ?? []
+  );
   const { bookingTypes, templates } = useSelector((s: RootState) => s.bookingLifecycle);
   const allUsers = useSelector((s: RootState) => s.tenantAdmin.users);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
@@ -178,7 +185,7 @@ export default function BookingForm({ open, onClose, defaultEnvId, defaultEnvIds
 
   const delegateCandidates = useMemo(
     () => allUsers.filter((u) => u.is_active && u.id !== currentUserId),
-    [allUsers, currentUserId],
+    [allUsers, currentUserId]
   );
 
   const handleClose = () => {
@@ -342,10 +349,7 @@ export default function BookingForm({ open, onClose, defaultEnvId, defaultEnvIds
           render={({ field }) => (
             <FormControlLabel
               control={
-                <Switch
-                  checked={field.value}
-                  onChange={(e) => field.onChange(e.target.checked)}
-                />
+                <Switch checked={field.value} onChange={(e) => field.onChange(e.target.checked)} />
               }
               label="Exclusive use requested"
             />
@@ -380,13 +384,7 @@ export default function BookingForm({ open, onClose, defaultEnvId, defaultEnvIds
         />
 
         {/* Notes */}
-        <FormTextField<BookingFormValues>
-          name="notes"
-          label="Notes"
-          multiline
-          rows={3}
-          fullWidth
-        />
+        <FormTextField<BookingFormValues> name="notes" label="Notes" multiline rows={3} fullWidth />
 
         {/* Custom Fields */}
         <Controller
@@ -400,9 +398,7 @@ export default function BookingForm({ open, onClose, defaultEnvId, defaultEnvIds
             />
           )}
         />
-
       </Box>
     </FormDialog>
   );
 }
-
