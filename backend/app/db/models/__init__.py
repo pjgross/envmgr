@@ -14,6 +14,7 @@ from app.db.models.booking_lifecycle import (
     BookingType,
     BookingStatusHistory,
 )
+from app.db.models.change_request import ChangeRequest, ChangeHistory, ChangeType
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.event_log import EventLog
 
@@ -37,6 +38,9 @@ __all__ = [
     "LifecycleTemplate",
     "BookingType",
     "BookingStatusHistory",
+    "ChangeRequest",
+    "ChangeHistory",
+    "ChangeType",
     "EnvironmentSubSystemVersion",
     "EventLog",
 ]
