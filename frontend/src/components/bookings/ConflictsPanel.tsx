@@ -19,6 +19,8 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
   const [pending, setPending] = useState<Record<number, { willing_to_share: boolean; notes: string }>>({})
   const [conflictsError, setConflictsError] = useState<string | null>(null)
   const [receivedError, setReceivedError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [savingIds, setSavingIds] = useState<Set<number>>(new Set())
 
   const reload = async () => {
     const [conflictsRes, receivedRes] = await Promise.allSettled([
@@ -37,21 +39,31 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
     } else {
       setReceivedError(formatApiError(receivedRes.reason, 'Failed to load received feedback'))
     }
+    setLoading(false)
   }
 
   useEffect(() => { reload() }, [bookingId])
 
-  if (items.length === 0 && received.length === 0) return null
+  if (!loading && items.length === 0 && received.length === 0 && !conflictsError && !receivedError) return null
 
   const saveAck = async (otherId: number) => {
     const p = pending[otherId] ?? { willing_to_share: false, notes: '' }
-    await bookingService.acknowledgeConflict(bookingId, otherId, p)
-    await reload()
+    setSavingIds((s) => new Set(s).add(otherId))
+    try {
+      await bookingService.acknowledgeConflict(bookingId, otherId, p)
+      await reload()
+    } finally {
+      setSavingIds((s) => {
+        const next = new Set(s)
+        next.delete(otherId)
+        return next
+      })
+    }
   }
 
   return (
     <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label="Conflict feedback" sx={{ mb: 2 }}>
         <Tab label={`Your feedback (${items.length})`} />
         <Tab label={`Feedback received (${received.length})`} />
       </Tabs>
@@ -95,7 +107,7 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
                     onChange={(e) => setPending((s) => ({ ...s, [it.other_booking.id]: { ...p, notes: e.target.value } }))}
                   />
                   {canAcknowledge && (
-                    <Button sx={{ mt: 1 }} size="small" variant="contained" onClick={() => saveAck(it.other_booking.id)}>
+                    <Button sx={{ mt: 1 }} size="small" variant="contained" onClick={() => saveAck(it.other_booking.id)} disabled={savingIds.has(it.other_booking.id)}>
                       Save
                     </Button>
                   )}
