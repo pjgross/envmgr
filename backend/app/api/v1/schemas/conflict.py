@@ -44,8 +44,6 @@ class RequestContextRef(BaseModel):
 
 
 class ReceivedFeedbackItem(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     willing_to_share: Optional[bool]
     notes: Optional[str]
     acknowledged_at: datetime
