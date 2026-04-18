@@ -98,6 +98,31 @@ async def _make_request_with_owner(db_session, test_tenant, test_user, delegates
     return req
 
 
+async def _make_ack(
+    db_session,
+    *,
+    tenant_id: int,
+    booking_id: int,
+    other_booking_id: int,
+    user_id: int,
+    willing_to_share: bool | None,
+    notes: str | None,
+    at: datetime,
+) -> BookingConflictAck:
+    ack = BookingConflictAck(
+        tenant_id=tenant_id,
+        booking_id=booking_id,
+        other_booking_id=other_booking_id,
+        willing_to_share=willing_to_share,
+        notes=notes,
+        acknowledged_by=user_id,
+        acknowledged_at=at,
+    )
+    db_session.add(ack)
+    await db_session.flush()
+    return ack
+
+
 @pytest.mark.asyncio
 async def test_ack_upsert_creates_then_updates(db_session, test_tenant, test_user):
     env = await _make_env(db_session, test_tenant)
@@ -188,31 +213,6 @@ async def test_ack_allows_delegate(db_session, test_tenant, test_user):
         current_user=delegate, tenant_id=test_tenant.id,
     )
     assert ack.acknowledged_by == delegate.id
-
-
-async def _make_ack(
-    db_session,
-    *,
-    tenant_id: int,
-    booking_id: int,
-    other_booking_id: int,
-    user_id: int,
-    willing_to_share: bool | None,
-    notes: str | None,
-    at: datetime,
-) -> BookingConflictAck:
-    ack = BookingConflictAck(
-        tenant_id=tenant_id,
-        booking_id=booking_id,
-        other_booking_id=other_booking_id,
-        willing_to_share=willing_to_share,
-        notes=notes,
-        acknowledged_by=user_id,
-        acknowledged_at=at,
-    )
-    db_session.add(ack)
-    await db_session.flush()
-    return ack
 
 
 @pytest.mark.asyncio
@@ -368,3 +368,36 @@ async def test_received_feedback_ordered_by_acknowledged_at_desc(
         db_session, me.id, test_tenant.id
     )
     assert [r.ack.notes for r in rows] == ["second", "first"]
+
+
+@pytest.mark.asyncio
+async def test_received_feedback_excludes_rows_with_empty_notes_and_null_willing_to_share(
+    db_session, test_tenant, test_user
+):
+    env = await _make_env(db_session, test_tenant)
+    req_me = await _make_request_with_owner(db_session, test_tenant, test_user)
+    t0 = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    me = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    me.booking_request_id = req_me.id
+
+    other = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
+    other_req = await _make_request_with_owner(db_session, test_tenant, test_user)
+    other.booking_request_id = other_req.id
+    await db_session.flush()
+
+    await _make_ack(
+        db_session,
+        tenant_id=test_tenant.id,
+        booking_id=other.id,
+        other_booking_id=me.id,
+        user_id=test_user.id,
+        willing_to_share=None,
+        notes="",
+        at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
+    )
+
+    rows = await conflict_service.list_received_feedback(
+        db_session, me.id, test_tenant.id
+    )
+    assert rows == []
