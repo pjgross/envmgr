@@ -245,6 +245,7 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
       onSubmit={onSubmit}
       submitLabel="Save changes"
       submittingLabel="Saving..."
+      maxWidth="lg"
     >
       <Alert severity="info" sx={{ mb: 1, mt: 1 }}>
         Lifecycle and subsystem can't be changed after creation. You can adjust the
@@ -416,7 +417,7 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
           fullWidth
         />
 
-        {effectiveEnvs.length > 0 && (
+        {effectiveEnvs.length > 0 ? (
           <BookingScheduleGantt
             envs={effectiveEnvs}
             scheduledStart={parseLocal(scheduledStartStr)}
@@ -425,6 +426,11 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
             outageStart={parseLocal(outageStartStr)}
             outageEnd={parseLocal(outageEndStr)}
           />
+        ) : (
+          <Alert severity="info" variant="outlined">
+            Select an environment or host above to see the booking schedule for the
+            affected environments alongside the proposed change window.
+          </Alert>
         )}
 
         <Controller

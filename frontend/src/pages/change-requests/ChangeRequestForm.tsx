@@ -320,6 +320,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
       onSubmit={onSubmit}
       submitLabel="Create Change Request"
       submittingLabel="Creating..."
+      maxWidth="lg"
     >
       <Alert severity="info" sx={{ mb: 1, mt: 1 }}>
         A change request must target at least one environment or host. Host-scoped
@@ -525,7 +526,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
           fullWidth
         />
 
-        {effectiveEnvs.length > 0 && (
+        {effectiveEnvs.length > 0 ? (
           <BookingScheduleGantt
             envs={effectiveEnvs}
             scheduledStart={parseLocal(scheduledStartStr)}
@@ -534,6 +535,11 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
             outageStart={parseLocal(outageStartStr)}
             outageEnd={parseLocal(outageEndStr)}
           />
+        ) : (
+          <Alert severity="info" variant="outlined">
+            Select an environment or host above to see the booking schedule for the
+            affected environments alongside the proposed change window.
+          </Alert>
         )}
 
         <Controller
