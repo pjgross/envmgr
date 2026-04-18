@@ -1,0 +1,1110 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Skeleton,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tabs,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../../components/DataTable';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+
+import type { AppDispatch, RootState } from '../../store';
+import {
+  fetchEnvironment,
+  updateEnvironment,
+  fetchEnvironmentSystems,
+  fetchEnvSubsystems,
+  addSystemToEnvironment,
+  removeSystemFromEnvironment,
+  updateEnvSubsystem,
+} from '../../store/environmentSlice';
+import { fetchSystems } from '../../store/systemSlice';
+import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
+import { recordVersion, updateVersion } from '../../store/versionSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
+import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
+import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
+import type {
+  EnvironmentUpdate,
+  EnvironmentStatus,
+  EnvironmentSystemResponse,
+  EnvironmentSystemCreate,
+  EnvironmentSubsystemResponse,
+} from '../../types/environment';
+import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
+
+const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
+  active: 'success',
+  maintenance: 'warning',
+  inactive: 'default',
+  decommissioned: 'error',
+};
+
+interface EnvFormValues {
+  name: string;
+  description: string;
+  environment_type: string;
+  status: EnvironmentStatus;
+}
+
+interface SysFormValues {
+  system_id: number | '';
+}
+
+const emptySysForm: SysFormValues = { system_id: '' };
+
+export default function EnvironmentDetail() {
+  const { id } = useParams<{ id: string }>();
+  const envId = Number(id);
+  const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
+
+  const { currentEnvironment, environmentSystemsData, envSubsystems, loading, error } = useSelector(
+    (state: RootState) => state.environment
+  );
+  const environmentSystems = environmentSystemsData.systems;
+  const missingSystems = environmentSystemsData.missing_systems;
+  const { systems } = useSelector((state: RootState) => state.system);
+  const { verifyResult, loading: verifyLoading } = useSelector(
+    (state: RootState) => state.dependency
+  );
+  const { loading: versionsLoading } = useSelector((state: RootState) => state.version);
+  const envCustomFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['environment'] ?? []
+  );
+
+  const [tab, setTab] = useState(0);
+
+  // Overview edit state
+  const [editMode, setEditMode] = useState(false);
+  const [envCustomFieldValues, setEnvCustomFieldValues] = useState<Record<string, unknown>>({});
+  const [envForm, setEnvForm] = useState<EnvFormValues>({
+    name: '',
+    description: '',
+    environment_type: '',
+    status: 'active',
+  });
+  const [envFormError, setEnvFormError] = useState('');
+
+  // Version tab state
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [versionForm, setVersionForm] = useState<VersionCreate>({
+    subsystem_id: 0,
+    build_id: '',
+    version_label: '',
+    installed_at: undefined,
+  });
+  const [versionFormError, setVersionFormError] = useState('');
+
+  // Version edit state
+  const [editVersionTarget, setEditVersionTarget] = useState<VersionResponse | null>(null);
+  const [editVersionForm, setEditVersionForm] = useState<{
+    build_id: string;
+    version_label: string;
+    installed_at: string;
+  }>({ build_id: '', version_label: '', installed_at: '' });
+  const [editVersionError, setEditVersionError] = useState('');
+
+  // System dialog state
+  const [sysDialogOpen, setSysDialogOpen] = useState(false);
+  const [sysForm, setSysForm] = useState<SysFormValues>(emptySysForm);
+  const [sysFormError, setSysFormError] = useState('');
+  const [sysDeleteTarget, setSysDeleteTarget] = useState<EnvironmentSystemResponse | null>(null);
+  const [typeDialogTarget, setTypeDialogTarget] = useState<EnvironmentSubsystemResponse | null>(
+    null
+  );
+
+  useEffect(() => {
+    dispatch(fetchEnvironment(envId));
+    dispatch(fetchEnvironmentSystems(envId));
+    dispatch(fetchSystems());
+    dispatch(fetchDefinitions('environment'));
+    // Clear any previous verify result when env changes
+    dispatch(clearVerifyResult());
+  }, [dispatch, envId]);
+
+  useEffect(() => {
+    if (currentEnvironment) {
+      setEnvForm({
+        name: currentEnvironment.name,
+        description: currentEnvironment.description ?? '',
+        environment_type: currentEnvironment.environment_type,
+        status: currentEnvironment.status,
+      });
+      setEnvCustomFieldValues(currentEnvironment.custom_fields ?? {});
+    }
+  }, [currentEnvironment]);
+
+  const handleEnvUpdate = async () => {
+    if (!envForm.name.trim()) {
+      setEnvFormError('Name is required');
+      return;
+    }
+    try {
+      const data: EnvironmentUpdate = {
+        name: envForm.name,
+        description: envForm.description || undefined,
+        environment_type: envForm.environment_type,
+        status: envForm.status,
+        custom_fields: envCustomFieldValues,
+      };
+      await dispatch(updateEnvironment({ id: envId, data })).unwrap();
+      setEditMode(false);
+      setEnvFormError('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setEnvFormError(message || 'Failed to update environment');
+    }
+  };
+
+  const openSysCreate = () => {
+    setSysForm(emptySysForm);
+    setSysFormError('');
+    setSysDialogOpen(true);
+  };
+
+  const handleSysSave = async () => {
+    try {
+      if (!sysForm.system_id) {
+        setSysFormError('Please select a system');
+        return;
+      }
+      const data: EnvironmentSystemCreate = {
+        system_id: sysForm.system_id as number,
+      };
+      await dispatch(addSystemToEnvironment({ envId, data })).unwrap();
+      dispatch(fetchEnvSubsystems(envId));
+      setSysDialogOpen(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSysFormError(message || 'Failed to save');
+    }
+  };
+
+  const handleSysDelete = async () => {
+    if (!sysDeleteTarget) return;
+    try {
+      await dispatch(
+        removeSystemFromEnvironment({ envId, systemId: sysDeleteTarget.system_id })
+      ).unwrap();
+    } finally {
+      setSysDeleteTarget(null);
+    }
+  };
+
+  const handleVerify = () => {
+    dispatch(verifyEnvironment(envId));
+  };
+
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setTab(newValue);
+    if (newValue === 2) {
+      // Lazy-load subsystems when Components tab is first opened
+      dispatch(fetchEnvSubsystems(envId));
+    }
+  };
+
+  const openVersionDialog = () => {
+    setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
+    setVersionFormError('');
+    setVersionDialogOpen(true);
+  };
+
+  // Only non-mocked subsystems can have a real version recorded
+  const versionableSubsystems = envSubsystems.filter((s) => !s.is_mocked);
+
+  const handleVersionSave = async () => {
+    if (!versionForm.subsystem_id) {
+      setVersionFormError('Please select a subsystem');
+      return;
+    }
+    if (!versionForm.build_id.trim()) {
+      setVersionFormError('Build ID is required');
+      return;
+    }
+    if (!versionForm.version_label.trim()) {
+      setVersionFormError('Version Label is required');
+      return;
+    }
+    try {
+      await dispatch(recordVersion({ envId, data: versionForm })).unwrap();
+      setVersionDialogOpen(false);
+      setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
+      setVersionFormError('');
+      // Refresh envSubsystems so latest_version column updates
+      dispatch(fetchEnvSubsystems(envId));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setVersionFormError(message || 'Failed to record version');
+    }
+  };
+
+  const handleEditVersionSave = async () => {
+    if (!editVersionTarget || !currentEnvironment) return;
+    const data: VersionUpdate = {};
+    if (editVersionForm.build_id) data.build_id = editVersionForm.build_id;
+    if (editVersionForm.version_label) data.version_label = editVersionForm.version_label;
+    if (editVersionForm.installed_at)
+      data.installed_at = new Date(editVersionForm.installed_at).toISOString();
+    try {
+      await dispatch(
+        updateVersion({ envId: currentEnvironment.id, versionId: editVersionTarget.id, data })
+      ).unwrap();
+      setEditVersionTarget(null);
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message;
+      setEditVersionError(msg ?? 'Failed to save changes');
+    }
+  };
+
+  // Systems already assigned (to exclude from add dropdown)
+  const assignedSystemIds = new Set(environmentSystems.map((s) => s.system_id));
+  const availableSystems = systems.filter((s) => !assignedSystemIds.has(s.id));
+
+  // --- Systems tab: unified row model (present + missing) ----------------------
+  type SystemsRow =
+    | { id: string; kind: 'present'; envSys: EnvironmentSystemResponse; systemName: string }
+    | {
+        id: string;
+        kind: 'missing';
+        sys: { id: number; name: string; description: string | null };
+        systemName: string;
+      };
+
+  const systemsRows: SystemsRow[] = useMemo(() => {
+    const present: SystemsRow[] = environmentSystems.map((envSys) => ({
+      id: `present-${envSys.id}`,
+      kind: 'present',
+      envSys,
+      systemName: envSys.system.name,
+    }));
+    const missing: SystemsRow[] = missingSystems.map((sys) => ({
+      id: `missing-${sys.id}`,
+      kind: 'missing',
+      sys,
+      systemName: sys.name,
+    }));
+    return [...present, ...missing];
+  }, [environmentSystems, missingSystems]);
+
+  const systemsColumns: GridColDef<SystemsRow>[] = useMemo(
+    () => [
+      {
+        field: 'systemName',
+        headerName: 'System',
+        flex: 1,
+        minWidth: 240,
+        renderCell: (params) => {
+          const row = params.row;
+          if (row.kind === 'present') {
+            return (
+              <Typography variant="body2" fontWeight="medium">
+                {row.envSys.system.name}
+              </Typography>
+            );
+          }
+          return (
+            <Box>
+              <Typography variant="body2">{row.sys.name}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Required by a dependency — not yet in environment
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 160,
+        sortable: false,
+        filterable: false,
+        align: 'right',
+        headerAlign: 'right',
+        renderCell: (params) => {
+          const row = params.row;
+          if (row.kind === 'present') {
+            return (
+              <Tooltip title="Remove">
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={() => setSysDeleteTarget(row.envSys)}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            );
+          }
+          return (
+            <Tooltip title="Add to environment">
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setSysForm({ system_id: row.sys.id });
+                  setSysFormError('');
+                  setSysDialogOpen(true);
+                }}
+              >
+                Add
+              </Button>
+            </Tooltip>
+          );
+        },
+      },
+    ],
+    []
+  );
+
+  // --- Components tab: envSubsystems row model ---------------------------------
+  const subsystemsColumns: GridColDef<EnvironmentSubsystemResponse>[] = useMemo(
+    () => [
+      {
+        field: 'subsystem_name',
+        headerName: 'System / Subsystem',
+        flex: 1,
+        minWidth: 220,
+        renderCell: (params) => (
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              {params.row.system_name}
+            </Typography>
+            <Typography variant="body2" fontWeight="medium">
+              {params.row.subsystem_name}
+            </Typography>
+          </Box>
+        ),
+      },
+      {
+        field: 'component_type',
+        headerName: 'Category',
+        width: 160,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.component_type.replace(/_/g, ' ')}
+            size="small"
+            variant="outlined"
+          />
+        ),
+      },
+      {
+        field: 'component_type_definition_name',
+        headerName: 'Type',
+        width: 160,
+        valueGetter: (params) => params.row.component_type_definition_name ?? '—',
+      },
+      {
+        field: 'is_mocked',
+        headerName: 'Real / Mock',
+        width: 120,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.is_mocked ? 'Mock' : 'Real'}
+            size="small"
+            color={params.row.is_mocked ? 'warning' : 'success'}
+            onClick={() =>
+              dispatch(
+                updateEnvSubsystem({
+                  envId,
+                  subsystemId: params.row.subsystem_id,
+                  data: { is_mocked: !params.row.is_mocked },
+                })
+              )
+            }
+            sx={{ cursor: 'pointer' }}
+          />
+        ),
+      },
+      {
+        field: 'mock_notes',
+        headerName: 'Mock Notes',
+        flex: 1,
+        minWidth: 220,
+        sortable: false,
+        renderCell: (params) =>
+          params.row.is_mocked ? (
+            <TextField
+              size="small"
+              placeholder="Mock notes (optional)"
+              value={params.row.mock_notes ?? ''}
+              onChange={(e) =>
+                dispatch(
+                  updateEnvSubsystem({
+                    envId,
+                    subsystemId: params.row.subsystem_id,
+                    data: { mock_notes: e.target.value || null },
+                  })
+                )
+              }
+              sx={{ minWidth: 200 }}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              —
+            </Typography>
+          ),
+      },
+      {
+        field: 'latest_version',
+        headerName: 'Latest Version',
+        width: 200,
+        sortable: false,
+        renderCell: (params) => {
+          if (params.row.is_mocked)
+            return (
+              <Typography variant="body2" color="text.secondary">
+                —
+              </Typography>
+            );
+          const v = params.row.latest_version;
+          if (!v)
+            return (
+              <Typography variant="body2" color="text.secondary">
+                No version recorded
+              </Typography>
+            );
+          return (
+            <Box>
+              <Typography variant="body2">{v.version_label}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {v.build_id} · {new Date(v.installed_at).toLocaleDateString()}
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 100,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <Tooltip title="Set component type">
+            <IconButton size="small" onClick={() => setTypeDialogTarget(params.row)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ),
+      },
+    ],
+    [dispatch, envId]
+  );
+
+  if (loading && !currentEnvironment) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Skeleton variant="text" width={300} height={40} />
+        <Skeleton variant="rectangular" height={200} sx={{ mt: 2 }} />
+      </Box>
+    );
+  }
+
+  if (error && !currentEnvironment) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">{error}</Alert>
+      </Box>
+    );
+  }
+
+  // Flatten all dependency items from verify result for the missing table
+  const allDepItems = verifyResult
+    ? verifyResult.systems.flatMap((s) =>
+        s.dependencies.map((d) => ({ ...d, system_name: s.system_name }))
+      )
+    : [];
+  const nonSatisfiedItems = allDepItems.filter((d) => d.status !== 'satisfied');
+
+  const nonSatisfiedComponentItems =
+    verifyResult?.component_dependencies?.filter((d) => d.status !== 'satisfied') ?? [];
+
+  return (
+    <Box sx={{ p: 3 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
+        <IconButton onClick={() => navigate('/environments')}>
+          <ArrowBackIcon />
+        </IconButton>
+        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
+          {currentEnvironment?.name ?? '…'}
+        </Typography>
+        {currentEnvironment && (
+          <Chip
+            label={currentEnvironment.status}
+            size="small"
+            color={STATUS_COLORS[currentEnvironment.status]}
+          />
+        )}
+        {!editMode && tab === 0 && (
+          <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
+            Edit
+          </Button>
+        )}
+      </Box>
+
+      <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 2 }}>
+        <Tab label="Overview" />
+        <Tab label="Systems" />
+        <Tab label="Components" />
+        <Tab label="Topology" />
+      </Tabs>
+
+      {/* Overview Tab */}
+      {tab === 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Paper sx={{ p: 3 }}>
+            {editMode ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {envFormError && <Alert severity="error">{envFormError}</Alert>}
+                <TextField
+                  label="Name"
+                  required
+                  value={envForm.name}
+                  onChange={(e) => setEnvForm({ ...envForm, name: e.target.value })}
+                />
+                <TextField
+                  label="Description"
+                  value={envForm.description}
+                  onChange={(e) => setEnvForm({ ...envForm, description: e.target.value })}
+                  multiline
+                  rows={3}
+                />
+                <TextField
+                  label="Environment Type"
+                  value={envForm.environment_type}
+                  onChange={(e) => setEnvForm({ ...envForm, environment_type: e.target.value })}
+                  placeholder="e.g. staging, uat, dev"
+                />
+                <FormControl>
+                  <InputLabel>Status</InputLabel>
+                  <Select
+                    label="Status"
+                    value={envForm.status}
+                    onChange={(e) =>
+                      setEnvForm({ ...envForm, status: e.target.value as EnvironmentStatus })
+                    }
+                  >
+                    <MenuItem value="active">Active</MenuItem>
+                    <MenuItem value="inactive">Inactive</MenuItem>
+                    <MenuItem value="maintenance">Maintenance</MenuItem>
+                    <MenuItem value="decommissioned">Decommissioned</MenuItem>
+                  </Select>
+                </FormControl>
+                {envCustomFieldDefs.length > 0 && (
+                  <CustomFieldsSection
+                    definitions={envCustomFieldDefs}
+                    values={envCustomFieldValues}
+                    onChange={setEnvCustomFieldValues}
+                  />
+                )}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button variant="contained" onClick={handleEnvUpdate} disabled={loading}>
+                    Save
+                  </Button>
+                  <Button onClick={() => setEditMode(false)}>Cancel</Button>
+                </Box>
+              </Box>
+            ) : (
+              <Box>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">
+                    Name
+                  </Typography>
+                  <Typography>{currentEnvironment?.name}</Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">
+                    Description
+                  </Typography>
+                  <Typography>{currentEnvironment?.description ?? '—'}</Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">
+                    Environment Type
+                  </Typography>
+                  <Typography>{currentEnvironment?.environment_type}</Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary">
+                    Status
+                  </Typography>
+                  <Box>
+                    {currentEnvironment && (
+                      <Chip
+                        label={currentEnvironment.status}
+                        size="small"
+                        color={STATUS_COLORS[currentEnvironment.status]}
+                      />
+                    )}
+                  </Box>
+                </Box>
+                {envCustomFieldDefs.length > 0 && (
+                  <>
+                    <Divider sx={{ my: 1 }} />
+                    <CustomFieldsDisplay
+                      definitions={envCustomFieldDefs}
+                      values={currentEnvironment?.custom_fields}
+                    />
+                  </>
+                )}
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ display: 'flex', gap: 4 }}>
+                  <Box>
+                    <Typography variant="overline" color="text.secondary">
+                      Created
+                    </Typography>
+                    <Typography variant="body2">
+                      {currentEnvironment
+                        ? new Date(currentEnvironment.created_at).toLocaleString()
+                        : '—'}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="overline" color="text.secondary">
+                      Updated
+                    </Typography>
+                    <Typography variant="body2">
+                      {currentEnvironment
+                        ? new Date(currentEnvironment.updated_at).toLocaleString()
+                        : '—'}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Paper>
+
+          {/* Verify Environment Panel */}
+          {!editMode && (
+            <Paper sx={{ p: 3 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  mb: 2,
+                }}
+              >
+                <Typography variant="h6">Dependency Verification</Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={verifyLoading ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+                  onClick={handleVerify}
+                  disabled={verifyLoading}
+                >
+                  Verify Environment
+                </Button>
+              </Box>
+
+              {verifyResult && (
+                <>
+                  {verifyResult.total_dependencies === 0 ? (
+                    <Alert severity="info">
+                      No dependencies declared for systems in this environment.
+                    </Alert>
+                  ) : verifyResult.missing_count === 0 &&
+                    verifyResult.mocked_count === 0 &&
+                    (verifyResult.component_missing ?? 0) === 0 &&
+                    (verifyResult.component_mocked ?? 0) === 0 ? (
+                    <Alert severity="success">All dependencies satisfied.</Alert>
+                  ) : (
+                    <>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        <Chip
+                          label={`${verifyResult.satisfied_count} satisfied`}
+                          color="success"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.mocked_count} mocked`}
+                          color="warning"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.missing_count} missing`}
+                          color="error"
+                          size="small"
+                        />
+                      </Box>
+
+                      {nonSatisfiedItems.length > 0 && (
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>System</TableCell>
+                                <TableCell>Depends On</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Status</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {nonSatisfiedItems.map((item) => (
+                                <TableRow key={`${item.system_name}-${item.to_system_id}`}>
+                                  <TableCell>{item.system_name}</TableCell>
+                                  <TableCell>{item.to_system_name}</TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.dependency_type.replace(/_/g, ' ')}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.status}
+                                      size="small"
+                                      color={item.status === 'missing' ? 'error' : 'warning'}
+                                    />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </>
+                  )}
+
+                  {/* Component Dependencies section */}
+                  {(verifyResult.component_total ?? 0) > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                        Component Dependencies
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        <Chip
+                          label={`${verifyResult.component_satisfied} satisfied`}
+                          color="success"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.component_mocked} mocked`}
+                          color="warning"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${verifyResult.component_missing} missing`}
+                          color="error"
+                          size="small"
+                        />
+                      </Box>
+                      {nonSatisfiedComponentItems.length > 0 && (
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>From Component</TableCell>
+                                <TableCell>Depends On</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Status</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {nonSatisfiedComponentItems.map((item) => (
+                                <TableRow key={`${item.from_subsystem_id}-${item.to_subsystem_id}`}>
+                                  <TableCell>{item.from_subsystem_name}</TableCell>
+                                  <TableCell>{item.to_subsystem_name}</TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.dependency_type.replace(/_/g, ' ')}
+                                      size="small"
+                                      variant="outlined"
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      label={item.status}
+                                      size="small"
+                                      color={item.status === 'missing' ? 'error' : 'warning'}
+                                    />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      )}
+                    </Box>
+                  )}
+                </>
+              )}
+            </Paper>
+          )}
+        </Box>
+      )}
+
+      {/* Systems Tab */}
+      {tab === 1 && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openSysCreate}>
+              Add System
+            </Button>
+          </Box>
+
+          <Paper sx={{ height: 520, width: '100%' }}>
+            <DataTable<SystemsRow>
+              storageKey="env-systems-columns"
+              rows={systemsRows}
+              columns={systemsColumns}
+              loading={loading}
+              emptyMessage="No systems assigned to this environment yet."
+              getRowClassName={(params) =>
+                params.row.kind === 'missing' ? 'row-missing-system' : ''
+              }
+              sx={{
+                '& .row-missing-system': { opacity: 0.55 },
+              }}
+            />
+          </Paper>
+        </Box>
+      )}
+
+      {/* Components Tab */}
+      {tab === 2 && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openVersionDialog}>
+              Record Version
+            </Button>
+          </Box>
+
+          <Paper sx={{ height: 600, width: '100%' }}>
+            <DataTable<EnvironmentSubsystemResponse>
+              storageKey="env-components-columns"
+              rows={envSubsystems}
+              columns={subsystemsColumns}
+              loading={loading}
+              getRowId={(row) => row.subsystem_id}
+              emptyMessage="No subsystems configured. Add systems with subsystems first."
+              getRowClassName={(params) => (params.row.is_mocked ? 'row-mocked' : '')}
+              sx={{
+                '& .row-mocked': { opacity: 0.75 },
+              }}
+            />
+          </Paper>
+        </Box>
+      )}
+
+      {/* Topology Tab */}
+      {tab === 3 && <EnvironmentTopologyDiagram envId={envId} />}
+
+      {/* Edit Version Dialog */}
+      <Dialog
+        open={editVersionTarget !== null}
+        onClose={() => setEditVersionTarget(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Version</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {editVersionError && (
+            <Alert severity="error" sx={{ mx: 2 }}>
+              {editVersionError}
+            </Alert>
+          )}
+          <TextField
+            label="Build ID *"
+            value={editVersionForm.build_id}
+            onChange={(e) => setEditVersionForm((f) => ({ ...f, build_id: e.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Version Label *"
+            value={editVersionForm.version_label}
+            onChange={(e) => setEditVersionForm((f) => ({ ...f, version_label: e.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Installed At"
+            type="datetime-local"
+            value={editVersionForm.installed_at}
+            onChange={(e) => setEditVersionForm((f) => ({ ...f, installed_at: e.target.value }))}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditVersionTarget(null)}>Cancel</Button>
+          <Button
+            onClick={handleEditVersionSave}
+            variant="contained"
+            disabled={!editVersionForm.build_id || !editVersionForm.version_label}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Record Version Dialog */}
+      <Dialog
+        open={versionDialogOpen}
+        onClose={() => setVersionDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Record Version</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {versionFormError && <Alert severity="error">{versionFormError}</Alert>}
+          <FormControl fullWidth required>
+            <InputLabel>SubSystem</InputLabel>
+            <Select
+              label="SubSystem"
+              value={versionForm.subsystem_id || ''}
+              onChange={(e) =>
+                setVersionForm({ ...versionForm, subsystem_id: e.target.value as number })
+              }
+            >
+              {versionableSubsystems.length === 0 ? (
+                <MenuItem disabled value="">
+                  No non-mocked subsystems available
+                </MenuItem>
+              ) : (
+                versionableSubsystems.map((sub) => (
+                  <MenuItem key={sub.subsystem_id} value={sub.subsystem_id}>
+                    {sub.system_name} / {sub.subsystem_name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Build ID"
+            required
+            value={versionForm.build_id}
+            onChange={(e) => setVersionForm({ ...versionForm, build_id: e.target.value })}
+            fullWidth
+            placeholder="e.g. build-1234"
+          />
+          <TextField
+            label="Version Label"
+            required
+            value={versionForm.version_label}
+            onChange={(e) => setVersionForm({ ...versionForm, version_label: e.target.value })}
+            fullWidth
+            placeholder="e.g. v2.1.0"
+          />
+          <TextField
+            label="Installed At (optional)"
+            type="datetime-local"
+            value={versionForm.installed_at ?? ''}
+            onChange={(e) =>
+              setVersionForm({
+                ...versionForm,
+                installed_at: e.target.value ? new Date(e.target.value).toISOString() : undefined,
+              })
+            }
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVersionDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleVersionSave} variant="contained" disabled={versionsLoading}>
+            Record
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add System Dialog */}
+      <Dialog open={sysDialogOpen} onClose={() => setSysDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add System</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          {sysFormError && <Alert severity="error">{sysFormError}</Alert>}
+
+          <FormControl fullWidth required>
+            <InputLabel>System</InputLabel>
+            <Select
+              label="System"
+              value={sysForm.system_id}
+              onChange={(e) => setSysForm({ ...sysForm, system_id: e.target.value as number })}
+            >
+              {availableSystems.length === 0 ? (
+                <MenuItem disabled value="">
+                  No available systems
+                </MenuItem>
+              ) : (
+                availableSystems.map((s) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSysDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleSysSave} variant="contained" disabled={loading}>
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Remove System Confirmation */}
+      <Dialog open={Boolean(sysDeleteTarget)} onClose={() => setSysDeleteTarget(null)}>
+        <DialogTitle>Remove System</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Remove <strong>{sysDeleteTarget?.system.name}</strong> from this environment?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSysDeleteTarget(null)}>Cancel</Button>
+          <Button onClick={handleSysDelete} color="error" variant="contained">
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {typeDialogTarget && (
+        <ComponentTypeAssignDialog
+          envId={envId}
+          subsystem={typeDialogTarget}
+          open={Boolean(typeDialogTarget)}
+          onClose={() => setTypeDialogTarget(null)}
+        />
+      )}
+    </Box>
+  );
+}
