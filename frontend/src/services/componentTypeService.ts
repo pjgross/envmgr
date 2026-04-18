@@ -15,7 +15,10 @@ export const componentTypeService = {
   createType: (data: ComponentTypeDefinitionCreate): Promise<ComponentTypeDefinitionResponse> =>
     api.post('/component-types/', data).then((r) => r.data),
 
-  updateType: (id: number, data: ComponentTypeDefinitionUpdate): Promise<ComponentTypeDefinitionResponse> =>
+  updateType: (
+    id: number,
+    data: ComponentTypeDefinitionUpdate
+  ): Promise<ComponentTypeDefinitionResponse> =>
     api.patch(`/component-types/${id}`, data).then((r) => r.data),
 
   deleteType: (id: number): Promise<void> =>

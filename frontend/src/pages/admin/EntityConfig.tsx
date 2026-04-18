@@ -26,7 +26,9 @@ export default function EntityConfig() {
   if (entityType === 'component-types') {
     return (
       <Box sx={{ p: 3 }}>
-        <Typography variant="h5" gutterBottom>Component Types</Typography>
+        <Typography variant="h5" gutterBottom>
+          Component Types
+        </Typography>
         <Typography color="text.secondary" sx={{ mb: 3 }}>
           Define component types with custom field schemas for subsystems.
         </Typography>
@@ -40,9 +42,12 @@ export default function EntityConfig() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>{ENTITY_LABELS[et]} Configuration</Typography>
+      <Typography variant="h5" gutterBottom>
+        {ENTITY_LABELS[et]} Configuration
+      </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Configure custom fields and other {ENTITY_LABELS[et].toLowerCase()} settings for your tenant.
+        Configure custom fields and other {ENTITY_LABELS[et].toLowerCase()} settings for your
+        tenant.
       </Typography>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>

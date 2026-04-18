@@ -13,8 +13,10 @@ import type {
 } from '../types/environment';
 
 export const environmentService = {
-  listEnvironments: (params?: { status?: string; environment_type?: string }): Promise<EnvironmentResponse[]> =>
-    api.get('/environments/', { params }).then((r) => r.data),
+  listEnvironments: (params?: {
+    status?: string;
+    environment_type?: string;
+  }): Promise<EnvironmentResponse[]> => api.get('/environments/', { params }).then((r) => r.data),
 
   getEnvironment: (id: number): Promise<EnvironmentResponse> =>
     api.get(`/environments/${id}`).then((r) => r.data),
@@ -31,7 +33,10 @@ export const environmentService = {
   listSystemsInEnvironment: (envId: number): Promise<EnvironmentSystemsResponse> =>
     api.get(`/environments/${envId}/systems`).then((r) => r.data),
 
-  addSystemToEnvironment: (envId: number, data: EnvironmentSystemCreate): Promise<EnvironmentSystemResponse> =>
+  addSystemToEnvironment: (
+    envId: number,
+    data: EnvironmentSystemCreate
+  ): Promise<EnvironmentSystemResponse> =>
     api.post(`/environments/${envId}/systems`, data).then((r) => r.data),
 
   updateSystemInEnvironment: (

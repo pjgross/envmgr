@@ -1,13 +1,13 @@
-import { defineConfig, devices } from '@playwright/test'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Paths resolved relative to this config file (frontend/)
-const PROJECT_ROOT = path.resolve(__dirname, '..')
-const BACKEND_DIR = path.join(PROJECT_ROOT, 'backend')
-const SITE_PACKAGES = path.join(PROJECT_ROOT, '.venv/lib/python3.12/site-packages')
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const BACKEND_DIR = path.join(PROJECT_ROOT, 'backend');
+const SITE_PACKAGES = path.join(PROJECT_ROOT, '.venv/lib/python3.12/site-packages');
 
 // uv-managed Python — the real binary (not the XSym shim in .venv/bin)
 const PYTHON =
@@ -15,11 +15,11 @@ const PYTHON =
   path.join(
     process.env.HOME!,
     '.local/share/uv/python/cpython-3.12-macos-aarch64-none/bin/python3.12'
-  )
+  );
 
 // E2E backend runs on a dedicated port so it can coexist with the dev backend
-const E2E_BACKEND_PORT = '8002'
-const E2E_DATABASE_URL = 'sqlite+aiosqlite:///./e2e_test.db'
+const E2E_BACKEND_PORT = '8002';
+const E2E_DATABASE_URL = 'sqlite+aiosqlite:///./e2e_test.db';
 
 export default defineConfig({
   testDir: './e2e',
@@ -64,4 +64,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-})
+});

@@ -9,8 +9,7 @@ export const bookingService = {
     start?: string;
     end?: string;
     booking_status?: string;
-  }): Promise<BookingResponse[]> =>
-    api.get('/bookings/', { params }).then((r) => r.data),
+  }): Promise<BookingResponse[]> => api.get('/bookings/', { params }).then((r) => r.data),
 
   createBooking: (data: BookingCreate): Promise<BookingCreateResponse> =>
     api.post('/bookings/', data).then((r) => r.data),
@@ -21,8 +20,7 @@ export const bookingService = {
   deleteOccurrence: (id: number): Promise<void> =>
     api.delete(`/bookings/${id}/occurrence`).then((r) => r.data),
 
-  deleteSeries: (id: number): Promise<void> =>
-    api.delete(`/bookings/${id}`).then((r) => r.data),
+  deleteSeries: (id: number): Promise<void> => api.delete(`/bookings/${id}`).then((r) => r.data),
 
   transitionState: (id: number, to_state: string, notes?: string): Promise<BookingResponse> =>
     api.post(`/bookings/${id}/transition`, { to_state, notes }).then((r) => r.data),
@@ -42,7 +40,7 @@ export const bookingService = {
   acknowledgeConflict: (
     id: number,
     otherId: number,
-    payload: { willing_to_share: boolean; notes?: string },
+    payload: { willing_to_share: boolean; notes?: string }
   ): Promise<ConflictAck> =>
     api.put(`/bookings/${id}/conflicts/${otherId}/ack`, payload).then((r) => r.data),
 

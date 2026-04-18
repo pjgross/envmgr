@@ -27,7 +27,9 @@ export default function CustomFieldsDisplay({ definitions, values }: CustomField
         }
         return (
           <Box key={defn.field_key} sx={{ mb: 1 }}>
-            <Typography variant="caption" color="text.secondary">{defn.label}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {defn.label}
+            </Typography>
             <Typography variant="body2">{display}</Typography>
           </Box>
         );

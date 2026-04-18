@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-import { Link as RouterLink, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -11,148 +11,146 @@ import {
   Menu,
   MenuItem,
   Typography,
-} from '@mui/material'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
+} from '@mui/material';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import {
   DataGrid,
   GridColDef,
   GridColumnVisibilityModel,
   GridValueGetterParams,
-} from '@mui/x-data-grid'
-import { format } from 'date-fns'
-import { AppDispatch, RootState } from '../../store'
-import { fetchBookings } from '../../store/bookingSlice'
-import { fetchDefinitions } from '../../store/customFieldSlice'
-import type { BookingResponse, BookingStatus } from '../../types/booking'
-import type { AllowedTransition } from '../../types/bookingLifecycle'
-import { bookingService } from '../../services/bookingService'
-import ConflictIndicator from '../../components/bookings/ConflictIndicator'
-import { formatApiError } from '../../services/apiError'
-import BookingForm from './BookingForm'
+} from '@mui/x-data-grid';
+import { format } from 'date-fns';
+import { AppDispatch, RootState } from '../../store';
+import { fetchBookings } from '../../store/bookingSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
+import type { BookingResponse, BookingStatus } from '../../types/booking';
+import type { AllowedTransition } from '../../types/bookingLifecycle';
+import { bookingService } from '../../services/bookingService';
+import ConflictIndicator from '../../components/bookings/ConflictIndicator';
+import { formatApiError } from '../../services/apiError';
+import BookingForm from './BookingForm';
 
 // --- Status filter -----------------------------------------------------------
 
 const STATUS_OPTIONS: Array<{ label: string; value: BookingStatus | 'all' }> = [
-  { label: 'All',                value: 'all' },
-  { label: 'Draft',              value: 'draft' },
-  { label: 'Submitted',          value: 'submitted' },
-  { label: 'Approved',           value: 'approved' },
-  { label: 'Rejected',           value: 'rejected' },
-  { label: 'Ext. Requested',     value: 'extension_requested' },
-  { label: 'Closed',             value: 'closed' },
-]
+  { label: 'All', value: 'all' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Submitted', value: 'submitted' },
+  { label: 'Approved', value: 'approved' },
+  { label: 'Rejected', value: 'rejected' },
+  { label: 'Ext. Requested', value: 'extension_requested' },
+  { label: 'Closed', value: 'closed' },
+];
 
 const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | 'error' | 'info'> = {
-  draft:               'default',
-  submitted:           'warning',
-  approved:            'success',
-  rejected:            'error',
+  draft: 'default',
+  submitted: 'warning',
+  approved: 'success',
+  rejected: 'error',
   extension_requested: 'warning',
-  closed:              'info',
-}
+  closed: 'info',
+};
 
 // --- Column visibility localStorage ------------------------------------------
 
 function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `bookings-list-columns-${userId ?? 'guest'}`
+  const key = `bookings-list-columns-${userId ?? 'guest'}`;
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return {}
-    return JSON.parse(raw) ?? {}
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    return JSON.parse(raw) ?? {};
   } catch {
-    return {}
+    return {};
   }
 }
 
 function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `bookings-list-columns-${userId ?? 'guest'}`
-  localStorage.setItem(key, JSON.stringify(model))
+  const key = `bookings-list-columns-${userId ?? 'guest'}`;
+  localStorage.setItem(key, JSON.stringify(model));
 }
 
 // --- Component ---------------------------------------------------------------
 
 export default function BookingList() {
-  const dispatch = useDispatch<AppDispatch>()
-  const navigate = useNavigate()
-  const { bookings, loading, error } = useSelector((state: RootState) => state.booking)
+  const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
+  const { bookings, loading, error } = useSelector((state: RootState) => state.booking);
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
-  )
-  const user = useSelector((state: RootState) => state.auth.user)
+  );
+  const user = useSelector((state: RootState) => state.auth.user);
 
-  const [statusFilter, setStatusFilter] = useState<BookingStatus | 'all'>('all')
-  const [formOpen, setFormOpen] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<BookingStatus | 'all'>('all');
+  const [formOpen, setFormOpen] = useState(false);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
     () => loadColumnModel(user?.id)
-  )
+  );
 
   // Kebab menu state: tracks which row's menu is open and the anchor element
-  const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; rowId: number } | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; rowId: number } | null>(null);
 
   // Per-row transition cache keyed by booking id
-  const [transitionCache, setTransitionCache] = useState<Record<number, AllowedTransition[]>>({})
+  const [transitionCache, setTransitionCache] = useState<Record<number, AllowedTransition[]>>({});
 
   // Transition error state for local error feedback
-  const [transitionError, setTransitionError] = useState<string | null>(null)
+  const [transitionError, setTransitionError] = useState<string | null>(null);
 
   useEffect(() => {
-    dispatch(fetchBookings())
-    dispatch(fetchDefinitions('booking'))
-  }, [dispatch])
+    dispatch(fetchBookings());
+    dispatch(fetchDefinitions('booking'));
+  }, [dispatch]);
 
   // --- Filtered rows ---
 
   const filteredBookings =
-    statusFilter === 'all'
-      ? bookings
-      : bookings.filter((b) => b.status === statusFilter)
+    statusFilter === 'all' ? bookings : bookings.filter((b) => b.status === statusFilter);
 
   // --- Kebab menu handlers ---
 
   const handleMenuOpen = async (el: HTMLElement, rowId: number) => {
-    setMenuAnchor({ el, rowId })
+    setMenuAnchor({ el, rowId });
     // Lazily fetch transitions if not cached
     if (!(rowId in transitionCache)) {
       try {
-        const transitions = await bookingService.getAllowedTransitions(rowId)
-        setTransitionCache((prev) => ({ ...prev, [rowId]: transitions }))
+        const transitions = await bookingService.getAllowedTransitions(rowId);
+        setTransitionCache((prev) => ({ ...prev, [rowId]: transitions }));
       } catch {
-        setTransitionCache((prev) => ({ ...prev, [rowId]: [] }))
+        setTransitionCache((prev) => ({ ...prev, [rowId]: [] }));
       }
     }
-  }
+  };
 
   const handleMenuClose = () => {
-    setMenuAnchor(null)
-  }
+    setMenuAnchor(null);
+  };
 
   const handleOpenDetail = (rowId: number) => {
-    handleMenuClose()
-    navigate(`/bookings/${rowId}`)
-  }
+    handleMenuClose();
+    navigate(`/bookings/${rowId}`);
+  };
 
   const handleTransition = async (rowId: number, toState: string) => {
-    handleMenuClose()
+    handleMenuClose();
     // Invalidate cache entry so next open re-fetches fresh transitions
     setTransitionCache((prev) => {
-      const next = { ...prev }
-      delete next[rowId]
-      return next
-    })
+      const next = { ...prev };
+      delete next[rowId];
+      return next;
+    });
     try {
-      await bookingService.transitionState(rowId, toState)
-      dispatch(fetchBookings())
+      await bookingService.transitionState(rowId, toState);
+      dispatch(fetchBookings());
     } catch (err: unknown) {
-      setTransitionError(formatApiError(err, 'Transition failed'))
+      setTransitionError(formatApiError(err, 'Transition failed'));
     }
-  }
+  };
 
   // --- Column visibility ---
 
   const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
-    setColumnVisibilityModel(model)
-    saveColumnModel(user?.id, model)
-  }
+    setColumnVisibilityModel(model);
+    saveColumnModel(user?.id, model);
+  };
 
   // --- Columns ---
 
@@ -212,12 +210,7 @@ export default function BookingList() {
       flex: 0.8,
       hideable: false,
       renderCell: ({ row }) => (
-        <Chip
-          label={row.booking_type_id}
-          size="small"
-          color="primary"
-          variant="outlined"
-        />
+        <Chip label={row.booking_type_id} size="small" color="primary" variant="outlined" />
       ),
     },
     {
@@ -226,11 +219,7 @@ export default function BookingList() {
       flex: 0.8,
       hideable: false,
       renderCell: ({ row }) => (
-        <Chip
-          label={row.status}
-          size="small"
-          color={STATUS_COLORS[row.status]}
-        />
+        <Chip label={row.status} size="small" color={STATUS_COLORS[row.status]} />
       ),
     },
     {
@@ -260,23 +249,26 @@ export default function BookingList() {
         </IconButton>
       ),
     },
-  ]
+  ];
 
-  const customFieldColumns: GridColDef<BookingResponse>[] = customFieldDefs.map((def) => ({
-    field: def.field_key,
-    headerName: def.label,
-    flex: 1,
-    valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-      params.row.custom_fields?.[def.field_key] ?? '—',
-  } as GridColDef<BookingResponse>))
+  const customFieldColumns: GridColDef<BookingResponse>[] = customFieldDefs.map(
+    (def) =>
+      ({
+        field: def.field_key,
+        headerName: def.label,
+        flex: 1,
+        valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+          params.row.custom_fields?.[def.field_key] ?? '—',
+      }) as GridColDef<BookingResponse>
+  );
 
-  const columns = [...coreColumns, ...customFieldColumns]
+  const columns = [...coreColumns, ...customFieldColumns];
 
   // Only show loading overlay on initial load
-  const isInitialLoading = loading && bookings.length === 0
+  const isInitialLoading = loading && bookings.length === 0;
 
   // Transitions for the currently open menu row
-  const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null
+  const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -330,20 +322,10 @@ export default function BookingList() {
       />
 
       {/* Per-row kebab menu */}
-      <Menu
-        anchorEl={menuAnchor?.el}
-        open={Boolean(menuAnchor)}
-        onClose={handleMenuClose}
-      >
-        <MenuItem onClick={() => menuAnchor && handleOpenDetail(menuAnchor.rowId)}>
-          Open
-        </MenuItem>
-        {activeTransitions && activeTransitions.length > 0 && (
-          <Divider />
-        )}
-        {activeTransitions === null && (
-          <MenuItem disabled>Loading...</MenuItem>
-        )}
+      <Menu anchorEl={menuAnchor?.el} open={Boolean(menuAnchor)} onClose={handleMenuClose}>
+        <MenuItem onClick={() => menuAnchor && handleOpenDetail(menuAnchor.rowId)}>Open</MenuItem>
+        {activeTransitions && activeTransitions.length > 0 && <Divider />}
+        {activeTransitions === null && <MenuItem disabled>Loading...</MenuItem>}
         {activeTransitions?.map((t) => (
           <MenuItem
             key={t.to_state}
@@ -357,5 +339,5 @@ export default function BookingList() {
       {/* New Booking dialog */}
       <BookingForm open={formOpen} onClose={() => setFormOpen(false)} />
     </Box>
-  )
+  );
 }

@@ -1,9 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, FormControlLabel, FormHelperText,
-  IconButton, MenuItem, TextField, Typography,
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControlLabel,
+  FormHelperText,
+  IconButton,
+  MenuItem,
+  TextField,
+  Typography,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -24,13 +37,13 @@ import type { BookingLifecycleTemplate } from '../../types/bookingLifecycle';
 const ALL_ROLES = ['Admin', 'Release Manager', 'Test Manager', 'Developer', 'Viewer'];
 
 const STANDARD_FIELDS: { key: string; label: string; mandatory: boolean }[] = [
-  { key: 'project_name',  label: 'Project Name',  mandatory: true },
-  { key: 'start_date',    label: 'Start Date',    mandatory: true },
-  { key: 'end_date',      label: 'End Date',      mandatory: true },
-  { key: 'booking_type',  label: 'Booking Type',  mandatory: true },
-  { key: 'notes',         label: 'Notes',         mandatory: false },
+  { key: 'project_name', label: 'Project Name', mandatory: true },
+  { key: 'start_date', label: 'Start Date', mandatory: true },
+  { key: 'end_date', label: 'End Date', mandatory: true },
+  { key: 'booking_type', label: 'Booking Type', mandatory: true },
+  { key: 'notes', label: 'Notes', mandatory: false },
   { key: 'exclusive_use', label: 'Exclusive Use', mandatory: false },
-  { key: 'context_tag',   label: 'Context Tag',   mandatory: false },
+  { key: 'context_tag', label: 'Context Tag', mandatory: false },
 ];
 
 interface StateRow {
@@ -53,12 +66,19 @@ interface FieldPermState {
 }
 
 const emptyState = (): StateRow => ({ key: '', label: '', is_initial: false, is_terminal: false });
-const emptyTransition = (): TransitionRow => ({ from_state: '', to_state: '', label: '', allowed_roles: [] });
+const emptyTransition = (): TransitionRow => ({
+  from_state: '',
+  to_state: '',
+  label: '',
+  allowed_roles: [],
+});
 
 export default function LifecycleTemplatesPanel() {
   const dispatch = useDispatch<AppDispatch>();
   const { templates, bookingTypes, loading } = useSelector((s: RootState) => s.bookingLifecycle);
-  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? []);
+  const customFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['booking'] ?? []
+  );
 
   // Dialog state
   const [open, setOpen] = useState(false);
@@ -98,7 +118,8 @@ export default function LifecycleTemplatesPanel() {
       if (!t.from_state || !t.to_state) return 'All transitions must have from and to states';
       if (!keys.includes(t.from_state) || !keys.includes(t.to_state))
         return 'Transitions must reference valid state keys';
-      if (t.allowed_roles.length === 0) return 'Each transition must have at least one allowed role';
+      if (t.allowed_roles.length === 0)
+        return 'Each transition must have at least one allowed role';
     }
     return null;
   }
@@ -112,7 +133,9 @@ export default function LifecycleTemplatesPanel() {
     for (const field of STANDARD_FIELDS.filter((f) => f.mandatory)) {
       const editableBy = initPerms?.standard_fields?.[field.key]?.editable_by ?? [];
       if (editableBy.length === 0) {
-        errors.push(`Field '${field.label}' must have at least one editable role in the initial state`);
+        errors.push(
+          `Field '${field.label}' must have at least one editable role in the initial state`
+        );
       }
     }
     return errors;
@@ -141,12 +164,22 @@ export default function LifecycleTemplatesPanel() {
     setEditTemplateId(template.id);
     setName(template.name);
     setDescription(template.description ?? '');
-    setStates(template.definition.states.map((s) => ({
-      key: s.key, label: s.label, is_initial: s.is_initial, is_terminal: s.is_terminal,
-    })));
-    setTransitions(template.definition.transitions.map((t) => ({
-      from_state: t.from_state, to_state: t.to_state, label: t.label, allowed_roles: t.allowed_roles,
-    })));
+    setStates(
+      template.definition.states.map((s) => ({
+        key: s.key,
+        label: s.label,
+        is_initial: s.is_initial,
+        is_terminal: s.is_terminal,
+      }))
+    );
+    setTransitions(
+      template.definition.transitions.map((t) => ({
+        from_state: t.from_state,
+        to_state: t.to_state,
+        label: t.label,
+        allowed_roles: t.allowed_roles,
+      }))
+    );
     const fp: Record<string, FieldPermState> = {};
     for (const [stateKey, perm] of Object.entries(template.definition.field_permissions ?? {})) {
       const permAny = perm as unknown as Record<string, unknown>;
@@ -154,7 +187,9 @@ export default function LifecycleTemplatesPanel() {
         // Old shape: convert to new shape; filter out legacy invalid role strings
         const validRolesSet = new Set(ALL_ROLES);
         const oldEditableFields = (permAny.editable_fields as string[]) ?? [];
-        const oldEditableBy = ((permAny.editable_by as string[]) ?? []).filter((r) => validRolesSet.has(r));
+        const oldEditableBy = ((permAny.editable_by as string[]) ?? []).filter((r) =>
+          validRolesSet.has(r)
+        );
         fp[stateKey] = {
           standard_fields: Object.fromEntries(
             STANDARD_FIELDS.map((f) => [
@@ -166,7 +201,8 @@ export default function LifecycleTemplatesPanel() {
         };
       } else {
         // New shape
-        const stdFields = (permAny.standard_fields as Record<string, { editable_by: string[] }> | undefined) ?? {};
+        const stdFields =
+          (permAny.standard_fields as Record<string, { editable_by: string[] }> | undefined) ?? {};
         fp[stateKey] = {
           standard_fields: Object.fromEntries(
             STANDARD_FIELDS.map((f) => [
@@ -186,7 +222,10 @@ export default function LifecycleTemplatesPanel() {
 
   const handleSave = async () => {
     const err = validate();
-    if (err) { setError(err); return; }
+    if (err) {
+      setError(err);
+      return;
+    }
 
     const fpErrors = validateFieldPerms();
     if (fpErrors.length > 0) {
@@ -197,25 +236,52 @@ export default function LifecycleTemplatesPanel() {
     setError(null);
     setSaving(true);
     const definition = {
-      states: states.map((s) => ({ key: s.key.trim(), label: s.label.trim(), is_initial: s.is_initial, is_terminal: s.is_terminal })),
-      transitions: transitions.map((t) => ({ from_state: t.from_state, to_state: t.to_state, label: t.label.trim(), allowed_roles: t.allowed_roles })),
+      states: states.map((s) => ({
+        key: s.key.trim(),
+        label: s.label.trim(),
+        is_initial: s.is_initial,
+        is_terminal: s.is_terminal,
+      })),
+      transitions: transitions.map((t) => ({
+        from_state: t.from_state,
+        to_state: t.to_state,
+        label: t.label.trim(),
+        allowed_roles: t.allowed_roles,
+      })),
       field_permissions: Object.fromEntries(
         stateKeys.map((key) => {
           const perm = fieldPerms[key] ?? { standard_fields: {}, custom_fields: {} };
-          return [key, { standard_fields: perm.standard_fields, custom_fields: perm.custom_fields }];
+          return [
+            key,
+            { standard_fields: perm.standard_fields, custom_fields: perm.custom_fields },
+          ];
         })
       ),
     };
 
     let result;
     if (editTemplateId !== null) {
-      result = await dispatch(updateLifecycleTemplate({ id: editTemplateId, data: { name: name.trim(), description: description.trim() || null, definition } }));
+      result = await dispatch(
+        updateLifecycleTemplate({
+          id: editTemplateId,
+          data: { name: name.trim(), description: description.trim() || null, definition },
+        })
+      );
     } else {
-      result = await dispatch(createLifecycleTemplate({ name: name.trim(), description: description.trim() || null, is_default: false, definition }));
+      result = await dispatch(
+        createLifecycleTemplate({
+          name: name.trim(),
+          description: description.trim() || null,
+          is_default: false,
+          definition,
+        })
+      );
     }
     setSaving(false);
     if ('error' in result) {
-      setError((result as { error: { message?: string } }).error.message ?? 'Failed to save template');
+      setError(
+        (result as { error: { message?: string } }).error.message ?? 'Failed to save template'
+      );
       return;
     }
     setEditTemplateId(null);
@@ -254,7 +320,8 @@ export default function LifecycleTemplatesPanel() {
   // Transition row helpers
   const updateTransition = (i: number, patch: Partial<TransitionRow>) =>
     setTransitions((prev) => prev.map((t, idx) => (idx === i ? { ...t, ...patch } : t)));
-  const removeTransition = (i: number) => setTransitions((prev) => prev.filter((_, idx) => idx !== i));
+  const removeTransition = (i: number) =>
+    setTransitions((prev) => prev.filter((_, idx) => idx !== i));
   const toggleRole = (i: number, role: string) => {
     const t = transitions[i];
     const roles = t.allowed_roles.includes(role)
@@ -336,10 +403,12 @@ export default function LifecycleTemplatesPanel() {
           <Button
             size="small"
             onClick={() =>
-              dispatch(copyLifecycleTemplate({
-                id: params.row.id as number,
-                name: `${params.row.name as string} (copy)`,
-              }))
+              dispatch(
+                copyLifecycleTemplate({
+                  id: params.row.id as number,
+                  name: `${params.row.name as string} (copy)`,
+                })
+              )
             }
           >
             Copy
@@ -378,8 +447,14 @@ export default function LifecycleTemplatesPanel() {
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete Lifecycle Template</DialogTitle>
         <DialogContent>
-          {deleteError && <Alert severity="error" sx={{ mb: 1 }}>{deleteError}</Alert>}
-          <Typography>Are you sure you want to delete this template? This cannot be undone.</Typography>
+          {deleteError && (
+            <Alert severity="error" sx={{ mb: 1 }}>
+              {deleteError}
+            </Alert>
+          )}
+          <Typography>
+            Are you sure you want to delete this template? This cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
@@ -391,7 +466,9 @@ export default function LifecycleTemplatesPanel() {
 
       {/* New / Edit Template Dialog */}
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-        <DialogTitle>{editTemplateId !== null ? 'Edit Lifecycle Template' : 'New Lifecycle Template'}</DialogTitle>
+        <DialogTitle>
+          {editTemplateId !== null ? 'Edit Lifecycle Template' : 'New Lifecycle Template'}
+        </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {error && <Alert severity="error">{error}</Alert>}
 
@@ -416,19 +493,30 @@ export default function LifecycleTemplatesPanel() {
 
           {/* States */}
           <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Box
+              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}
+            >
               <Typography variant="subtitle2">States</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setStates((p) => [...p, emptyState()])}>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setStates((p) => [...p, emptyState()])}
+              >
                 Add State
               </Button>
             </Box>
 
             {states.length === 0 && (
-              <Typography variant="body2" color="text.secondary">No states yet. Add at least one.</Typography>
+              <Typography variant="body2" color="text.secondary">
+                No states yet. Add at least one.
+              </Typography>
             )}
 
             {states.map((s, i) => (
-              <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1, flexWrap: 'wrap' }}>
+              <Box
+                key={i}
+                sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1, flexWrap: 'wrap' }}
+              >
                 <TextField
                   label="Key"
                   size="small"
@@ -476,7 +564,9 @@ export default function LifecycleTemplatesPanel() {
 
           {/* Transitions */}
           <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Box
+              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}
+            >
               <Typography variant="subtitle2">Transitions</Typography>
               <Button
                 size="small"
@@ -495,8 +585,13 @@ export default function LifecycleTemplatesPanel() {
             )}
 
             {transitions.map((t, i) => (
-              <Box key={i} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, mb: 1 }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
+              <Box
+                key={i}
+                sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, mb: 1 }}
+              >
+                <Box
+                  sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}
+                >
                   <TextField
                     select
                     label="From"
@@ -505,7 +600,11 @@ export default function LifecycleTemplatesPanel() {
                     onChange={(e) => updateTransition(i, { from_state: e.target.value })}
                     sx={{ width: 150 }}
                   >
-                    {stateKeys.map((k) => <MenuItem key={k} value={k}>{k}</MenuItem>)}
+                    {stateKeys.map((k) => (
+                      <MenuItem key={k} value={k}>
+                        {k}
+                      </MenuItem>
+                    ))}
                   </TextField>
                   <TextField
                     select
@@ -515,7 +614,11 @@ export default function LifecycleTemplatesPanel() {
                     onChange={(e) => updateTransition(i, { to_state: e.target.value })}
                     sx={{ width: 150 }}
                   >
-                    {stateKeys.map((k) => <MenuItem key={k} value={k}>{k}</MenuItem>)}
+                    {stateKeys.map((k) => (
+                      <MenuItem key={k} value={k}>
+                        {k}
+                      </MenuItem>
+                    ))}
                   </TextField>
                   <TextField
                     label="Label"
@@ -550,119 +653,164 @@ export default function LifecycleTemplatesPanel() {
 
           {/* Field Permissions */}
           <Box>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>Field Permissions (per state)</Typography>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Field Permissions (per state)
+            </Typography>
             {fieldPermErrors.length > 0 && (
               <Box sx={{ mb: 1 }}>
                 {fieldPermErrors.map((e, i) => (
-                  <FormHelperText key={i} error>{e}</FormHelperText>
+                  <FormHelperText key={i} error>
+                    {e}
+                  </FormHelperText>
                 ))}
               </Box>
             )}
             {stateKeys.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">Add states first.</Typography>
-            ) : stateKeys.map((stateKey) => {
-              const perm = fieldPerms[stateKey] ?? { standard_fields: {}, custom_fields: {} };
-              const cfPerms = perm.custom_fields ?? {};
-              return (
-                <Box key={stateKey} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, mb: 1 }}>
-                  <Typography variant="caption" fontWeight="bold">{stateKey}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Add states first.
+              </Typography>
+            ) : (
+              stateKeys.map((stateKey) => {
+                const perm = fieldPerms[stateKey] ?? { standard_fields: {}, custom_fields: {} };
+                const cfPerms = perm.custom_fields ?? {};
+                return (
+                  <Box
+                    key={stateKey}
+                    sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5, mb: 1 }}
+                  >
+                    <Typography variant="caption" fontWeight="bold">
+                      {stateKey}
+                    </Typography>
 
-                  {/* Standard Fields */}
-                  <Box sx={{ mt: 1 }}>
-                    <Typography variant="subtitle2">Standard Fields</Typography>
-                    {STANDARD_FIELDS.map((field) => {
-                      const editableBy = perm.standard_fields[field.key]?.editable_by ?? [];
-                      return (
-                        <Box key={field.key} sx={{ ml: 1, mt: 0.5 }}>
-                          <Typography variant="body2" component="span">
-                            {field.label}{field.mandatory ? ' *' : ''}
-                          </Typography>
-                          <Box sx={{ ml: 1, mt: 0.25, display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {editableBy.length === 0 ? (
-                              <Typography variant="caption" color="text.disabled">read-only in this state</Typography>
-                            ) : null}
-                            {ALL_ROLES.map((role) => (
-                              <Chip
-                                key={role}
-                                label={role}
-                                size="small"
-                                clickable
-                                color={editableBy.includes(role) ? 'primary' : 'default'}
-                                variant={editableBy.includes(role) ? 'filled' : 'outlined'}
-                                onClick={() => handleToggleRole(stateKey, field.key, role)}
-                              />
-                            ))}
-                          </Box>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-
-                  {/* Custom Fields */}
-                  {customFieldDefs.length > 0 && (
+                    {/* Standard Fields */}
                     <Box sx={{ mt: 1 }}>
-                      <Typography variant="subtitle2">Custom Fields</Typography>
-                      {customFieldDefs.map((defn) => {
-                        const included = defn.field_key in cfPerms;
-                        const editableBy = cfPerms[defn.field_key]?.editable_by ?? [];
+                      <Typography variant="subtitle2">Standard Fields</Typography>
+                      {STANDARD_FIELDS.map((field) => {
+                        const editableBy = perm.standard_fields[field.key]?.editable_by ?? [];
                         return (
-                          <Box key={defn.field_key} sx={{ ml: 1, mt: 0.5 }}>
-                            <FormControlLabel
-                              control={
-                                <Checkbox
+                          <Box key={field.key} sx={{ ml: 1, mt: 0.5 }}>
+                            <Typography variant="body2" component="span">
+                              {field.label}
+                              {field.mandatory ? ' *' : ''}
+                            </Typography>
+                            <Box
+                              sx={{
+                                ml: 1,
+                                mt: 0.25,
+                                display: 'flex',
+                                gap: 0.5,
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                              }}
+                            >
+                              {editableBy.length === 0 ? (
+                                <Typography variant="caption" color="text.disabled">
+                                  read-only in this state
+                                </Typography>
+                              ) : null}
+                              {ALL_ROLES.map((role) => (
+                                <Chip
+                                  key={role}
+                                  label={role}
                                   size="small"
-                                  checked={included}
-                                  onChange={(e) => {
-                                    setFieldPerms((fp) => {
-                                      const statePerm = fp[stateKey] ?? { standard_fields: {}, custom_fields: {} };
-                                      const cf = { ...statePerm.custom_fields };
-                                      if (e.target.checked) {
-                                        cf[defn.field_key] = { editable_by: [] };
-                                      } else {
-                                        delete cf[defn.field_key];
-                                      }
-                                      return { ...fp, [stateKey]: { ...statePerm, custom_fields: cf } };
-                                    });
-                                  }}
+                                  clickable
+                                  color={editableBy.includes(role) ? 'primary' : 'default'}
+                                  variant={editableBy.includes(role) ? 'filled' : 'outlined'}
+                                  onClick={() => handleToggleRole(stateKey, field.key, role)}
                                 />
-                              }
-                              label={defn.label}
-                            />
-                            {included && (
-                              <Box sx={{ ml: 3, display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 0.5 }}>
-                                {ALL_ROLES.map((role) => (
-                                  <Chip
-                                    key={role}
-                                    label={role}
-                                    size="small"
-                                    clickable
-                                    color={editableBy.includes(role) ? 'primary' : 'default'}
-                                    variant={editableBy.includes(role) ? 'filled' : 'outlined'}
-                                    onClick={() => {
-                                      setFieldPerms((fp) => {
-                                        const statePerm = fp[stateKey] ?? { standard_fields: {}, custom_fields: {} };
-                                        const cf = { ...statePerm.custom_fields };
-                                        const current = cf[defn.field_key]?.editable_by ?? [];
-                                        cf[defn.field_key] = {
-                                          editable_by: current.includes(role)
-                                            ? current.filter((r) => r !== role)
-                                            : [...current, role],
-                                        };
-                                        return { ...fp, [stateKey]: { ...statePerm, custom_fields: cf } };
-                                      });
-                                    }}
-                                  />
-                                ))}
-                              </Box>
-                            )}
+                              ))}
+                            </Box>
                           </Box>
                         );
                       })}
                     </Box>
-                  )}
-                </Box>
-              );
-            })}
+
+                    {/* Custom Fields */}
+                    {customFieldDefs.length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="subtitle2">Custom Fields</Typography>
+                        {customFieldDefs.map((defn) => {
+                          const included = defn.field_key in cfPerms;
+                          const editableBy = cfPerms[defn.field_key]?.editable_by ?? [];
+                          return (
+                            <Box key={defn.field_key} sx={{ ml: 1, mt: 0.5 }}>
+                              <FormControlLabel
+                                control={
+                                  <Checkbox
+                                    size="small"
+                                    checked={included}
+                                    onChange={(e) => {
+                                      setFieldPerms((fp) => {
+                                        const statePerm = fp[stateKey] ?? {
+                                          standard_fields: {},
+                                          custom_fields: {},
+                                        };
+                                        const cf = { ...statePerm.custom_fields };
+                                        if (e.target.checked) {
+                                          cf[defn.field_key] = { editable_by: [] };
+                                        } else {
+                                          delete cf[defn.field_key];
+                                        }
+                                        return {
+                                          ...fp,
+                                          [stateKey]: { ...statePerm, custom_fields: cf },
+                                        };
+                                      });
+                                    }}
+                                  />
+                                }
+                                label={defn.label}
+                              />
+                              {included && (
+                                <Box
+                                  sx={{
+                                    ml: 3,
+                                    display: 'flex',
+                                    gap: 0.5,
+                                    flexWrap: 'wrap',
+                                    mb: 0.5,
+                                  }}
+                                >
+                                  {ALL_ROLES.map((role) => (
+                                    <Chip
+                                      key={role}
+                                      label={role}
+                                      size="small"
+                                      clickable
+                                      color={editableBy.includes(role) ? 'primary' : 'default'}
+                                      variant={editableBy.includes(role) ? 'filled' : 'outlined'}
+                                      onClick={() => {
+                                        setFieldPerms((fp) => {
+                                          const statePerm = fp[stateKey] ?? {
+                                            standard_fields: {},
+                                            custom_fields: {},
+                                          };
+                                          const cf = { ...statePerm.custom_fields };
+                                          const current = cf[defn.field_key]?.editable_by ?? [];
+                                          cf[defn.field_key] = {
+                                            editable_by: current.includes(role)
+                                              ? current.filter((r) => r !== role)
+                                              : [...current, role],
+                                          };
+                                          return {
+                                            ...fp,
+                                            [stateKey]: { ...statePerm, custom_fields: cf },
+                                          };
+                                        });
+                                      }}
+                                    />
+                                  ))}
+                                </Box>
+                              )}
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    )}
+                  </Box>
+                );
+              })
+            )}
           </Box>
         </DialogContent>
         <DialogActions>

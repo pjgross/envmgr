@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  Box, Button, Typography, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, TextField, MenuItem, Alert,
+  Box,
+  Button,
+  Typography,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  MenuItem,
+  Alert,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -47,13 +56,15 @@ export default function BookingTypesPanel() {
   const handleCreate = async () => {
     if (!newName || !newTemplateId) return;
     setCreateError(null);
-    const result = await dispatch(createBookingType({
-      name: newName,
-      lifecycle_template_id: Number(newTemplateId),
-      is_active: true,
-      description: null,
-      color: null,
-    }));
+    const result = await dispatch(
+      createBookingType({
+        name: newName,
+        lifecycle_template_id: Number(newTemplateId),
+        is_active: true,
+        description: null,
+        color: null,
+      })
+    );
     if (createBookingType.rejected.match(result)) {
       setCreateError(result.error.message ?? 'Failed to create booking type');
       return;
@@ -75,10 +86,16 @@ export default function BookingTypesPanel() {
   const handleEditSave = async () => {
     if (!editName || !editTemplateId || editId === null) return;
     setEditError(null);
-    const result = await dispatch(updateBookingType({
-      id: editId,
-      data: { name: editName, lifecycle_template_id: Number(editTemplateId), is_active: editIsActive },
-    }));
+    const result = await dispatch(
+      updateBookingType({
+        id: editId,
+        data: {
+          name: editName,
+          lifecycle_template_id: Number(editTemplateId),
+          is_active: editIsActive,
+        },
+      })
+    );
     if (updateBookingType.rejected.match(result)) {
       setEditError(result.error.message ?? 'Failed to update booking type');
       return;
@@ -137,7 +154,11 @@ export default function BookingTypesPanel() {
           <Button size="small" onClick={() => handleEditOpen(params.row as BookingTypeRecord)}>
             Edit
           </Button>
-          <Button size="small" color="error" onClick={() => handleDeleteOpen(params.row.id as number)}>
+          <Button
+            size="small"
+            color="error"
+            onClick={() => handleDeleteOpen(params.row.id as number)}
+          >
             Delete
           </Button>
         </Box>
@@ -182,17 +203,15 @@ export default function BookingTypesPanel() {
             onChange={(e) => setNewTemplateId(Number(e.target.value))}
           >
             {templates.map((t) => (
-              <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+              <MenuItem key={t.id} value={t.id}>
+                {t.name}
+              </MenuItem>
             ))}
           </TextField>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleCreate}
-            disabled={!newName || !newTemplateId}
-          >
+          <Button variant="contained" onClick={handleCreate} disabled={!newName || !newTemplateId}>
             Create
           </Button>
         </DialogActions>
@@ -217,7 +236,9 @@ export default function BookingTypesPanel() {
             onChange={(e) => setEditTemplateId(Number(e.target.value))}
           >
             {templates.map((t) => (
-              <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+              <MenuItem key={t.id} value={t.id}>
+                {t.name}
+              </MenuItem>
             ))}
           </TextField>
           <TextField
@@ -246,8 +267,14 @@ export default function BookingTypesPanel() {
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete Booking Type</DialogTitle>
         <DialogContent>
-          {deleteError && <Alert severity="error" sx={{ mb: 1 }}>{deleteError}</Alert>}
-          <Typography>Are you sure you want to delete this booking type? This cannot be undone.</Typography>
+          {deleteError && (
+            <Alert severity="error" sx={{ mb: 1 }}>
+              {deleteError}
+            </Alert>
+          )}
+          <Typography>
+            Are you sure you want to delete this booking type? This cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>

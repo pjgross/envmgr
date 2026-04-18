@@ -1,9 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  Alert, Box, Button, Chip, IconButton, Paper, Skeleton,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tooltip, Typography,
+  Alert,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  Paper,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tooltip,
+  Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -36,8 +48,14 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
     dispatch(fetchDefinitions(entityType));
   }, [dispatch, entityType]);
 
-  const openCreate = () => { setEditTarget(null); setDialogOpen(true); };
-  const openEdit = (d: CustomFieldDefinition) => { setEditTarget(d); setDialogOpen(true); };
+  const openCreate = () => {
+    setEditTarget(null);
+    setDialogOpen(true);
+  };
+  const openEdit = (d: CustomFieldDefinition) => {
+    setEditTarget(d);
+    setDialogOpen(true);
+  };
   const handleDelete = (id: number) => {
     if (!window.confirm('Delete this field? This cannot be undone.')) return;
     dispatch(deleteDefinition(id));
@@ -47,17 +65,25 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
 
   return (
     <Box>
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="body2" color="text.secondary">{defs.length} field{defs.length !== 1 ? 's' : ''} defined</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {defs.length} field{defs.length !== 1 ? 's' : ''} defined
+        </Typography>
         <Button startIcon={<AddIcon />} variant="contained" size="small" onClick={openCreate}>
           Add Field
         </Button>
       </Box>
 
       {defs.length === 0 ? (
-        <Typography color="text.secondary" variant="body2">No custom fields yet.</Typography>
+        <Typography color="text.secondary" variant="body2">
+          No custom fields yet.
+        </Typography>
       ) : (
         <TableContainer component={Paper} variant="outlined">
           <Table size="small">
@@ -75,7 +101,9 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
               {defs.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell>{d.label}</TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{d.field_key}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+                    {d.field_key}
+                  </TableCell>
                   <TableCell>
                     <Chip label={d.field_type} color={TYPE_COLORS[d.field_type]} size="small" />
                   </TableCell>
@@ -83,10 +111,14 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
                   <TableCell>{d.display_order}</TableCell>
                   <TableCell align="right">
                     <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => openEdit(d)}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" onClick={() => openEdit(d)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete">
-                      <IconButton size="small" onClick={() => handleDelete(d.id)}><DeleteIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" onClick={() => handleDelete(d.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
                     </Tooltip>
                   </TableCell>
                 </TableRow>

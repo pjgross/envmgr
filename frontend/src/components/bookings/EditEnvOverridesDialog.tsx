@@ -1,49 +1,79 @@
-import { useState } from 'react'
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField } from '@mui/material'
-import type { BookingResponse } from '../../types/booking'
-import { formatApiError } from '../../services/apiError'
+import { useState } from 'react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  TextField,
+} from '@mui/material';
+import type { BookingResponse } from '../../types/booking';
+import { formatApiError } from '../../services/apiError';
 
 type Props = {
-  open: boolean
-  booking: BookingResponse
-  onClose: () => void
-  onSaved: (updated: BookingResponse) => void | Promise<void>
-  saver: (payload: { start_date?: string; end_date?: string }) => Promise<BookingResponse>
-  onError?: (msg: string) => void
-}
+  open: boolean;
+  booking: BookingResponse;
+  onClose: () => void;
+  onSaved: (updated: BookingResponse) => void | Promise<void>;
+  saver: (payload: { start_date?: string; end_date?: string }) => Promise<BookingResponse>;
+  onError?: (msg: string) => void;
+};
 
-export default function EditEnvOverridesDialog({ open, booking, onClose, onSaved, saver, onError }: Props) {
-  const [start, setStart] = useState(booking.start_date.slice(0, 10))
-  const [end, setEnd] = useState(booking.end_date.slice(0, 10))
-  const [saving, setSaving] = useState(false)
+export default function EditEnvOverridesDialog({
+  open,
+  booking,
+  onClose,
+  onSaved,
+  saver,
+  onError,
+}: Props) {
+  const [start, setStart] = useState(booking.start_date.slice(0, 10));
+  const [end, setEnd] = useState(booking.end_date.slice(0, 10));
+  const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    setSaving(true)
+    setSaving(true);
     try {
       const updated = await saver({
         start_date: new Date(start).toISOString(),
         end_date: new Date(end).toISOString(),
-      })
-      await onSaved(updated)
-      onClose()
+      });
+      await onSaved(updated);
+      onClose();
     } catch (err: unknown) {
-      onError?.(formatApiError(err, 'Save failed'))
+      onError?.(formatApiError(err, 'Save failed'));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>Edit Environment Dates</DialogTitle>
       <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <TextField label="Start" type="date" size="small" InputLabelProps={{ shrink: true }} value={start} onChange={(e) => setStart(e.target.value)} />
-        <TextField label="End" type="date" size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
+        <TextField
+          label="Start"
+          type="date"
+          size="small"
+          InputLabelProps={{ shrink: true }}
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+        />
+        <TextField
+          label="End"
+          type="date"
+          size="small"
+          InputLabelProps={{ shrink: true }}
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+        <Button variant="contained" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
       </DialogActions>
     </Dialog>
-  )
+  );
 }

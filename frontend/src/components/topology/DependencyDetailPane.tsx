@@ -1,10 +1,10 @@
-import { Box, Chip, Divider, IconButton, Paper, Typography } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import type { ComponentDependencyResponse } from '../../types/dependency'
+import { Box, Chip, Divider, IconButton, Paper, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import type { ComponentDependencyResponse } from '../../types/dependency';
 
 interface DependencyDetailPaneProps {
-  dep: ComponentDependencyResponse
-  onClose: () => void
+  dep: ComponentDependencyResponse;
+  onClose: () => void;
 }
 
 export default function DependencyDetailPane({ dep, onClose }: DependencyDetailPaneProps) {
@@ -43,14 +43,20 @@ export default function DependencyDetailPane({ dep, onClose }: DependencyDetailP
       {/* Dependency metadata */}
       <Box sx={{ px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Box>
-          <Typography variant="caption" color="text.secondary">From</Typography>
+          <Typography variant="caption" color="text.secondary">
+            From
+          </Typography>
           <Typography variant="body2" fontWeight="medium">
             {dep.from_subsystem?.name ?? `SubSystem #${dep.from_subsystem_id}`}
           </Typography>
         </Box>
         <Box>
-          <Typography variant="caption" color="text.secondary">To</Typography>
-          <Typography variant="body2" fontWeight="medium">{dep.to_subsystem.name}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            To
+          </Typography>
+          <Typography variant="body2" fontWeight="medium">
+            {dep.to_subsystem.name}
+          </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
           <Chip label={dep.dependency_type.replace(/_/g, ' ')} size="small" variant="outlined" />
@@ -63,15 +69,20 @@ export default function DependencyDetailPane({ dep, onClose }: DependencyDetailP
         </Box>
         {dep.protocol && (
           <Box>
-            <Typography variant="caption" color="text.secondary">Protocol</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Protocol
+            </Typography>
             <Typography variant="body2">
-              {dep.protocol}{dep.port ? `:${dep.port}` : ''}
+              {dep.protocol}
+              {dep.port ? `:${dep.port}` : ''}
             </Typography>
           </Box>
         )}
         {dep.label && (
           <Box>
-            <Typography variant="caption" color="text.secondary">Label</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Label
+            </Typography>
             <Typography variant="body2">{dep.label}</Typography>
           </Box>
         )}
@@ -133,5 +144,5 @@ export default function DependencyDetailPane({ dep, onClose }: DependencyDetailP
         )}
       </Box>
     </Paper>
-  )
+  );
 }

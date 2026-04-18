@@ -27,7 +27,9 @@ export const dependencyService = {
     depId: number,
     data: Partial<SystemDependencyCreate>
   ): Promise<SystemDependencyResponse> =>
-    api.patch<SystemDependencyResponse>(`/systems/${systemId}/dependencies/${depId}`, data).then((r) => r.data),
+    api
+      .patch<SystemDependencyResponse>(`/systems/${systemId}/dependencies/${depId}`, data)
+      .then((r) => r.data),
 
   listComponentDependencies: (subsystemId: number): Promise<ComponentDependencyResponse[]> =>
     api.get(`/subsystems/${subsystemId}/dependencies`).then((r) => r.data),
@@ -46,14 +48,18 @@ export const dependencyService = {
     depId: number,
     data: Partial<ComponentDependencyCreate>
   ): Promise<ComponentDependencyResponse> =>
-    api.patch<ComponentDependencyResponse>(`/subsystems/${subsystemId}/dependencies/${depId}`, data).then((r) => r.data),
+    api
+      .patch<ComponentDependencyResponse>(`/subsystems/${subsystemId}/dependencies/${depId}`, data)
+      .then((r) => r.data),
 
   createComponentEndpoint: (
     subsystemId: number,
     depId: number,
     data: ComponentEndpointCreate
   ): Promise<ComponentDependencyResponse> =>
-    api.post(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints`, data).then((r) => r.data),
+    api
+      .post(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints`, data)
+      .then((r) => r.data),
 
   updateComponentEndpoint: (
     subsystemId: number,
@@ -61,14 +67,18 @@ export const dependencyService = {
     endpointId: number,
     data: ComponentEndpointUpdate
   ): Promise<ComponentDependencyResponse> =>
-    api.patch(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints/${endpointId}`, data).then((r) => r.data),
+    api
+      .patch(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints/${endpointId}`, data)
+      .then((r) => r.data),
 
   deleteComponentEndpoint: (
     subsystemId: number,
     depId: number,
     endpointId: number
   ): Promise<ComponentDependencyResponse> =>
-    api.delete(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints/${endpointId}`).then((r) => r.data),
+    api
+      .delete(`/subsystems/${subsystemId}/dependencies/${depId}/endpoints/${endpointId}`)
+      .then((r) => r.data),
 
   verifyEnvironment: (envId: number): Promise<VerifyResponse> =>
     api.get(`/environments/${envId}/verify`).then((r) => r.data),

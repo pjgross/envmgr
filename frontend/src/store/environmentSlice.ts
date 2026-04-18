@@ -88,8 +88,15 @@ export const fetchEnvSubsystems = createAsyncThunk(
 
 export const updateEnvSubsystem = createAsyncThunk(
   'environment/updateEnvSubsystem',
-  ({ envId, subsystemId, data }: { envId: number; subsystemId: number; data: EnvironmentSubsystemUpdate }) =>
-    environmentService.updateEnvironmentSubsystem(envId, subsystemId, data)
+  ({
+    envId,
+    subsystemId,
+    data,
+  }: {
+    envId: number;
+    subsystemId: number;
+    data: EnvironmentSubsystemUpdate;
+  }) => environmentService.updateEnvironmentSubsystem(envId, subsystemId, data)
 );
 
 const environmentSlice = createSlice({
@@ -99,7 +106,10 @@ const environmentSlice = createSlice({
   extraReducers: (builder) => {
     builder
       // fetchEnvironments
-      .addCase(fetchEnvironments.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchEnvironments.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchEnvironments.fulfilled, (state, action) => {
         state.environments = action.payload;
         state.loading = false;
@@ -109,7 +119,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch environments';
       })
       // fetchEnvironment
-      .addCase(fetchEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchEnvironment.fulfilled, (state, action) => {
         state.currentEnvironment = action.payload;
         state.loading = false;
@@ -119,7 +132,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch environment';
       })
       // createEnvironment
-      .addCase(createEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(createEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(createEnvironment.fulfilled, (state, action) => {
         state.environments.push(action.payload);
         state.loading = false;
@@ -129,7 +145,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to create environment';
       })
       // updateEnvironment
-      .addCase(updateEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(updateEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(updateEnvironment.fulfilled, (state, action) => {
         const idx = state.environments.findIndex((e) => e.id === action.payload.id);
         if (idx !== -1) state.environments[idx] = action.payload;
@@ -143,7 +162,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to update environment';
       })
       // deleteEnvironment
-      .addCase(deleteEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(deleteEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(deleteEnvironment.fulfilled, (state, action) => {
         state.environments = state.environments.filter((e) => e.id !== action.payload);
         if (state.currentEnvironment?.id === action.payload) state.currentEnvironment = null;
@@ -154,7 +176,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to delete environment';
       })
       // fetchEnvironmentSystems
-      .addCase(fetchEnvironmentSystems.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchEnvironmentSystems.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchEnvironmentSystems.fulfilled, (state, action) => {
         state.environmentSystemsData = action.payload;
         state.loading = false;
@@ -164,7 +189,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch environment systems';
       })
       // addSystemToEnvironment
-      .addCase(addSystemToEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(addSystemToEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(addSystemToEnvironment.fulfilled, (state, action) => {
         state.environmentSystemsData.systems.push(action.payload);
         state.loading = false;
@@ -174,9 +202,14 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to add system to environment';
       })
       // updateSystemInEnvironment
-      .addCase(updateSystemInEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(updateSystemInEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(updateSystemInEnvironment.fulfilled, (state, action) => {
-        const idx = state.environmentSystemsData.systems.findIndex((s) => s.id === action.payload.id);
+        const idx = state.environmentSystemsData.systems.findIndex(
+          (s) => s.id === action.payload.id
+        );
         if (idx !== -1) state.environmentSystemsData.systems[idx] = action.payload;
         state.loading = false;
       })
@@ -185,7 +218,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to update system in environment';
       })
       // removeSystemFromEnvironment
-      .addCase(removeSystemFromEnvironment.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(removeSystemFromEnvironment.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(removeSystemFromEnvironment.fulfilled, (state, action) => {
         state.environmentSystemsData.systems = state.environmentSystemsData.systems.filter(
           (s) => s.system_id !== action.payload.systemId
@@ -197,7 +233,10 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to remove system from environment';
       })
       // fetchEnvSubsystems
-      .addCase(fetchEnvSubsystems.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchEnvSubsystems.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchEnvSubsystems.fulfilled, (state, action) => {
         state.envSubsystems = action.payload;
         state.loading = false;
@@ -207,9 +246,14 @@ const environmentSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch subsystems';
       })
       // updateEnvSubsystem
-      .addCase(updateEnvSubsystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(updateEnvSubsystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(updateEnvSubsystem.fulfilled, (state, action) => {
-        const idx = state.envSubsystems.findIndex((s) => s.subsystem_id === action.payload.subsystem_id);
+        const idx = state.envSubsystems.findIndex(
+          (s) => s.subsystem_id === action.payload.subsystem_id
+        );
         if (idx !== -1) state.envSubsystems[idx] = action.payload;
         state.loading = false;
       })

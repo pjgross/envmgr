@@ -77,20 +77,20 @@ const emptyForm: EnvFormValues = {
 };
 
 function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `environments-list-columns-${userId ?? 'guest'}`
+  const key = `environments-list-columns-${userId ?? 'guest'}`;
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return {}
-    return JSON.parse(raw) ?? {}
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    return JSON.parse(raw) ?? {};
   } catch {
-    return {}
+    return {};
   }
 }
 
 function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `environments-list-columns-${userId ?? 'guest'}`
+  const key = `environments-list-columns-${userId ?? 'guest'}`;
   try {
-    localStorage.setItem(key, JSON.stringify(model))
+    localStorage.setItem(key, JSON.stringify(model));
   } catch {
     // quota exceeded or storage unavailable — silently skip persistence
   }
@@ -100,7 +100,9 @@ export default function EnvironmentList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { environments, loading, error } = useSelector((state: RootState) => state.environment);
-  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['environment'] ?? []);
+  const customFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['environment'] ?? []
+  );
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<EnvironmentStatus | 'all'>('all');
@@ -111,10 +113,10 @@ export default function EnvironmentList() {
   const [deleteTarget, setDeleteTarget] = useState<EnvironmentResponse | null>(null);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
-  const user = useSelector((state: RootState) => state.auth.user)
+  const user = useSelector((state: RootState) => state.auth.user);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
     () => loadColumnModel(user?.id)
-  )
+  );
 
   useEffect(() => {
     dispatch(fetchEnvironments());
@@ -122,11 +124,12 @@ export default function EnvironmentList() {
   }, [dispatch]);
 
   const filtered = useMemo(
-    () => environments.filter((e) => {
-      const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || e.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    }),
+    () =>
+      environments.filter((e) => {
+        const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase());
+        const matchesStatus = statusFilter === 'all' || e.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      }),
     [environments, search, statusFilter]
   );
 
@@ -151,88 +154,99 @@ export default function EnvironmentList() {
     setDialogOpen(true);
   }, []);
 
-  const coreColumns = useMemo<GridColDef<EnvironmentResponse>[]>(() => [
-    {
-      field: 'name',
-      headerName: 'Name',
-      flex: 1.5,
-      hideable: false,
-      renderCell: (params) => (
-        <Typography variant="body2" fontWeight="medium">{params.row.name}</Typography>
-      ),
-    },
-    {
-      field: 'environment_type',
-      headerName: 'Type',
-      flex: 1,
-      hideable: false,
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      flex: 0.8,
-      hideable: false,
-      renderCell: (params) => (
-        <Chip
-          label={params.row.status}
-          size="small"
-          color={STATUS_COLORS[params.row.status]}
-        />
-      ),
-    },
-    {
-      field: 'created_at',
-      headerName: 'Created',
-      flex: 0.8,
-      hideable: false,
-      valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
-        new Date(params.row.created_at).toLocaleDateString(),
-    },
-  ], [])
+  const coreColumns = useMemo<GridColDef<EnvironmentResponse>[]>(
+    () => [
+      {
+        field: 'name',
+        headerName: 'Name',
+        flex: 1.5,
+        hideable: false,
+        renderCell: (params) => (
+          <Typography variant="body2" fontWeight="medium">
+            {params.row.name}
+          </Typography>
+        ),
+      },
+      {
+        field: 'environment_type',
+        headerName: 'Type',
+        flex: 1,
+        hideable: false,
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        flex: 0.8,
+        hideable: false,
+        renderCell: (params) => (
+          <Chip label={params.row.status} size="small" color={STATUS_COLORS[params.row.status]} />
+        ),
+      },
+      {
+        field: 'created_at',
+        headerName: 'Created',
+        flex: 0.8,
+        hideable: false,
+        valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
+          new Date(params.row.created_at).toLocaleDateString(),
+      },
+    ],
+    []
+  );
 
-  const actionsColumn = useMemo<GridColDef<EnvironmentResponse>>(() => ({
-    field: 'actions',
-    headerName: '',
-    width: 100,
-    sortable: false,
-    hideable: false,
-    disableColumnMenu: true,
-    renderCell: (params) => (
-      <Box onClick={(e) => e.stopPropagation()}>
-        <Tooltip title="Edit">
-          <IconButton size="small" onClick={() => openEdit(params.row)}>
-            <EditIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Delete">
-          <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
-    ),
-  }), [openEdit, setDeleteTarget])
+  const actionsColumn = useMemo<GridColDef<EnvironmentResponse>>(
+    () => ({
+      field: 'actions',
+      headerName: '',
+      width: 100,
+      sortable: false,
+      hideable: false,
+      disableColumnMenu: true,
+      renderCell: (params) => (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Edit">
+            <IconButton size="small" onClick={() => openEdit(params.row)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ),
+    }),
+    [openEdit, setDeleteTarget]
+  );
 
   const customFieldColumns = useMemo<GridColDef<EnvironmentResponse>[]>(
-    () => customFieldDefs.map((def) => ({
-      field: def.field_key,
-      headerName: def.label,
-      flex: 1,
-      valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
-        params.row.custom_fields?.[def.field_key] ?? '—',
-    } as GridColDef<EnvironmentResponse>)),
+    () =>
+      customFieldDefs.map(
+        (def) =>
+          ({
+            field: def.field_key,
+            headerName: def.label,
+            flex: 1,
+            valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
+              params.row.custom_fields?.[def.field_key] ?? '—',
+          }) as GridColDef<EnvironmentResponse>
+      ),
     [customFieldDefs]
-  )
+  );
 
   const columns = useMemo(
     () => [...coreColumns, ...customFieldColumns, actionsColumn],
     [coreColumns, customFieldColumns, actionsColumn]
-  )
+  );
 
-  const handleColumnVisibilityChange = useCallback((model: GridColumnVisibilityModel) => {
-    setColumnVisibilityModel(model)
-    saveColumnModel(user?.id, model)
-  }, [user?.id])
+  const handleColumnVisibilityChange = useCallback(
+    (model: GridColumnVisibilityModel) => {
+      setColumnVisibilityModel(model);
+      saveColumnModel(user?.id, model);
+    },
+    [user?.id]
+  );
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -319,7 +333,11 @@ export default function EnvironmentList() {
         ))}
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <DataGrid
         rows={filtered}
@@ -335,7 +353,15 @@ export default function EnvironmentList() {
       />
 
       {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => {
+          setDialogOpen(false);
+          setCustomFieldValues({});
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>{editTarget ? 'Edit Environment' : 'New Environment'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
@@ -382,7 +408,14 @@ export default function EnvironmentList() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setDialogOpen(false); setCustomFieldValues({}); }}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setDialogOpen(false);
+              setCustomFieldValues({});
+            }}
+          >
+            Cancel
+          </Button>
           <Button onClick={handleSave} variant="contained" disabled={loading}>
             {editTarget ? 'Save' : 'Create'}
           </Button>

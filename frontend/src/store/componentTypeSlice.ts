@@ -14,9 +14,8 @@ const initialState: ComponentTypeState = {
   error: null,
 };
 
-export const fetchComponentTypes = createAsyncThunk(
-  'componentType/fetchAll',
-  () => componentTypeService.listTypes()
+export const fetchComponentTypes = createAsyncThunk('componentType/fetchAll', () =>
+  componentTypeService.listTypes()
 );
 
 export const createComponentType = createAsyncThunk(
@@ -31,9 +30,8 @@ export const updateComponentType = createAsyncThunk(
     componentTypeService.updateType(id, data)
 );
 
-export const deleteComponentType = createAsyncThunk(
-  'componentType/delete',
-  (id: number) => componentTypeService.deleteType(id).then(() => id)
+export const deleteComponentType = createAsyncThunk('componentType/delete', (id: number) =>
+  componentTypeService.deleteType(id).then(() => id)
 );
 
 const componentTypeSlice = createSlice({

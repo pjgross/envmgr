@@ -49,9 +49,8 @@ export const deleteSystem = createAsyncThunk('system/deleteSystem', async (id: n
   return id;
 });
 
-export const fetchSubSystems = createAsyncThunk(
-  'system/fetchSubSystems',
-  (systemId: number) => systemService.listSubSystems(systemId)
+export const fetchSubSystems = createAsyncThunk('system/fetchSubSystems', (systemId: number) =>
+  systemService.listSubSystems(systemId)
 );
 
 export const createSubSystem = createAsyncThunk(
@@ -88,7 +87,10 @@ const systemSlice = createSlice({
   extraReducers: (builder) => {
     builder
       // fetchSystems
-      .addCase(fetchSystems.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchSystems.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchSystems.fulfilled, (state, action) => {
         state.systems = action.payload;
         state.loading = false;
@@ -98,7 +100,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch systems';
       })
       // fetchSystem
-      .addCase(fetchSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchSystem.fulfilled, (state, action) => {
         state.currentSystem = action.payload;
         state.loading = false;
@@ -108,7 +113,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch system';
       })
       // createSystem
-      .addCase(createSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(createSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(createSystem.fulfilled, (state, action) => {
         state.systems.push(action.payload);
         state.loading = false;
@@ -118,7 +126,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to create system';
       })
       // updateSystem
-      .addCase(updateSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(updateSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(updateSystem.fulfilled, (state, action) => {
         const idx = state.systems.findIndex((s) => s.id === action.payload.id);
         if (idx !== -1) state.systems[idx] = action.payload;
@@ -130,7 +141,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to update system';
       })
       // deleteSystem
-      .addCase(deleteSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(deleteSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(deleteSystem.fulfilled, (state, action) => {
         state.systems = state.systems.filter((s) => s.id !== action.payload);
         if (state.currentSystem?.id === action.payload) state.currentSystem = null;
@@ -141,7 +155,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to delete system';
       })
       // fetchSubSystem
-      .addCase(fetchSubSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchSubSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchSubSystem.fulfilled, (state, action) => {
         state.currentSubSystem = action.payload;
         state.loading = false;
@@ -151,7 +168,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch subsystem';
       })
       // fetchSubSystems
-      .addCase(fetchSubSystems.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchSubSystems.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchSubSystems.fulfilled, (state, action) => {
         state.subsystems = action.payload;
         state.loading = false;
@@ -161,7 +181,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to fetch subsystems';
       })
       // createSubSystem
-      .addCase(createSubSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(createSubSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(createSubSystem.fulfilled, (state, action) => {
         state.subsystems.push(action.payload);
         state.loading = false;
@@ -171,7 +194,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to create subsystem';
       })
       // updateSubSystem
-      .addCase(updateSubSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(updateSubSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(updateSubSystem.fulfilled, (state, action) => {
         const idx = state.subsystems.findIndex((s) => s.id === action.payload.id);
         if (idx !== -1) state.subsystems[idx] = action.payload;
@@ -182,7 +208,10 @@ const systemSlice = createSlice({
         state.error = action.error.message ?? 'Failed to update subsystem';
       })
       // deleteSubSystem
-      .addCase(deleteSubSystem.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(deleteSubSystem.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(deleteSubSystem.fulfilled, (state, action) => {
         state.subsystems = state.subsystems.filter((s) => s.id !== action.payload);
         state.loading = false;

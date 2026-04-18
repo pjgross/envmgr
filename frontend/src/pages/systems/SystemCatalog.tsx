@@ -29,12 +29,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
 
 import type { AppDispatch, RootState } from '../../store';
-import {
-  fetchSystems,
-  createSystem,
-  updateSystem,
-  deleteSystem,
-} from '../../store/systemSlice';
+import { fetchSystems, createSystem, updateSystem, deleteSystem } from '../../store/systemSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { SystemResponse, SystemCreate, SystemUpdate } from '../../types/system';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
@@ -48,20 +43,20 @@ interface SystemFormValues {
 const emptyForm: SystemFormValues = { name: '', description: '', github_repository_url: '' };
 
 function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `systems-list-columns-${userId ?? 'guest'}`
+  const key = `systems-list-columns-${userId ?? 'guest'}`;
   try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return {}
-    return JSON.parse(raw) ?? {}
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    return JSON.parse(raw) ?? {};
   } catch {
-    return {}
+    return {};
   }
 }
 
 function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `systems-list-columns-${userId ?? 'guest'}`
+  const key = `systems-list-columns-${userId ?? 'guest'}`;
   try {
-    localStorage.setItem(key, JSON.stringify(model))
+    localStorage.setItem(key, JSON.stringify(model));
   } catch {
     // quota exceeded or storage unavailable — silently skip persistence
   }
@@ -72,7 +67,9 @@ export default function SystemCatalog() {
   const navigate = useNavigate();
   const { systems, loading, error } = useSelector((state: RootState) => state.system);
 
-  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['system'] ?? []);
+  const customFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['system'] ?? []
+  );
 
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -82,10 +79,10 @@ export default function SystemCatalog() {
   const [deleteTarget, setDeleteTarget] = useState<SystemResponse | null>(null);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
-  const user = useSelector((state: RootState) => state.auth.user)
+  const user = useSelector((state: RootState) => state.auth.user);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
     () => loadColumnModel(user?.id)
-  )
+  );
 
   useEffect(() => {
     dispatch(fetchSystems());
@@ -117,91 +114,108 @@ export default function SystemCatalog() {
     setDialogOpen(true);
   }, []);
 
-  const coreColumns = useMemo<GridColDef<SystemResponse>[]>(() => [
-    {
-      field: 'name',
-      headerName: 'Name',
-      flex: 1.5,
-      hideable: false,
-      renderCell: (params) => (
-        <Typography variant="body2" fontWeight="medium">{params.row.name}</Typography>
-      ),
-    },
-    {
-      field: 'description',
-      headerName: 'Description',
-      flex: 2,
-      hideable: false,
-      valueGetter: (params: GridValueGetterParams<SystemResponse>) =>
-        params.row.description ?? '—',
-    },
-    {
-      field: 'github_repository_url',
-      headerName: 'GitHub',
-      flex: 1,
-      hideable: false,
-      renderCell: (params) =>
-        params.row.github_repository_url ? (
-          <Chip
-            icon={<LinkIcon />}
-            label="GitHub"
-            size="small"
-            component="a"
-            href={params.row.github_repository_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            clickable
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <Typography variant="body2" color="text.secondary">—</Typography>
+  const coreColumns = useMemo<GridColDef<SystemResponse>[]>(
+    () => [
+      {
+        field: 'name',
+        headerName: 'Name',
+        flex: 1.5,
+        hideable: false,
+        renderCell: (params) => (
+          <Typography variant="body2" fontWeight="medium">
+            {params.row.name}
+          </Typography>
         ),
-    },
-  ], [])
+      },
+      {
+        field: 'description',
+        headerName: 'Description',
+        flex: 2,
+        hideable: false,
+        valueGetter: (params: GridValueGetterParams<SystemResponse>) =>
+          params.row.description ?? '—',
+      },
+      {
+        field: 'github_repository_url',
+        headerName: 'GitHub',
+        flex: 1,
+        hideable: false,
+        renderCell: (params) =>
+          params.row.github_repository_url ? (
+            <Chip
+              icon={<LinkIcon />}
+              label="GitHub"
+              size="small"
+              component="a"
+              href={params.row.github_repository_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              clickable
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              —
+            </Typography>
+          ),
+      },
+    ],
+    []
+  );
 
-  const actionsColumn = useMemo<GridColDef<SystemResponse>>(() => ({
-    field: 'actions',
-    headerName: '',
-    width: 100,
-    sortable: false,
-    hideable: false,
-    disableColumnMenu: true,
-    renderCell: (params) => (
-      <Box onClick={(e) => e.stopPropagation()}>
-        <Tooltip title="Edit">
-          <IconButton size="small" onClick={() => openEdit(params.row)}>
-            <EditIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Delete">
-          <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
-    ),
-  }), [openEdit, setDeleteTarget])
+  const actionsColumn = useMemo<GridColDef<SystemResponse>>(
+    () => ({
+      field: 'actions',
+      headerName: '',
+      width: 100,
+      sortable: false,
+      hideable: false,
+      disableColumnMenu: true,
+      renderCell: (params) => (
+        <Box onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Edit">
+            <IconButton size="small" onClick={() => openEdit(params.row)}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ),
+    }),
+    [openEdit, setDeleteTarget]
+  );
 
   const customFieldColumns = useMemo<GridColDef<SystemResponse>[]>(
-    () => customFieldDefs.map((def) => ({
-      field: def.field_key,
-      headerName: def.label,
-      flex: 1,
-      valueGetter: (params: GridValueGetterParams<SystemResponse>) =>
-        params.row.custom_fields?.[def.field_key] ?? '—',
-    } as GridColDef<SystemResponse>)),
+    () =>
+      customFieldDefs.map(
+        (def) =>
+          ({
+            field: def.field_key,
+            headerName: def.label,
+            flex: 1,
+            valueGetter: (params: GridValueGetterParams<SystemResponse>) =>
+              params.row.custom_fields?.[def.field_key] ?? '—',
+          }) as GridColDef<SystemResponse>
+      ),
     [customFieldDefs]
-  )
+  );
 
   const columns = useMemo(
     () => [...coreColumns, ...customFieldColumns, actionsColumn],
     [coreColumns, customFieldColumns, actionsColumn]
-  )
+  );
 
-  const handleColumnVisibilityChange = useCallback((model: GridColumnVisibilityModel) => {
-    setColumnVisibilityModel(model)
-    saveColumnModel(user?.id, model)
-  }, [user?.id])
+  const handleColumnVisibilityChange = useCallback(
+    (model: GridColumnVisibilityModel) => {
+      setColumnVisibilityModel(model);
+      saveColumnModel(user?.id, model);
+    },
+    [user?.id]
+  );
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -267,7 +281,11 @@ export default function SystemCatalog() {
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <DataGrid
         rows={filtered}
@@ -283,7 +301,15 @@ export default function SystemCatalog() {
       />
 
       {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onClose={() => { setDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => {
+          setDialogOpen(false);
+          setCustomFieldValues({});
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>{editTarget ? 'Edit System' : 'New System'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
@@ -316,7 +342,14 @@ export default function SystemCatalog() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setDialogOpen(false); setCustomFieldValues({}); }}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setDialogOpen(false);
+              setCustomFieldValues({});
+            }}
+          >
+            Cancel
+          </Button>
           <Button onClick={handleSave} variant="contained" disabled={loading}>
             {editTarget ? 'Save' : 'Create'}
           </Button>

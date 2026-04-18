@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  Box, Button, Typography, Chip, Dialog, DialogTitle, DialogContent,
-  DialogActions, Alert,
+  Box,
+  Button,
+  Typography,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
@@ -94,7 +101,9 @@ export default function ComponentTypesPanel() {
         params.value ? (
           <Chip label={CATEGORY_LABELS[params.value as string] ?? params.value} size="small" />
         ) : (
-          <Typography variant="body2" color="text.secondary">--</Typography>
+          <Typography variant="body2" color="text.secondary">
+            --
+          </Typography>
         ),
     },
     {
@@ -109,9 +118,13 @@ export default function ComponentTypesPanel() {
       flex: 1,
       renderCell: (params) =>
         params.value ? (
-          <Typography variant="body2" noWrap>{params.value as string}</Typography>
+          <Typography variant="body2" noWrap>
+            {params.value as string}
+          </Typography>
         ) : (
-          <Typography variant="body2" color="text.secondary">--</Typography>
+          <Typography variant="body2" color="text.secondary">
+            --
+          </Typography>
         ),
     },
     {
@@ -121,10 +134,17 @@ export default function ComponentTypesPanel() {
       sortable: false,
       renderCell: (params) => (
         <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Button size="small" onClick={() => handleEdit(params.row as ComponentTypeDefinitionResponse)}>
+          <Button
+            size="small"
+            onClick={() => handleEdit(params.row as ComponentTypeDefinitionResponse)}
+          >
             Edit
           </Button>
-          <Button size="small" color="error" onClick={() => handleDeleteOpen(params.row.id as number)}>
+          <Button
+            size="small"
+            color="error"
+            onClick={() => handleDeleteOpen(params.row.id as number)}
+          >
             Delete
           </Button>
         </Box>
@@ -160,9 +180,14 @@ export default function ComponentTypesPanel() {
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete Component Type</DialogTitle>
         <DialogContent>
-          {deleteError && <Alert severity="error" sx={{ mb: 1 }}>{deleteError}</Alert>}
+          {deleteError && (
+            <Alert severity="error" sx={{ mb: 1 }}>
+              {deleteError}
+            </Alert>
+          )}
           <Typography>
-            Are you sure you want to delete this component type? Subsystems using it will keep their data but lose the type association.
+            Are you sure you want to delete this component type? Subsystems using it will keep their
+            data but lose the type association.
           </Typography>
         </DialogContent>
         <DialogActions>

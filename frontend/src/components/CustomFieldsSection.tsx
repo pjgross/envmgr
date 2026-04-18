@@ -8,7 +8,11 @@ interface CustomFieldsSectionProps {
   onChange: (values: Record<string, unknown>) => void;
 }
 
-export default function CustomFieldsSection({ definitions, values, onChange }: CustomFieldsSectionProps) {
+export default function CustomFieldsSection({
+  definitions,
+  values,
+  onChange,
+}: CustomFieldsSectionProps) {
   if (definitions.length === 0) return null;
 
   const handleChange = (key: string, value: unknown) => {
@@ -54,7 +58,9 @@ export default function CustomFieldsSection({ definitions, values, onChange }: C
               handleChange(
                 defn.field_key,
                 defn.field_type === 'number'
-                  ? e.target.value === '' ? null : Number(e.target.value)
+                  ? e.target.value === ''
+                    ? null
+                    : Number(e.target.value)
                   : e.target.value
               )
             }

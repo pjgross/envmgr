@@ -1,13 +1,13 @@
-import { Box, Typography } from '@mui/material'
+import { Box, Typography } from '@mui/material';
 
 interface SystemGroupNodeProps {
-  data: { label: string; isCurrent: boolean }
+  data: { label: string; isCurrent: boolean };
 }
 
 export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
-  const borderColor = data.isCurrent ? '#1976d2' : '#9e9e9e'
-  const bgColor = data.isCurrent ? 'rgba(25,118,210,0.03)' : 'rgba(158,158,158,0.03)'
-  const labelColor = data.isCurrent ? '#1976d2' : '#757575'
+  const borderColor = data.isCurrent ? '#1976d2' : '#9e9e9e';
+  const bgColor = data.isCurrent ? 'rgba(25,118,210,0.03)' : 'rgba(158,158,158,0.03)';
+  const labelColor = data.isCurrent ? '#1976d2' : '#757575';
 
   return (
     <Box
@@ -45,5 +45,5 @@ export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
         </Typography>
       </Box>
     </Box>
-  )
+  );
 }

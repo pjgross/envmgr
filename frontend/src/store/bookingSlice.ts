@@ -27,35 +27,28 @@ export const fetchBookings = createAsyncThunk(
     bookingService.listBookings(params)
 );
 
-export const createBooking = createAsyncThunk(
-  'booking/createBooking',
-  (data: BookingCreate) => bookingService.createBooking(data)
+export const createBooking = createAsyncThunk('booking/createBooking', (data: BookingCreate) =>
+  bookingService.createBooking(data)
 );
 
 export const getBooking = createAsyncThunk('booking/getBooking', (id: number) =>
   bookingService.getBooking(id)
 );
 
-export const deleteOccurrence = createAsyncThunk(
-  'booking/deleteOccurrence',
-  async (id: number) => {
-    await bookingService.deleteOccurrence(id);
-    return id;
-  }
-);
+export const deleteOccurrence = createAsyncThunk('booking/deleteOccurrence', async (id: number) => {
+  await bookingService.deleteOccurrence(id);
+  return id;
+});
 
 export const deleteSeries = createAsyncThunk('booking/deleteSeries', async (id: number) => {
   await bookingService.deleteSeries(id);
   return id;
 });
 
-export const fetchConflicts = createAsyncThunk(
-  'booking/fetchConflicts',
-  async (id: number) => {
-    const conflicts = await bookingService.getConflicts(id);
-    return { bookingId: id, conflicts };
-  },
-);
+export const fetchConflicts = createAsyncThunk('booking/fetchConflicts', async (id: number) => {
+  const conflicts = await bookingService.getConflicts(id);
+  return { bookingId: id, conflicts };
+});
 
 export const acknowledgeConflict = createAsyncThunk(
   'booking/ackConflict',
@@ -65,7 +58,7 @@ export const acknowledgeConflict = createAsyncThunk(
       notes: args.notes,
     });
     return { bookingId: args.id, otherId: args.otherId, ack };
-  },
+  }
 );
 
 const bookingSlice = createSlice({

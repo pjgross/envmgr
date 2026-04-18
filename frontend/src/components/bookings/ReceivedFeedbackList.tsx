@@ -1,15 +1,15 @@
-import { Box, Link, Typography } from '@mui/material'
-import { Link as RouterLink } from 'react-router-dom'
-import type { ReceivedFeedbackItem } from '../../types/conflict'
+import { Box, Link, Typography } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
+import type { ReceivedFeedbackItem } from '../../types/conflict';
 
 type Props = {
-  items: ReceivedFeedbackItem[]
-}
+  items: ReceivedFeedbackItem[];
+};
 
 function willingLabel(v: boolean | null): string {
-  if (v === true) return 'Yes'
-  if (v === false) return 'No'
-  return '(not yet answered)'
+  if (v === true) return 'Yes';
+  if (v === false) return 'No';
+  return '(not yet answered)';
 }
 
 export default function ReceivedFeedbackList({ items }: Props) {
@@ -18,7 +18,7 @@ export default function ReceivedFeedbackList({ items }: Props) {
       <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
         No feedback received yet.
       </Typography>
-    )
+    );
   }
 
   return (
@@ -62,5 +62,5 @@ export default function ReceivedFeedbackList({ items }: Props) {
         </Box>
       ))}
     </Box>
-  )
+  );
 }

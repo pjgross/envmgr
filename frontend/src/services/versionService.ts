@@ -12,7 +12,11 @@ export const versionService = {
   recordVersion: (envId: number, data: VersionCreate): Promise<VersionResponse> =>
     api.post(`/environments/${envId}/versions`, data).then((r) => r.data),
 
-  updateVersion: (envId: number, versionId: number, data: VersionUpdate): Promise<VersionResponse> =>
+  updateVersion: (
+    envId: number,
+    versionId: number,
+    data: VersionUpdate
+  ): Promise<VersionResponse> =>
     api.patch(`/environments/${envId}/versions/${versionId}`, data).then((r) => r.data),
 
   deleteVersion: (envId: number, versionId: number): Promise<void> =>

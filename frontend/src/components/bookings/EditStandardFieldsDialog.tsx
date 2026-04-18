@@ -1,26 +1,41 @@
-import { useState } from 'react'
+import { useState } from 'react';
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, TextField, Checkbox, FormControlLabel,
-  FormControl, InputLabel, Select, MenuItem,
-} from '@mui/material'
-import type { BookingResponse } from '../../types/booking'
-import { formatApiError } from '../../services/apiError'
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  TextField,
+  Checkbox,
+  FormControlLabel,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+} from '@mui/material';
+import type { BookingResponse } from '../../types/booking';
+import { formatApiError } from '../../services/apiError';
 
-type BookingType = { id: number; name: string }
+type BookingType = { id: number; name: string };
 
 export type EditStandardFieldsDialogProps = {
-  open: boolean
-  booking: BookingResponse
-  bookingTypes: BookingType[]
-  onClose: () => void
-  onSaved: (updated: BookingResponse) => void | Promise<void>
-  saver: (payload: Record<string, unknown>) => Promise<BookingResponse>
-  onError?: (msg: string) => void
-}
+  open: boolean;
+  booking: BookingResponse;
+  bookingTypes: BookingType[];
+  onClose: () => void;
+  onSaved: (updated: BookingResponse) => void | Promise<void>;
+  saver: (payload: Record<string, unknown>) => Promise<BookingResponse>;
+  onError?: (msg: string) => void;
+};
 
 export default function EditStandardFieldsDialog({
-  open, booking, bookingTypes, onClose, onSaved, saver, onError,
+  open,
+  booking,
+  bookingTypes,
+  onClose,
+  onSaved,
+  saver,
+  onError,
 }: EditStandardFieldsDialogProps) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({
     project_name: booking.project_name,
@@ -30,14 +45,14 @@ export default function EditStandardFieldsDialog({
     notes: booking.notes ?? '',
     exclusive_use: booking.exclusive_use,
     context_tag: booking.context_tag,
-  }))
-  const [saving, setSaving] = useState(false)
+  }));
+  const [saving, setSaving] = useState(false);
 
-  const sfPerms = booking.standard_field_permissions ?? {}
-  const canEdit = (field: string) => sfPerms[field]?.editable === true
+  const sfPerms = booking.standard_field_permissions ?? {};
+  const canEdit = (field: string) => sfPerms[field]?.editable === true;
 
   const handleSave = async () => {
-    setSaving(true)
+    setSaving(true);
     try {
       const fieldMap: Record<string, string> = {
         project_name: 'project_name',
@@ -47,46 +62,54 @@ export default function EditStandardFieldsDialog({
         notes: 'notes',
         exclusive_use: 'exclusive_use_requested',
         context_tag: 'context_tag',
-      }
-      const payload: Record<string, unknown> = {}
+      };
+      const payload: Record<string, unknown> = {};
       for (const [key, apiKey] of Object.entries(fieldMap)) {
-        if (!sfPerms[key]?.editable) continue
-        const v = values[key]
+        if (!sfPerms[key]?.editable) continue;
+        const v = values[key];
         if ((key === 'start_date' || key === 'end_date') && typeof v === 'string' && v) {
-          payload[apiKey] = new Date(v).toISOString()
+          payload[apiKey] = new Date(v).toISOString();
         } else {
-          payload[apiKey] = v
+          payload[apiKey] = v;
         }
       }
-      const updated = await saver(payload)
-      await onSaved(updated)
-      onClose()
+      const updated = await saver(payload);
+      await onSaved(updated);
+      onClose();
     } catch (err: unknown) {
-      onError?.(formatApiError(err, 'Save failed'))
+      onError?.(formatApiError(err, 'Save failed'));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Edit Standard Fields</DialogTitle>
       <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
-          label="Project Name" fullWidth size="small"
+          label="Project Name"
+          fullWidth
+          size="small"
           value={values.project_name as string}
           disabled={!canEdit('project_name')}
           onChange={(e) => setValues((v) => ({ ...v, project_name: e.target.value }))}
         />
         <TextField
-          label="Start Date" type="date" fullWidth size="small"
+          label="Start Date"
+          type="date"
+          fullWidth
+          size="small"
           InputLabelProps={{ shrink: true }}
           value={values.start_date as string}
           disabled={!canEdit('start_date')}
           onChange={(e) => setValues((v) => ({ ...v, start_date: e.target.value }))}
         />
         <TextField
-          label="End Date" type="date" fullWidth size="small"
+          label="End Date"
+          type="date"
+          fullWidth
+          size="small"
           InputLabelProps={{ shrink: true }}
           value={values.end_date as string}
           disabled={!canEdit('end_date')}
@@ -100,12 +123,18 @@ export default function EditStandardFieldsDialog({
             onChange={(e) => setValues((v) => ({ ...v, booking_type: e.target.value }))}
           >
             {bookingTypes.map((bt) => (
-              <MenuItem key={bt.id} value={bt.id}>{bt.name}</MenuItem>
+              <MenuItem key={bt.id} value={bt.id}>
+                {bt.name}
+              </MenuItem>
             ))}
           </Select>
         </FormControl>
         <TextField
-          label="Notes" multiline minRows={3} fullWidth size="small"
+          label="Notes"
+          multiline
+          minRows={3}
+          fullWidth
+          size="small"
           value={values.notes as string}
           disabled={!canEdit('notes')}
           onChange={(e) => setValues((v) => ({ ...v, notes: e.target.value }))}
@@ -140,5 +169,5 @@ export default function EditStandardFieldsDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  )
+  );
 }

@@ -46,14 +46,12 @@ export const deleteVersion = createAsyncThunk(
   }
 );
 
-export const importEnvironments = createAsyncThunk(
-  'version/importEnvironments',
-  (file: File) => versionService.importEnvironments(file)
+export const importEnvironments = createAsyncThunk('version/importEnvironments', (file: File) =>
+  versionService.importEnvironments(file)
 );
 
-export const importSystems = createAsyncThunk(
-  'version/importSystems',
-  (file: File) => versionService.importSystems(file)
+export const importSystems = createAsyncThunk('version/importSystems', (file: File) =>
+  versionService.importSystems(file)
 );
 
 const versionSlice = createSlice({

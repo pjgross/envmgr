@@ -20,11 +20,7 @@ import UploadIcon from '@mui/icons-material/Upload';
 import DownloadIcon from '@mui/icons-material/Download';
 
 import type { AppDispatch, RootState } from '../../store';
-import {
-  importEnvironments,
-  importSystems,
-  clearImportResult,
-} from '../../store/versionSlice';
+import { importEnvironments, importSystems, clearImportResult } from '../../store/versionSlice';
 import type { ImportResult } from '../../types/version';
 
 // ---------------------------------------------------------------------------
@@ -61,20 +57,9 @@ function ImportSection({ title, onUpload, loading, result, error }: ImportSectio
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-        <Button
-          variant="outlined"
-          component="label"
-          startIcon={<UploadIcon />}
-          disabled={loading}
-        >
+        <Button variant="outlined" component="label" startIcon={<UploadIcon />} disabled={loading}>
           Choose File
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx"
-            hidden
-            onChange={handleFileChange}
-          />
+          <input ref={fileInputRef} type="file" accept=".xlsx" hidden onChange={handleFileChange} />
         </Button>
 
         {selectedFile && (
@@ -94,11 +79,7 @@ function ImportSection({ title, onUpload, loading, result, error }: ImportSectio
 
         <Tooltip title="Templates coming soon">
           <span>
-            <Button
-              variant="outlined"
-              startIcon={<DownloadIcon />}
-              disabled
-            >
+            <Button variant="outlined" startIcon={<DownloadIcon />} disabled>
               Download Template
             </Button>
           </span>
@@ -113,10 +94,7 @@ function ImportSection({ title, onUpload, loading, result, error }: ImportSectio
 
       {result && (
         <>
-          <Alert
-            severity={result.errors.length > 0 ? 'warning' : 'success'}
-            sx={{ mb: 2 }}
-          >
+          <Alert severity={result.errors.length > 0 ? 'warning' : 'success'} sx={{ mb: 2 }}>
             Created {result.created}, Skipped {result.skipped}
             {result.errors.length > 0 && `, ${result.errors.length} error(s)`}
           </Alert>

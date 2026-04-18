@@ -9,11 +9,9 @@ import type {
 } from '../types/system';
 
 export const systemService = {
-  listSystems: (): Promise<SystemResponse[]> =>
-    api.get('/systems/').then((r) => r.data),
+  listSystems: (): Promise<SystemResponse[]> => api.get('/systems/').then((r) => r.data),
 
-  getSystem: (id: number): Promise<SystemResponse> =>
-    api.get(`/systems/${id}`).then((r) => r.data),
+  getSystem: (id: number): Promise<SystemResponse> => api.get(`/systems/${id}`).then((r) => r.data),
 
   createSystem: (data: SystemCreate): Promise<SystemResponse> =>
     api.post('/systems/', data).then((r) => r.data),
@@ -21,8 +19,7 @@ export const systemService = {
   updateSystem: (id: number, data: SystemUpdate): Promise<SystemResponse> =>
     api.patch(`/systems/${id}`, data).then((r) => r.data),
 
-  deleteSystem: (id: number): Promise<void> =>
-    api.delete(`/systems/${id}`).then((r) => r.data),
+  deleteSystem: (id: number): Promise<void> => api.delete(`/systems/${id}`).then((r) => r.data),
 
   listSubSystems: (systemId: number): Promise<SubSystemResponse[]> =>
     api.get(`/systems/${systemId}/subsystems`).then((r) => r.data),

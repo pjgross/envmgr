@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useDispatch, useSelector } from 'react-redux'
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
   Box,
@@ -19,27 +19,27 @@ import {
   Select,
   TextField,
   Typography,
-} from '@mui/material'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import { AppDispatch } from '../../store'
-import type { RootState } from '../../store'
-import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice'
-import { fetchDefinitions } from '../../store/customFieldSlice'
-import { fetchEnvironments } from '../../store/environmentSlice'
-import { bookingService } from '../../services/bookingService'
-import { bookingRequestService } from '../../services/bookingRequestService'
-import type { BookingResponse } from '../../types/booking'
-import type { BookingRequestResponse } from '../../types/bookingRequest'
-import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle'
-import CustomFieldsDisplay from '../../components/CustomFieldsDisplay'
-import TransitionButtons from '../../components/bookings/TransitionButtons'
-import EditStandardFieldsDialog from '../../components/bookings/EditStandardFieldsDialog'
-import EditCustomFieldsDialog from '../../components/bookings/EditCustomFieldsDialog'
-import EnvironmentsPanel from '../../components/bookings/EnvironmentsPanel'
-import ConflictsPanel from '../../components/bookings/ConflictsPanel'
-import ConflictIndicator from '../../components/bookings/ConflictIndicator'
-import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog'
-import { formatApiError } from '../../services/apiError'
+} from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { AppDispatch } from '../../store';
+import type { RootState } from '../../store';
+import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
+import { fetchEnvironments } from '../../store/environmentSlice';
+import { bookingService } from '../../services/bookingService';
+import { bookingRequestService } from '../../services/bookingRequestService';
+import type { BookingResponse } from '../../types/booking';
+import type { BookingRequestResponse } from '../../types/bookingRequest';
+import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle';
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
+import TransitionButtons from '../../components/bookings/TransitionButtons';
+import EditStandardFieldsDialog from '../../components/bookings/EditStandardFieldsDialog';
+import EditCustomFieldsDialog from '../../components/bookings/EditCustomFieldsDialog';
+import EnvironmentsPanel from '../../components/bookings/EnvironmentsPanel';
+import ConflictsPanel from '../../components/bookings/ConflictsPanel';
+import ConflictIndicator from '../../components/bookings/ConflictIndicator';
+import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog';
+import { formatApiError } from '../../services/apiError';
 
 // --- Status colour map -------------------------------------------------------
 
@@ -50,123 +50,125 @@ const STATE_COLOURS: Record<string, 'default' | 'info' | 'warning' | 'success' |
   rejected: 'error',
   extension_requested: 'warning',
   closed: 'info',
-}
+};
 
 // --- Component ---------------------------------------------------------------
 
 export default function BookingDetail() {
-  const { id } = useParams<{ id: string }>()
-  const bookingId = Number(id)
-  const navigate = useNavigate()
-  const dispatch = useDispatch<AppDispatch>()
-  const customFieldDefs = useSelector((state: RootState) => state.customField.definitions['booking'] ?? [])
-  const bookingTypes = useSelector((state: RootState) => state.bookingLifecycle.bookingTypes)
-  const currentUser = useSelector((state: RootState) => state.auth.user)
-  const environments = useSelector((state: RootState) => state.environment.environments)
+  const { id } = useParams<{ id: string }>();
+  const bookingId = Number(id);
+  const navigate = useNavigate();
+  const dispatch = useDispatch<AppDispatch>();
+  const customFieldDefs = useSelector(
+    (state: RootState) => state.customField.definitions['booking'] ?? []
+  );
+  const bookingTypes = useSelector((state: RootState) => state.bookingLifecycle.bookingTypes);
+  const currentUser = useSelector((state: RootState) => state.auth.user);
+  const environments = useSelector((state: RootState) => state.environment.environments);
 
   // Local state
-  const [booking, setBooking] = useState<BookingResponse | null>(null)
-  const [bookingRequest, setBookingRequest] = useState<BookingRequestResponse | null>(null)
-  const [allowedTransitions, setAllowedTransitions] = useState<AllowedTransition[]>([])
-  const [history, setHistory] = useState<BookingStatusHistory[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [editingCustomFields, setEditingCustomFields] = useState(false)
-  const [editingStandardFields, setEditingStandardFields] = useState(false)
-  const [editingEnvOverrides, setEditingEnvOverrides] = useState(false)
-  const [addEnvOpen, setAddEnvOpen] = useState(false)
+  const [booking, setBooking] = useState<BookingResponse | null>(null);
+  const [bookingRequest, setBookingRequest] = useState<BookingRequestResponse | null>(null);
+  const [allowedTransitions, setAllowedTransitions] = useState<AllowedTransition[]>([]);
+  const [history, setHistory] = useState<BookingStatusHistory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingCustomFields, setEditingCustomFields] = useState(false);
+  const [editingStandardFields, setEditingStandardFields] = useState(false);
+  const [editingEnvOverrides, setEditingEnvOverrides] = useState(false);
+  const [addEnvOpen, setAddEnvOpen] = useState(false);
 
   // Add-env dialog local state
-  const [addEnvId, setAddEnvId] = useState<number | ''>('')
-  const [addEnvStart, setAddEnvStart] = useState('')
-  const [addEnvEnd, setAddEnvEnd] = useState('')
-  const [addEnvSaving, setAddEnvSaving] = useState(false)
+  const [addEnvId, setAddEnvId] = useState<number | ''>('');
+  const [addEnvStart, setAddEnvStart] = useState('');
+  const [addEnvEnd, setAddEnvEnd] = useState('');
+  const [addEnvSaving, setAddEnvSaving] = useState(false);
 
   // Load on mount
   useEffect(() => {
-    dispatch(fetchBookingTypes())
-    dispatch(fetchLifecycleTemplates())
-    dispatch(fetchDefinitions('booking'))
-    dispatch(fetchEnvironments())
+    dispatch(fetchBookingTypes());
+    dispatch(fetchLifecycleTemplates());
+    dispatch(fetchDefinitions('booking'));
+    dispatch(fetchEnvironments());
 
     const load = async () => {
-      setLoading(true)
-      setError(null)
+      setLoading(true);
+      setError(null);
       try {
         const [b, transitions, hist] = await Promise.all([
           bookingService.getBooking(bookingId),
           bookingService.getAllowedTransitions(bookingId),
           bookingService.getHistory(bookingId),
-        ])
-        setBooking(b)
-        setAllowedTransitions(transitions)
-        setHistory(hist)
+        ]);
+        setBooking(b);
+        setAllowedTransitions(transitions);
+        setHistory(hist);
 
         // Fetch request if available (may be null for legacy rows)
         if (b.booking_request_id != null) {
           try {
-            const req = await bookingRequestService.get(b.booking_request_id)
-            setBookingRequest(req)
+            const req = await bookingRequestService.get(b.booking_request_id);
+            setBookingRequest(req);
           } catch {
             // Legacy row or request not found — leave bookingRequest null
           }
         }
       } catch (err: unknown) {
-        setError(formatApiError(err, 'Failed to load booking'))
+        setError(formatApiError(err, 'Failed to load booking'));
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    load()
-  }, [bookingId, dispatch])
+    load();
+  }, [bookingId, dispatch]);
 
   // Transition handler (used for top-level booking transitions outside EnvironmentsPanel)
   const handleTransition = async (toState: string, label: string) => {
     const notes =
-      toState === 'draft' ? (window.prompt(`Reason for "${label}":`) ?? undefined) : undefined
+      toState === 'draft' ? (window.prompt(`Reason for "${label}":`) ?? undefined) : undefined;
     try {
-      await bookingService.transitionState(bookingId, toState, notes)
+      await bookingService.transitionState(bookingId, toState, notes);
       const [updated, transitions, hist] = await Promise.all([
         bookingService.getBooking(bookingId),
         bookingService.getAllowedTransitions(bookingId),
         bookingService.getHistory(bookingId),
-      ])
-      setBooking(updated)
-      setAllowedTransitions(transitions)
-      setHistory(hist)
+      ]);
+      setBooking(updated);
+      setAllowedTransitions(transitions);
+      setHistory(hist);
     } catch (err: unknown) {
-      setError(formatApiError(err, 'Transition failed'))
+      setError(formatApiError(err, 'Transition failed'));
     }
-  }
+  };
 
   // Reset add-env dialog fields
   const resetAddEnvForm = () => {
-    setAddEnvId('')
-    setAddEnvStart('')
-    setAddEnvEnd('')
-  }
+    setAddEnvId('');
+    setAddEnvStart('');
+    setAddEnvEnd('');
+  };
 
   // Add-env confirm handler
   const handleAddEnvConfirm = async () => {
-    if (!bookingRequest || addEnvId === '') return
-    setAddEnvSaving(true)
+    if (!bookingRequest || addEnvId === '') return;
+    setAddEnvSaving(true);
     try {
       await bookingRequestService.addEnvironment(bookingRequest.id, {
         environment_id: addEnvId as number,
         start_date: addEnvStart || undefined,
         end_date: addEnvEnd || undefined,
-      })
-      const req = await bookingRequestService.get(bookingRequest.id)
-      setBookingRequest(req)
-      setAddEnvOpen(false)
-      resetAddEnvForm()
+      });
+      const req = await bookingRequestService.get(bookingRequest.id);
+      setBookingRequest(req);
+      setAddEnvOpen(false);
+      resetAddEnvForm();
     } catch (err: unknown) {
-      setError(formatApiError(err, 'Failed to add environment'))
+      setError(formatApiError(err, 'Failed to add environment'));
     } finally {
-      setAddEnvSaving(false)
+      setAddEnvSaving(false);
     }
-  }
+  };
 
   // --- Render states ---
 
@@ -175,7 +177,7 @@ export default function BookingDetail() {
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
         <CircularProgress />
       </Box>
-    )
+    );
   }
 
   if (error && !booking) {
@@ -190,14 +192,14 @@ export default function BookingDetail() {
         </Button>
         <Alert severity="error">{error}</Alert>
       </Box>
-    )
+    );
   }
 
-  if (!booking) return null
+  if (!booking) return null;
 
   // Environments already in this request (to exclude from add-env picker)
-  const existingEnvIds = new Set((bookingRequest?.bookings ?? []).map((b) => b.environment_id))
-  const availableEnvs = environments.filter((e) => !existingEnvIds.has(e.id))
+  const existingEnvIds = new Set((bookingRequest?.bookings ?? []).map((b) => b.environment_id));
+  const availableEnvs = environments.filter((e) => !existingEnvIds.has(e.id));
 
   // --- Main render ---
 
@@ -220,7 +222,9 @@ export default function BookingDetail() {
             <ConflictIndicator hasUnacknowledged={booking.has_unacknowledged_conflicts} />
             <Box sx={{ flexGrow: 1 }} />
             {bookingRequest != null && (
-              <Button size="small" onClick={() => setEditingStandardFields(true)}>Edit request</Button>
+              <Button size="small" onClick={() => setEditingStandardFields(true)}>
+                Edit request
+              </Button>
             )}
           </Box>
         </Paper>
@@ -254,26 +258,29 @@ export default function BookingDetail() {
           envBookings={bookingRequest.bookings}
           highlightBookingId={booking.id}
           onTransition={async (id, toState, label) => {
-            const notes = toState === 'draft' ? (window.prompt(`Reason for "${label}":`) ?? undefined) : undefined
+            const notes =
+              toState === 'draft'
+                ? (window.prompt(`Reason for "${label}":`) ?? undefined)
+                : undefined;
             try {
-              await bookingService.transitionState(id, toState, notes)
-              const req = await bookingRequestService.get(bookingRequest.id)
-              setBookingRequest(req)
+              await bookingService.transitionState(id, toState, notes);
+              const req = await bookingRequestService.get(bookingRequest.id);
+              setBookingRequest(req);
               if (id === booking.id) {
-                const b = await bookingService.getBooking(id)
-                setBooking(b)
+                const b = await bookingService.getBooking(id);
+                setBooking(b);
               }
             } catch (err: unknown) {
-              setError(formatApiError(err, 'Transition failed'))
+              setError(formatApiError(err, 'Transition failed'));
             }
           }}
           onRemove={async (id) => {
             try {
-              await bookingRequestService.removeEnvironment(bookingRequest.id, id)
-              const req = await bookingRequestService.get(bookingRequest.id)
-              setBookingRequest(req)
+              await bookingRequestService.removeEnvironment(bookingRequest.id, id);
+              const req = await bookingRequestService.get(bookingRequest.id);
+              setBookingRequest(req);
             } catch (err: unknown) {
-              setError(formatApiError(err, 'Failed to remove environment'))
+              setError(formatApiError(err, 'Failed to remove environment'));
             }
           }}
           onAddClick={() => setAddEnvOpen(true)}
@@ -302,10 +309,14 @@ export default function BookingDetail() {
             columnGap: 2,
           }}
         >
-          <Typography variant="body2" color="text.secondary">Environment</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Environment
+          </Typography>
           <Typography variant="body2">{booking.environment_name ?? '—'}</Typography>
 
-          <Typography variant="body2" color="text.secondary">Status</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Status
+          </Typography>
           <Box>
             <Chip
               label={booking.status}
@@ -314,25 +325,33 @@ export default function BookingDetail() {
             />
           </Box>
 
-          <Typography variant="body2" color="text.secondary">Booked By</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Booked By
+          </Typography>
           <Typography variant="body2">{booking.booked_by_username ?? '—'}</Typography>
 
-          <Typography variant="body2" color="text.secondary">Start Date</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Start Date
+          </Typography>
           <Typography variant="body2">
             {new Date(booking.start_date).toLocaleDateString()}
           </Typography>
 
-          <Typography variant="body2" color="text.secondary">End Date</Typography>
-          <Typography variant="body2">
-            {new Date(booking.end_date).toLocaleDateString()}
+          <Typography variant="body2" color="text.secondary">
+            End Date
           </Typography>
+          <Typography variant="body2">{new Date(booking.end_date).toLocaleDateString()}</Typography>
 
           {!bookingRequest && (
             <>
-              <Typography variant="body2" color="text.secondary">Project Name</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Project Name
+              </Typography>
               <Typography variant="body2">{booking.project_name}</Typography>
 
-              <Typography variant="body2" color="text.secondary">Exclusive Use</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Exclusive Use
+              </Typography>
               <Box>
                 <Chip
                   label={booking.exclusive_use ? 'Yes' : 'No'}
@@ -341,10 +360,14 @@ export default function BookingDetail() {
                 />
               </Box>
 
-              <Typography variant="body2" color="text.secondary">Context Tag</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Context Tag
+              </Typography>
               <Typography variant="body2">{booking.context_tag}</Typography>
 
-              <Typography variant="body2" color="text.secondary" sx={{ pt: 0.5 }}>Notes</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ pt: 0.5 }}>
+                Notes
+              </Typography>
               <Typography variant="body2">{booking.notes ?? '—'}</Typography>
             </>
           )}
@@ -355,10 +378,9 @@ export default function BookingDetail() {
       <ConflictsPanel
         bookingId={booking.id}
         canAcknowledge={
-          Boolean(currentUser) && (
-            currentUser!.id === bookingRequest?.booked_by ||
-            (bookingRequest?.delegate_user_ids ?? []).includes(currentUser!.id)
-          )
+          Boolean(currentUser) &&
+          (currentUser!.id === bookingRequest?.booked_by ||
+            (bookingRequest?.delegate_user_ids ?? []).includes(currentUser!.id))
         }
       />
 
@@ -370,13 +392,12 @@ export default function BookingDetail() {
         if (visibleDefs.length === 0) return null;
         return (
           <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Box
+              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}
+            >
               <Typography variant="subtitle2">Custom Fields</Typography>
               {editableDefs.length > 0 && bookingRequest != null && (
-                <Button
-                  size="small"
-                  onClick={() => setEditingCustomFields(true)}
-                >
+                <Button size="small" onClick={() => setEditingCustomFields(true)}>
                   Edit
                 </Button>
               )}
@@ -400,12 +421,11 @@ export default function BookingDetail() {
         ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {history.map((row) => (
-              <Box key={row.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ minWidth: 150 }}
-                >
+              <Box
+                key={row.id}
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 150 }}>
                   {new Date(row.changed_at).toLocaleString()}
                 </Typography>
                 {row.from_state ? (
@@ -439,15 +459,15 @@ export default function BookingDetail() {
           bookingTypes={bookingTypes}
           onClose={() => setEditingStandardFields(false)}
           onSaved={async (updatedBooking) => {
-            setBooking(updatedBooking)
+            setBooking(updatedBooking);
             // Also refresh the request (mirrors project_name, dates, etc.)
-            const req = await bookingRequestService.get(bookingRequest.id)
-            setBookingRequest(req)
+            const req = await bookingRequestService.get(bookingRequest.id);
+            setBookingRequest(req);
           }}
           saver={async (payload) => {
-            await bookingRequestService.updateStandardFields(bookingRequest.id, payload)
+            await bookingRequestService.updateStandardFields(bookingRequest.id, payload);
             // Re-fetch booking to get mirrored fields
-            return bookingService.getBooking(bookingId)
+            return bookingService.getBooking(bookingId);
           }}
           onError={setError}
         />
@@ -461,13 +481,13 @@ export default function BookingDetail() {
           definitions={customFieldDefs}
           onClose={() => setEditingCustomFields(false)}
           onSaved={async (updatedBooking) => {
-            setBooking(updatedBooking)
-            const req = await bookingRequestService.get(bookingRequest.id)
-            setBookingRequest(req)
+            setBooking(updatedBooking);
+            const req = await bookingRequestService.get(bookingRequest.id);
+            setBookingRequest(req);
           }}
           saver={async (values) => {
-            await bookingRequestService.updateCustomFields(bookingRequest.id, values)
-            return bookingService.getBooking(bookingId)
+            await bookingRequestService.updateCustomFields(bookingRequest.id, values);
+            return bookingService.getBooking(bookingId);
           }}
           onError={setError}
         />
@@ -480,10 +500,10 @@ export default function BookingDetail() {
           booking={booking}
           onClose={() => setEditingEnvOverrides(false)}
           onSaved={async (updatedBooking) => {
-            setBooking(updatedBooking)
+            setBooking(updatedBooking);
             if (bookingRequest != null) {
-              const req = await bookingRequestService.get(bookingRequest.id)
-              setBookingRequest(req)
+              const req = await bookingRequestService.get(bookingRequest.id);
+              setBookingRequest(req);
             }
           }}
           saver={(payload) => bookingService.updateStandardFields(bookingId, payload)}
@@ -492,7 +512,15 @@ export default function BookingDetail() {
       )}
 
       {/* Add Environment Dialog */}
-      <Dialog open={addEnvOpen} onClose={() => { setAddEnvOpen(false); resetAddEnvForm() }} maxWidth="xs" fullWidth>
+      <Dialog
+        open={addEnvOpen}
+        onClose={() => {
+          setAddEnvOpen(false);
+          resetAddEnvForm();
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
         <DialogTitle>Add Environment</DialogTitle>
         <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <FormControl fullWidth size="small">
@@ -503,25 +531,38 @@ export default function BookingDetail() {
               onChange={(e) => setAddEnvId(e.target.value as number)}
             >
               {availableEnvs.map((env) => (
-                <MenuItem key={env.id} value={env.id}>{env.name}</MenuItem>
+                <MenuItem key={env.id} value={env.id}>
+                  {env.name}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
           <TextField
-            label="Start Date (optional)" type="date" size="small"
+            label="Start Date (optional)"
+            type="date"
+            size="small"
             InputLabelProps={{ shrink: true }}
             value={addEnvStart}
             onChange={(e) => setAddEnvStart(e.target.value)}
           />
           <TextField
-            label="End Date (optional)" type="date" size="small"
+            label="End Date (optional)"
+            type="date"
+            size="small"
             InputLabelProps={{ shrink: true }}
             value={addEnvEnd}
             onChange={(e) => setAddEnvEnd(e.target.value)}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setAddEnvOpen(false); resetAddEnvForm() }}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setAddEnvOpen(false);
+              resetAddEnvForm();
+            }}
+          >
+            Cancel
+          </Button>
           <Button
             variant="contained"
             disabled={addEnvId === '' || addEnvSaving}
@@ -532,5 +573,5 @@ export default function BookingDetail() {
         </DialogActions>
       </Dialog>
     </Box>
-  )
+  );
 }

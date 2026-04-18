@@ -140,7 +140,12 @@ interface SubFormValues {
   technology: string;
 }
 
-const emptySubForm: SubFormValues = { name: '', description: '', component_type: 'other', technology: '' };
+const emptySubForm: SubFormValues = {
+  name: '',
+  description: '',
+  component_type: 'other',
+  technology: '',
+};
 
 interface DepFormValues {
   to_system_id: number | '';
@@ -229,10 +234,13 @@ export default function SystemDetail() {
   const [compDepDialogOpen, setCompDepDialogOpen] = useState(false);
   const [compDepForm, setCompDepForm] = useState<CompDepFormValues>(emptyCompDepForm);
   const [compDepFormError, setCompDepFormError] = useState('');
-  const [compDepDeleteTarget, setCompDepDeleteTarget] = useState<ComponentDependencyResponse | null>(null);
+  const [compDepDeleteTarget, setCompDepDeleteTarget] =
+    useState<ComponentDependencyResponse | null>(null);
 
   // Component dependency edit state
-  const [compDepEditTarget, setCompDepEditTarget] = useState<ComponentDependencyResponse | null>(null);
+  const [compDepEditTarget, setCompDepEditTarget] = useState<ComponentDependencyResponse | null>(
+    null
+  );
   const [compDepEditForm, setCompDepEditForm] = useState<CompDepEditFormValues>({
     dependency_type: 'api_call',
     direction: 'one_way',
@@ -244,7 +252,11 @@ export default function SystemDetail() {
 
   // Endpoint draft state (within comp dep edit dialog)
   const [endpointDraftVisible, setEndpointDraftVisible] = useState(false);
-  const [endpointDraft, setEndpointDraft] = useState({ http_method: '' as HttpMethod | '', path: '', description: '' });
+  const [endpointDraft, setEndpointDraft] = useState({
+    http_method: '' as HttpMethod | '',
+    path: '',
+    description: '',
+  });
   const [endpointDraftError, setEndpointDraftError] = useState('');
   const [endpointSaving, setEndpointSaving] = useState(false);
 
@@ -258,7 +270,11 @@ export default function SystemDetail() {
   const [dcImportOpen, setDcImportOpen] = useState(false);
   const [dcImportFile, setDcImportFile] = useState<File | null>(null);
   const [dcImportLoading, setDcImportLoading] = useState(false);
-  const [dcImportResult, setDcImportResult] = useState<{ subsystems_created: number; subsystems_updated: number; dependencies_created: number } | null>(null);
+  const [dcImportResult, setDcImportResult] = useState<{
+    subsystems_created: number;
+    subsystems_updated: number;
+    dependencies_created: number;
+  } | null>(null);
   const [dcImportError, setDcImportError] = useState<string | null>(null);
 
   // Terraform import dialog state
@@ -266,7 +282,10 @@ export default function SystemDetail() {
   const [tfImportFile, setTfImportFile] = useState<File | null>(null);
   const [tfImportLoading, setTfImportLoading] = useState(false);
   const [tfImportError, setTfImportError] = useState<string | null>(null);
-  const [tfImportResult, setTfImportResult] = useState<{ subsystems_created: number; subsystems_updated: number } | null>(null);
+  const [tfImportResult, setTfImportResult] = useState<{
+    subsystems_created: number;
+    subsystems_updated: number;
+  } | null>(null);
 
   useEffect(() => {
     dispatch(fetchSystem(systemId));
@@ -349,7 +368,12 @@ export default function SystemDetail() {
 
   const openSubEdit = (sub: SubSystemResponse) => {
     setSubEditTarget(sub);
-    setSubForm({ name: sub.name, description: sub.description ?? '', component_type: sub.component_type ?? 'other', technology: sub.technology ?? '' });
+    setSubForm({
+      name: sub.name,
+      description: sub.description ?? '',
+      component_type: sub.component_type ?? 'other',
+      technology: sub.technology ?? '',
+    });
     setSubFormError('');
     setCustomFieldValues(sub.custom_fields ?? {});
     setSubDialogOpen(true);
@@ -369,9 +393,7 @@ export default function SystemDetail() {
           technology: subForm.technology || undefined,
           custom_fields: customFieldValues,
         };
-        await dispatch(
-          updateSubSystem({ systemId, subId: subEditTarget.id, data })
-        ).unwrap();
+        await dispatch(updateSubSystem({ systemId, subId: subEditTarget.id, data })).unwrap();
       } else {
         const data: SubSystemCreate = {
           name: subForm.name,
@@ -432,9 +454,7 @@ export default function SystemDetail() {
   const handleDepDelete = async () => {
     if (!depDeleteTarget) return;
     try {
-      await dispatch(
-        deleteSystemDependency({ systemId, depId: depDeleteTarget.id })
-      ).unwrap();
+      await dispatch(deleteSystemDependency({ systemId, depId: depDeleteTarget.id })).unwrap();
     } finally {
       setDepDeleteTarget(null);
     }
@@ -656,7 +676,13 @@ export default function SystemDetail() {
       const res = await api.post('/import/docker-compose', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setDcImportResult(res.data as { subsystems_created: number; subsystems_updated: number; dependencies_created: number });
+      setDcImportResult(
+        res.data as {
+          subsystems_created: number;
+          subsystems_updated: number;
+          dependencies_created: number;
+        }
+      );
       dispatch(fetchSubSystems(currentSystem.id));
       dispatch(fetchTopology(currentSystem.id));
     } catch (err: unknown) {
@@ -683,7 +709,8 @@ export default function SystemDetail() {
       form.append('system_id', String(currentSystem.id));
       form.append('file', tfImportFile);
       const res = await api.post<{ subsystems_created: number; subsystems_updated: number }>(
-        '/import/terraform', form,
+        '/import/terraform',
+        form,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
       setTfImportResult(res.data);
@@ -768,9 +795,7 @@ export default function SystemDetail() {
               <TextField
                 label="GitHub Repository URL"
                 value={sysForm.github_repository_url}
-                onChange={(e) =>
-                  setSysForm({ ...sysForm, github_repository_url: e.target.value })
-                }
+                onChange={(e) => setSysForm({ ...sysForm, github_repository_url: e.target.value })}
                 placeholder="https://github.com/org/repo"
               />
               <CustomFieldsSection
@@ -865,7 +890,12 @@ export default function SystemDetail() {
                     <TableCell>{sub.name}</TableCell>
                     <TableCell>
                       <Chip
-                        label={COMPONENT_TYPE_OPTIONS.find(o => o.value === sub.component_type)?.label ?? sub.component_type ?? 'Other'}
+                        label={
+                          COMPONENT_TYPE_OPTIONS.find((o) => o.value === sub.component_type)
+                            ?.label ??
+                          sub.component_type ??
+                          'Other'
+                        }
                         size="small"
                         variant="outlined"
                       />
@@ -1038,9 +1068,7 @@ export default function SystemDetail() {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">
-                            {dep.to_subsystem.name}
-                          </Typography>
+                          <Typography variant="body2">{dep.to_subsystem.name}</Typography>
                         </TableCell>
                         <TableCell>
                           <Chip
@@ -1092,12 +1120,18 @@ export default function SystemDetail() {
         </Box>
       )}
 
-      {tab === 4 && currentSystem && (
-        <SystemTopologyDiagram systemId={currentSystem.id} />
-      )}
+      {tab === 4 && currentSystem && <SystemTopologyDiagram systemId={currentSystem.id} />}
 
       {/* SubSystem Create / Edit Dialog */}
-      <Dialog open={subDialogOpen} onClose={() => { setSubDialogOpen(false); setCustomFieldValues({}); }} maxWidth="sm" fullWidth>
+      <Dialog
+        open={subDialogOpen}
+        onClose={() => {
+          setSubDialogOpen(false);
+          setCustomFieldValues({});
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>{subEditTarget ? 'Edit SubSystem' : 'Add SubSystem'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {subFormError && <Alert severity="error">{subFormError}</Alert>}
@@ -1124,7 +1158,9 @@ export default function SystemDetail() {
               onChange={(e) => setSubForm({ ...subForm, component_type: e.target.value })}
             >
               {COMPONENT_TYPE_OPTIONS.map((opt) => (
-                <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                <MenuItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -1142,7 +1178,14 @@ export default function SystemDetail() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setSubDialogOpen(false); setCustomFieldValues({}); }}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setSubDialogOpen(false);
+              setCustomFieldValues({});
+            }}
+          >
+            Cancel
+          </Button>
           <Button onClick={handleSubSave} variant="contained" disabled={loading}>
             {subEditTarget ? 'Save' : 'Add'}
           </Button>
@@ -1175,9 +1218,7 @@ export default function SystemDetail() {
             <Select
               label="Target System"
               value={depForm.to_system_id}
-              onChange={(e) =>
-                setDepForm({ ...depForm, to_system_id: e.target.value as number })
-              }
+              onChange={(e) => setDepForm({ ...depForm, to_system_id: e.target.value as number })}
             >
               {availableForDep.length === 0 ? (
                 <MenuItem disabled value="">
@@ -1241,9 +1282,11 @@ export default function SystemDetail() {
             Remove dependency on{' '}
             <strong>
               {depDeleteTarget?.is_incoming
-                ? (depDeleteTarget?.from_system?.name ?? `System #${depDeleteTarget?.from_system_id}`)
+                ? (depDeleteTarget?.from_system?.name ??
+                  `System #${depDeleteTarget?.from_system_id}`)
                 : depDeleteTarget?.to_system.name}
-            </strong>?
+            </strong>
+            ?
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -1255,7 +1298,12 @@ export default function SystemDetail() {
       </Dialog>
 
       {/* Add Component Dependency Dialog */}
-      <Dialog open={compDepDialogOpen} onClose={() => setCompDepDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={compDepDialogOpen}
+        onClose={() => setCompDepDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Add Component Dependency</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {compDepFormError && <Alert severity="error">{compDepFormError}</Alert>}
@@ -1313,7 +1361,10 @@ export default function SystemDetail() {
               label="Dependency Type"
               value={compDepForm.dependency_type}
               onChange={(e) =>
-                setCompDepForm({ ...compDepForm, dependency_type: e.target.value as DependencyType })
+                setCompDepForm({
+                  ...compDepForm,
+                  dependency_type: e.target.value as DependencyType,
+                })
               }
             >
               {DEP_TYPE_OPTIONS.map((opt) => (
@@ -1342,7 +1393,11 @@ export default function SystemDetail() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCompDepDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleCompDepSave} variant="contained" disabled={depLoading || allSubsystemsLoading}>
+          <Button
+            onClick={handleCompDepSave}
+            variant="contained"
+            disabled={depLoading || allSubsystemsLoading}
+          >
             Add
           </Button>
         </DialogActions>
@@ -1354,9 +1409,11 @@ export default function SystemDetail() {
         <DialogContent>
           <Typography>
             Remove dependency from{' '}
-            <strong>{compDepDeleteTarget?.from_subsystem?.name ?? `SubSystem #${compDepDeleteTarget?.from_subsystem_id}`}</strong>
-            {' '}to{' '}
-            <strong>{compDepDeleteTarget?.to_subsystem.name}</strong>?
+            <strong>
+              {compDepDeleteTarget?.from_subsystem?.name ??
+                `SubSystem #${compDepDeleteTarget?.from_subsystem_id}`}
+            </strong>{' '}
+            to <strong>{compDepDeleteTarget?.to_subsystem.name}</strong>?
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -1368,7 +1425,12 @@ export default function SystemDetail() {
       </Dialog>
 
       {/* Edit System Dependency Dialog */}
-      <Dialog open={Boolean(depEditTarget)} onClose={() => setDepEditTarget(null)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={Boolean(depEditTarget)}
+        onClose={() => setDepEditTarget(null)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Edit Dependency</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {depEditFormError && <Alert severity="error">{depEditFormError}</Alert>}
@@ -1378,7 +1440,10 @@ export default function SystemDetail() {
               label="Dependency Type"
               value={depEditForm.dependency_type}
               onChange={(e) =>
-                setDepEditForm({ ...depEditForm, dependency_type: e.target.value as DependencyType })
+                setDepEditForm({
+                  ...depEditForm,
+                  dependency_type: e.target.value as DependencyType,
+                })
               }
             >
               {DEP_TYPE_OPTIONS.map((opt) => (
@@ -1437,8 +1502,8 @@ export default function SystemDetail() {
           {dcImportResult && (
             <Alert severity="success">
               Import complete: {dcImportResult.subsystems_created} subsystem(s) created,{' '}
-              {dcImportResult.subsystems_updated} updated,{' '}
-              {dcImportResult.dependencies_created} dependenc{dcImportResult.dependencies_created === 1 ? 'y' : 'ies'} created.
+              {dcImportResult.subsystems_updated} updated, {dcImportResult.dependencies_created}{' '}
+              dependenc{dcImportResult.dependencies_created === 1 ? 'y' : 'ies'} created.
             </Alert>
           )}
           <Button variant="outlined" component="label">
@@ -1473,8 +1538,8 @@ export default function SystemDetail() {
         <DialogTitle>Import Terraform State</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <Typography variant="body2" color="text.secondary">
-            Uploads a .tfstate file and creates SubSystems from managed resources.
-            Dependencies must be added manually (tfstate has no explicit dependency graph).
+            Uploads a .tfstate file and creates SubSystems from managed resources. Dependencies must
+            be added manually (tfstate has no explicit dependency graph).
           </Typography>
           {tfImportError && <Alert severity="error">{tfImportError}</Alert>}
           {tfImportResult && (
@@ -1511,7 +1576,12 @@ export default function SystemDetail() {
       </Dialog>
 
       {/* Edit Component Dependency Dialog */}
-      <Dialog open={Boolean(compDepEditTarget)} onClose={closeCompDepEditDialog} maxWidth="sm" fullWidth>
+      <Dialog
+        open={Boolean(compDepEditTarget)}
+        onClose={closeCompDepEditDialog}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Edit Component Dependency</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {compDepEditFormError && <Alert severity="error">{compDepEditFormError}</Alert>}
@@ -1521,7 +1591,10 @@ export default function SystemDetail() {
               label="Dependency Type"
               value={compDepEditForm.dependency_type}
               onChange={(e) =>
-                setCompDepEditForm({ ...compDepEditForm, dependency_type: e.target.value as DependencyType })
+                setCompDepEditForm({
+                  ...compDepEditForm,
+                  dependency_type: e.target.value as DependencyType,
+                })
               }
             >
               {DEP_TYPE_OPTIONS.map((opt) => (
@@ -1537,7 +1610,10 @@ export default function SystemDetail() {
               label="Direction"
               value={compDepEditForm.direction}
               onChange={(e) =>
-                setCompDepEditForm({ ...compDepEditForm, direction: e.target.value as DependencyDirection })
+                setCompDepEditForm({
+                  ...compDepEditForm,
+                  direction: e.target.value as DependencyDirection,
+                })
               }
             >
               {DEP_DIRECTION_OPTIONS.map((opt) => (
@@ -1553,7 +1629,10 @@ export default function SystemDetail() {
               label="Source"
               value={compDepEditForm.source}
               onChange={(e) =>
-                setCompDepEditForm({ ...compDepEditForm, source: e.target.value as DependencySource })
+                setCompDepEditForm({
+                  ...compDepEditForm,
+                  source: e.target.value as DependencySource,
+                })
               }
             >
               {DEP_SOURCE_OPTIONS.map((opt) => (
@@ -1581,10 +1660,16 @@ export default function SystemDetail() {
 
           {/* Endpoints section */}
           <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Box
+              sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
+            >
               <Typography variant="subtitle2">Endpoints</Typography>
               {!endpointDraftVisible && (
-                <Button size="small" startIcon={<AddIcon />} onClick={() => setEndpointDraftVisible(true)}>
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setEndpointDraftVisible(true)}
+                >
                   Add Endpoint
                 </Button>
               )}
@@ -1615,7 +1700,10 @@ export default function SystemDetail() {
                     sx={{ fontFamily: 'monospace', fontWeight: 700, minWidth: 64, flexShrink: 0 }}
                   />
                 )}
-                <Typography variant="body2" sx={{ flex: 1, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                <Typography
+                  variant="body2"
+                  sx={{ flex: 1, fontFamily: 'monospace', wordBreak: 'break-all' }}
+                >
                   {ep.path}
                 </Typography>
                 {ep.description && (
@@ -1624,7 +1712,11 @@ export default function SystemDetail() {
                   </Typography>
                 )}
                 <Tooltip title="Delete endpoint">
-                  <IconButton size="small" color="error" onClick={() => handleEndpointDelete(ep.id)}>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => handleEndpointDelete(ep.id)}
+                  >
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -1633,7 +1725,11 @@ export default function SystemDetail() {
 
             {endpointDraftVisible && (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
-                {endpointDraftError && <Alert severity="error" sx={{ py: 0 }}>{endpointDraftError}</Alert>}
+                {endpointDraftError && (
+                  <Alert severity="error" sx={{ py: 0 }}>
+                    {endpointDraftError}
+                  </Alert>
+                )}
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <FormControl sx={{ minWidth: 110 }}>
                     <InputLabel size="small">Method</InputLabel>
@@ -1642,12 +1738,19 @@ export default function SystemDetail() {
                       label="Method"
                       value={endpointDraft.http_method}
                       onChange={(e) =>
-                        setEndpointDraft({ ...endpointDraft, http_method: e.target.value as HttpMethod | '' })
+                        setEndpointDraft({
+                          ...endpointDraft,
+                          http_method: e.target.value as HttpMethod | '',
+                        })
                       }
                     >
-                      <MenuItem value=""><em>None</em></MenuItem>
+                      <MenuItem value="">
+                        <em>None</em>
+                      </MenuItem>
                       {HTTP_METHOD_OPTIONS.map((o) => (
-                        <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                        <MenuItem key={o.value} value={o.value}>
+                          {o.label}
+                        </MenuItem>
                       ))}
                     </Select>
                   </FormControl>
@@ -1664,11 +1767,18 @@ export default function SystemDetail() {
                   size="small"
                   label="Description"
                   value={endpointDraft.description}
-                  onChange={(e) => setEndpointDraft({ ...endpointDraft, description: e.target.value })}
+                  onChange={(e) =>
+                    setEndpointDraft({ ...endpointDraft, description: e.target.value })
+                  }
                   fullWidth
                 />
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button size="small" variant="contained" onClick={handleEndpointAdd} disabled={endpointSaving}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={handleEndpointAdd}
+                    disabled={endpointSaving}
+                  >
                     Save
                   </Button>
                   <Button

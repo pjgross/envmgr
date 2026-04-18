@@ -1,13 +1,13 @@
-import { Alert, Button, Box } from '@mui/material'
-import { useDispatch, useSelector } from 'react-redux'
-import { exitImpersonation } from '../store/authSlice'
-import type { RootState } from '../store'
+import { Alert, Button, Box } from '@mui/material';
+import { useDispatch, useSelector } from 'react-redux';
+import { exitImpersonation } from '../store/authSlice';
+import type { RootState } from '../store';
 
 export default function ImpersonationBanner() {
-  const dispatch = useDispatch()
-  const { impersonationMode, impersonatingTenant } = useSelector((state: RootState) => state.auth)
+  const dispatch = useDispatch();
+  const { impersonationMode, impersonatingTenant } = useSelector((state: RootState) => state.auth);
 
-  if (!impersonationMode || !impersonatingTenant) return null
+  if (!impersonationMode || !impersonatingTenant) return null;
 
   return (
     <Box sx={{ position: 'sticky', top: 0, zIndex: 1300 }}>
@@ -22,5 +22,5 @@ export default function ImpersonationBanner() {
         Viewing as <strong>{impersonatingTenant.name}</strong>. Exit to return to your account.
       </Alert>
     </Box>
-  )
+  );
 }

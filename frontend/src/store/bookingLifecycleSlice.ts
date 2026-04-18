@@ -16,14 +16,12 @@ const initialState: BookingLifecycleState = {
   error: null,
 };
 
-export const fetchLifecycleTemplates = createAsyncThunk(
-  'bookingLifecycle/fetchTemplates',
-  () => bookingLifecycleService.listTemplates()
+export const fetchLifecycleTemplates = createAsyncThunk('bookingLifecycle/fetchTemplates', () =>
+  bookingLifecycleService.listTemplates()
 );
 
-export const fetchBookingTypes = createAsyncThunk(
-  'bookingLifecycle/fetchBookingTypes',
-  () => bookingLifecycleService.listBookingTypes()
+export const fetchBookingTypes = createAsyncThunk('bookingLifecycle/fetchBookingTypes', () =>
+  bookingLifecycleService.listBookingTypes()
 );
 
 export const createLifecycleTemplate = createAsyncThunk(
@@ -34,14 +32,18 @@ export const createLifecycleTemplate = createAsyncThunk(
 
 export const updateLifecycleTemplate = createAsyncThunk(
   'bookingLifecycle/updateTemplate',
-  ({ id, data }: { id: number; data: Parameters<typeof bookingLifecycleService.updateTemplate>[1] }) =>
-    bookingLifecycleService.updateTemplate(id, data)
+  ({
+    id,
+    data,
+  }: {
+    id: number;
+    data: Parameters<typeof bookingLifecycleService.updateTemplate>[1];
+  }) => bookingLifecycleService.updateTemplate(id, data)
 );
 
 export const copyLifecycleTemplate = createAsyncThunk(
   'bookingLifecycle/copyTemplate',
-  ({ id, name }: { id: number; name: string }) =>
-    bookingLifecycleService.copyTemplate(id, name)
+  ({ id, name }: { id: number; name: string }) => bookingLifecycleService.copyTemplate(id, name)
 );
 
 export const createBookingType = createAsyncThunk(
@@ -52,8 +54,13 @@ export const createBookingType = createAsyncThunk(
 
 export const updateBookingType = createAsyncThunk(
   'bookingLifecycle/updateBookingType',
-  ({ id, data }: { id: number; data: Parameters<typeof bookingLifecycleService.updateBookingType>[1] }) =>
-    bookingLifecycleService.updateBookingType(id, data)
+  ({
+    id,
+    data,
+  }: {
+    id: number;
+    data: Parameters<typeof bookingLifecycleService.updateBookingType>[1];
+  }) => bookingLifecycleService.updateBookingType(id, data)
 );
 
 export const deleteLifecycleTemplate = createAsyncThunk(
@@ -85,7 +92,10 @@ const bookingLifecycleSlice = createSlice({
         state.error = action.error.message ?? 'Failed to load templates';
       })
 
-      .addCase(fetchBookingTypes.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchBookingTypes.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchBookingTypes.fulfilled, (state, action) => {
         state.loading = false;
         state.bookingTypes = action.payload;
@@ -99,7 +109,7 @@ const bookingLifecycleSlice = createSlice({
         state.templates.push(action.payload);
       })
       .addCase(updateLifecycleTemplate.fulfilled, (state, action) => {
-        const idx = state.templates.findIndex(t => t.id === action.payload.id);
+        const idx = state.templates.findIndex((t) => t.id === action.payload.id);
         if (idx !== -1) state.templates[idx] = action.payload;
       })
       .addCase(copyLifecycleTemplate.fulfilled, (state, action) => {
@@ -109,14 +119,14 @@ const bookingLifecycleSlice = createSlice({
         state.bookingTypes.push(action.payload);
       })
       .addCase(updateBookingType.fulfilled, (state, action) => {
-        const idx = state.bookingTypes.findIndex(bt => bt.id === action.payload.id);
+        const idx = state.bookingTypes.findIndex((bt) => bt.id === action.payload.id);
         if (idx !== -1) state.bookingTypes[idx] = action.payload;
       })
       .addCase(deleteLifecycleTemplate.fulfilled, (state, action) => {
-        state.templates = state.templates.filter(t => t.id !== action.payload);
+        state.templates = state.templates.filter((t) => t.id !== action.payload);
       })
       .addCase(deleteBookingType.fulfilled, (state, action) => {
-        state.bookingTypes = state.bookingTypes.filter(bt => bt.id !== action.payload);
+        state.bookingTypes = state.bookingTypes.filter((bt) => bt.id !== action.payload);
       });
   },
 });

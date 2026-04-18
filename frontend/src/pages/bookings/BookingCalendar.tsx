@@ -106,7 +106,9 @@ export default function BookingCalendar() {
       ]);
       setSelectedBooking(updated);
       setSelectedTransitions(transitions);
-      dispatch(fetchBookings(envFilter !== '' ? { environment_id: envFilter as number } : undefined));
+      dispatch(
+        fetchBookings(envFilter !== '' ? { environment_id: envFilter as number } : undefined)
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Transition failed';
       setTransitionError(message);
@@ -140,16 +142,16 @@ export default function BookingCalendar() {
           </Select>
         </FormControl>
 
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setFormOpen(true)}
-        >
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)}>
           New Booking
         </Button>
       </Box>
 
-      {loading && <Typography color="text.secondary" sx={{ mb: 1 }}>Loading...</Typography>}
+      {loading && (
+        <Typography color="text.secondary" sx={{ mb: 1 }}>
+          Loading...
+        </Typography>
+      )}
 
       {/* Calendar */}
       <FullCalendar
@@ -192,9 +194,7 @@ export default function BookingCalendar() {
                   color: '#fff',
                 }}
               />
-              {selectedBooking.has_unacknowledged_conflicts && (
-                <ConflictIndicator />
-              )}
+              {selectedBooking.has_unacknowledged_conflicts && <ConflictIndicator />}
             </Box>
 
             <Divider sx={{ mb: 2 }} />
@@ -261,7 +261,11 @@ export default function BookingCalendar() {
                 <Typography variant="body2" color="text.secondary">
                   Recurrence Rule
                 </Typography>
-                <Typography variant="body1" gutterBottom sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+                <Typography
+                  variant="body1"
+                  gutterBottom
+                  sx={{ fontFamily: 'monospace', fontSize: 12 }}
+                >
                   {selectedBooking.recurrence_rule}
                 </Typography>
               </>

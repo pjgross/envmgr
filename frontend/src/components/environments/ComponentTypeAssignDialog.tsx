@@ -92,9 +92,7 @@ export default function ComponentTypeAssignDialog({ envId, subsystem, open, onCl
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        Component Type — {subsystem.subsystem_name}
-      </DialogTitle>
+      <DialogTitle>Component Type — {subsystem.subsystem_name}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {error && <Alert severity="error">{error}</Alert>}
 
@@ -135,9 +133,7 @@ export default function ComponentTypeAssignDialog({ envId, subsystem, open, onCl
                       control={
                         <Switch
                           checked={Boolean(customFields[field.field_key])}
-                          onChange={(e) =>
-                            handleFieldChange(field.field_key, e.target.checked)
-                          }
+                          onChange={(e) => handleFieldChange(field.field_key, e.target.checked)}
                         />
                       }
                       label={`${field.label}${field.required ? ' *' : ''}`}

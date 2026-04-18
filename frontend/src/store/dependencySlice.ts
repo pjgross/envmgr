@@ -49,7 +49,15 @@ export const deleteSystemDependency = createAsyncThunk(
 
 export const updateSystemDependency = createAsyncThunk(
   'dependencies/updateSystemDependency',
-  async ({ systemId, depId, data }: { systemId: number; depId: number; data: Partial<SystemDependencyCreate> }) => {
+  async ({
+    systemId,
+    depId,
+    data,
+  }: {
+    systemId: number;
+    depId: number;
+    data: Partial<SystemDependencyCreate>;
+  }) => {
     return await dependencyService.updateSystemDependency(systemId, depId, data);
   }
 );
@@ -79,7 +87,15 @@ export const deleteComponentDependency = createAsyncThunk(
 
 export const updateComponentDependency = createAsyncThunk(
   'dependencies/updateComponentDependency',
-  async ({ subsystemId, depId, data }: { subsystemId: number; depId: number; data: Partial<ComponentDependencyCreate> }) => {
+  async ({
+    subsystemId,
+    depId,
+    data,
+  }: {
+    subsystemId: number;
+    depId: number;
+    data: Partial<ComponentDependencyCreate>;
+  }) => {
     return await dependencyService.updateComponentDependency(subsystemId, depId, data);
   }
 );
@@ -88,9 +104,8 @@ export const updateComponentDependency = createAsyncThunk(
 // Verify thunk
 // ---------------------------------------------------------------------------
 
-export const verifyEnvironment = createAsyncThunk(
-  'dependency/verifyEnvironment',
-  (envId: number) => dependencyService.verifyEnvironment(envId)
+export const verifyEnvironment = createAsyncThunk('dependency/verifyEnvironment', (envId: number) =>
+  dependencyService.verifyEnvironment(envId)
 );
 
 // ---------------------------------------------------------------------------
@@ -144,9 +159,7 @@ const dependencySlice = createSlice({
       })
       .addCase(deleteSystemDependency.fulfilled, (state, action) => {
         state.loading = false;
-        state.systemDependencies = state.systemDependencies.filter(
-          (d) => d.id !== action.payload
-        );
+        state.systemDependencies = state.systemDependencies.filter((d) => d.id !== action.payload);
       })
       .addCase(deleteSystemDependency.rejected, (state, action) => {
         state.loading = false;

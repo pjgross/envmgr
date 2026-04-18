@@ -1,18 +1,38 @@
 import { useEffect, useState } from 'react';
 import {
-  Button, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Switch, TextField, ToggleButton, ToggleButtonGroup,
-  Typography, Alert,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  Switch,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+  Alert,
 } from '@mui/material';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../../store';
 import { createDefinition, updateDefinition } from '../../store/customFieldSlice';
-import type { CustomFieldDefinition, CustomFieldDefinitionCreate, EntityType, FieldType } from '../../types/customField';
+import type {
+  CustomFieldDefinition,
+  CustomFieldDefinitionCreate,
+  EntityType,
+  FieldType,
+} from '../../types/customField';
 
 const FIELD_KEY_RE = /^[a-z][a-z0-9_]*$/;
 
 function slugify(label: string): string {
-  return label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'field';
+  return (
+    label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'field'
+  );
 }
 
 interface Props {
@@ -22,7 +42,12 @@ interface Props {
   editTarget: CustomFieldDefinition | null;
 }
 
-export default function CustomFieldDefinitionDialog({ open, onClose, entityType, editTarget }: Props) {
+export default function CustomFieldDefinitionDialog({
+  open,
+  onClose,
+  entityType,
+  editTarget,
+}: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const isEdit = editTarget !== null;
 
@@ -64,17 +89,22 @@ export default function CustomFieldDefinitionDialog({ open, onClose, entityType,
 
   const handleSave = async () => {
     setError('');
-    if (!label.trim()) { setError('Label is required'); return; }
+    if (!label.trim()) {
+      setError('Label is required');
+      return;
+    }
     if (!isEdit && !FIELD_KEY_RE.test(fieldKey)) {
       setError('Field key must match ^[a-z][a-z0-9_]*$');
       return;
     }
     try {
       if (isEdit) {
-        await dispatch(updateDefinition({
-          id: editTarget!.id,
-          data: { label, required, display_order: displayOrder },
-        })).unwrap();
+        await dispatch(
+          updateDefinition({
+            id: editTarget!.id,
+            data: { label, required, display_order: displayOrder },
+          })
+        ).unwrap();
       } else {
         const payload: CustomFieldDefinitionCreate = {
           entity_type: entityType,
@@ -99,20 +129,34 @@ export default function CustomFieldDefinitionDialog({ open, onClose, entityType,
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {error && <Alert severity="error">{error}</Alert>}
 
-        <TextField label="Label *" value={label} onChange={(e) => handleLabelChange(e.target.value)} fullWidth />
+        <TextField
+          label="Label *"
+          value={label}
+          onChange={(e) => handleLabelChange(e.target.value)}
+          fullWidth
+        />
 
         <TextField
           label="Field Key"
           value={fieldKey}
-          onChange={(e) => { setFieldKey(e.target.value); setKeyManuallyEdited(true); }}
+          onChange={(e) => {
+            setFieldKey(e.target.value);
+            setKeyManuallyEdited(true);
+          }}
           fullWidth
           disabled={isEdit}
-          helperText={isEdit ? 'Field key cannot be changed after creation' : 'Auto-generated; lowercase letters, digits, underscores'}
+          helperText={
+            isEdit
+              ? 'Field key cannot be changed after creation'
+              : 'Auto-generated; lowercase letters, digits, underscores'
+          }
           inputProps={{ style: { fontFamily: 'monospace' } }}
         />
 
         <div>
-          <Typography variant="caption" color="text.secondary">Field Type</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Field Type
+          </Typography>
           <ToggleButtonGroup
             value={fieldType}
             exclusive
@@ -121,11 +165,21 @@ export default function CustomFieldDefinitionDialog({ open, onClose, entityType,
             size="small"
             sx={{ display: 'flex', mt: 0.5 }}
           >
-            <ToggleButton value="text" sx={{ flex: 1 }}>Text</ToggleButton>
-            <ToggleButton value="number" sx={{ flex: 1 }}>Number</ToggleButton>
-            <ToggleButton value="boolean" sx={{ flex: 1 }}>Boolean</ToggleButton>
+            <ToggleButton value="text" sx={{ flex: 1 }}>
+              Text
+            </ToggleButton>
+            <ToggleButton value="number" sx={{ flex: 1 }}>
+              Number
+            </ToggleButton>
+            <ToggleButton value="boolean" sx={{ flex: 1 }}>
+              Boolean
+            </ToggleButton>
           </ToggleButtonGroup>
-          {isEdit && <Typography variant="caption" color="text.secondary">Field type cannot be changed after creation</Typography>}
+          {isEdit && (
+            <Typography variant="caption" color="text.secondary">
+              Field type cannot be changed after creation
+            </Typography>
+          )}
         </div>
 
         <TextField
@@ -144,7 +198,9 @@ export default function CustomFieldDefinitionDialog({ open, onClose, entityType,
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained">Save Field</Button>
+        <Button onClick={handleSave} variant="contained">
+          Save Field
+        </Button>
       </DialogActions>
     </Dialog>
   );

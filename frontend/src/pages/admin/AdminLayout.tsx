@@ -1,7 +1,13 @@
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
-  Box, Divider, Drawer, List, ListItemButton,
-  ListItemIcon, ListItemText, Typography,
+  Box,
+  Divider,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Typography,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
@@ -21,8 +27,16 @@ const adminNavItems = [
 const entityNavItems = [
   { label: 'Systems', path: '/admin/config/system', icon: <StorageIcon fontSize="small" /> },
   { label: 'Subsystems', path: '/admin/config/subsystem', icon: <MemoryIcon fontSize="small" /> },
-  { label: 'Component Types', path: '/admin/config/component-types', icon: <CategoryIcon fontSize="small" /> },
-  { label: 'Environments', path: '/admin/config/environment', icon: <LanguageIcon fontSize="small" /> },
+  {
+    label: 'Component Types',
+    path: '/admin/config/component-types',
+    icon: <CategoryIcon fontSize="small" />,
+  },
+  {
+    label: 'Environments',
+    path: '/admin/config/environment',
+    icon: <LanguageIcon fontSize="small" />,
+  },
   { label: 'Bookings', path: '/admin/config/booking', icon: <EventIcon fontSize="small" /> },
 ];
 
@@ -37,11 +51,18 @@ export default function AdminLayout() {
         sx={{
           width: DRAWER_WIDTH,
           flexShrink: 0,
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box', position: 'relative', height: '100%' },
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            position: 'relative',
+            height: '100%',
+          },
         }}
       >
         <Box sx={{ overflow: 'auto', p: 1 }}>
-          <Typography variant="overline" color="text.secondary" sx={{ px: 1 }}>Admin</Typography>
+          <Typography variant="overline" color="text.secondary" sx={{ px: 1 }}>
+            Admin
+          </Typography>
           <List dense>
             {adminNavItems.map((item) => (
               <ListItemButton
@@ -55,7 +76,9 @@ export default function AdminLayout() {
             ))}
           </List>
           <Divider sx={{ my: 1 }} />
-          <Typography variant="overline" color="text.secondary" sx={{ px: 1 }}>Entity Config</Typography>
+          <Typography variant="overline" color="text.secondary" sx={{ px: 1 }}>
+            Entity Config
+          </Typography>
           <List dense>
             {entityNavItems.map((item) => (
               <ListItemButton

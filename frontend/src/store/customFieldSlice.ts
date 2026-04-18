@@ -49,7 +49,10 @@ const customFieldSlice = createSlice({
   reducers: {},
   extraReducers: (builder) => {
     builder
-      .addCase(fetchDefinitions.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchDefinitions.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
       .addCase(fetchDefinitions.fulfilled, (state, action) => {
         state.loading = false;
         const entityType = action.meta.arg;
