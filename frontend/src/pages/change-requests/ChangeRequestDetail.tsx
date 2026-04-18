@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EditIcon from '@mui/icons-material/Edit';
 import { AppDispatch, RootState } from '../../store';
 import {
   fetchChangeRequest,
@@ -22,11 +23,14 @@ import {
   deleteChangeRequest,
   clearDetail,
 } from '../../store/changeRequestSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
+import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { changeRequestService } from '../../services/changeRequestService';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { CHANGE_TYPE_LABELS } from '../../types/changeRequest';
+import ChangeRequestEditDialog from './ChangeRequestEditDialog';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   draft: 'default',
@@ -44,11 +48,16 @@ export default function ChangeRequestDetail() {
   const navigate = useNavigate();
   const snackbar = useSnackbar();
   const { detail, loading, error } = useSelector((s: RootState) => s.changeRequest);
+  const customFieldDefs = useSelector(
+    (s: RootState) => s.customField.definitions['change_request'] ?? []
+  );
 
   const [allowed, setAllowed] = useState<AllowedTransition[]>([]);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     dispatch(fetchChangeRequest(crId));
+    dispatch(fetchDefinitions('change_request'));
     return () => {
       dispatch(clearDetail());
     };
@@ -130,6 +139,13 @@ export default function ChangeRequestDetail() {
           color={STATUS_COLORS[detail.status] ?? 'default'}
         />
         <Button
+          size="small"
+          startIcon={<EditIcon />}
+          onClick={() => setEditOpen(true)}
+        >
+          Edit
+        </Button>
+        <Button
           color="error"
           size="small"
           startIcon={<DeleteOutlineIcon />}
@@ -198,6 +214,18 @@ export default function ChangeRequestDetail() {
         </Paper>
       )}
 
+      {customFieldDefs.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Custom Fields
+          </Typography>
+          <CustomFieldsDisplay
+            definitions={customFieldDefs}
+            values={(detail.custom_fields ?? {}) as Record<string, unknown>}
+          />
+        </Paper>
+      )}
+
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           Actions
@@ -242,6 +270,12 @@ export default function ChangeRequestDetail() {
           </Stack>
         )}
       </Paper>
+
+      <ChangeRequestEditDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        changeRequest={detail}
+      />
     </Box>
   );
 }

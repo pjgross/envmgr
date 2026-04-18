@@ -1,23 +1,29 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Box, FormControlLabel, MenuItem, Switch } from '@mui/material';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
-import { fetchEnvironments } from '../../store/environmentSlice';
-import { fetchEnvSubsystems } from '../../store/environmentSlice';
+import { fetchEnvironments, fetchEnvSubsystems } from '../../store/environmentSlice';
 import {
   fetchLifecycleTemplates,
   selectTemplatesForEntity,
 } from '../../store/bookingLifecycleSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import { createChangeRequest } from '../../store/changeRequestSlice';
 import FormDialog from '../../components/form/FormDialog';
 import FormTextField from '../../components/form/FormTextField';
 import FormSelect from '../../components/form/FormSelect';
+import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
-import type { ChangeRequestCreatePayload, ChangeType } from '../../types/changeRequest';
+import { changeRequestService } from '../../services/changeRequestService';
+import type {
+  ChangeRequestCreatePayload,
+  ChangeType,
+  OutageConflictBooking,
+} from '../../types/changeRequest';
 
 interface ChangeRequestFormProps {
   open: boolean;
@@ -43,6 +49,7 @@ const schema = z
     has_outage: z.boolean(),
     outage_start: z.string(),
     outage_end: z.string(),
+    custom_field_values: z.record(z.string(), z.unknown()),
   })
   .refine((v) => v.lifecycle_id != null, {
     path: ['lifecycle_id'],
@@ -84,6 +91,7 @@ const buildDefaults = (): FormValues => ({
   has_outage: false,
   outage_start: '',
   outage_end: '',
+  custom_field_values: {},
 });
 
 export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormProps) {
@@ -94,6 +102,9 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
   const environments = useSelector((s: RootState) => s.environment.environments);
   const envSubsystems = useSelector((s: RootState) => s.environment.envSubsystems);
   const lifecycles = useSelector(selectTemplatesForEntity('change_request'));
+  const customFieldDefs = useSelector(
+    (s: RootState) => s.customField.definitions['change_request'] ?? []
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -105,12 +116,20 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
   const environmentId = watch('environment_id');
   const hasOutage = watch('has_outage');
 
+  // Outage-vs-booking advisory preview (debounced)
+  const [outageConflicts, setOutageConflicts] = useState<OutageConflictBooking[]>([]);
+  const outageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewEnv = useWatch({ control, name: 'environment_id' });
+  const previewStart = useWatch({ control, name: 'outage_start' });
+  const previewEnd = useWatch({ control, name: 'outage_end' });
+  const previewHasOutage = useWatch({ control, name: 'has_outage' });
+
   useEffect(() => {
     dispatch(fetchEnvironments());
     dispatch(fetchLifecycleTemplates('change_request'));
+    dispatch(fetchDefinitions('change_request'));
   }, [dispatch]);
 
-  // Auto-pick the default CR lifecycle on first open
   useEffect(() => {
     if (!open) return;
     const defaultTpl = lifecycles.find((t) => t.is_default) ?? lifecycles[0];
@@ -119,13 +138,36 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
     }
   }, [open, lifecycles, setValue, form]);
 
-  // When the environment changes, refresh its subsystems and clear any stale pick.
   useEffect(() => {
     if (environmentId != null) {
       dispatch(fetchEnvSubsystems(environmentId));
       setValue('subsystem_id', null);
     }
   }, [environmentId, dispatch, setValue]);
+
+  // Debounced outage conflict preview. Silent on errors — advisory only.
+  useEffect(() => {
+    if (outageDebounceRef.current) clearTimeout(outageDebounceRef.current);
+    if (!previewHasOutage || previewEnv == null || !previewStart || !previewEnd) {
+      setOutageConflicts([]);
+      return;
+    }
+    outageDebounceRef.current = setTimeout(async () => {
+      try {
+        const result = await changeRequestService.previewOutageConflicts({
+          environment_id: previewEnv,
+          outage_start: new Date(previewStart).toISOString(),
+          outage_end: new Date(previewEnd).toISOString(),
+        });
+        setOutageConflicts(result.conflicting_bookings);
+      } catch {
+        setOutageConflicts([]);
+      }
+    }, 400);
+    return () => {
+      if (outageDebounceRef.current) clearTimeout(outageDebounceRef.current);
+    };
+  }, [previewHasOutage, previewEnv, previewStart, previewEnd]);
 
   const subsystemOptions = useMemo(
     () =>
@@ -138,6 +180,7 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
 
   const handleClose = () => {
     reset(buildDefaults());
+    setOutageConflicts([]);
     onClose();
   };
 
@@ -159,6 +202,10 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
       outage_end:
         values.has_outage && values.outage_end
           ? new Date(values.outage_end).toISOString()
+          : null,
+      custom_fields:
+        Object.keys(values.custom_field_values).length > 0
+          ? values.custom_field_values
           : null,
     };
 
@@ -289,8 +336,41 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
               InputLabelProps={{ shrink: true }}
               fullWidth
             />
+
+            {outageConflicts.length > 0 && (
+              <Alert severity="warning">
+                <strong>
+                  {outageConflicts.length} booking
+                  {outageConflicts.length === 1 ? '' : 's'}
+                </strong>{' '}
+                overlap this outage window. You can proceed; affected teams will want to
+                know.
+                <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2 }}>
+                  {outageConflicts.map((b) => (
+                    <li key={b.id}>
+                      <strong>{b.project_name}</strong> (
+                      {new Date(b.start_date).toLocaleString()} –{' '}
+                      {new Date(b.end_date).toLocaleString()}) — status {b.status}
+                    </li>
+                  ))}
+                </Box>
+              </Alert>
+            )}
           </>
         )}
+
+        {/* Custom fields for change_request entity */}
+        <Controller
+          control={control}
+          name="custom_field_values"
+          render={({ field }) => (
+            <CustomFieldsSection
+              definitions={customFieldDefs}
+              values={field.value}
+              onChange={field.onChange}
+            />
+          )}
+        />
 
         <FormTextField<FormValues>
           name="description"
