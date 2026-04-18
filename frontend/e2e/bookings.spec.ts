@@ -96,3 +96,20 @@ test('Bookings group auto-expands when navigating directly to /bookings/list', a
   await expect(page.getByRole('button', { name: 'Calendar' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'List' })).toBeVisible()
 })
+
+test('Conflicts panel shows tabs when there is feedback', async ({ page }) => {
+  // This test relies on seed data that includes two overlapping bookings and
+  // a conflict ack between them. seed_e2e.py does not currently seed this,
+  // so the test is skipped until seed data is extended.
+  test.skip(true, 'requires seeded overlapping bookings + ack — extend seed_e2e.py first')
+
+  await login(page)
+  await page.goto('/bookings/list')
+  await page.getByRole('link', { name: /booking #/i }).first().click()
+
+  await expect(page.getByRole('tab', { name: /your feedback/i })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /feedback received/i })).toBeVisible()
+
+  await page.getByRole('tab', { name: /feedback received/i }).click()
+  await expect(page.getByText(/willing to share/i)).toBeVisible()
+})
