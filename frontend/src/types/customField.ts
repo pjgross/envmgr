@@ -1,4 +1,4 @@
-export type EntityType = 'system' | 'subsystem' | 'environment' | 'booking';
+export type EntityType = 'system' | 'subsystem' | 'environment' | 'booking' | 'change_request';
 export type FieldType = 'text' | 'number' | 'boolean';
 
 export interface CustomFieldDefinition {

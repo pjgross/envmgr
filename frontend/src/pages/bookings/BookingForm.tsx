@@ -17,7 +17,11 @@ import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
-import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice';
+import {
+  fetchBookingTypes,
+  fetchLifecycleTemplates,
+  selectBookingTemplates,
+} from '../../store/bookingLifecycleSlice';
 import { fetchUsers } from '../../store/tenantAdminSlice';
 import { bookingRequestService } from '../../services/bookingRequestService';
 import type { BookingRequestCreatePayload } from '../../types/bookingRequest';
@@ -80,7 +84,8 @@ export default function BookingForm({
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
   );
-  const { bookingTypes, templates } = useSelector((s: RootState) => s.bookingLifecycle);
+  const { bookingTypes } = useSelector((s: RootState) => s.bookingLifecycle);
+  const templates = useSelector(selectBookingTemplates);
   const allUsers = useSelector((s: RootState) => s.tenantAdmin.users);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
@@ -106,7 +111,7 @@ export default function BookingForm({
   useEffect(() => {
     dispatch(fetchDefinitions('booking'));
     dispatch(fetchBookingTypes());
-    dispatch(fetchLifecycleTemplates());
+    dispatch(fetchLifecycleTemplates('booking'));
     dispatch(fetchUsers());
   }, [dispatch]);
 

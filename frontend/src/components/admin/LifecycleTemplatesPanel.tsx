@@ -30,21 +30,41 @@ import {
   createLifecycleTemplate,
   updateLifecycleTemplate,
   deleteLifecycleTemplate,
+  selectTemplatesForEntity,
 } from '../../store/bookingLifecycleSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingLifecycleTemplate } from '../../types/bookingLifecycle';
+import type { EntityType } from '../../types/customField';
 
 const ALL_ROLES = ['Admin', 'Release Manager', 'Test Manager', 'Developer', 'Viewer'];
 
-const STANDARD_FIELDS: { key: string; label: string; mandatory: boolean }[] = [
-  { key: 'project_name', label: 'Project Name', mandatory: true },
-  { key: 'start_date', label: 'Start Date', mandatory: true },
-  { key: 'end_date', label: 'End Date', mandatory: true },
-  { key: 'booking_type', label: 'Booking Type', mandatory: true },
-  { key: 'notes', label: 'Notes', mandatory: false },
-  { key: 'exclusive_use', label: 'Exclusive Use', mandatory: false },
-  { key: 'context_tag', label: 'Context Tag', mandatory: false },
-];
+interface StandardField {
+  key: string;
+  label: string;
+  mandatory: boolean;
+}
+
+const STANDARD_FIELDS_BY_ENTITY: Partial<Record<EntityType, StandardField[]>> = {
+  booking: [
+    { key: 'project_name', label: 'Project Name', mandatory: true },
+    { key: 'start_date', label: 'Start Date', mandatory: true },
+    { key: 'end_date', label: 'End Date', mandatory: true },
+    { key: 'booking_type', label: 'Booking Type', mandatory: true },
+    { key: 'notes', label: 'Notes', mandatory: false },
+    { key: 'exclusive_use', label: 'Exclusive Use', mandatory: false },
+    { key: 'context_tag', label: 'Context Tag', mandatory: false },
+  ],
+  change_request: [
+    { key: 'title', label: 'Title', mandatory: true },
+    { key: 'description', label: 'Description', mandatory: false },
+    { key: 'change_type', label: 'Change Type', mandatory: true },
+    { key: 'scheduled_start', label: 'Scheduled Start', mandatory: true },
+    { key: 'scheduled_end', label: 'Scheduled End', mandatory: true },
+    { key: 'has_outage', label: 'Has Outage', mandatory: false },
+    { key: 'outage_start', label: 'Outage Start', mandatory: false },
+    { key: 'outage_end', label: 'Outage End', mandatory: false },
+  ],
+};
 
 interface StateRow {
   key: string;
@@ -73,12 +93,22 @@ const emptyTransition = (): TransitionRow => ({
   allowed_roles: [],
 });
 
-export default function LifecycleTemplatesPanel() {
+interface LifecycleTemplatesPanelProps {
+  /** Which entity's templates this panel manages. Defaults to 'booking' for
+   * back-compat with existing call sites. */
+  entityType?: EntityType;
+}
+
+export default function LifecycleTemplatesPanel({
+  entityType = 'booking',
+}: LifecycleTemplatesPanelProps = {}) {
   const dispatch = useDispatch<AppDispatch>();
-  const { templates, bookingTypes, loading } = useSelector((s: RootState) => s.bookingLifecycle);
+  const { bookingTypes, loading } = useSelector((s: RootState) => s.bookingLifecycle);
+  const templates = useSelector(selectTemplatesForEntity(entityType));
   const customFieldDefs = useSelector(
-    (state: RootState) => state.customField.definitions['booking'] ?? []
+    (state: RootState) => state.customField.definitions[entityType] ?? []
   );
+  const STANDARD_FIELDS: StandardField[] = STANDARD_FIELDS_BY_ENTITY[entityType] ?? [];
 
   // Dialog state
   const [open, setOpen] = useState(false);
@@ -98,10 +128,15 @@ export default function LifecycleTemplatesPanel() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
-    dispatch(fetchLifecycleTemplates());
-    dispatch(fetchBookingTypes());
-    dispatch(fetchDefinitions('booking'));
-  }, [dispatch]);
+    dispatch(fetchLifecycleTemplates(entityType));
+    // Booking types are only meaningful for bookings; skip the fetch for
+    // other entities to keep the network quiet and the "in-use" delete
+    // guard applies only where booking_type rows reference the template.
+    if (entityType === 'booking') {
+      dispatch(fetchBookingTypes());
+    }
+    dispatch(fetchDefinitions(entityType));
+  }, [dispatch, entityType]);
 
   // --- Validation ---
 
@@ -270,10 +305,13 @@ export default function LifecycleTemplatesPanel() {
     } else {
       result = await dispatch(
         createLifecycleTemplate({
-          name: name.trim(),
-          description: description.trim() || null,
-          is_default: false,
-          definition,
+          entityType,
+          data: {
+            name: name.trim(),
+            description: description.trim() || null,
+            is_default: false,
+            definition,
+          },
         })
       );
     }

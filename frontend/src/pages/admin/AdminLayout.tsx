@@ -16,6 +16,7 @@ import MemoryIcon from '@mui/icons-material/Memory';
 import LanguageIcon from '@mui/icons-material/Language';
 import EventIcon from '@mui/icons-material/Event';
 import CategoryIcon from '@mui/icons-material/Category';
+import BuildIcon from '@mui/icons-material/Build';
 
 const DRAWER_WIDTH = 220;
 
@@ -38,6 +39,11 @@ const entityNavItems = [
     icon: <LanguageIcon fontSize="small" />,
   },
   { label: 'Bookings', path: '/admin/config/booking', icon: <EventIcon fontSize="small" /> },
+  {
+    label: 'Change Requests',
+    path: '/admin/config/change-request',
+    icon: <BuildIcon fontSize="small" />,
+  },
 ];
 
 export default function AdminLayout() {

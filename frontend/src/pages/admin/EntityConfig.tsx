@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Box, Chip, Divider, Tab, Tabs, Typography } from '@mui/material';
+import { Box, Divider, Tab, Tabs, Typography } from '@mui/material';
 import CustomFieldDefinitionManager from '../../components/admin/CustomFieldDefinitionManager';
 import BookingTypesPanel from '../../components/admin/BookingTypesPanel';
 import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
@@ -13,7 +13,20 @@ const ENTITY_LABELS: Record<string, string> = {
   'component-types': 'Component Types',
   environment: 'Environments',
   booking: 'Bookings',
+  'change-request': 'Change Requests',
 };
+
+// URL-style entity slug (dash) → internal EntityType (underscore) where they differ.
+const ENTITY_SLUG_TO_TYPE: Record<string, EntityType> = {
+  system: 'system',
+  subsystem: 'subsystem',
+  environment: 'environment',
+  booking: 'booking',
+  'change-request': 'change_request',
+};
+
+// Entities whose Lifecycle tab is fully supported.
+const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request'];
 
 export default function EntityConfig() {
   const { entityType } = useParams<{ entityType: string }>();
@@ -37,44 +50,37 @@ export default function EntityConfig() {
     );
   }
 
-  const et = entityType as EntityType;
-  const isBooking = et === 'booking';
+  const et = ENTITY_SLUG_TO_TYPE[entityType];
+  const label = ENTITY_LABELS[entityType];
+  const hasLifecycle = LIFECYCLE_SUPPORTED.includes(et);
 
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h5" gutterBottom>
-        {ENTITY_LABELS[et]} Configuration
+        {label} Configuration
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Configure custom fields and other {ENTITY_LABELS[et].toLowerCase()} settings for your
-        tenant.
+        Configure custom fields and other {label.toLowerCase()} settings for your tenant.
       </Typography>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
           <Tab label="Custom Fields" />
-          {isBooking ? (
-            <Tab label="Lifecycle" />
-          ) : (
-            <Tab
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  Lifecycle <Chip label="Coming Soon" size="small" />
-                </Box>
-              }
-              disabled
-            />
-          )}
+          {hasLifecycle && <Tab label="Lifecycle" />}
         </Tabs>
       </Box>
 
       {tab === 0 && <CustomFieldDefinitionManager entityType={et} />}
 
-      {tab === 1 && isBooking && (
+      {tab === 1 && hasLifecycle && (
         <Box>
-          <BookingTypesPanel />
-          <Divider sx={{ my: 3 }} />
-          <LifecycleTemplatesPanel />
+          {et === 'booking' && (
+            <>
+              <BookingTypesPanel />
+              <Divider sx={{ my: 3 }} />
+            </>
+          )}
+          <LifecycleTemplatesPanel entityType={et} />
         </Box>
       )}
     </Box>

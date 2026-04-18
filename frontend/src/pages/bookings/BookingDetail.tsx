@@ -87,7 +87,7 @@ export default function BookingDetail() {
   // Load on mount
   useEffect(() => {
     dispatch(fetchBookingTypes());
-    dispatch(fetchLifecycleTemplates());
+    dispatch(fetchLifecycleTemplates('booking'));
     dispatch(fetchDefinitions('booking'));
     dispatch(fetchEnvironments());
 

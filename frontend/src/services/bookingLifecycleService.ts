@@ -1,21 +1,32 @@
 import api from './api';
 import type { BookingLifecycleTemplate, BookingTypeRecord } from '../types/bookingLifecycle';
+import type { EntityType } from '../types/customField';
+
+// Lifecycle templates live in a single generic table keyed by `entity_type`.
+// The service keeps its original name for back-compat but now passes the
+// entity_type on every templates call so change requests (and future entities)
+// can share the same admin infrastructure.
 
 export const bookingLifecycleService = {
-  // Lifecycle templates (booking-scoped — always filter / stamp entity_type='booking')
-  listTemplates: (): Promise<BookingLifecycleTemplate[]> =>
+  // Lifecycle templates — entity_type defaults to 'booking' to preserve
+  // back-compat for callers that haven't switched to passing it explicitly.
+  listTemplates: (entityType: EntityType = 'booking'): Promise<BookingLifecycleTemplate[]> =>
     api
-      .get('/tenant/lifecycle-templates', { params: { entity_type: 'booking' } })
+      .get('/tenant/lifecycle-templates', { params: { entity_type: entityType } })
       .then((r) => r.data),
 
   getTemplate: (id: number): Promise<BookingLifecycleTemplate> =>
     api.get(`/tenant/lifecycle-templates/${id}`).then((r) => r.data),
 
   createTemplate: (
-    data: Omit<BookingLifecycleTemplate, 'id' | 'tenant_id' | 'entity_type' | 'created_at' | 'updated_at'>
+    data: Omit<
+      BookingLifecycleTemplate,
+      'id' | 'tenant_id' | 'entity_type' | 'created_at' | 'updated_at'
+    >,
+    entityType: EntityType = 'booking'
   ): Promise<BookingLifecycleTemplate> =>
     api
-      .post('/tenant/lifecycle-templates', { ...data, entity_type: 'booking' })
+      .post('/tenant/lifecycle-templates', { ...data, entity_type: entityType })
       .then((r) => r.data),
 
   updateTemplate: (
@@ -29,7 +40,7 @@ export const bookingLifecycleService = {
   copyTemplate: (id: number, name: string): Promise<BookingLifecycleTemplate> =>
     api.post(`/tenant/lifecycle-templates/${id}/copy`, { name }).then((r) => r.data),
 
-  // Booking types
+  // Booking types — stays booking-specific (CRs don't have a types table).
   listBookingTypes: (): Promise<BookingTypeRecord[]> =>
     api.get('/tenant/booking-types').then((r) => r.data),
 
