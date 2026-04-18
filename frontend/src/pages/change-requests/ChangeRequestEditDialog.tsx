@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
@@ -28,6 +28,7 @@ import FormSelect from '../../components/form/FormSelect';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { infrastructureComponentService } from '../../services/infrastructureComponentService';
+import BookingScheduleGantt from '../../components/BookingScheduleGantt';
 import type {
   ChangeRequestDetailResponse,
   ChangeRequestUpdatePayload,
@@ -120,10 +121,36 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
 
   const hasOutage = watch('has_outage');
   const hostIds = watch('host_ids');
+  const environmentIds = watch('environment_ids');
+  const scheduledStartStr = watch('scheduled_start');
+  const scheduledEndStr = watch('scheduled_end');
+  const outageStartStr = watch('outage_start');
+  const outageEndStr = watch('outage_end');
+
+  const parseLocal = (s: string): Date | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
 
   const [hostImpact, setHostImpact] = useState<HostImpactEnvironment[]>([]);
   const [hostImpactLoading, setHostImpactLoading] = useState(false);
   const hostImpactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const effectiveEnvs = useMemo(() => {
+    const envById = new Map(environments.map((e) => [e.id, e]));
+    const map = new Map<number, string>();
+    for (const id of environmentIds) {
+      const e = envById.get(id);
+      if (e) map.set(id, e.name);
+    }
+    for (const env of hostImpact) {
+      if (!map.has(env.environment_id)) {
+        map.set(env.environment_id, env.environment_name);
+      }
+    }
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [environmentIds, environments, hostImpact]);
 
   useEffect(() => {
     if (hostImpactDebounceRef.current) clearTimeout(hostImpactDebounceRef.current);
@@ -388,6 +415,17 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
           required
           fullWidth
         />
+
+        {effectiveEnvs.length > 0 && (
+          <BookingScheduleGantt
+            envs={effectiveEnvs}
+            scheduledStart={parseLocal(scheduledStartStr)}
+            scheduledEnd={parseLocal(scheduledEndStr)}
+            hasOutage={hasOutage}
+            outageStart={parseLocal(outageStartStr)}
+            outageEnd={parseLocal(outageEndStr)}
+          />
+        )}
 
         <Controller
           control={control}

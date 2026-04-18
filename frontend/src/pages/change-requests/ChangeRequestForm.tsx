@@ -31,6 +31,7 @@ import FormDialog from '../../components/form/FormDialog';
 import FormTextField from '../../components/form/FormTextField';
 import FormSelect from '../../components/form/FormSelect';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
+import BookingScheduleGantt from '../../components/BookingScheduleGantt';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { changeRequestService } from '../../services/changeRequestService';
 import { infrastructureComponentService } from '../../services/infrastructureComponentService';
@@ -131,6 +132,10 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
   const environmentIds = watch('environment_ids');
   const hostIds = watch('host_ids');
   const hasOutage = watch('has_outage');
+  const scheduledStartStr = watch('scheduled_start');
+  const scheduledEndStr = watch('scheduled_end');
+  const outageStartStr = watch('outage_start');
+  const outageEndStr = watch('outage_end');
 
   const [outageConflicts, setOutageConflicts] = useState<OutageConflictEnvironment[]>([]);
   const [derivedEnvs, setDerivedEnvs] = useState<{ id: number; name: string }[]>([]);
@@ -236,6 +241,26 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
 
   const envById = useMemo(() => new Map(environments.map((e) => [e.id, e])), [environments]);
   const hostById = useMemo(() => new Map(hosts.map((h) => [h.id, h])), [hosts]);
+
+  const effectiveEnvs = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const id of environmentIds) {
+      const e = envById.get(id);
+      if (e) map.set(id, e.name);
+    }
+    for (const env of hostImpact) {
+      if (!map.has(env.environment_id)) {
+        map.set(env.environment_id, env.environment_name);
+      }
+    }
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  }, [environmentIds, envById, hostImpact]);
+
+  const parseLocal = (s: string): Date | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
 
   const totalConflicts = outageConflicts.reduce((acc, e) => acc + e.conflicts.length, 0);
 
@@ -499,6 +524,17 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
           required
           fullWidth
         />
+
+        {effectiveEnvs.length > 0 && (
+          <BookingScheduleGantt
+            envs={effectiveEnvs}
+            scheduledStart={parseLocal(scheduledStartStr)}
+            scheduledEnd={parseLocal(scheduledEndStr)}
+            hasOutage={hasOutage}
+            outageStart={parseLocal(outageStartStr)}
+            outageEnd={parseLocal(outageEndStr)}
+          />
+        )}
 
         <Controller
           control={control}
