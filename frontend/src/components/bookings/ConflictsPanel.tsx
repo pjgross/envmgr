@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Alert, Box, Button, Checkbox, FormControlLabel, Paper, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
@@ -21,12 +21,16 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
   const [receivedError, setReceivedError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingIds, setSavingIds] = useState<Set<number>>(new Set())
+  const hasRendered = useRef(false)
+  const reloadGen = useRef(0)
 
   const reload = async () => {
+    const myGen = ++reloadGen.current
     const [conflictsRes, receivedRes] = await Promise.allSettled([
       bookingService.getConflicts(bookingId),
       bookingService.getReceivedFeedback(bookingId),
     ])
+    if (myGen !== reloadGen.current) return   // superseded — drop results
     if (conflictsRes.status === 'fulfilled') {
       setItems(conflictsRes.value)
       setConflictsError(null)
@@ -42,9 +46,22 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
     setLoading(false)
   }
 
-  useEffect(() => { reload() }, [bookingId])
+  useEffect(() => {
+    hasRendered.current = false
+    reload()
+  }, [bookingId])
 
-  if (!loading && items.length === 0 && received.length === 0 && !conflictsError && !receivedError) return null
+  const shouldRenderNow =
+    items.length > 0 ||
+    received.length > 0 ||
+    conflictsError != null ||
+    receivedError != null
+
+  if (shouldRenderNow) {
+    hasRendered.current = true
+  }
+
+  if (!loading && !shouldRenderNow && !hasRendered.current) return null
 
   const saveAck = async (otherId: number) => {
     const p = pending[otherId] ?? { willing_to_share: false, notes: '' }
