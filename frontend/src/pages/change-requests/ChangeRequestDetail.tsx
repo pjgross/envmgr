@@ -26,6 +26,7 @@ import {
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
+import BookingScheduleGantt from '../../components/BookingScheduleGantt';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { changeRequestService } from '../../services/changeRequestService';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
@@ -124,6 +125,15 @@ export default function ChangeRequestDetail() {
   }
 
   if (!detail) return null;
+
+  const effectiveEnvs = (() => {
+    const map = new Map<number, string>();
+    for (const e of detail.environments) map.set(e.id, e.name);
+    for (const e of detail.derived_environments) {
+      if (!map.has(e.id)) map.set(e.id, e.name);
+    }
+    return Array.from(map, ([id, name]) => ({ id, name }));
+  })();
 
   return (
     <Box sx={{ p: 3 }}>
@@ -254,6 +264,19 @@ export default function ChangeRequestDetail() {
           )}
         </Stack>
       </Paper>
+
+      {effectiveEnvs.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <BookingScheduleGantt
+            envs={effectiveEnvs}
+            scheduledStart={new Date(detail.scheduled_start)}
+            scheduledEnd={new Date(detail.scheduled_end)}
+            hasOutage={detail.has_outage}
+            outageStart={detail.outage_start ? new Date(detail.outage_start) : null}
+            outageEnd={detail.outage_end ? new Date(detail.outage_end) : null}
+          />
+        </Box>
+      )}
 
       {detail.description && (
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
