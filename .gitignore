@@ -1,6 +1,9 @@
 # Git worktrees
 .worktrees/
 
+# Local Claude Code settings
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -2872,7 +2872,10 @@ import { bookingService } from '../services/bookingService'
 
 export const fetchConflicts = createAsyncThunk(
   'booking/fetchConflicts',
-  async (id: number) => await bookingService.getConflicts(id),
+  async (id: number) => {
+    const conflicts = await bookingService.getConflicts(id)
+    return { bookingId: id, conflicts }
+  },
 )
 
 export const acknowledgeConflict = createAsyncThunk(
