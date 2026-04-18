@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.booking_lifecycle import BookingType
 from app.api.v1.schemas.booking_lifecycle import BookingTypeCreate, BookingTypeUpdate
-from app.services.booking_lifecycle_service import get_template
+from app.services.lifecycle_service import get_template
 
 
 async def create_type(

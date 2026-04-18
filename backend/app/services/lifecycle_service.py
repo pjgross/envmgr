@@ -4,9 +4,12 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
+from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.booking_lifecycle import BookingType
 from app.api.v1.schemas.booking_lifecycle import (
-    LifecycleDefinition, LifecycleTemplateCreate, LifecycleTemplateUpdate,
+    LifecycleDefinition,
+    LifecycleTemplateCreate,
+    LifecycleTemplateUpdate,
     VALID_STANDARD_FIELD_NAMES,
 )
 
@@ -38,13 +41,14 @@ def migrate_field_permissions(definition: dict) -> dict:
 
 
 async def create_template(
-    db: AsyncSession, data: LifecycleTemplateCreate, tenant_id: int
-) -> BookingLifecycleTemplate:
+    db: AsyncSession, data: LifecycleTemplateCreate, tenant_id: int, entity_type: str
+) -> LifecycleTemplate:
     # Validate JSONB definition via Pydantic (raises ValidationError -> 422)
     LifecycleDefinition.model_validate(data.definition.model_dump())
     definition_dict = migrate_field_permissions(data.definition.model_dump())
-    template = BookingLifecycleTemplate(
+    template = LifecycleTemplate(
         tenant_id=tenant_id,
+        entity_type=entity_type,
         name=data.name,
         description=data.description,
         is_default=data.is_default,
@@ -56,24 +60,32 @@ async def create_template(
     return template
 
 
-async def list_templates(db: AsyncSession, tenant_id: int) -> list[BookingLifecycleTemplate]:
-    result = await db.execute(
-        select(BookingLifecycleTemplate).where(
-            BookingLifecycleTemplate.tenant_id == tenant_id,
-            BookingLifecycleTemplate.deleted_at.is_(None),
-        )
+async def list_templates(
+    db: AsyncSession, tenant_id: int, entity_type: str | None = None
+) -> list[LifecycleTemplate]:
+    """List lifecycle templates for a tenant.
+
+    If `entity_type` is provided, results are filtered to that type; otherwise
+    returns all templates for the tenant (useful for admin tooling / migrations).
+    """
+    stmt = select(LifecycleTemplate).where(
+        LifecycleTemplate.tenant_id == tenant_id,
+        LifecycleTemplate.deleted_at.is_(None),
     )
+    if entity_type is not None:
+        stmt = stmt.where(LifecycleTemplate.entity_type == entity_type)
+    result = await db.execute(stmt)
     return list(result.scalars().all())
 
 
 async def get_template(
     db: AsyncSession, template_id: int, tenant_id: int
-) -> BookingLifecycleTemplate:
+) -> LifecycleTemplate:
     result = await db.execute(
-        select(BookingLifecycleTemplate).where(
-            BookingLifecycleTemplate.id == template_id,
-            BookingLifecycleTemplate.tenant_id == tenant_id,
-            BookingLifecycleTemplate.deleted_at.is_(None),
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.id == template_id,
+            LifecycleTemplate.tenant_id == tenant_id,
+            LifecycleTemplate.deleted_at.is_(None),
         )
     )
     template = result.scalar_one_or_none()
@@ -84,7 +96,7 @@ async def get_template(
 
 async def update_template(
     db: AsyncSession, template_id: int, data: LifecycleTemplateUpdate, tenant_id: int
-) -> BookingLifecycleTemplate:
+) -> LifecycleTemplate:
     template = await get_template(db, template_id, tenant_id)
     if data.name is not None:
         template.name = data.name
@@ -103,29 +115,33 @@ async def update_template(
 async def delete_template(db: AsyncSession, template_id: int, tenant_id: int) -> None:
     template = await get_template(db, template_id, tenant_id)
     # Guard: refuse if any active booking type references this template
-    in_use = (await db.execute(
-        select(BookingType).where(
-            BookingType.lifecycle_template_id == template_id,
-            BookingType.tenant_id == tenant_id,
-            BookingType.deleted_at.is_(None),
+    in_use = (
+        await db.execute(
+            select(BookingType).where(
+                BookingType.lifecycle_template_id == template_id,
+                BookingType.tenant_id == tenant_id,
+                BookingType.deleted_at.is_(None),
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
     if in_use:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete: template is in use by one or more booking types",
         )
     from datetime import datetime, timezone
+
     template.deleted_at = datetime.now(timezone.utc)
     await db.flush()
 
 
 async def copy_template(
     db: AsyncSession, template_id: int, new_name: str, tenant_id: int
-) -> BookingLifecycleTemplate:
+) -> LifecycleTemplate:
     original = await get_template(db, template_id, tenant_id)
-    new_template = BookingLifecycleTemplate(
+    new_template = LifecycleTemplate(
         tenant_id=tenant_id,
+        entity_type=original.entity_type,
         name=new_name,
         description=original.description,
         is_default=False,
@@ -148,10 +164,10 @@ def validate_transition(definition: dict, from_state: str, to_state: str, user_r
 def get_allowed_transitions(definition: dict, current_state: str, user_role: str) -> list[dict]:
     """Return all transitions from current_state that this role can make."""
     return [
-        t for t in definition.get("transitions", [])
+        t
+        for t in definition.get("transitions", [])
         if t["from_state"] == current_state and user_role in t["allowed_roles"]
     ]
-
 
 
 def get_custom_field_permissions(

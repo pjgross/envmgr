@@ -100,7 +100,7 @@ def test_mandatory_standard_fields_constant():
 
 # --- Migration tests ---
 
-from app.services.booking_lifecycle_service import migrate_field_permissions
+from app.services.lifecycle_service import migrate_field_permissions
 
 
 def test_migrate_old_shape_converts_to_standard_fields():

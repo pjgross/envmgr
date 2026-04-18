@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
-from app.services import booking_lifecycle_service, booking_type_service
+from app.services import lifecycle_service, booking_type_service
 from app.api.v1.schemas.booking_lifecycle import (
     LifecycleTemplateCreate, LifecycleTemplateUpdate, LifecycleTemplateCopy,
     LifecycleTemplateResponse, BookingTypeCreate, BookingTypeUpdate, BookingTypeResponse,
@@ -16,10 +16,18 @@ router = APIRouter()
 
 @router.get("/lifecycle-templates", response_model=list[LifecycleTemplateResponse])
 async def list_lifecycle_templates(
+    entity_type: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await booking_lifecycle_service.list_templates(db, current_user.active_tenant_id)
+    """List lifecycle templates for the active tenant.
+
+    Optional `entity_type` query param filters to a specific entity (e.g.
+    ``booking``, ``change_request``). Omitted returns all templates.
+    """
+    return await lifecycle_service.list_templates(
+        db, current_user.active_tenant_id, entity_type=entity_type
+    )
 
 
 @router.post("/lifecycle-templates", response_model=LifecycleTemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -28,7 +36,9 @@ async def create_lifecycle_template(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await booking_lifecycle_service.create_template(db, data, current_user.active_tenant_id)
+    return await lifecycle_service.create_template(
+        db, data, current_user.active_tenant_id, entity_type=data.entity_type
+    )
 
 
 @router.get("/lifecycle-templates/{template_id}", response_model=LifecycleTemplateResponse)
@@ -37,7 +47,7 @@ async def get_lifecycle_template(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await booking_lifecycle_service.get_template(db, template_id, current_user.active_tenant_id)
+    return await lifecycle_service.get_template(db, template_id, current_user.active_tenant_id)
 
 
 @router.delete("/lifecycle-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -46,7 +56,7 @@ async def delete_lifecycle_template(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    await booking_lifecycle_service.delete_template(db, template_id, current_user.active_tenant_id)
+    await lifecycle_service.delete_template(db, template_id, current_user.active_tenant_id)
 
 
 @router.put("/lifecycle-templates/{template_id}", response_model=LifecycleTemplateResponse)
@@ -56,7 +66,7 @@ async def update_lifecycle_template(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await booking_lifecycle_service.update_template(db, template_id, data, current_user.active_tenant_id)
+    return await lifecycle_service.update_template(db, template_id, data, current_user.active_tenant_id)
 
 
 @router.post("/lifecycle-templates/{template_id}/copy", response_model=LifecycleTemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -66,7 +76,7 @@ async def copy_lifecycle_template(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await booking_lifecycle_service.copy_template(db, template_id, data.name, current_user.active_tenant_id)
+    return await lifecycle_service.copy_template(db, template_id, data.name, current_user.active_tenant_id)
 
 
 # ── Booking Types ────────────────────────────────────────────────────────────

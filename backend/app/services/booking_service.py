@@ -13,12 +13,12 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.booking_lifecycle import (
     BookingStatusHistory,
     BookingType as BookingTypeModel,
-    BookingLifecycleTemplate,
 )
+from app.db.models.lifecycle import LifecycleTemplate
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
-from app.services.booking_lifecycle_service import (
+from app.services.lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
     get_custom_field_permissions,
@@ -125,9 +125,9 @@ async def create_booking(
     booking_type = bt_result.scalar_one_or_none()
     if booking_type:
         tmpl_result = await db.execute(
-            select(BookingLifecycleTemplate).where(
-                BookingLifecycleTemplate.id == booking_type.lifecycle_template_id,
-                BookingLifecycleTemplate.deleted_at.is_(None),
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.id == booking_type.lifecycle_template_id,
+                LifecycleTemplate.deleted_at.is_(None),
             )
         )
         template = tmpl_result.scalar_one_or_none()
@@ -316,8 +316,8 @@ async def transition_state(
         raise HTTPException(status_code=404, detail="Booking type not found")
 
     tmpl_result = await db.execute(
-        select(BookingLifecycleTemplate).where(
-            BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
         )
     )
     template = tmpl_result.scalar_one_or_none()
@@ -389,8 +389,8 @@ async def get_booking_allowed_transitions(
     if not booking_type_obj:
         raise HTTPException(status_code=404, detail="Booking type not found")
     tmpl_result = await db.execute(
-        select(BookingLifecycleTemplate).where(
-            BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
         )
     )
     template = tmpl_result.scalar_one_or_none()
@@ -467,8 +467,8 @@ async def get_custom_field_perms_for_booking(
         return {}
 
     tmpl_result = await db.execute(
-        select(BookingLifecycleTemplate).where(
-            BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
         )
     )
     template = tmpl_result.scalar_one_or_none()
@@ -511,7 +511,7 @@ async def get_standard_field_perms_for_booking(
     if not bt:
         return {f: {"editable": False} for f in VALID_STANDARD_FIELD_NAMES}
     template_result = await db.execute(
-        select(BookingLifecycleTemplate).where(BookingLifecycleTemplate.id == bt.lifecycle_template_id)
+        select(LifecycleTemplate).where(LifecycleTemplate.id == bt.lifecycle_template_id)
     )
     template = template_result.scalar_one_or_none()
     if not template:
@@ -559,8 +559,8 @@ async def update_standard_fields(
     editable_perm_keys: set[str] = set()
     if booking_type_obj:
         tmpl_result = await db.execute(
-            select(BookingLifecycleTemplate).where(
-                BookingLifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
             )
         )
         template = tmpl_result.scalar_one_or_none()

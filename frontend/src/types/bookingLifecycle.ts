@@ -26,6 +26,7 @@ export interface LifecycleDefinition {
 export interface BookingLifecycleTemplate {
   id: number;
   tenant_id: number;
+  entity_type: string;
   name: string;
   description: string | null;
   is_default: boolean;

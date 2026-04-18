@@ -94,6 +94,7 @@ class LifecycleTemplateCreate(BaseModel):
     name: str
     description: Optional[str] = None
     is_default: bool = False
+    entity_type: str = "booking"
     definition: LifecycleDefinition
 
 
@@ -111,6 +112,7 @@ class LifecycleTemplateCopy(BaseModel):
 class LifecycleTemplateResponse(BaseModel):
     id: int
     tenant_id: int
+    entity_type: str
     name: str
     description: Optional[str]
     is_default: bool

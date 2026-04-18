@@ -2,17 +2,21 @@ import api from './api';
 import type { BookingLifecycleTemplate, BookingTypeRecord } from '../types/bookingLifecycle';
 
 export const bookingLifecycleService = {
-  // Lifecycle templates
+  // Lifecycle templates (booking-scoped — always filter / stamp entity_type='booking')
   listTemplates: (): Promise<BookingLifecycleTemplate[]> =>
-    api.get('/tenant/lifecycle-templates').then((r) => r.data),
+    api
+      .get('/tenant/lifecycle-templates', { params: { entity_type: 'booking' } })
+      .then((r) => r.data),
 
   getTemplate: (id: number): Promise<BookingLifecycleTemplate> =>
     api.get(`/tenant/lifecycle-templates/${id}`).then((r) => r.data),
 
   createTemplate: (
-    data: Omit<BookingLifecycleTemplate, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>
+    data: Omit<BookingLifecycleTemplate, 'id' | 'tenant_id' | 'entity_type' | 'created_at' | 'updated_at'>
   ): Promise<BookingLifecycleTemplate> =>
-    api.post('/tenant/lifecycle-templates', data).then((r) => r.data),
+    api
+      .post('/tenant/lifecycle-templates', { ...data, entity_type: 'booking' })
+      .then((r) => r.data),
 
   updateTemplate: (
     id: number,
