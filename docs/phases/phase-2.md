@@ -1,8 +1,8 @@
 # Phase 2: Change Management
 
-> Status: 🚧 **Implementation complete, pending MR review** | Roadmap: [../plan.md](../plan.md)
-> Branch: `feature/phase-2-change-management` (`f8c65fa`)
-> Implementation: 2026-04-18
+> Status: ✅ **Merged to `main` via MR !2 on 2026-04-19** (merge commit `3bb3833`) | Roadmap: [../plan.md](../plan.md)
+> Feature branch: `feature/phase-2-change-management` (head `bea9aae`, preserved)
+> Implementation: 2026-04-18 → 2026-04-19 (Phase 2.5 pull-forward added before merge)
 > Scope revised 2026-04-18 in light of Phase 1 extensions — see [phase-1.md §Post-Completion Extensions](phase-1.md).
 
 ---
