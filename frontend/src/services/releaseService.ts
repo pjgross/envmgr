@@ -40,7 +40,7 @@ export const releaseService = {
     api.post('/releases', data).then((r) => r.data),
 
   update: (id: number, data: ReleaseUpdatePayload): Promise<ReleaseResponse> =>
-    api.patch(`/releases/${id}`, data).then((r) => r.data),
+    api.put(`/releases/${id}`, data).then((r) => r.data),
 
   remove: (id: number): Promise<void> =>
     api.delete(`/releases/${id}`).then(() => undefined),

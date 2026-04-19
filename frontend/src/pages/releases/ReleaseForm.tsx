@@ -118,6 +118,10 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
     onClose();
   };
 
+  // HTML <input type="date"> yields "YYYY-MM-DD". Backend expects ISO datetime.
+  const toIsoDatetime = (d: string | undefined | null): string | null =>
+    d ? `${d}T00:00:00Z` : null;
+
   const onSubmit = async (values: FormValues) => {
     try {
       if (isEdit && release) {
@@ -125,7 +129,7 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           name: values.name,
           description: values.description || null,
           release_type: values.release_type,
-          target_date: values.target_date || null,
+          target_date: toIsoDatetime(values.target_date),
         };
         await dispatch(updateRelease({ id: release.id, data: payload })).unwrap();
         dispatch(fetchRelease(release.id));
@@ -138,7 +142,7 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           release_type: values.release_type,
           release_kind: values.release_kind,
           lifecycle_template_id: values.lifecycle_template_id ?? undefined,
-          target_date: values.target_date || null,
+          target_date: toIsoDatetime(values.target_date),
         };
         const result = await dispatch(createRelease(payload)).unwrap();
         snackbar.success('Release created');
@@ -146,7 +150,14 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
         navigate(`/releases/${result.id}`);
       }
     } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to save release');
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const message = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? `${detail[0].loc?.join?.('.') ?? 'field'}: ${detail[0].msg}`
+          : err instanceof Error ? err.message : 'Failed to save release';
+      snackbar.error(message);
     }
   };
 
