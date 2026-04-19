@@ -56,8 +56,6 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
-
 // ---- Props ----
 interface ReleaseFormProps {
   open: boolean;
@@ -105,11 +103,12 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
     }
   }, [open, release, reset]);
 
-  // Auto-select default lifecycle template
+  // Auto-select default lifecycle template — type is the template name.
   useEffect(() => {
     if (!isEdit && lifecycles.length > 0) {
       const defaultTpl = lifecycles.find((t) => t.is_default) ?? lifecycles[0];
       setValue('lifecycle_template_id', defaultTpl.id);
+      setValue('release_type', defaultTpl.name);
     }
   }, [lifecycles, isEdit, setValue]);
 
@@ -204,27 +203,49 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
                 )}
               />
 
-              <Controller
-                control={control}
-                name="release_type"
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    select
-                    label="Release Type"
-                    required
-                    fullWidth
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                  >
-                    {RELEASE_TYPES.map((t) => (
-                      <MenuItem key={t} value={t}>
-                        {t}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
+              {/* Type = lifecycle template. Selecting a type sets both
+                  release_type (to template.name) and lifecycle_template_id. */}
+              {!isEdit ? (
+                <Controller
+                  control={control}
+                  name="lifecycle_template_id"
+                  render={({ field, fieldState }) => (
+                    <TextField
+                      select
+                      label="Type"
+                      required
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={(e) => {
+                        const id = e.target.value === '' ? null : Number(e.target.value);
+                        field.onChange(id);
+                        const tpl = lifecycles.find((t) => t.id === id);
+                        if (tpl) setValue('release_type', tpl.name);
+                      }}
+                      error={!!fieldState.error}
+                      helperText={
+                        fieldState.error?.message ??
+                        'Type determines the release lifecycle. Manage types in Admin → Releases → Lifecycle.'
+                      }
+                    >
+                      {lifecycles.map((t) => (
+                        <MenuItem key={t.id} value={t.id}>
+                          {t.name}
+                          {t.is_default ? ' (default)' : ''}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+              ) : (
+                <Controller
+                  control={control}
+                  name="release_type"
+                  render={({ field }) => (
+                    <TextField {...field} label="Type" disabled fullWidth />
+                  )}
+                />
+              )}
 
               {!isEdit && (
                 <Controller
@@ -234,33 +255,6 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
                     <TextField {...field} select label="Kind" fullWidth>
                       <MenuItem value="project">Project</MenuItem>
                       <MenuItem value="enterprise">Enterprise</MenuItem>
-                    </TextField>
-                  )}
-                />
-              )}
-
-              {!isEdit && (
-                <Controller
-                  control={control}
-                  name="lifecycle_template_id"
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      select
-                      label="Lifecycle"
-                      fullWidth
-                      value={field.value ?? ''}
-                      onChange={(e) =>
-                        field.onChange(e.target.value === '' ? null : Number(e.target.value))
-                      }
-                      error={!!fieldState.error}
-                      helperText={fieldState.error?.message}
-                    >
-                      {lifecycles.map((t) => (
-                        <MenuItem key={t.id} value={t.id}>
-                          {t.name}
-                          {t.is_default ? ' (default)' : ''}
-                        </MenuItem>
-                      ))}
                     </TextField>
                   )}
                 />

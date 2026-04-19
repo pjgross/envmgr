@@ -64,7 +64,7 @@ export default function ReleaseTemplateLibrary() {
       const result = await dispatch(
         instantiateReleaseTemplate({
           id: instantiateTarget.id,
-          data: { name: releaseName.trim(), target_date: targetDate },
+          data: { name: releaseName.trim(), target_date: `${targetDate}T00:00:00Z` },
         })
       ).unwrap();
       snackbar.success('Release created from template');
