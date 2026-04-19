@@ -40,7 +40,6 @@ ENTITY_FIELD_SPECS: dict[str, dict[str, set[str]]] = {
             "raised_by",
         },
         "mandatory": set(),
-        "required_at_create": {"name", "release_type"},
     },
 }
 
