@@ -76,7 +76,7 @@ async def test_create_template_with_unknown_role_in_custom_field_is_accepted(cli
     assert resp.status_code == 201, resp.text
 
 
-from app.services.booking_lifecycle_service import get_custom_field_permissions
+from app.services.lifecycle_service import get_custom_field_permissions
 
 DEFINITION = {
     "field_permissions": {

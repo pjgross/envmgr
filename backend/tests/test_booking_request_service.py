@@ -5,13 +5,15 @@ from sqlalchemy import select
 
 from app.services import booking_request_service
 from app.db.models.environment import Environment
-from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
+from app.db.models.booking_lifecycle import BookingType
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking import Booking
 
 
 async def _seed_lifecycle_and_type(db_session, tenant):
-    tpl = BookingLifecycleTemplate(
+    tpl = LifecycleTemplate(
         tenant_id=tenant.id,
+        entity_type="booking",
         name="default",
         definition={
             "states": [

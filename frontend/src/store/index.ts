@@ -13,6 +13,8 @@ import topologyReducer from './topologySlice';
 import bookingLifecycleReducer from './bookingLifecycleSlice';
 import componentTypeReducer from './componentTypeSlice';
 import uiReducer from './uiSlice';
+import changeRequestReducer from './changeRequestSlice';
+import infrastructureComponentReducer from './infrastructureComponentSlice';
 
 export const store = configureStore({
   reducer: {
@@ -30,6 +32,8 @@ export const store = configureStore({
     topology: topologyReducer,
     bookingLifecycle: bookingLifecycleReducer,
     componentType: componentTypeReducer,
+    changeRequest: changeRequestReducer,
+    infrastructureComponent: infrastructureComponentReducer,
   },
 });
 

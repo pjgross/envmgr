@@ -1,13 +1,14 @@
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.environment import EnvironmentStatus
 from app.services import environment_service, environment_system_service
-from app.services import version_service
+from app.services import version_service, change_request_service
 from app.api.v1.schemas.environment import (
     EnvironmentCreate,
     EnvironmentUpdate,
@@ -22,6 +23,12 @@ from app.api.v1.schemas.environment import (
 )
 from app.api.v1.schemas.dependency import VerifyResponse
 from app.api.v1.schemas.version import VersionCreate, VersionUpdate, VersionResponse
+from app.api.v1.schemas.schedule import EnvironmentScheduleResponse
+from app.api.v1.schemas.infrastructure_component import (
+    EnvironmentSubSystemHostResponse,
+    EnvironmentSubSystemHostsResponse,
+    HostAttachment,
+)
 
 router = APIRouter()
 
@@ -90,6 +97,26 @@ async def verify_environment(
 ):
     return await environment_service.verify_environment(
         db, env_id, current_user.active_tenant_id
+    )
+
+
+@router.get("/{env_id}/schedule", response_model=EnvironmentScheduleResponse)
+async def get_environment_schedule(
+    env_id: int,
+    start_date: datetime = Query(..., description="Window start (inclusive)"),
+    end_date: datetime = Query(..., description="Window end (exclusive)"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Unified schedule for `env_id`: bookings + change requests overlapping
+    the date range. `deployments` is reserved for Phase 4 (always `[]` today).
+    """
+    return await change_request_service.get_environment_schedule(
+        db,
+        env_id,
+        current_user.active_tenant_id,
+        start_date,
+        end_date,
     )
 
 
@@ -177,6 +204,44 @@ async def update_environment_subsystem(
     return await environment_system_service.update_environment_subsystem(
         db, env_id, subsystem_id, data, current_user.active_tenant_id
     )
+
+
+# ---------------------------------------------------------------------------
+# EnvironmentSubSystem host attachments
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{env_id}/subsystems/{subsystem_id}/hosts",
+    response_model=EnvironmentSubSystemHostsResponse,
+)
+async def list_env_subsystem_hosts(
+    env_id: int,
+    subsystem_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    hosts = await environment_system_service.list_env_subsystem_hosts(
+        db, env_id, subsystem_id, current_user.active_tenant_id
+    )
+    return EnvironmentSubSystemHostsResponse(hosts=hosts)
+
+
+@router.put(
+    "/{env_id}/subsystems/{subsystem_id}/hosts",
+    response_model=EnvironmentSubSystemHostsResponse,
+)
+async def set_env_subsystem_hosts(
+    env_id: int,
+    subsystem_id: int,
+    attachments: list[HostAttachment],
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    hosts = await environment_system_service.set_env_subsystem_hosts(
+        db, env_id, subsystem_id, attachments, current_user.active_tenant_id
+    )
+    return EnvironmentSubSystemHostsResponse(hosts=hosts)
 
 
 # ---------------------------------------------------------------------------

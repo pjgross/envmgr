@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.user import Tenant
 from app.api.v1.schemas import TenantCreate, TenantUpdate
+from app.services import change_request_service
 
 
 async def list_tenants(db: AsyncSession) -> list[Tenant]:
@@ -26,6 +27,10 @@ async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tenant slug already exists")
     tenant = Tenant(name=data.name, slug=data.slug, settings=data.settings)
     db.add(tenant)
+    await db.flush()
+    # Seed default change-request lifecycles so admins have something to link
+    # change requests to out of the box.
+    await change_request_service.seed_default_lifecycles(db, tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return tenant

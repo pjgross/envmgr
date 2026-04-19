@@ -52,7 +52,7 @@ async def test_overlap_same_env_open_window(db_session, test_tenant, test_user):
     b = await _make_booking(db_session, test_tenant, test_user, env, t0 + timedelta(days=1), t0 + timedelta(days=3))
 
     conflicts = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
-    ids = [c.id for c in conflicts]
+    ids = [c.booking.id for c in conflicts]
     assert b.id in ids
 
 

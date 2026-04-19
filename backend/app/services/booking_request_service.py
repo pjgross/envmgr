@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import publish_event
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
-from app.db.models.booking_lifecycle import BookingType, BookingLifecycleTemplate
+from app.db.models.booking_lifecycle import BookingType
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
 from app.db.models.user import User
 from app.services import conflict_service
@@ -24,8 +25,8 @@ async def _load_initial_state(db: AsyncSession, booking_type_id: int, tenant_id:
     if bt is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown booking_type_id")
     tpl = (await db.execute(
-        select(BookingLifecycleTemplate).where(
-            BookingLifecycleTemplate.id == bt.lifecycle_template_id
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.id == bt.lifecycle_template_id
         )
     )).scalar_one()
     for s in tpl.definition.get("states", []):
@@ -93,7 +94,7 @@ async def create_request(
         children.append(child)
     await db.flush()
 
-    detected: dict[int, list[Booking]] = {}
+    detected: dict[int, list[conflict_service.ConflictingBooking]] = {}
     for c in children:
         others = await conflict_service.list_conflicts(db, c.id, tenant_id)
         if others:

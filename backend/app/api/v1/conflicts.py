@@ -27,12 +27,19 @@ async def list_conflicts(
         db, booking_id, current_user.active_tenant_id
     )
     items: list[ConflictItem] = []
-    for o in others:
-        ack = await conflict_service.get_ack(db, booking_id, o.id, current_user.active_tenant_id)
+    for c in others:
+        ack = await conflict_service.get_ack(
+            db, booking_id, c.booking.id, current_user.active_tenant_id
+        )
         items.append(ConflictItem(
             other_booking=EnvBookingSummary(
-                id=o.id, environment_id=o.environment_id,
-                start_date=o.start_date, end_date=o.end_date, status=o.status,
+                id=c.booking.id,
+                environment_id=c.booking.environment_id,
+                environment_name=c.environment_name,
+                project_name=c.project_name,
+                start_date=c.booking.start_date,
+                end_date=c.booking.end_date,
+                status=c.booking.status,
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))
@@ -78,6 +85,7 @@ async def list_received_feedback(
             source_booking=EnvBookingSummary(
                 id=r.source_booking.id,
                 environment_id=r.source_booking.environment_id,
+                project_name=r.source_request.project_name,
                 start_date=r.source_booking.start_date,
                 end_date=r.source_booking.end_date,
                 status=r.source_booking.status,

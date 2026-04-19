@@ -22,12 +22,14 @@ import {
   createBookingType,
   updateBookingType,
   deleteBookingType,
+  selectBookingTemplates,
 } from '../../store/bookingLifecycleSlice';
 import type { BookingTypeRecord } from '../../types/bookingLifecycle';
 
 export default function BookingTypesPanel() {
   const dispatch = useDispatch<AppDispatch>();
-  const { templates, bookingTypes, loading } = useSelector((s: RootState) => s.bookingLifecycle);
+  const { bookingTypes, loading } = useSelector((s: RootState) => s.bookingLifecycle);
+  const templates = useSelector(selectBookingTemplates);
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
@@ -50,7 +52,7 @@ export default function BookingTypesPanel() {
 
   useEffect(() => {
     dispatch(fetchBookingTypes());
-    dispatch(fetchLifecycleTemplates());
+    dispatch(fetchLifecycleTemplates('booking'));
   }, [dispatch]);
 
   const handleCreate = async () => {

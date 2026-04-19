@@ -9,6 +9,7 @@ class EnvBookingSummary(BaseModel):
     id: int
     environment_id: int
     environment_name: Optional[str] = None
+    project_name: Optional[str] = None
     start_date: datetime
     end_date: datetime
     status: str

@@ -14,7 +14,8 @@ from app.main import app
 from app.db.base import Base, get_db
 from app.db.models.user import Tenant, User
 from app.db.models.environment import Environment
-from app.db.models.booking_lifecycle import BookingLifecycleTemplate, BookingType
+from app.db.models.booking_lifecycle import BookingType
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_request import BookingRequest
 from app.db.models.booking import Booking
 from app.core.security import get_password_hash
@@ -112,8 +113,9 @@ async def test_environment(db_session, test_tenant) -> Environment:
 @pytest_asyncio.fixture(scope="function")
 async def test_booking_type(db_session, test_tenant) -> BookingType:
     """A booking type backed by a lifecycle template with a 'draft' initial state."""
-    tpl = BookingLifecycleTemplate(
+    tpl = LifecycleTemplate(
         tenant_id=test_tenant.id,
+        entity_type="booking",
         name="default",
         definition={
             "states": [

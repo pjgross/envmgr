@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, and_, or_, not_
@@ -9,16 +10,28 @@ from sqlalchemy.orm import aliased
 from app.db.models.booking import Booking
 from app.db.models.booking_conflict_ack import BookingConflictAck
 from app.db.models.booking_request import BookingRequest
+from app.db.models.environment import Environment
 from app.db.models.user import User
 
 TERMINAL_STATES = {"rejected", "closed"}
 
 
+@dataclass
+class ConflictingBooking:
+    """Booking plus the display labels a UI needs without extra round-trips."""
+    booking: Booking
+    project_name: Optional[str]
+    environment_name: Optional[str]
+
+
 async def list_conflicts(
     db: AsyncSession, booking_id: int, tenant_id: int
-) -> list[Booking]:
+) -> list[ConflictingBooking]:
     """Return other bookings conflicting with booking_id — same env, overlapping window,
-    neither in a lifecycle-defined terminal state."""
+    neither in a lifecycle-defined terminal state. The result is enriched with the
+    parent-request project name and environment name so UIs can show a human-readable
+    label instead of "Booking #N".
+    """
     me = (await db.execute(
         select(Booking).where(Booking.id == booking_id, Booking.tenant_id == tenant_id)
     )).scalar_one_or_none()
@@ -26,7 +39,9 @@ async def list_conflicts(
         return []
 
     stmt = (
-        select(Booking)
+        select(Booking, BookingRequest.project_name, Environment.name)
+        .join(BookingRequest, BookingRequest.id == Booking.booking_request_id, isouter=True)
+        .join(Environment, Environment.id == Booking.environment_id, isouter=True)
         .where(
             Booking.tenant_id == tenant_id,
             Booking.id != me.id,
@@ -39,8 +54,15 @@ async def list_conflicts(
         )
         .order_by(Booking.start_date)
     )
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    rows = (await db.execute(stmt)).all()
+    return [
+        ConflictingBooking(
+            booking=b,
+            project_name=project_name,
+            environment_name=env_name,
+        )
+        for b, project_name, env_name in rows
+    ]
 
 
 async def _authorize_ack(db: AsyncSession, booking_id: int, tenant_id: int, user: User) -> None:
@@ -124,8 +146,8 @@ async def has_unacknowledged_conflicts(
     conflicts = await list_conflicts(db, booking_id, tenant_id)
     if not conflicts:
         return False
-    for other in conflicts:
-        ack = await get_ack(db, booking_id, other.id, tenant_id)
+    for c in conflicts:
+        ack = await get_ack(db, booking_id, c.booking.id, tenant_id)
         if ack is None or ack.willing_to_share is None:
             return True
     return False

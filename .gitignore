@@ -4,6 +4,9 @@
 # Local Claude Code settings
 .claude/
 
+# Vite dev-server cache
+frontend/.vite/
+
 # Python
 __pycache__/
 *.py[cod]

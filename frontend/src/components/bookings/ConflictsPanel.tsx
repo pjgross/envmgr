@@ -5,12 +5,14 @@ import {
   Button,
   Checkbox,
   FormControlLabel,
+  Link,
   Paper,
   Tab,
   Tabs,
   TextField,
   Typography,
 } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 import { bookingService } from '../../services/bookingService';
 import type { ConflictItem, ReceivedFeedbackItem } from '../../types/conflict';
 import { formatApiError } from '../../services/apiError';
@@ -121,10 +123,21 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
                   sx={{ mb: 2, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}
                 >
                   <Typography variant="body2">
-                    Booking #{it.other_booking.id} (
+                    <Link
+                      component={RouterLink}
+                      to={`/bookings/${it.other_booking.id}`}
+                      sx={{ fontWeight: 'medium' }}
+                    >
+                      {it.other_booking.project_name ??
+                        `Booking #${it.other_booking.id}`}
+                    </Link>
+                    {it.other_booking.environment_name
+                      ? ` · ${it.other_booking.environment_name}`
+                      : ''}
+                    {' · '}
                     {new Date(it.other_booking.start_date).toLocaleDateString()} –{' '}
-                    {new Date(it.other_booking.end_date).toLocaleDateString()}) — status{' '}
-                    {it.other_booking.status}
+                    {new Date(it.other_booking.end_date).toLocaleDateString()}
+                    {' · '}status {it.other_booking.status}
                   </Typography>
                   <FormControlLabel
                     control={

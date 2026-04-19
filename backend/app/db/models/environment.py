@@ -10,6 +10,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.db.models.component_type import ComponentTypeDefinition
+    from app.db.models.infrastructure_component import InfrastructureComponent
 
 
 class EnvironmentStatus(str, enum.Enum):
@@ -98,9 +99,63 @@ class EnvironmentSubSystem(Base):
     )
 
     subsystem: Mapped["SubSystem"] = relationship("SubSystem")  # type: ignore[name-defined]
+    hosts: Mapped[list["EnvironmentSubSystemHost"]] = relationship(
+        "EnvironmentSubSystemHost",
+        back_populates="environment_subsystem",
+        lazy="select",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return (
             f"<EnvironmentSubSystem(env={self.environment_id}, sub={self.subsystem_id}, "
             f"mocked={self.is_mocked})>"
+        )
+
+
+class EnvironmentSubSystemHost(Base):
+    """Junction binding a deployed subsystem instance to the hosts it runs on.
+
+    A single subsystem in one environment can span multiple hosts — replicas,
+    multi-AZ, multi-region. The environment-level host set is therefore
+    derived, not stored.
+    """
+
+    __tablename__ = "environment_subsystem_host"
+
+    environment_subsystem_id: Mapped[int] = mapped_column(
+        ForeignKey("environment_subsystem.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    infrastructure_component_id: Mapped[int] = mapped_column(
+        ForeignKey("infrastructure_component.id"), nullable=False, index=True
+    )
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenant.id"), nullable=False, index=True
+    )
+    role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "environment_subsystem_id",
+            "infrastructure_component_id",
+            name="uq_env_subsystem_host",
+        ),
+    )
+
+    environment_subsystem: Mapped["EnvironmentSubSystem"] = relationship(
+        "EnvironmentSubSystem", back_populates="hosts"
+    )
+    infrastructure_component: Mapped["InfrastructureComponent"] = relationship(
+        "InfrastructureComponent"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<EnvironmentSubSystemHost(env_sub={self.environment_subsystem_id}, "
+            f"host={self.infrastructure_component_id}, role={self.role!r})>"
         )

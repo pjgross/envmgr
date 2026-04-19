@@ -38,6 +38,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import StorageIcon from '@mui/icons-material/Storage';
+import EnvSubsystemHostsDialog from '../../components/EnvSubsystemHostsDialog';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -57,6 +59,7 @@ import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
+import EnvironmentSchedule from './EnvironmentSchedule';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -143,6 +146,8 @@ export default function EnvironmentDetail() {
   const [sysForm, setSysForm] = useState<SysFormValues>(emptySysForm);
   const [sysFormError, setSysFormError] = useState('');
   const [sysDeleteTarget, setSysDeleteTarget] = useState<EnvironmentSystemResponse | null>(null);
+  const [hostsDialogTarget, setHostsDialogTarget] =
+    useState<EnvironmentSubsystemResponse | null>(null);
   const [typeDialogTarget, setTypeDialogTarget] = useState<EnvironmentSubsystemResponse | null>(
     null
   );
@@ -509,6 +514,23 @@ export default function EnvironmentDetail() {
         },
       },
       {
+        field: 'hosts',
+        headerName: 'Hosts',
+        width: 140,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <Button
+            size="small"
+            startIcon={<StorageIcon fontSize="small" />}
+            onClick={() => setHostsDialogTarget(params.row)}
+            sx={{ textTransform: 'none' }}
+          >
+            Manage…
+          </Button>
+        ),
+      },
+      {
         field: 'actions',
         headerName: 'Actions',
         width: 100,
@@ -583,6 +605,7 @@ export default function EnvironmentDetail() {
         <Tab label="Systems" />
         <Tab label="Components" />
         <Tab label="Topology" />
+        <Tab label="Schedule" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -929,6 +952,9 @@ export default function EnvironmentDetail() {
       {/* Topology Tab */}
       {tab === 3 && <EnvironmentTopologyDiagram envId={envId} />}
 
+      {/* Schedule Tab */}
+      {tab === 4 && <EnvironmentSchedule envId={envId} />}
+
       {/* Edit Version Dialog */}
       <Dialog
         open={editVersionTarget !== null}
@@ -1103,6 +1129,16 @@ export default function EnvironmentDetail() {
           subsystem={typeDialogTarget}
           open={Boolean(typeDialogTarget)}
           onClose={() => setTypeDialogTarget(null)}
+        />
+      )}
+
+      {hostsDialogTarget && (
+        <EnvSubsystemHostsDialog
+          envId={envId}
+          subsystemId={hostsDialogTarget.subsystem_id}
+          subsystemLabel={`${hostsDialogTarget.system_name} / ${hostsDialogTarget.subsystem_name}`}
+          open={Boolean(hostsDialogTarget)}
+          onClose={() => setHostsDialogTarget(null)}
         />
       )}
     </Box>

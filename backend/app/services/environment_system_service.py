@@ -4,7 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.db.models.environment import EnvironmentSystem, EnvironmentSubSystem
+from app.db.models.environment import (
+    EnvironmentSystem,
+    EnvironmentSubSystem,
+    EnvironmentSubSystemHost,
+)
+from app.db.models.infrastructure_component import InfrastructureComponent
 from app.db.models.system import System, SubSystem
 from app.db.models.dependency import SystemDependency
 from app.db.models.version import EnvironmentSubSystemVersion
@@ -19,6 +24,11 @@ from app.api.v1.schemas.environment import (
     EnvironmentSubsystemResponse,
     EnvironmentSubsystemUpdate,
     VersionSummary,
+)
+from app.api.v1.schemas.infrastructure_component import (
+    EnvironmentSubSystemHostResponse,
+    HostAttachment,
+    InfrastructureComponentSummary,
 )
 
 
@@ -346,3 +356,133 @@ async def update_environment_subsystem(
     if match is None:
         raise HTTPException(status_code=500, detail="Failed to reload subsystem")
     return match
+
+
+# ---------------------------------------------------------------------------
+# EnvironmentSubSystemHost operations — multi-host deployment targeting
+# ---------------------------------------------------------------------------
+
+
+async def _get_env_subsystem(
+    db: AsyncSession, env_id: int, subsystem_id: int, tenant_id: int
+) -> EnvironmentSubSystem:
+    await get_environment(db, env_id, tenant_id)
+    result = await db.execute(
+        select(EnvironmentSubSystem).where(
+            EnvironmentSubSystem.environment_id == env_id,
+            EnvironmentSubSystem.subsystem_id == subsystem_id,
+            EnvironmentSubSystem.tenant_id == tenant_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subsystem not found in this environment",
+        )
+    return row
+
+
+def _host_to_response(host_row: EnvironmentSubSystemHost) -> EnvironmentSubSystemHostResponse:
+    comp = host_row.infrastructure_component
+    return EnvironmentSubSystemHostResponse(
+        id=host_row.id,
+        environment_subsystem_id=host_row.environment_subsystem_id,
+        infrastructure_component_id=host_row.infrastructure_component_id,
+        infrastructure_component=InfrastructureComponentSummary(
+            id=comp.id,
+            name=comp.name,
+            component_type=comp.component_type,
+            provider=comp.provider,
+            region=comp.region,
+        ),
+        role=host_row.role,
+    )
+
+
+async def list_env_subsystem_hosts(
+    db: AsyncSession, env_id: int, subsystem_id: int, tenant_id: int
+) -> list[EnvironmentSubSystemHostResponse]:
+    env_sub = await _get_env_subsystem(db, env_id, subsystem_id, tenant_id)
+
+    result = await db.execute(
+        select(EnvironmentSubSystemHost)
+        .where(
+            EnvironmentSubSystemHost.environment_subsystem_id == env_sub.id,
+            EnvironmentSubSystemHost.tenant_id == tenant_id,
+            EnvironmentSubSystemHost.deleted_at.is_(None),
+        )
+        .options(selectinload(EnvironmentSubSystemHost.infrastructure_component))
+        .order_by(EnvironmentSubSystemHost.id)
+    )
+    return [_host_to_response(row) for row in result.scalars().all()]
+
+
+async def set_env_subsystem_hosts(
+    db: AsyncSession,
+    env_id: int,
+    subsystem_id: int,
+    attachments: list[HostAttachment],
+    tenant_id: int,
+) -> list[EnvironmentSubSystemHostResponse]:
+    """Replace the full host attachment set for one env-subsystem row.
+
+    Idempotent: repeating the same payload yields the same state. Hosts no
+    longer present are hard-deleted (the junction is intrinsically ephemeral
+    deployment state — no soft-delete value). Roles are updated in place.
+    """
+    env_sub = await _get_env_subsystem(db, env_id, subsystem_id, tenant_id)
+
+    # Deduplicate incoming attachments (last-write-wins for role conflicts)
+    desired: dict[int, str | None] = {}
+    for a in attachments:
+        desired[a.infrastructure_component_id] = a.role
+
+    if desired:
+        host_result = await db.execute(
+            select(InfrastructureComponent.id).where(
+                InfrastructureComponent.id.in_(list(desired.keys())),
+                InfrastructureComponent.tenant_id == tenant_id,
+                InfrastructureComponent.deleted_at.is_(None),
+            )
+        )
+        found_ids = {row[0] for row in host_result.all()}
+        missing = set(desired) - found_ids
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Infrastructure component(s) not found: {sorted(missing)}",
+            )
+
+    current_result = await db.execute(
+        select(EnvironmentSubSystemHost).where(
+            EnvironmentSubSystemHost.environment_subsystem_id == env_sub.id,
+            EnvironmentSubSystemHost.tenant_id == tenant_id,
+        )
+    )
+    current_rows = list(current_result.scalars().all())
+    current_by_host = {row.infrastructure_component_id: row for row in current_rows}
+
+    # Delete rows no longer desired
+    for host_id, row in current_by_host.items():
+        if host_id not in desired:
+            await db.delete(row)
+
+    # Upsert desired
+    for host_id, role in desired.items():
+        existing = current_by_host.get(host_id)
+        if existing is None:
+            db.add(
+                EnvironmentSubSystemHost(
+                    environment_subsystem_id=env_sub.id,
+                    infrastructure_component_id=host_id,
+                    tenant_id=tenant_id,
+                    role=role,
+                )
+            )
+        else:
+            existing.role = role
+            existing.deleted_at = None
+
+    await db.flush()
+    return await list_env_subsystem_hosts(db, env_id, subsystem_id, tenant_id)
