@@ -325,16 +325,25 @@ async def transition_state(
         raise HTTPException(status_code=404, detail="Lifecycle template not found")
 
     user_role = current_user.role
-    if not validate_transition(template.definition, booking.status, to_state, user_role):
-        # Check if transition exists at all (regardless of role)
-        all_transitions = template.definition.get("transitions", [])
-        transition_exists = any(
-            t["from_state"] == booking.status and t["to_state"] == to_state
-            for t in all_transitions
-        )
-        if transition_exists:
+    br = booking.booking_request
+    record_values = {
+        "project_name": br.project_name or "",
+        "start_date": br.start_date,
+        "end_date": br.end_date,
+        "booking_type": str(br.booking_type_id) if br.booking_type_id else "",
+        "notes": br.notes or "",
+        "exclusive_use": br.exclusive_use_requested,
+        "context_tag": br.context_tag.value if br.context_tag else "",
+        "custom_fields": br.custom_fields or {},
+    }
+    allowed, reason = validate_transition(
+        template.definition, booking.status, to_state, user_role, record_values
+    )
+    if not allowed:
+        # Distinguish role-blocked (403) from invalid/undefined transition or required fields (400)
+        if reason and ("not allowed" in reason or "role" in reason.lower()):
             raise HTTPException(status_code=403, detail="Your role cannot make this transition")
-        raise HTTPException(status_code=400, detail=f"Invalid transition: {booking.status} -> {to_state}")
+        raise HTTPException(status_code=400, detail=reason or f"Invalid transition: {booking.status} -> {to_state}")
 
     old_state = booking.status
     booking.status = to_state

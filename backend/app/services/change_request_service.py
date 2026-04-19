@@ -669,13 +669,25 @@ async def transition_status(
     cr = await _get_cr(db, cr_id, tenant_id)
     tpl = await _load_lifecycle(db, cr.lifecycle_id, tenant_id)
 
-    allowed = lifecycle_service.validate_transition(
-        tpl.definition, cr.status, to_state, current_user.role
+    record_values = {
+        "title": cr.title or "",
+        "description": cr.description or "",
+        "change_type": cr.change_type or "",
+        "scheduled_start": cr.scheduled_start,
+        "scheduled_end": cr.scheduled_end,
+        "has_outage": cr.has_outage,
+        "outage_start": cr.outage_start,
+        "outage_end": cr.outage_end,
+        "release_id": cr.release_id,
+        "custom_fields": cr.custom_fields or {},
+    }
+    allowed, reason = lifecycle_service.validate_transition(
+        tpl.definition, cr.status, to_state, current_user.role, record_values
     )
     if not allowed:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Transition from '{cr.status}' to '{to_state}' is not allowed for role '{current_user.role}'",
+            reason or f"Transition from '{cr.status}' to '{to_state}' is not allowed for role '{current_user.role}'",
         )
 
     from_state = cr.status

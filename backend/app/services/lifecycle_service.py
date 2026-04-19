@@ -170,12 +170,45 @@ async def copy_template(
     return new_template
 
 
-def validate_transition(definition: dict, from_state: str, to_state: str, user_role: str) -> bool:
-    """Return True if the transition is allowed for this role."""
-    for t in definition.get("transitions", []):
-        if t["from_state"] == from_state and t["to_state"] == to_state:
-            return user_role in t["allowed_roles"]
-    return False
+def validate_transition(
+    definition: dict,
+    from_state: str,
+    to_state: str,
+    user_role: str,
+    record_values: dict | None = None,
+) -> tuple[bool, str | None]:
+    """Return (allowed, reason). `reason` is None when allowed.
+
+    Role check is authoritative and evaluated first. If the role passes,
+    `required_fields` on the destination state are checked against
+    `record_values` (flat keys for standard fields; custom fields live under
+    record_values['custom_fields']). An empty or missing value blocks.
+    """
+    transition = next(
+        (t for t in definition.get("transitions", [])
+         if t["from_state"] == from_state and t["to_state"] == to_state),
+        None,
+    )
+    if transition is None:
+        return False, f"No transition from '{from_state}' to '{to_state}' is defined"
+    if user_role not in transition["allowed_roles"]:
+        return False, f"Role '{user_role}' is not allowed to transition {from_state} → {to_state}"
+    required = (
+        definition.get("field_permissions", {})
+        .get(to_state, {})
+        .get("required_fields", [])
+    )
+    if required:
+        values = record_values or {}
+        custom_values = values.get("custom_fields") or {}
+        missing: list[str] = []
+        for key in required:
+            v = values.get(key) if key in values else custom_values.get(key)
+            if v is None or (isinstance(v, str) and v.strip() == ""):
+                missing.append(key)
+        if missing:
+            return False, f"Required fields empty for '{to_state}': {', '.join(missing)}"
+    return True, None
 
 
 def get_allowed_transitions(definition: dict, current_state: str, user_role: str) -> list[dict]:
