@@ -34,6 +34,8 @@ interface Props {
   customFieldValues: Record<string, unknown>;
   onStandardChange: (key: string, value: unknown) => void;
   onCustomChange: (key: string, value: unknown) => void;
+  /** When true, all inputs are disabled regardless of field_permissions. */
+  readOnly?: boolean;
 }
 
 function isEditable(
@@ -60,12 +62,14 @@ export default function LifecycleAwareFieldsPanel({
   customFieldValues,
   onStandardChange,
   onCustomChange,
+  readOnly = false,
 }: Props) {
   const statePerms: FieldPermissionsMap = fieldPermissions[currentState] ?? {};
   const { standard_fields, custom_fields, required_fields } = statePerms;
 
   // Collect standard field keys that have an entry in permissions for this state
   const standardKeys = Object.keys(standard_fields ?? {});
+  const canEdit = (editable: boolean) => editable && !readOnly;
 
   return (
     <Box>
@@ -87,12 +91,12 @@ export default function LifecycleAwareFieldsPanel({
                 <FormControlLabel
                   key={key}
                   sx={{ display: 'block', mb: 1 }}
-                  disabled={!editable}
+                  disabled={!canEdit(editable)}
                   control={
                     <Switch
                       checked={!!value}
                       onChange={(e) => onStandardChange(key, e.target.checked)}
-                      disabled={!editable}
+                      disabled={!canEdit(editable)}
                     />
                   }
                   label={
@@ -115,7 +119,7 @@ export default function LifecycleAwareFieldsPanel({
                 size="small"
                 sx={{ mb: 1.5 }}
                 value={value ?? ''}
-                disabled={!editable}
+                disabled={!canEdit(editable)}
                 error={required && (value === '' || value === null || value === undefined)}
                 onChange={(e) => onStandardChange(key, e.target.value)}
                 InputLabelProps={
@@ -144,12 +148,12 @@ export default function LifecycleAwareFieldsPanel({
                 <FormControlLabel
                   key={defn.field_key}
                   sx={{ display: 'block', mb: 1 }}
-                  disabled={!editable}
+                  disabled={!canEdit(editable)}
                   control={
                     <Switch
                       checked={!!value}
                       onChange={(e) => onCustomChange(defn.field_key, e.target.checked)}
-                      disabled={!editable}
+                      disabled={!canEdit(editable)}
                     />
                   }
                   label={labelText}
@@ -166,7 +170,7 @@ export default function LifecycleAwareFieldsPanel({
                 size="small"
                 sx={{ mb: 1.5 }}
                 value={value ?? ''}
-                disabled={!editable}
+                disabled={!canEdit(editable)}
                 error={required && (value === '' || value === null || value === undefined)}
                 onChange={(e) =>
                   onCustomChange(

@@ -178,6 +178,7 @@ export default function ReleaseMainTab({ releaseId }: Props) {
             customFieldValues={(release.custom_fields ?? {}) as Record<string, unknown>}
             onStandardChange={handleStandardChange}
             onCustomChange={handleCustomChange}
+            readOnly
           />
         ) : (
           <Stack spacing={1}>
