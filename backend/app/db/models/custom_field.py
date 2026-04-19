@@ -7,6 +7,7 @@ from datetime import datetime
 from app.db.base import Base
 
 
+
 class CustomFieldDefinition(Base):
     """Tenant-scoped custom field schema for an entity type."""
 
@@ -14,6 +15,7 @@ class CustomFieldDefinition(Base):
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # system, subsystem, environment, booking
+    entity_subtype: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     field_key: Mapped[str] = mapped_column(String(100), nullable=False)   # snake_case JSON key; immutable after creation
     label: Mapped[str] = mapped_column(String(200), nullable=False)       # display name; editable
     field_type: Mapped[str] = mapped_column(String(20), nullable=False)   # text, number, boolean; immutable after creation
