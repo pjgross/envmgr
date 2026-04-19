@@ -33,6 +33,8 @@ from app.db.models.change_request import (
 )
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.event_log import EventLog
+from app.db.models.release_template import ReleaseTemplate
+from app.db.models.release import Release, ReleaseStatusHistory
 
 # This will be expanded as we add more models
 __all__ = [
@@ -66,4 +68,7 @@ __all__ = [
     "ChangeType",
     "EnvironmentSubSystemVersion",
     "EventLog",
+    "ReleaseTemplate",
+    "Release",
+    "ReleaseStatusHistory",
 ]
