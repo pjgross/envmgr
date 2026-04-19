@@ -602,3 +602,77 @@ async def update_standard_fields(
     # Reload with relationships after flush
     booking = await get_booking(db, booking.id, booking.tenant_id)
     return booking
+
+
+# ── Release context tag derivation ───────────────────────────────────────────
+
+_ROLE_TO_CONTEXT_TAG: dict[str, ContextTag] = {
+    "changing": ContextTag.DEPLOYMENT,
+    "regression": ContextTag.REGRESSION,
+    "config_only": ContextTag.NONE,
+}
+
+
+async def derive_and_set_context_tag(db: AsyncSession, booking_id: int) -> None:
+    """Derive and set the context_tag on the booking's parent BookingRequest.
+
+    Algorithm:
+    1. If booking.release_id is None → set context_tag='none'; return.
+    2. For every system linked to booking.environment via environment_system,
+       look up a ReleaseSystem row for (release_id, system_id). First match wins.
+    3. Map role to ContextTag: 'changing'->'deployment', 'regression'->'regression',
+       'config_only'->'none', fallback 'none'.
+    4. Write the tag to booking_request.context_tag.
+    """
+    from app.db.models.environment import EnvironmentSystem
+    from app.db.models.release_system import ReleaseSystem
+
+    booking = (
+        await db.execute(
+            select(Booking).where(Booking.id == booking_id)
+        )
+    ).scalar_one_or_none()
+    if booking is None:
+        return
+
+    # Reload booking_request
+    br = (
+        await db.execute(
+            select(BookingRequest).where(BookingRequest.id == booking.booking_request_id)
+        )
+    ).scalar_one_or_none()
+    if br is None:
+        return
+
+    if booking.release_id is None:
+        br.context_tag = ContextTag.NONE
+        await db.flush()
+        return
+
+    # Get all system_ids for this environment
+    env_systems = (
+        await db.execute(
+            select(EnvironmentSystem).where(
+                EnvironmentSystem.environment_id == booking.environment_id,
+                EnvironmentSystem.tenant_id == booking.tenant_id,
+            )
+        )
+    ).scalars().all()
+
+    derived_tag = ContextTag.NONE
+    for env_sys in env_systems:
+        rel_sys = (
+            await db.execute(
+                select(ReleaseSystem).where(
+                    ReleaseSystem.release_id == booking.release_id,
+                    ReleaseSystem.system_id == env_sys.system_id,
+                    ReleaseSystem.tenant_id == booking.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if rel_sys is not None:
+            derived_tag = _ROLE_TO_CONTEXT_TAG.get(rel_sys.role, ContextTag.NONE)
+            break  # First match wins
+
+    br.context_tag = derived_tag
+    await db.flush()
