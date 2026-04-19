@@ -44,6 +44,11 @@ const entityNavItems = [
     path: '/admin/config/change-request',
     icon: <BuildIcon fontSize="small" />,
   },
+  {
+    label: 'Releases',
+    path: '/admin/config/release',
+    icon: <BuildIcon fontSize="small" />,
+  },
 ];
 
 export default function AdminLayout() {
