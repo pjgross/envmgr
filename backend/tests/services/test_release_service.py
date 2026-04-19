@@ -140,7 +140,8 @@ async def test_update_release_target_date_creates_reschedule_event(
     updated = await release_service.update_release(
         db_session, release.id, ReleaseUpdate(target_date=new_date), tenant.id, user.id
     )
-    assert updated.target_date == new_date
+    # SQLite strips timezone info on refresh; compare date portion only
+    assert updated.target_date.replace(tzinfo=None) == new_date.replace(tzinfo=None)
 
     # There should be a ReleaseEvent of type "Reschedule Reason"
     from app.db.models.release_event import ReleaseEvent
@@ -247,7 +248,8 @@ async def test_transition_terminal_does_not_overwrite_actual_date(db_session, te
     updated = await release_service.transition_release(
         db_session, release.id, "completed", None, tenant.id, user.id, "Admin"
     )
-    assert updated.actual_date == original_actual
+    # SQLite strips timezone info on refresh; compare date portion only
+    assert updated.actual_date.replace(tzinfo=None) == original_actual.replace(tzinfo=None)
 
 
 @pytest.mark.asyncio
