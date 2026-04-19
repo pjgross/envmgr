@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import publish_event
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
-from app.db.models.release_event import ReleaseEvent, ReleaseEventType
 from app.services import lifecycle_service
 from app.api.v1.schemas.release import ReleaseCreate, ReleaseUpdate
 
+
+# Deferred import to avoid circular dependency: release_event_service imports nothing from here.
+# Import at call-site inside update_release.
 
 # ── Terminal states that indicate the release was deployed ───────────────────
 _DEPLOYED_TERMINAL_STATES = {"completed", "completed_with_issues"}
@@ -79,20 +81,6 @@ async def _get_release(db: AsyncSession, release_id: int, tenant_id: int) -> Rel
     if release is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Release not found")
     return release
-
-
-async def _find_system_event_type(
-    db: AsyncSession, tenant_id: int, name: str
-) -> Optional[ReleaseEventType]:
-    return (
-        await db.execute(
-            select(ReleaseEventType).where(
-                ReleaseEventType.tenant_id == tenant_id,
-                ReleaseEventType.name == name,
-                ReleaseEventType.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -230,23 +218,15 @@ async def update_release(
     await db.flush()
 
     if target_date_changed:
-        # TODO(phase-3 Task 19): emit Reschedule Reason event via release_event_service.record_auto_event
-        # For now, do an inline write if the system event type exists.
-        event_type_row = await _find_system_event_type(db, tenant_id, "Reschedule Reason")
-        if event_type_row is not None:
-            db.add(
-                ReleaseEvent(
-                    tenant_id=tenant_id,
-                    release_id=release.id,
-                    event_type_id=event_type_row.id,
-                    description=(
-                        f"target_date: {old_target_date} → {release.target_date}"
-                    ),
-                    occurred_at=datetime.now(timezone.utc),
-                    recorded_by=user_id,
-                )
-            )
-            await db.flush()
+        from app.services import release_event_service
+        await release_event_service.record_auto_event(
+            db,
+            release_id=release.id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            event_type_name="Reschedule Reason",
+            description=f"target_date: {old_target_date} → {release.target_date}",
+        )
 
     return release
 
