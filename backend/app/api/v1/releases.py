@@ -245,6 +245,8 @@ async def get_releases_timeline(
         offset=0,
     )
 
+    from app.db.models.release_dependency import ReleaseDependency
+
     result = []
     for r in releases:
         phases = (
@@ -254,6 +256,14 @@ async def get_releases_timeline(
                     TestPhase.tenant_id == tenant_id,
                     TestPhase.deleted_at.is_(None),
                 ).order_by(TestPhase.order)
+            )
+        ).scalars().all()
+        dependencies = (
+            await db.execute(
+                select(ReleaseDependency).where(
+                    ReleaseDependency.release_id == r.id,
+                    ReleaseDependency.tenant_id == tenant_id,
+                )
             )
         ).scalars().all()
         result.append(
@@ -274,6 +284,21 @@ async def get_releases_timeline(
                         "status": p.status,
                     }
                     for p in phases
+                ],
+                "dependencies": [
+                    {
+                        "id": d.id,
+                        "tenant_id": d.tenant_id,
+                        "release_id": d.release_id,
+                        "depends_on_release_id": d.depends_on_release_id,
+                        "kind": d.kind,
+                        "notes": d.notes,
+                        "last_dependency_target_date": (
+                            d.last_dependency_target_date.isoformat()
+                            if d.last_dependency_target_date else None
+                        ),
+                    }
+                    for d in dependencies
                 ],
             }
         )

@@ -183,7 +183,8 @@ export interface ReleaseTimelineEntry {
   target_date: string | null;
   actual_date: string | null;
   phases: TestPhaseResponse[];
-  dependencies: ReleaseDependencyResponse[];
+  /** Backend may omit this when a release has no dependencies. */
+  dependencies?: ReleaseDependencyResponse[];
 }
 
 export interface ReleaseBookingCreatePayload {

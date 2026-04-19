@@ -300,7 +300,7 @@ export default function ReleaseTimeline({ releaseId, alerts = [] }: Props) {
 
                 {/* Dependency arrows (SVG lines between releases) */}
                 {timeline.map((entry) =>
-                  entry.dependencies
+                  (entry.dependencies ?? [])
                     .filter((dep) =>
                       timeline.some((t) => t.id === dep.depends_on_release_id)
                     )
