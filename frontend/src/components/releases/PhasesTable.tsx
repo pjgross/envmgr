@@ -26,6 +26,7 @@ import {
   deletePhase,
 } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { toIsoDatetime } from '../../utils/dates';
 import type { TestPhaseResponse } from '../../types/release';
 
 interface Props {
@@ -80,8 +81,8 @@ export default function PhasesTable({ releaseId, phases }: Props) {
             data: {
               name: name.trim(),
               status: phaseStatus,
-              start_date: startDate || null,
-              end_date: endDate || null,
+              start_date: toIsoDatetime(startDate),
+              end_date: toIsoDatetime(endDate),
             },
           })
         ).unwrap();
@@ -94,8 +95,8 @@ export default function PhasesTable({ releaseId, phases }: Props) {
               name: name.trim(),
               order: phases.length + 1,
               status: phaseStatus,
-              start_date: startDate || null,
-              end_date: endDate || null,
+              start_date: toIsoDatetime(startDate),
+              end_date: toIsoDatetime(endDate),
             },
           })
         ).unwrap();
@@ -103,7 +104,16 @@ export default function PhasesTable({ releaseId, phases }: Props) {
       }
       handleClose();
     } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to save phase');
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? `${(detail[0] as { loc?: unknown[] }).loc?.join?.('.') ?? 'field'}: ${
+              (detail[0] as { msg: string }).msg
+            }`
+          : err instanceof Error ? err.message : 'Failed to save phase';
+      snackbar.error(msg);
     }
   };
 

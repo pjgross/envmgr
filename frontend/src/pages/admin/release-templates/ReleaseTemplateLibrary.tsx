@@ -31,6 +31,7 @@ import {
 } from '../../../store/releaseTemplateSlice';
 import type { ReleaseTemplateResponse } from '../../../types/releaseTemplate';
 import { useSnackbar } from '../../../hooks/useSnackbar';
+import { toIsoDatetime } from '../../../utils/dates';
 
 export default function ReleaseTemplateLibrary() {
   const dispatch = useDispatch<AppDispatch>();
@@ -64,7 +65,7 @@ export default function ReleaseTemplateLibrary() {
       const result = await dispatch(
         instantiateReleaseTemplate({
           id: instantiateTarget.id,
-          data: { name: releaseName.trim(), target_date: `${targetDate}T00:00:00Z` },
+          data: { name: releaseName.trim(), target_date: toIsoDatetime(targetDate) ?? '' },
         })
       ).unwrap();
       snackbar.success('Release created from template');

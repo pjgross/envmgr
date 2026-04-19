@@ -34,6 +34,7 @@ import { useSnackbar } from '../../hooks/useSnackbar';
 import LifecycleAwareFieldsPanel, {
   type FieldPermissionsMap,
 } from '../../components/lifecycle/LifecycleAwareFieldsPanel';
+import { toIsoDatetime } from '../../utils/dates';
 import type {
   ReleaseResponse,
   ReleaseCreatePayload,
@@ -64,13 +65,6 @@ function initialStandardValues(release?: ReleaseResponse | null): Record<string,
       ? new Date(release.actual_date).toISOString().slice(0, 10)
       : '',
   };
-}
-
-function toIsoDatetime(d: unknown): string | null {
-  if (typeof d !== 'string' || d.trim() === '') return null;
-  // Already a full ISO datetime?
-  if (d.includes('T')) return d;
-  return `${d}T00:00:00Z`;
 }
 
 function extractErrorMessage(err: unknown, fallback: string): string {
