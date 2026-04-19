@@ -18,10 +18,13 @@ import {
   Paper,
   Tab,
   Tabs,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import HistoryIcon from '@mui/icons-material/History';
+import EventNoteIcon from '@mui/icons-material/EventNote';
 import { AppDispatch, RootState } from '../../store';
 import { fetchRelease, deleteRelease, clearDetail } from '../../store/releaseSlice';
 import ReleaseMainTab from '../../components/releases/ReleaseMainTab';
@@ -29,6 +32,8 @@ import ReleasePlanTab from '../../components/releases/ReleasePlanTab';
 import ReleaseEnvironmentsTab from '../../components/releases/ReleaseEnvironmentsTab';
 import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedRequestsTab';
 import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
+import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
+import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
 import { useSnackbar } from '../../hooks/useSnackbar';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -50,6 +55,8 @@ export default function ReleaseDetail() {
 
   const { detail: release, loading, error } = useSelector((s: RootState) => s.release);
   const [activeTab, setActiveTab] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [eventLogOpen, setEventLogOpen] = useState(false);
 
   useEffect(() => {
     dispatch(fetchRelease(releaseId));
@@ -104,6 +111,16 @@ export default function ReleaseDetail() {
           size="small"
         />
         <Chip label={release.release_type} size="small" variant="outlined" />
+        <Tooltip title="Status history">
+          <IconButton size="small" onClick={() => setHistoryOpen(true)}>
+            <HistoryIcon />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Event log">
+          <IconButton size="small" onClick={() => setEventLogOpen(true)}>
+            <EventNoteIcon />
+          </IconButton>
+        </Tooltip>
         <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
           <DeleteOutlineIcon />
         </IconButton>
@@ -130,6 +147,18 @@ export default function ReleaseDetail() {
       {activeTab === 2 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
       {activeTab === 3 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
       {activeTab === 4 && <ReleaseScopeTab releaseId={releaseId} />}
+
+      {/* Side drawers */}
+      <ReleaseStatusHistoryDrawer
+        open={historyOpen}
+        releaseId={releaseId}
+        onClose={() => setHistoryOpen(false)}
+      />
+      <ReleaseEventDrawer
+        open={eventLogOpen}
+        releaseId={releaseId}
+        onClose={() => setEventLogOpen(false)}
+      />
     </Box>
   );
 }
