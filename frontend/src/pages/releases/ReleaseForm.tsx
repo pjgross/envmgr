@@ -1,62 +1,50 @@
 /**
  * ReleaseForm — create / edit a release.
  *
- * For new releases this renders just the "Main" fields in a dialog.
- * After the first save the user is redirected to /releases/:id where the full
- * tab shell (T30–T34) is available.
+ * Type (which implies the lifecycle) + Kind are rendered at create time
+ * as plain selects. Everything else (standard fields + custom fields) is
+ * rendered via LifecycleAwareFieldsPanel so visibility + editability honour
+ * the lifecycle's field_permissions for the current state and the caller's
+ * role.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   MenuItem,
-  Tab,
-  Tabs,
+  Stack,
   TextField,
   Typography,
 } from '@mui/material';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { AppDispatch } from '../../store';
+import { AppDispatch, RootState } from '../../store';
 import {
   fetchLifecycleTemplates,
   selectTemplatesForEntity,
 } from '../../store/bookingLifecycleSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import { createRelease, updateRelease, fetchRelease } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
-import type { ReleaseResponse, ReleaseCreatePayload, ReleaseUpdatePayload } from '../../types/release';
+import LifecycleAwareFieldsPanel, {
+  type FieldPermissionsMap,
+} from '../../components/lifecycle/LifecycleAwareFieldsPanel';
+import type {
+  ReleaseResponse,
+  ReleaseCreatePayload,
+  ReleaseUpdatePayload,
+} from '../../types/release';
 
-// ---- Tabs ----
-interface TabPanelProps {
-  children?: React.ReactNode;
-  value: number;
-  index: number;
-}
-function TabPanel({ children, value, index }: TabPanelProps) {
-  if (value !== index) return null;
-  return <Box sx={{ pt: 2 }}>{children}</Box>;
-}
+// Fields we render explicitly at create time (Type + Kind). These are excluded
+// from the lifecycle-aware panel even if the lifecycle lists them as standard
+// fields, to avoid duplicate controls.
+const FIELDS_HANDLED_SEPARATELY = new Set(['release_type', 'release_kind']);
 
-// ---- Schema ----
-const schema = z.object({
-  name: z.string().trim().min(1, 'Name is required'),
-  description: z.string().optional(),
-  release_type: z.string().min(1, 'Type is required'),
-  release_kind: z.enum(['project', 'enterprise']),
-  lifecycle_template_id: z.number().nullable(),
-  target_date: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof schema>;
-
-// ---- Props ----
 interface ReleaseFormProps {
   open: boolean;
   onClose: () => void;
@@ -64,17 +52,38 @@ interface ReleaseFormProps {
   release?: ReleaseResponse | null;
 }
 
-function buildDefaults(release?: ReleaseResponse | null): FormValues {
+function initialStandardValues(release?: ReleaseResponse | null): Record<string, unknown> {
   return {
     name: release?.name ?? '',
     description: release?.description ?? '',
-    release_type: release?.release_type ?? 'project',
-    release_kind: (release?.release_kind as 'project' | 'enterprise') ?? 'project',
-    lifecycle_template_id: release?.lifecycle_template_id ?? null,
+    release_type: release?.release_type ?? '',
     target_date: release?.target_date
       ? new Date(release.target_date).toISOString().slice(0, 10)
       : '',
+    actual_date: release?.actual_date
+      ? new Date(release.actual_date).toISOString().slice(0, 10)
+      : '',
   };
+}
+
+function toIsoDatetime(d: unknown): string | null {
+  if (typeof d !== 'string' || d.trim() === '') return null;
+  // Already a full ISO datetime?
+  if (d.includes('T')) return d;
+  return `${d}T00:00:00Z`;
+}
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+  const detail = axiosErr?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail[0]?.msg) {
+    const first = detail[0] as { loc?: unknown[]; msg: string };
+    const loc = Array.isArray(first.loc) ? first.loc.join('.') : 'field';
+    return `${loc}: ${first.msg}`;
+  }
+  if (err instanceof Error) return err.message;
+  return fallback;
 }
 
 export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps) {
@@ -83,65 +92,129 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
   const snackbar = useSnackbar();
   const isEdit = !!release;
 
-  const lifecycles = useSelector(selectTemplatesForEntity('release'));
+  const templates = useSelector(selectTemplatesForEntity('release'));
+  const user = useSelector((s: RootState) => s.auth.user);
+  const customFieldDefs = useSelector(
+    (s: RootState) => s.customField.definitions['release'] ?? []
+  );
 
-  const [activeTab, setActiveTab] = useState(0);
+  const [kind, setKind] = useState<'project' | 'enterprise'>(
+    (release?.release_kind as 'project' | 'enterprise') ?? 'project'
+  );
+  const [lifecycleTemplateId, setLifecycleTemplateId] = useState<number | null>(
+    release?.lifecycle_template_id ?? null
+  );
+  const [standardValues, setStandardValues] = useState<Record<string, unknown>>(
+    initialStandardValues(release)
+  );
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>(
+    (release?.custom_fields ?? {}) as Record<string, unknown>
+  );
 
-  const { control, handleSubmit, reset, setValue } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: buildDefaults(release),
-  });
-
-  useEffect(() => {
-    dispatch(fetchLifecycleTemplates('release'));
-  }, [dispatch]);
-
+  // Fetch required metadata when the dialog opens
   useEffect(() => {
     if (open) {
-      reset(buildDefaults(release));
-      setActiveTab(0);
+      dispatch(fetchLifecycleTemplates('release'));
+      dispatch(fetchDefinitions('release'));
     }
-  }, [open, release, reset]);
+  }, [dispatch, open]);
 
-  // Auto-select default lifecycle template — type is the template name.
+  // Sync local state with the release prop whenever the dialog (re)opens
   useEffect(() => {
-    if (!isEdit && lifecycles.length > 0) {
-      const defaultTpl = lifecycles.find((t) => t.is_default) ?? lifecycles[0];
-      setValue('lifecycle_template_id', defaultTpl.id);
-      setValue('release_type', defaultTpl.name);
+    if (open) {
+      setStandardValues(initialStandardValues(release));
+      setCustomFieldValues((release?.custom_fields ?? {}) as Record<string, unknown>);
+      setLifecycleTemplateId(release?.lifecycle_template_id ?? null);
+      setKind((release?.release_kind as 'project' | 'enterprise') ?? 'project');
     }
-  }, [lifecycles, isEdit, setValue]);
+  }, [open, release]);
+
+  // Auto-select the tenant default on create
+  useEffect(() => {
+    if (!isEdit && open && templates.length > 0 && lifecycleTemplateId === null) {
+      const defaultTpl = templates.find((t) => t.is_default) ?? templates[0];
+      setLifecycleTemplateId(defaultTpl.id);
+      setStandardValues((v) => ({ ...v, release_type: defaultTpl.name }));
+    }
+  }, [isEdit, open, templates, lifecycleTemplateId]);
+
+  // Bound lifecycle template (fetched into the bookingLifecycle slice by fetchLifecycleTemplates)
+  const lifecycleTpl = useMemo(
+    () => templates.find((t) => t.id === lifecycleTemplateId) ?? null,
+    [templates, lifecycleTemplateId]
+  );
+
+  const currentState = release?.status ?? 'draft';
+  const userRole = user?.role ?? 'Viewer';
+
+  // Strip fields that we render explicitly (release_type, release_kind).
+  const fieldPermissionsForPanel = useMemo<Record<string, FieldPermissionsMap>>(() => {
+    const raw = (lifecycleTpl?.definition?.field_permissions ?? {}) as Record<
+      string,
+      FieldPermissionsMap
+    >;
+    const out: Record<string, FieldPermissionsMap> = {};
+    for (const [state, perm] of Object.entries(raw)) {
+      const stdClone = { ...(perm.standard_fields ?? {}) };
+      for (const k of FIELDS_HANDLED_SEPARATELY) delete stdClone[k];
+      out[state] = { ...perm, standard_fields: stdClone };
+    }
+    return out;
+  }, [lifecycleTpl]);
+
+  // Filter custom field definitions to those the current state actually references.
+  // Hidden fields never render (matches booking behaviour). If the lifecycle has
+  // no entry for this state we fall back to showing nothing.
+  const visibleCustomFieldDefs = useMemo(() => {
+    const customPerms =
+      fieldPermissionsForPanel[currentState]?.custom_fields ?? {};
+    return customFieldDefs.filter((d) => d.field_key in customPerms);
+  }, [customFieldDefs, fieldPermissionsForPanel, currentState]);
 
   const handleClose = () => {
-    reset(buildDefaults());
     onClose();
   };
 
-  // HTML <input type="date"> yields "YYYY-MM-DD". Backend expects ISO datetime.
-  const toIsoDatetime = (d: string | undefined | null): string | null =>
-    d ? `${d}T00:00:00Z` : null;
+  const validateBeforeSubmit = (): string | null => {
+    const name = typeof standardValues.name === 'string' ? standardValues.name.trim() : '';
+    if (!name) return 'Name is required';
+    if (!isEdit) {
+      if (!lifecycleTemplateId) return 'Type is required';
+    }
+    return null;
+  };
 
-  const onSubmit = async (values: FormValues) => {
+  const handleSubmit = async () => {
+    const validationError = validateBeforeSubmit();
+    if (validationError) {
+      snackbar.error(validationError);
+      return;
+    }
+
     try {
       if (isEdit && release) {
         const payload: ReleaseUpdatePayload = {
-          name: values.name,
-          description: values.description || null,
-          release_type: values.release_type,
-          target_date: toIsoDatetime(values.target_date),
+          name: standardValues.name as string,
+          description: (standardValues.description as string) || null,
+          target_date: toIsoDatetime(standardValues.target_date),
+          actual_date: toIsoDatetime(standardValues.actual_date),
+          custom_fields: customFieldValues,
         };
         await dispatch(updateRelease({ id: release.id, data: payload })).unwrap();
         dispatch(fetchRelease(release.id));
         snackbar.success('Release updated');
         handleClose();
       } else {
+        const selectedTpl = templates.find((t) => t.id === lifecycleTemplateId);
         const payload: ReleaseCreatePayload = {
-          name: values.name,
-          description: values.description || null,
-          release_type: values.release_type,
-          release_kind: values.release_kind,
-          lifecycle_template_id: values.lifecycle_template_id ?? undefined,
-          target_date: toIsoDatetime(values.target_date),
+          name: standardValues.name as string,
+          description: (standardValues.description as string) || null,
+          release_type: selectedTpl?.name ?? (standardValues.release_type as string) ?? '',
+          release_kind: kind,
+          lifecycle_template_id: lifecycleTemplateId ?? undefined,
+          target_date: toIsoDatetime(standardValues.target_date),
+          custom_fields:
+            Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
         };
         const result = await dispatch(createRelease(payload)).unwrap();
         snackbar.success('Release created');
@@ -149,151 +222,96 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
         navigate(`/releases/${result.id}`);
       }
     } catch (err) {
-      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
-      const detail = axiosErr?.response?.data?.detail;
-      const message = typeof detail === 'string'
-        ? detail
-        : Array.isArray(detail) && detail[0]?.msg
-          ? `${detail[0].loc?.join?.('.') ?? 'field'}: ${detail[0].msg}`
-          : err instanceof Error ? err.message : 'Failed to save release';
-      snackbar.error(message);
+      snackbar.error(extractErrorMessage(err, 'Failed to save release'));
     }
   };
 
-  const savedId = release?.id;
-  const tabsDisabled = !savedId;
+  const panelHasAnyFields =
+    Object.keys(fieldPermissionsForPanel[currentState]?.standard_fields ?? {}).length > 0 ||
+    visibleCustomFieldDefs.length > 0;
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>{isEdit ? 'Edit Release' : 'New Release'}</DialogTitle>
       <DialogContent>
-        <Tabs
-          value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
-          sx={{ borderBottom: 1, borderColor: 'divider', mb: 1 }}
-        >
-          <Tab label="Main" />
-          <Tab label="Gates & Test Phases" disabled={tabsDisabled} />
-          <Tab label="Environments" disabled={tabsDisabled} />
-          <Tab label="Linked Requests" disabled={tabsDisabled} />
-          <Tab label="Scope" disabled={tabsDisabled} />
-        </Tabs>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          {/* Type + Kind: selectable at create time, read-only chips on edit */}
+          {!isEdit ? (
+            <>
+              <TextField
+                select
+                label="Type"
+                required
+                fullWidth
+                value={lifecycleTemplateId ?? ''}
+                onChange={(e) => {
+                  const id = e.target.value === '' ? null : Number(e.target.value);
+                  setLifecycleTemplateId(id);
+                  const tpl = templates.find((t) => t.id === id);
+                  if (tpl) {
+                    setStandardValues((v) => ({ ...v, release_type: tpl.name }));
+                  }
+                }}
+                helperText="Type determines the release lifecycle. Manage types in Admin → Releases → Lifecycle."
+              >
+                {templates.map((t) => (
+                  <MenuItem key={t.id} value={t.id}>
+                    {t.name}
+                    {t.is_default ? ' (default)' : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
 
-        {tabsDisabled && activeTab === 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-            Save this release to unlock the remaining tabs.
-          </Typography>
-        )}
+              <TextField
+                select
+                label="Kind"
+                fullWidth
+                value={kind}
+                onChange={(e) => setKind(e.target.value as 'project' | 'enterprise')}
+              >
+                <MenuItem value="project">Project</MenuItem>
+                <MenuItem value="enterprise">Enterprise</MenuItem>
+              </TextField>
+            </>
+          ) : (
+            <Stack direction="row" spacing={1}>
+              <Chip label={`Type: ${release?.release_type ?? ''}`} />
+              <Chip label={`Kind: ${release?.release_kind ?? 'project'}`} />
+              <Chip label={`State: ${currentState}`} color="primary" size="small" />
+            </Stack>
+          )}
 
-        <Box component="form" id="release-form" onSubmit={handleSubmit(onSubmit)}>
-          <TabPanel value={activeTab} index={0}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Controller
-                control={control}
-                name="name"
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    label="Name"
-                    required
-                    fullWidth
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                  />
-                )}
-              />
-
-              {/* Type = lifecycle template. Selecting a type sets both
-                  release_type (to template.name) and lifecycle_template_id. */}
-              {!isEdit ? (
-                <Controller
-                  control={control}
-                  name="lifecycle_template_id"
-                  render={({ field, fieldState }) => (
-                    <TextField
-                      select
-                      label="Type"
-                      required
-                      fullWidth
-                      value={field.value ?? ''}
-                      onChange={(e) => {
-                        const id = e.target.value === '' ? null : Number(e.target.value);
-                        field.onChange(id);
-                        const tpl = lifecycles.find((t) => t.id === id);
-                        if (tpl) setValue('release_type', tpl.name);
-                      }}
-                      error={!!fieldState.error}
-                      helperText={
-                        fieldState.error?.message ??
-                        'Type determines the release lifecycle. Manage types in Admin → Releases → Lifecycle.'
-                      }
-                    >
-                      {lifecycles.map((t) => (
-                        <MenuItem key={t.id} value={t.id}>
-                          {t.name}
-                          {t.is_default ? ' (default)' : ''}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  )}
-                />
-              ) : (
-                <Controller
-                  control={control}
-                  name="release_type"
-                  render={({ field }) => (
-                    <TextField {...field} label="Type" disabled fullWidth />
-                  )}
-                />
-              )}
-
-              {!isEdit && (
-                <Controller
-                  control={control}
-                  name="release_kind"
-                  render={({ field }) => (
-                    <TextField {...field} select label="Kind" fullWidth>
-                      <MenuItem value="project">Project</MenuItem>
-                      <MenuItem value="enterprise">Enterprise</MenuItem>
-                    </TextField>
-                  )}
-                />
-              )}
-
-              <Controller
-                control={control}
-                name="target_date"
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Target Date"
-                    type="date"
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="description"
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    label="Description"
-                    multiline
-                    rows={3}
-                    fullWidth
-                  />
-                )}
-              />
-            </Box>
-          </TabPanel>
+          {/* Lifecycle-driven fields */}
+          {panelHasAnyFields ? (
+            <LifecycleAwareFieldsPanel
+              entityType="release"
+              entitySubtype={standardValues.release_type as string}
+              currentState={currentState}
+              userRole={userRole}
+              fieldPermissions={fieldPermissionsForPanel}
+              standardValues={standardValues}
+              customFieldDefinitions={visibleCustomFieldDefs}
+              customFieldValues={customFieldValues}
+              onStandardChange={(key, value) =>
+                setStandardValues((v) => ({ ...v, [key]: value }))
+              }
+              onCustomChange={(key, value) =>
+                setCustomFieldValues((v) => ({ ...v, [key]: value }))
+              }
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              The selected lifecycle has no editable fields configured for state
+              &ldquo;{currentState}&rdquo;. Configure field permissions in Admin →
+              Releases → Lifecycle, or edit the release in a state that grants
+              edit permissions to your role.
+            </Typography>
+          )}
         </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
-        <Button type="submit" form="release-form" variant="contained">
+        <Button onClick={handleSubmit} variant="contained">
           {isEdit ? 'Save' : 'Create Release'}
         </Button>
       </DialogActions>

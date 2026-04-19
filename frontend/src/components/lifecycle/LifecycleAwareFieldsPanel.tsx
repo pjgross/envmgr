@@ -84,6 +84,7 @@ export default function LifecycleAwareFieldsPanel({
             const required = isRequired(key, required_fields);
             const value = standardValues[key];
             const isBool = typeof value === 'boolean';
+            const isDate = key.endsWith('_date') || key === 'date';
             const labelText = `${key.replace(/_/g, ' ')}${required ? ' *' : ''}`;
 
             if (isBool) {
@@ -111,19 +112,28 @@ export default function LifecycleAwareFieldsPanel({
               );
             }
 
+            // Normalise date strings to YYYY-MM-DD for <input type="date">.
+            const displayValue =
+              isDate && typeof value === 'string' && value.length > 10
+                ? value.slice(0, 10)
+                : value ?? '';
+
             return (
               <TextField
                 key={key}
                 label={labelText}
+                type={isDate ? 'date' : 'text'}
                 fullWidth
                 size="small"
                 sx={{ mb: 1.5 }}
-                value={value ?? ''}
+                value={displayValue}
                 disabled={!canEdit(editable)}
                 error={required && (value === '' || value === null || value === undefined)}
                 onChange={(e) => onStandardChange(key, e.target.value)}
                 InputLabelProps={
-                  typeof value === 'string' && value !== '' ? { shrink: true } : undefined
+                  isDate || (typeof value === 'string' && value !== '')
+                    ? { shrink: true }
+                    : undefined
                 }
               />
             );
