@@ -34,18 +34,24 @@ export default function ReceivedFeedbackList({ items }: Props) {
           }}
         >
           <Typography variant="body2">
-            <Link component={RouterLink} to={`/bookings/${it.source_booking.id}`}>
-              Booking #{it.source_booking.id}
+            <Link
+              component={RouterLink}
+              to={`/bookings/${it.source_booking.id}`}
+              sx={{ fontWeight: 'medium' }}
+            >
+              {it.source_request.project_name ??
+                it.source_booking.project_name ??
+                `Booking #${it.source_booking.id}`}
             </Link>
+            {it.source_booking.environment_name
+              ? ` · ${it.source_booking.environment_name}`
+              : ''}
             {' · '}
             {new Date(it.source_booking.start_date).toLocaleDateString()} –{' '}
             {new Date(it.source_booking.end_date).toLocaleDateString()}
-            {' · status '}
-            {it.source_booking.status}
+            {' · '}status {it.source_booking.status}
           </Typography>
           <Typography variant="body2" sx={{ mt: 0.5 }}>
-            Project: <strong>{it.source_request.project_name}</strong>
-            {'  '}
             Booked by: {it.source_request.booked_by.username} ({it.source_request.booked_by.email})
           </Typography>
           <Typography variant="body2" sx={{ mt: 1 }}>

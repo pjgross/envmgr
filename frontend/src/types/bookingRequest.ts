@@ -1,7 +1,8 @@
 export type EnvBookingSummary = {
   id: number;
   environment_id: number;
-  environment_name?: string;
+  environment_name?: string | null;
+  project_name?: string | null;
   start_date: string;
   end_date: string;
   status: string;

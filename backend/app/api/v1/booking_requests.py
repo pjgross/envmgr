@@ -72,9 +72,14 @@ async def create_booking_request(
         request=_to_response(req),
         detected_conflicts={
             k: [EnvBookingSummary(
-                    id=b.id, environment_id=b.environment_id,
-                    start_date=b.start_date, end_date=b.end_date, status=b.status,
-                ) for b in v]
+                    id=c.booking.id,
+                    environment_id=c.booking.environment_id,
+                    environment_name=c.environment_name,
+                    project_name=c.project_name,
+                    start_date=c.booking.start_date,
+                    end_date=c.booking.end_date,
+                    status=c.booking.status,
+                ) for c in v]
             for k, v in detected.items()
         },
     )
