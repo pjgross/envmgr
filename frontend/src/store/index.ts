@@ -15,6 +15,9 @@ import componentTypeReducer from './componentTypeSlice';
 import uiReducer from './uiSlice';
 import changeRequestReducer from './changeRequestSlice';
 import infrastructureComponentReducer from './infrastructureComponentSlice';
+import releaseReducer from './releaseSlice';
+import releaseTemplateReducer from './releaseTemplateSlice';
+import releaseEventTypeReducer from './releaseEventTypeSlice';
 
 export const store = configureStore({
   reducer: {
@@ -34,6 +37,9 @@ export const store = configureStore({
     componentType: componentTypeReducer,
     changeRequest: changeRequestReducer,
     infrastructureComponent: infrastructureComponentReducer,
+    release: releaseReducer,
+    releaseTemplate: releaseTemplateReducer,
+    releaseEventType: releaseEventTypeReducer,
   },
 });
 
