@@ -5,6 +5,8 @@ export interface CustomFieldDefinition {
   id: number;
   tenant_id: number;
   entity_type: EntityType;
+  /** Scopes the field to an entity subtype (e.g. release type name); null = all subtypes. */
+  entity_subtype: string | null;
   field_key: string;
   label: string;
   field_type: FieldType;
@@ -18,6 +20,7 @@ export interface CustomFieldDefinition {
 
 export interface CustomFieldDefinitionCreate {
   entity_type: EntityType;
+  entity_subtype?: string | null;
   field_key?: string;
   label: string;
   field_type: FieldType;
@@ -27,6 +30,7 @@ export interface CustomFieldDefinitionCreate {
 
 export interface CustomFieldDefinitionUpdate {
   label?: string;
+  entity_subtype?: string | null;
   required?: boolean;
   display_order?: number;
 }

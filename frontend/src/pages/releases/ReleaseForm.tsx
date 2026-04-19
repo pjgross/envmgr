@@ -162,14 +162,21 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
     return out;
   }, [lifecycleTpl]);
 
-  // Filter custom field definitions to those the current state actually references.
-  // Hidden fields never render (matches booking behaviour). If the lifecycle has
-  // no entry for this state we fall back to showing nothing.
+  // Filter custom field definitions to those the current state actually references,
+  // AND whose entity_subtype matches this release's type (null subtype = all types).
+  // Hidden fields never render (matches booking behaviour).
   const visibleCustomFieldDefs = useMemo(() => {
     const customPerms =
       fieldPermissionsForPanel[currentState]?.custom_fields ?? {};
-    return customFieldDefs.filter((d) => d.field_key in customPerms);
-  }, [customFieldDefs, fieldPermissionsForPanel, currentState]);
+    const releaseType = standardValues.release_type as string | undefined;
+    return customFieldDefs.filter(
+      (d) =>
+        d.field_key in customPerms &&
+        (d.entity_subtype === null ||
+          d.entity_subtype === undefined ||
+          d.entity_subtype === releaseType)
+    );
+  }, [customFieldDefs, fieldPermissionsForPanel, currentState, standardValues.release_type]);
 
   const handleClose = () => {
     onClose();

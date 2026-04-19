@@ -76,6 +76,7 @@ async def create_definition(
     definition = CustomFieldDefinition(
         tenant_id=tenant_id,
         entity_type=data.entity_type,
+        entity_subtype=data.entity_subtype,
         field_key=field_key,
         label=data.label,
         field_type=data.field_type,
@@ -108,6 +109,10 @@ async def update_definition(
         definition.required = data.required
     if data.display_order is not None:
         definition.display_order = data.display_order
+    # entity_subtype: explicit None is a legitimate update (widen scope), so
+    # distinguish via model_fields_set rather than truthiness.
+    if "entity_subtype" in data.model_fields_set:
+        definition.entity_subtype = data.entity_subtype
 
     await db.flush()
     await db.refresh(definition)

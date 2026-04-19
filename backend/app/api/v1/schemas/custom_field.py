@@ -6,13 +6,21 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 
 
-VALID_ENTITY_TYPES = {"system", "subsystem", "environment", "booking"}
+VALID_ENTITY_TYPES = {
+    "system",
+    "subsystem",
+    "environment",
+    "booking",
+    "change_request",
+    "release",
+}
 VALID_FIELD_TYPES = {"text", "number", "boolean"}
 FIELD_KEY_RE = re.compile(r'^[a-z][a-z0-9_]*$')
 
 
 class CustomFieldDefinitionCreate(BaseModel):
     entity_type: str
+    entity_subtype: Optional[str] = None  # scopes to a subtype (e.g. release_type name)
     field_key: Optional[str] = None   # auto-generated from label if omitted
     label: str
     field_type: str
@@ -44,6 +52,7 @@ class CustomFieldDefinitionCreate(BaseModel):
 class CustomFieldDefinitionUpdate(BaseModel):
     # field_key and field_type are intentionally excluded — immutable after creation
     label: Optional[str] = None
+    entity_subtype: Optional[str] = None  # may be re-scoped (set None to widen to all subtypes)
     required: Optional[bool] = None
     display_order: Optional[int] = None
 
@@ -54,6 +63,7 @@ class CustomFieldDefinitionResponse(BaseModel):
     id: int
     tenant_id: int
     entity_type: str
+    entity_subtype: Optional[str] = None
     field_key: str
     label: str
     field_type: str
