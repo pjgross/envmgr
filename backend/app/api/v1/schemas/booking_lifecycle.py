@@ -30,6 +30,18 @@ ENTITY_FIELD_SPECS: dict[str, dict[str, set[str]]] = {
         },
         "mandatory": {"title", "change_type", "scheduled_start", "scheduled_end"},
     },
+    "release": {
+        "valid": {
+            "name",
+            "description",
+            "release_type",
+            "target_date",
+            "actual_date",
+            "raised_by",
+        },
+        "mandatory": set(),
+        "required_at_create": {"name", "release_type"},
+    },
 }
 
 # Back-compat aliases — booking-specific code paths still import these names.
