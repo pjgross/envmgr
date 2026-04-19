@@ -16,7 +16,7 @@ export const releaseEventTypeService = {
     api.post('/release-event-types', data).then((r) => r.data),
 
   update: (id: number, data: ReleaseEventTypeUpdatePayload): Promise<ReleaseEventTypeResponse> =>
-    api.patch(`/release-event-types/${id}`, data).then((r) => r.data),
+    api.put(`/release-event-types/${id}`, data).then((r) => r.data),
 
   remove: (id: number): Promise<void> =>
     api.delete(`/release-event-types/${id}`).then(() => undefined),

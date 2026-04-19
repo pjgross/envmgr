@@ -18,7 +18,7 @@ export const releaseTemplateService = {
     api.post('/release-templates', data).then((r) => r.data),
 
   update: (id: number, data: ReleaseTemplateUpdatePayload): Promise<ReleaseTemplateResponse> =>
-    api.patch(`/release-templates/${id}`, data).then((r) => r.data),
+    api.put(`/release-templates/${id}`, data).then((r) => r.data),
 
   remove: (id: number): Promise<void> =>
     api.delete(`/release-templates/${id}`).then(() => undefined),

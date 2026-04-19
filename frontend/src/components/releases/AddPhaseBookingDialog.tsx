@@ -79,17 +79,26 @@ export default function AddPhaseBookingDialog({
       await releaseService.bookForPhase(releaseId, {
         environment_id: envId as number,
         project_name: projectName,
-        start_date: new Date(startDate).toISOString(),
-        end_date: new Date(endDate).toISOString(),
+        start: new Date(startDate).toISOString(),
+        end: new Date(endDate).toISOString(),
         booking_type_id: bookingTypeId as number,
-        test_phase_id: phaseId !== '' ? (phaseId as number) : undefined,
+        phase_id: phaseId !== '' ? (phaseId as number) : undefined,
       });
       snackbar.success('Booking created');
       resetForm();
       onCreated();
       onClose();
     } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to create booking');
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? `${(detail[0] as { loc?: unknown[] }).loc?.join?.('.') ?? 'field'}: ${
+              (detail[0] as { msg: string }).msg
+            }`
+          : err instanceof Error ? err.message : 'Failed to create booking';
+      snackbar.error(msg);
     } finally {
       setSubmitting(false);
     }

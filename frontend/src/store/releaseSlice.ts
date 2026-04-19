@@ -147,6 +147,14 @@ export const updateGate = createAsyncThunk(
     releaseService.updateGate(releaseId, gateId, data)
 );
 
+export const deleteGate = createAsyncThunk(
+  'release/deleteGate',
+  async ({ releaseId, gateId }: { releaseId: number; gateId: number }) => {
+    await releaseService.deleteGate(releaseId, gateId);
+    return gateId;
+  }
+);
+
 export const passGate = createAsyncThunk(
   'release/passGate',
   ({ releaseId, gateId, data }: { releaseId: number; gateId: number; data?: ReleaseGateDecisionPayload }) =>

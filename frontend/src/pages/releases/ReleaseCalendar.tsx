@@ -14,23 +14,29 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { AppDispatch, RootState } from '../../store';
 import { fetchReleaseCalendar } from '../../store/releaseSlice';
 
-const PHASE_STATUS_COLORS: Record<string, string> = {
-  pending: '#9e9e9e',
+const RELEASE_STATUS_COLORS: Record<string, string> = {
+  draft: '#9e9e9e',
+  submitted: '#ffa726',
+  approved: '#26a69a',
   in_progress: '#1976d2',
+  ready_for_release: '#7e57c2',
   completed: '#388e3c',
-  skipped: '#bdbdbd',
+  completed_with_issues: '#ef6c00',
+  backed_out: '#d32f2f',
+  rejected: '#b71c1c',
+  cancelled: '#616161',
 };
 
 function toCalendarEvents(entries: RootState['release']['calendar']): EventInput[] {
   return entries
-    .filter((e) => e.start_date)
+    .filter((e) => e.start)
     .map((e) => {
-      const color = PHASE_STATUS_COLORS[e.status] ?? '#1976d2';
+      const color = RELEASE_STATUS_COLORS[e.status] ?? '#1976d2';
       return {
-        id: `${e.release_id}-${e.phase_id}`,
-        title: `[${e.release_name}] ${e.phase_name}`,
-        start: e.start_date!,
-        end: e.end_date ?? e.start_date!,
+        id: String(e.id),
+        title: `${e.title} (${e.release_type})`,
+        start: e.start!,
+        end: e.end ?? e.start!,
         backgroundColor: color,
         borderColor: color,
         extendedProps: { entry: e },
@@ -68,7 +74,7 @@ export default function ReleaseCalendar() {
 
   const handleEventClick = (info: EventClickArg) => {
     const entry = info.event.extendedProps.entry as RootState['release']['calendar'][number];
-    navigate(`/releases/${entry.release_id}?tab=phases&phase=${entry.phase_id}`);
+    navigate(`/releases/${entry.id}`);
   };
 
   const events = toCalendarEvents(calendar);

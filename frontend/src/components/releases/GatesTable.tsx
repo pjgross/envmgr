@@ -21,8 +21,7 @@ import GavelIcon from '@mui/icons-material/Gavel';
 import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../DataTable';
 import { AppDispatch } from '../../store';
-import { createGate } from '../../store/releaseSlice';
-import { releaseService } from '../../services/releaseService';
+import { createGate, deleteGate } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import GateDecisionDialog from './GateDecisionDialog';
 import type { ReleaseGateResponse, TestPhaseResponse } from '../../types/release';
@@ -81,13 +80,16 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   const handleDelete = async (gateId: number) => {
     if (!confirm('Delete this gate?')) return;
     try {
-      await releaseService.updateGate(releaseId, gateId, {});
-      // Workaround: no deleteGate thunk — call service directly and refresh
-      await releaseService.list({});
+      await dispatch(deleteGate({ releaseId, gateId })).unwrap();
       onRefresh();
       snackbar.success('Gate deleted');
     } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to delete gate');
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : err instanceof Error ? err.message : 'Failed to delete gate';
+      snackbar.error(msg);
     }
   };
 

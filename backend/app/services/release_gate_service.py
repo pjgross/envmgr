@@ -148,6 +148,26 @@ async def update_gate(
     return gate
 
 
+async def delete_gate(
+    db: AsyncSession,
+    gate_id: int,
+    tenant_id: int,
+) -> None:
+    """Soft-delete a gate. Already-decided gates can still be removed (audit
+    trail is the ReleaseGatePassed/Failed/Overridden event log)."""
+    gate = await _get_gate(db, gate_id, tenant_id)
+    gate.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
+    await publish_event(
+        db,
+        event_type="ReleaseGateDeleted",
+        aggregate_id=gate.id,
+        aggregate_type="ReleaseGate",
+        payload={"id": gate.id, "release_id": gate.release_id},
+        tenant_id=tenant_id,
+    )
+
+
 async def pass_gate(
     db: AsyncSession,
     gate_id: int,

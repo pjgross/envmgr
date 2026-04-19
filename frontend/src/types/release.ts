@@ -167,13 +167,14 @@ export interface ReleaseDependencyCreatePayload {
 }
 
 export interface ReleaseCalendarEntry {
-  release_id: number;
-  release_name: string;
-  phase_id: number;
-  phase_name: string;
-  start_date: string | null;
-  end_date: string | null;
+  /** Release id (backend key: id). */
+  id: number;
+  /** Release name (backend key: title). */
+  title: string;
+  start: string | null;
+  end: string | null;
   status: string;
+  release_type: string;
 }
 
 export interface ReleaseTimelineEntry {
@@ -189,12 +190,14 @@ export interface ReleaseTimelineEntry {
 
 export interface ReleaseBookingCreatePayload {
   environment_id: number;
-  project_name: string;
-  start_date: string;
-  end_date: string;
+  project_name?: string | null;
+  /** Backend field name is `start` (not start_date) — ReleaseBookingRequest schema. */
+  start: string;
+  /** Backend field name is `end` (not end_date). */
+  end: string;
   booking_type_id: number;
-  test_phase_id?: number | null;
+  /** Backend field name is `phase_id` (not test_phase_id) on the ReleaseBookingRequest. */
+  phase_id?: number | null;
   exclusive_use?: boolean;
   notes?: string | null;
-  custom_fields?: Record<string, unknown> | null;
 }

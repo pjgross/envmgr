@@ -527,6 +527,15 @@ async def update_gate(
     return await release_gate_service.update_gate(db, gate_id, data, current_user.active_tenant_id)
 
 
+@gates_router.delete("/{gate_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_gate(
+    gate_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    await release_gate_service.delete_gate(db, gate_id, current_user.active_tenant_id)
+
+
 @gates_router.post("/{gate_id}/pass", response_model=ReleaseGateRead)
 async def pass_gate(
     gate_id: int,
@@ -818,6 +827,7 @@ async def list_release_bookings(
             "id": b.id,
             "environment_id": b.environment_id,
             "environment_name": b.environment.name if b.environment else None,
+            "project_name": b.booking_request.project_name if b.booking_request else None,
             "start_date": b.start_date.isoformat(),
             "end_date": b.end_date.isoformat(),
             "status": b.status,

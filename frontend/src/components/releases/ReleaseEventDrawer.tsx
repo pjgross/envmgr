@@ -58,13 +58,19 @@ export default function ReleaseEventDrawer({ open, releaseId, onClose }: Props) 
     if (!eventTypeId || !description.trim()) return;
     setSubmitting(true);
     try {
+      // <input type="datetime-local"> yields "YYYY-MM-DDTHH:MM" (no seconds,
+      // no zone). Pydantic v2 accepts that — but only if we don't leave it
+      // partial. Normalise to "YYYY-MM-DDTHH:MM:00Z" for safety.
+      const occurredAtIso = occurredAt
+        ? (occurredAt.length === 16 ? `${occurredAt}:00Z` : occurredAt)
+        : null;
       await dispatch(
         createReleaseEvent({
           releaseId,
           data: {
             event_type_id: eventTypeId as number,
             description: description.trim(),
-            occurred_at: occurredAt || null,
+            occurred_at: occurredAtIso,
           },
         })
       ).unwrap();
@@ -74,7 +80,12 @@ export default function ReleaseEventDrawer({ open, releaseId, onClose }: Props) 
       setEventTypeId('');
       setShowForm(false);
     } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to record event');
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : err instanceof Error ? err.message : 'Failed to record event';
+      snackbar.error(msg);
     } finally {
       setSubmitting(false);
     }

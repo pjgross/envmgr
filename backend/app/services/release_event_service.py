@@ -203,12 +203,17 @@ async def find_system_event_type(
     tenant_id: int,
     name: str,
 ) -> Optional[ReleaseEventType]:
-    """Look up a system event type by name. Returns None if not found."""
+    """Look up a *system* event type by name. Returns None if not found.
+
+    Filters on is_system=True so a user-renamed or user-created type with a
+    colliding name won't be treated as the canonical 'Reschedule Reason' etc.
+    """
     return (
         await db.execute(
             select(ReleaseEventType).where(
                 ReleaseEventType.tenant_id == tenant_id,
                 ReleaseEventType.name == name,
+                ReleaseEventType.is_system.is_(True),
                 ReleaseEventType.deleted_at.is_(None),
             )
         )

@@ -243,11 +243,12 @@ async def transition_release(
 ) -> Release:
     release = await _get_release(db, release_id, tenant_id)
 
-    # Load the lifecycle template
+    # Load the lifecycle template (tenant-scoped)
     tpl = (
         await db.execute(
             select(LifecycleTemplate).where(
                 LifecycleTemplate.id == release.lifecycle_template_id,
+                LifecycleTemplate.tenant_id == tenant_id,
             )
         )
     ).scalar_one_or_none()

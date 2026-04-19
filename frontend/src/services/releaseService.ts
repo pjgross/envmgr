@@ -68,11 +68,11 @@ export const releaseService = {
   createPhase: (releaseId: number, data: TestPhaseCreatePayload): Promise<TestPhaseResponse> =>
     api.post(`/releases/${releaseId}/phases`, data).then((r) => r.data),
 
-  updatePhase: (releaseId: number, phaseId: number, data: TestPhaseUpdatePayload): Promise<TestPhaseResponse> =>
-    api.put(`/releases/${releaseId}/phases/${phaseId}`, data).then((r) => r.data),
+  updatePhase: (_releaseId: number, phaseId: number, data: TestPhaseUpdatePayload): Promise<TestPhaseResponse> =>
+    api.put(`/phases/${phaseId}`, data).then((r) => r.data),
 
-  deletePhase: (releaseId: number, phaseId: number): Promise<void> =>
-    api.delete(`/releases/${releaseId}/phases/${phaseId}`).then(() => undefined),
+  deletePhase: (_releaseId: number, phaseId: number): Promise<void> =>
+    api.delete(`/phases/${phaseId}`).then(() => undefined),
 
   // --- Gates ---
   listGates: (releaseId: number): Promise<ReleaseGateResponse[]> =>
@@ -81,17 +81,20 @@ export const releaseService = {
   createGate: (releaseId: number, data: ReleaseGateCreatePayload): Promise<ReleaseGateResponse> =>
     api.post(`/releases/${releaseId}/gates`, data).then((r) => r.data),
 
-  updateGate: (releaseId: number, gateId: number, data: ReleaseGateUpdatePayload): Promise<ReleaseGateResponse> =>
-    api.put(`/releases/${releaseId}/gates/${gateId}`, data).then((r) => r.data),
+  updateGate: (_releaseId: number, gateId: number, data: ReleaseGateUpdatePayload): Promise<ReleaseGateResponse> =>
+    api.put(`/gates/${gateId}`, data).then((r) => r.data),
 
-  passGate: (releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
-    api.post(`/releases/${releaseId}/gates/${gateId}/pass`, data).then((r) => r.data),
+  deleteGate: (_releaseId: number, gateId: number): Promise<void> =>
+    api.delete(`/gates/${gateId}`).then(() => undefined),
 
-  failGate: (releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
-    api.post(`/releases/${releaseId}/gates/${gateId}/fail`, data).then((r) => r.data),
+  passGate: (_releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
+    api.post(`/gates/${gateId}/pass`, data).then((r) => r.data),
 
-  overrideGate: (releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
-    api.post(`/releases/${releaseId}/gates/${gateId}/override`, data).then((r) => r.data),
+  failGate: (_releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
+    api.post(`/gates/${gateId}/fail`, data).then((r) => r.data),
+
+  overrideGate: (_releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
+    api.post(`/gates/${gateId}/override`, data).then((r) => r.data),
 
   // --- Systems ---
   listSystems: (releaseId: number): Promise<ReleaseSystemResponse[]> =>
