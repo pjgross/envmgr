@@ -19,6 +19,8 @@ import BookingList from './pages/bookings/BookingList';
 import BookingDetail from './pages/bookings/BookingDetail';
 import ChangeRequestList from './pages/change-requests/ChangeRequestList';
 import ChangeRequestDetail from './pages/change-requests/ChangeRequestDetail';
+import ReleaseList from './pages/releases/ReleaseList';
+import ReleaseDetail from './pages/releases/ReleaseDetail';
 import InfrastructureComponentList from './pages/infrastructure/InfrastructureComponentList';
 import ImportPage from './pages/import/ImportPage';
 import AdminLayout from './pages/admin/AdminLayout';
@@ -115,6 +117,9 @@ function App() {
           <Route path="/bookings/:id" element={<BookingDetail />} />
           <Route path="/change-requests" element={<ChangeRequestList />} />
           <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
+          <Route path="/releases" element={<ReleaseList />} />
+          <Route path="/releases/new" element={<ReleaseList />} />
+          <Route path="/releases/:id" element={<ReleaseDetail />} />
           <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
           <Route path="/import" element={<ImportPage />} />
           <Route
