@@ -10,8 +10,8 @@
 |-------|------|--------|----------|--------|
 | 0 | Foundations & Guardrails | ✅ Complete | — | See below |
 | 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
-| 2 | Change Management | 🚧 Implementation complete, pending MR | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
-| 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | 🚧 Implementation complete, pending MR | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
+| 2 | Change Management | ✅ Complete (MR !2, merge `3bb3833`, 2026-04-19) | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
+| 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | ✅ Complete (same MR) | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
 | 3 | Releases, Templates, Enterprise Release, Jira | ⏳ Planned | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
@@ -43,19 +43,20 @@ See [phases/phase-1.md](phases/phase-1.md) for the full task checklist.
 
 ---
 
-## Phase 2: Change Management — 🚧 Implementation complete, pending MR
+## Phase 2: Change Management — ✅ Merged to `main` via MR !2 (2026-04-19)
 
 See [phases/phase-2.md](phases/phase-2.md) for the full commit trail and acceptance checklist.
 
-**Delivered on `feature/phase-2-change-management`** (2026-04-18):
+**Delivered** on `feature/phase-2-change-management`, merged into `main` at `3bb3833`:
 - Lifecycle infrastructure generalised: `booking_lifecycle_template` → `lifecycle_template` with `entity_type` column; `lifecycle_service` works across bookings + change requests + (later) releases
 - `ChangeRequest` + `ChangeHistory` domain models; CRUD API at `/api/v1/change-requests`; seed `Simple Approval` + `Emergency` default lifecycles on tenant creation
 - Unified `GET /api/v1/environments/{id}/schedule` returning `{bookings, change_requests, deployments: []}`
 - Outage × booking conflict preview endpoint + non-blocking form warning
 - Frontend: CR list / form / detail / edit dialog pages, generalised admin `LifecycleTemplatesPanel`, `EnvironmentSchedule` FullCalendar tab on `EnvironmentDetail`
-- Backend suite: 256 passed
+- **Phase 2.5 pull-forward** (same MR): `InfrastructureComponent` + host junctions, multi-target CRs, host-impact panel, readonly booking Gantt on CR form + detail
+- Backend suite: 268 passed
 
-**Deferred**: change-notification consumer (cross-cutting, needed for bookings too); frontend unit tests (Tier 3 modernisation).
+**Deferred** (not Phase 2 regressions): change-notification consumer (cross-cutting, needed for bookings too); frontend unit tests (Tier 3 modernisation); `release_id` FK (Phase 3); `deployments: []` population (Phase 4).
 
 ---
 
