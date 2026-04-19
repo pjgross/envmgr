@@ -12,13 +12,15 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
+from app.db.models.release_gate import ReleaseGate
+from app.db.models.release_change import ReleaseChange
 from app.db.models.test_phase import TestPhase
 from app.services import (
     lifecycle_service,
@@ -33,6 +35,7 @@ from app.api.v1.schemas.release import (
     ReleaseCreate,
     ReleaseUpdate,
     ReleaseRead,
+    ReleaseListItemRead,
     ReleaseTransition,
     ReleaseStatusHistoryRead,
 )
@@ -93,7 +96,7 @@ async def _require_phase(db: AsyncSession, phase_id: int, tenant_id: int) -> Tes
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
-@router.get("", response_model=list[ReleaseRead])
+@router.get("", response_model=list[ReleaseListItemRead])
 async def list_releases(
     release_type: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -119,7 +122,58 @@ async def list_releases(
         limit=limit,
         offset=offset,
     )
-    return releases
+    if not releases:
+        return []
+    release_ids = [r.id for r in releases]
+
+    # Phase counts per release
+    phase_rows = (
+        await db.execute(
+            select(TestPhase.release_id, func.count(TestPhase.id).label("cnt"))
+            .where(
+                TestPhase.release_id.in_(release_ids),
+                TestPhase.deleted_at.is_(None),
+            )
+            .group_by(TestPhase.release_id)
+        )
+    ).all()
+    phase_counts = {row.release_id: row.cnt for row in phase_rows}
+
+    # Scope (change) counts per release
+    scope_rows = (
+        await db.execute(
+            select(ReleaseChange.release_id, func.count(ReleaseChange.id).label("cnt"))
+            .where(
+                ReleaseChange.release_id.in_(release_ids),
+                ReleaseChange.deleted_at.is_(None),
+            )
+            .group_by(ReleaseChange.release_id)
+        )
+    ).all()
+    scope_counts = {row.release_id: row.cnt for row in scope_rows}
+
+    # Blocker (pending gate) counts per release
+    gate_rows = (
+        await db.execute(
+            select(ReleaseGate.release_id, func.count(ReleaseGate.id).label("cnt"))
+            .where(
+                ReleaseGate.release_id.in_(release_ids),
+                ReleaseGate.status == "pending",
+                ReleaseGate.deleted_at.is_(None),
+            )
+            .group_by(ReleaseGate.release_id)
+        )
+    ).all()
+    gate_counts = {row.release_id: row.cnt for row in gate_rows}
+
+    result = []
+    for r in releases:
+        item = ReleaseListItemRead.model_validate(r)
+        item.phase_count = phase_counts.get(r.id, 0)
+        item.scope_count = scope_counts.get(r.id, 0)
+        item.blocker_count = gate_counts.get(r.id, 0)
+        result.append(item)
+    return result
 
 
 @router.post("", response_model=ReleaseRead, status_code=status.HTTP_201_CREATED)
@@ -287,6 +341,35 @@ async def transition_release(
         user_role=current_user.role,
     )
     return release
+
+
+@router.get("/{release_id}/lifecycle")
+async def get_release_lifecycle(
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return the lifecycle template (including definition JSON) for a release.
+
+    Used by the frontend ReleaseMainTab to drive TransitionControls and
+    LifecycleAwareFieldsPanel without an extra round-trip.
+    """
+    tenant_id = current_user.active_tenant_id
+    release = await _require_release(db, release_id, tenant_id)
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(LifecycleTemplate.id == release.lifecycle_template_id)
+        )
+    ).scalar_one_or_none()
+    if tpl is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lifecycle template not found")
+    return {
+        "id": tpl.id,
+        "name": tpl.name,
+        "entity_type": tpl.entity_type,
+        "is_default": tpl.is_default,
+        "definition": tpl.definition,
+    }
 
 
 @router.get("/{release_id}/history", response_model=list[ReleaseStatusHistoryRead])

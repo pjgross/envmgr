@@ -1,6 +1,7 @@
 import api from './api';
 import type {
   ReleaseResponse,
+  ReleaseListItemResponse,
   ReleaseStatusHistory,
   ReleaseCreatePayload,
   ReleaseUpdatePayload,
@@ -29,7 +30,7 @@ import type { ChangeRequestResponse } from '../types/changeRequest';
 
 export const releaseService = {
   // --- Release CRUD ---
-  list: (filters: ReleaseListFilters = {}): Promise<ReleaseResponse[]> =>
+  list: (filters: ReleaseListFilters = {}): Promise<ReleaseListItemResponse[]> =>
     api.get('/releases', { params: filters }).then((r) => r.data),
 
   get: (id: number): Promise<ReleaseResponse> =>
@@ -49,6 +50,9 @@ export const releaseService = {
 
   listHistory: (id: number): Promise<ReleaseStatusHistory[]> =>
     api.get(`/releases/${id}/history`).then((r) => r.data),
+
+  getLifecycle: (id: number): Promise<import('../types/bookingLifecycle').BookingLifecycleTemplate> =>
+    api.get(`/releases/${id}/lifecycle`).then((r) => r.data),
 
   // --- Calendar / Timeline ---
   listCalendar: (from: string, to: string): Promise<ReleaseCalendarEntry[]> =>

@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import type {
   ReleaseResponse,
+  ReleaseListItemResponse,
   ReleaseCreatePayload,
   ReleaseUpdatePayload,
   ReleaseTransitionPayload,
@@ -28,7 +29,7 @@ import type {
 import { releaseService } from '../services/releaseService';
 
 interface ReleaseState {
-  list: ReleaseResponse[];
+  list: ReleaseListItemResponse[];
   detail: ReleaseResponse | null;
   loading: boolean;
   error: string | null;
@@ -254,20 +255,22 @@ const releaseSlice = createSlice({
       .addCase(fetchRelease.fulfilled, (state, action) => { state.loading = false; state.detail = action.payload; })
       .addCase(fetchRelease.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed to load release'; })
 
-      // create
-      .addCase(createRelease.fulfilled, (state, action) => { state.list.unshift(action.payload); })
+      // create — counts default to 0 for a brand-new release
+      .addCase(createRelease.fulfilled, (state, action) => {
+        state.list.unshift({ ...action.payload, phase_count: 0, scope_count: 0, blocker_count: 0 });
+      })
 
-      // update
+      // update — preserve existing counts, merge updated fields
       .addCase(updateRelease.fulfilled, (state, action) => {
         const idx = state.list.findIndex((r) => r.id === action.payload.id);
-        if (idx !== -1) state.list[idx] = action.payload;
+        if (idx !== -1) state.list[idx] = { ...state.list[idx], ...action.payload };
         if (state.detail?.id === action.payload.id) state.detail = action.payload;
       })
 
-      // transition
+      // transition — preserve existing counts, update status/fields
       .addCase(transitionRelease.fulfilled, (state, action) => {
         const idx = state.list.findIndex((r) => r.id === action.payload.id);
-        if (idx !== -1) state.list[idx] = action.payload;
+        if (idx !== -1) state.list[idx] = { ...state.list[idx], ...action.payload };
         if (state.detail?.id === action.payload.id) state.detail = action.payload;
       })
 

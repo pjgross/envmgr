@@ -20,6 +20,13 @@ export interface ReleaseResponse {
   updated_at: string;
 }
 
+/** List endpoint response — includes denormalised summary counts */
+export interface ReleaseListItemResponse extends ReleaseResponse {
+  phase_count: number;
+  scope_count: number;
+  blocker_count: number;
+}
+
 export interface TestPhaseResponse {
   id: number;
   tenant_id: number;

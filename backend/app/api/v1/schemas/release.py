@@ -61,3 +61,10 @@ class ReleaseStatusHistoryRead(BaseModel):
     changed_by: int
     changed_at: datetime
     notes: Optional[str]
+
+
+class ReleaseListItemRead(ReleaseRead):
+    """Extended read schema for list endpoints — includes summary counts."""
+    phase_count: int = 0
+    scope_count: int = 0
+    blocker_count: int = 0
