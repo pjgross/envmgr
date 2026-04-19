@@ -1,7 +1,22 @@
 # Phase 3: Releases & Test Phases
 
-> Status: ⏳ **Planned** | Roadmap: [../plan.md](../plan.md)
-> Duration: 4–6 weeks | Starts after Phase 2 completion
+> Status: 🔄 **Sub-project 1 in review** (MR `feature/phase-3-core-releases` → `main`) | Roadmap: [../plan.md](../plan.md)
+> Duration: 4–6 weeks | Sub-project 1 complete; sub-projects 2 & 3 + Phase 5 items deferred
+
+## Sub-project 1 — Core Releases (in review)
+
+Implemented on `feature/phase-3-core-releases`. All 39 implementation tasks complete; integration test and smoke checklist added as Tasks 40–41.
+
+| Artefact | Path |
+|----------|------|
+| Spec | `docs/superpowers/specs/2026-04-19-phase-3-core-releases-design.md` |
+| Plan | `docs/superpowers/plans/2026-04-19-phase-3-core-releases.md` |
+| Smoke checklist | `docs/phases/phase-3-sub1-smoke-checklist.md` |
+| Happy-path test | `backend/tests/integration/test_release_happy_path.py` |
+
+**Delivered**: Release Template Library, Release CRUD, TestPhase + ReleaseGate + ReleaseSystem + ReleaseEvent + ReleaseChange models, full lifecycle transitions, release-booking linking with context_tag derivation, calendar and Gantt timeline views, frontend release list / form / detail (Main / Phases / Gates / Systems / Bookings / Scope / Events tabs), admin lifecycle + event-type management pages.
+
+**Deferred to sub-projects 2/3 and Phase 5**: Enterprise Releases (release trains), Jira Integration, Post-Implementation Reviews (PIR). These remain as planned tasks in this file and in Phase 5.
 
 ---
 
