@@ -122,6 +122,7 @@ async def update_template(
     # Bump version on every save
     tpl.version = (tpl.version or 1) + 1
     await db.flush()
+    await db.refresh(tpl)
 
     await publish_event(
         db,
