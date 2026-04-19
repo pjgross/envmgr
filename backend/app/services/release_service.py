@@ -216,6 +216,7 @@ async def update_release(
         setattr(release, field, value)
 
     await db.flush()
+    await db.refresh(release)
 
     if target_date_changed:
         from app.services import release_event_service
@@ -285,6 +286,7 @@ async def transition_release(
         release.actual_date = datetime.now(timezone.utc)
 
     await db.flush()
+    await db.refresh(release)
 
     # Status history entry
     db.add(
