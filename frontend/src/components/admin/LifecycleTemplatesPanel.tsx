@@ -64,6 +64,13 @@ const STANDARD_FIELDS_BY_ENTITY: Partial<Record<EntityType, StandardField[]>> = 
     { key: 'outage_start', label: 'Outage Start', mandatory: false },
     { key: 'outage_end', label: 'Outage End', mandatory: false },
   ],
+  release: [
+    { key: 'name', label: 'Name', mandatory: true },
+    { key: 'description', label: 'Description', mandatory: false },
+    { key: 'release_type', label: 'Release Type', mandatory: true },
+    { key: 'target_date', label: 'Target Date', mandatory: false },
+    { key: 'actual_date', label: 'Actual Date', mandatory: false },
+  ],
 };
 
 interface StateRow {

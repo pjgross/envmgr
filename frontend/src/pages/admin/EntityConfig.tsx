@@ -29,7 +29,7 @@ const ENTITY_SLUG_TO_TYPE: Record<string, EntityType> = {
 };
 
 // Entities whose Lifecycle tab is fully supported.
-const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request'];
+const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request', 'release'];
 
 // Entities that have event types config.
 const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];
