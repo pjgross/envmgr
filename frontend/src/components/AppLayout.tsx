@@ -36,6 +36,9 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ListIcon from '@mui/icons-material/List';
 import BuildIcon from '@mui/icons-material/Build';
 import StorageIcon from '@mui/icons-material/Storage';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import TimelineIcon from '@mui/icons-material/Timeline';
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
@@ -69,6 +72,16 @@ const navItems: NavItem[] = [
     ],
   },
   { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
+  {
+    label: 'Releases',
+    icon: <RocketLaunchIcon />,
+    children: [
+      { label: 'List', path: '/releases', icon: <ListIcon /> },
+      { label: 'Calendar', path: '/releases/calendar', icon: <CalendarMonthIcon /> },
+      { label: 'Timeline', path: '/releases/timeline', icon: <TimelineIcon /> },
+      { label: 'Templates', path: '/admin/release-templates', icon: <LibraryBooksIcon /> },
+    ],
+  },
   { label: 'Hosts', path: '/infrastructure/hosts', icon: <StorageIcon /> },
   { label: 'Import', path: '/import', icon: <UploadIcon /> },
 ];
