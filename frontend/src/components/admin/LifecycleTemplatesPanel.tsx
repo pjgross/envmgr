@@ -156,7 +156,7 @@ export default function LifecycleTemplatesPanel({
     if (keys.some((k) => !k)) return 'All state keys must be non-empty';
     if (new Set(keys).size !== keys.length) return 'State keys must be unique';
     for (const t of transitions) {
-      if (!t.label.trim()) return 'All transitions must have a label';
+      if (!(t.label ?? '').trim()) return 'All transitions must have a label';
       if (!t.from_state || !t.to_state) return 'All transitions must have from and to states';
       if (!keys.includes(t.from_state) || !keys.includes(t.to_state))
         return 'Transitions must reference valid state keys';
@@ -218,7 +218,11 @@ export default function LifecycleTemplatesPanel({
       template.definition.transitions.map((t) => ({
         from_state: t.from_state,
         to_state: t.to_state,
-        label: t.label,
+        // Older seeded templates may lack `label`; coerce to empty string so
+        // the UI renders and the validator can surface a readable error
+        // ("All transitions must have a label") instead of TypeError on
+        // undefined.trim().
+        label: t.label ?? '',
         allowed_roles: t.allowed_roles,
       }))
     );
