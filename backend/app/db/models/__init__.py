@@ -37,6 +37,7 @@ from app.db.models.release_template import ReleaseTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
 from app.db.models.test_phase import TestPhase
 from app.db.models.release_gate import ReleaseGate
+from app.db.models.gate_criterion import GateCriterion
 from app.db.models.release_system import ReleaseSystem
 from app.db.models.release_dependency import ReleaseDependency
 from app.db.models.release_event import ReleaseEventType, ReleaseEvent
@@ -79,6 +80,7 @@ __all__ = [
     "ReleaseStatusHistory",
     "TestPhase",
     "ReleaseGate",
+    "GateCriterion",
     "ReleaseSystem",
     "ReleaseDependency",
     "ReleaseEventType",
