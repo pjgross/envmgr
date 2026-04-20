@@ -282,3 +282,59 @@ async def override_gate(
         tenant_id=tenant_id,
     )
     return gate
+
+
+async def maybe_auto_pass_gate(
+    db: AsyncSession,
+    gate: ReleaseGate,
+    tenant_id: int,
+    user_id: int,
+) -> bool:
+    """If the gate is still pending AND has ≥1 non-deleted criterion AND every
+    non-deleted criterion is 'done', transition it to passed. Returns True if
+    the gate was transitioned. One-way: reopening a criterion later does NOT
+    flip the gate back."""
+    from app.db.models.gate_criterion import GateCriterion
+
+    if gate.status != "pending":
+        return False
+
+    rows = (
+        await db.execute(
+            select(GateCriterion.status).where(
+                GateCriterion.gate_id == gate.id,
+                GateCriterion.tenant_id == tenant_id,
+                GateCriterion.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+
+    if not rows:
+        return False  # zero-criteria gate never auto-passes
+    if any(s != "done" for s in rows):
+        return False
+
+    gate.status = "passed"
+    gate.decided_by = user_id
+    gate.decided_at = datetime.now(timezone.utc)
+    gate.decision_notes = "auto: all criteria met"
+    await db.flush()
+
+    await _record_gate_event(
+        db, gate, tenant_id, user_id,
+        f"Gate '{gate.name}' passed automatically (all criteria met).",
+    )
+    await publish_event(
+        db,
+        event_type="GateAutoPassed",
+        aggregate_id=gate.id,
+        aggregate_type="ReleaseGate",
+        payload={
+            "id": gate.id,
+            "release_id": gate.release_id,
+            "name": gate.name,
+            "decided_by": user_id,
+        },
+        tenant_id=tenant_id,
+    )
+    return True

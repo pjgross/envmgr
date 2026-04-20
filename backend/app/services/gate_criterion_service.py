@@ -137,3 +137,60 @@ async def delete_criterion(
     crit = await get_criterion(db, criterion_id, tenant_id)
     crit.deleted_at = datetime.now(timezone.utc)
     await db.flush()
+
+
+async def complete_criterion(
+    db: AsyncSession,
+    criterion_id: int,
+    tenant_id: int,
+    user_id: int,
+) -> GateCriterion:
+    """Mark a criterion done. If this makes the parent gate have all criteria
+    done, auto-pass the gate (one-way)."""
+    from app.services import release_gate_service  # lazy to avoid circular
+
+    crit = await get_criterion(db, criterion_id, tenant_id)
+    if crit.status == "done":
+        return crit  # idempotent
+
+    crit.status = "done"
+    crit.completed_at = datetime.now(timezone.utc)
+    crit.completed_by_user_id = user_id
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="GateCriterionCompleted",
+        aggregate_id=crit.id,
+        aggregate_type="GateCriterion",
+        payload={"id": crit.id, "gate_id": crit.gate_id, "completed_by": user_id},
+        tenant_id=tenant_id,
+    )
+
+    gate = await release_gate_service._get_gate(db, crit.gate_id, tenant_id)
+    await release_gate_service.maybe_auto_pass_gate(db, gate, tenant_id, user_id)
+    return crit
+
+
+async def reopen_criterion(
+    db: AsyncSession, criterion_id: int, tenant_id: int
+) -> GateCriterion:
+    """Set a done criterion back to open. Does NOT flip the gate back to pending."""
+    crit = await get_criterion(db, criterion_id, tenant_id)
+    if crit.status == "open":
+        return crit  # idempotent
+
+    crit.status = "open"
+    crit.completed_at = None
+    crit.completed_by_user_id = None
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="GateCriterionReopened",
+        aggregate_id=crit.id,
+        aggregate_type="GateCriterion",
+        payload={"id": crit.id, "gate_id": crit.gate_id},
+        tenant_id=tenant_id,
+    )
+    return crit
