@@ -25,7 +25,6 @@ from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_change import ReleaseChange
 from app.db.models.test_phase import TestPhase
 from app.services import (
-    lifecycle_service,
     release_service,
     release_gate_service,
     release_event_service,
