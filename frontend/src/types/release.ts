@@ -1,3 +1,5 @@
+import type { GateCriterion } from './gateCriterion';
+
 export type ReleaseStatus = string;
 export type ReleaseKind = 'project' | 'enterprise';
 
@@ -25,6 +27,7 @@ export interface ReleaseListItemResponse extends ReleaseResponse {
   phase_count: number;
   scope_count: number;
   blocker_count: number;
+  overdue_criterion_count: number;
 }
 
 export interface TestPhaseResponse {
@@ -44,11 +47,12 @@ export interface ReleaseGateResponse {
   release_id: number;
   test_phase_id: number | null;
   name: string;
-  acceptance_criteria: string | null;
   status: 'pending' | 'passed' | 'failed' | 'overridden';
   decided_by: number | null;
   decided_at: string | null;
   decision_notes: string | null;
+  criteria: GateCriterion[];
+  overdue_criterion_count: number;
 }
 
 export interface ReleaseSystemResponse {
@@ -141,13 +145,11 @@ export interface TestPhaseUpdatePayload {
 export interface ReleaseGateCreatePayload {
   name: string;
   test_phase_id?: number | null;
-  acceptance_criteria?: string | null;
 }
 
 export interface ReleaseGateUpdatePayload {
   name?: string;
   test_phase_id?: number | null;
-  acceptance_criteria?: string | null;
 }
 
 export interface ReleaseGateDecisionPayload {

@@ -49,7 +49,6 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
 
   const [createOpen, setCreateOpen] = useState(false);
   const [gateName, setGateName] = useState('');
-  const [gateCriteria, setGateCriteria] = useState('');
   const [gatePhaseId, setGatePhaseId] = useState<number | ''>('');
   const [selectedGate, setSelectedGate] = useState<ReleaseGateResponse | null>(null);
   const [decisionOpen, setDecisionOpen] = useState(false);
@@ -62,7 +61,6 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
           releaseId,
           data: {
             name: gateName.trim(),
-            acceptance_criteria: gateCriteria.trim() || undefined,
             test_phase_id: gatePhaseId !== '' ? gatePhaseId : undefined,
           },
         })
@@ -70,7 +68,6 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
       snackbar.success('Gate created');
       setCreateOpen(false);
       setGateName('');
-      setGateCriteria('');
       setGatePhaseId('');
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to create gate');
@@ -121,15 +118,10 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
         ),
       },
       {
-        field: 'acceptance_criteria',
-        headerName: 'Criteria',
-        flex: 1,
-        minWidth: 200,
-        renderCell: (params) => (
-          <Typography variant="body2" noWrap color="text.secondary">
-            {params.row.acceptance_criteria ?? '—'}
-          </Typography>
-        ),
+        field: 'overdue_criterion_count',
+        headerName: 'Overdue',
+        width: 100,
+        valueFormatter: (p) => (p.value > 0 ? String(p.value) : '—'),
       },
       {
         field: '_actions',
@@ -216,14 +208,6 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
                 </MenuItem>
               ))}
             </TextField>
-            <TextField
-              label="Acceptance Criteria"
-              multiline
-              rows={2}
-              fullWidth
-              value={gateCriteria}
-              onChange={(e) => setGateCriteria(e.target.value)}
-            />
           </Box>
         </DialogContent>
         <DialogActions>

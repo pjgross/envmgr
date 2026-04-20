@@ -10,7 +10,6 @@ import {
   DialogTitle,
   Stack,
   TextField,
-  Typography,
 } from '@mui/material';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../../store';
@@ -67,11 +66,6 @@ export default function GateDecisionDialog({ open, onClose, releaseId, gate }: P
       <DialogTitle>Gate Decision — {gate.name}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
-          {gate.acceptance_criteria && (
-            <Typography variant="body2" color="text.secondary">
-              <strong>Criteria:</strong> {gate.acceptance_criteria}
-            </Typography>
-          )}
           <TextField
             label="Notes (optional)"
             multiline

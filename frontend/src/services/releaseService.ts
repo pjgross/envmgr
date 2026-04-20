@@ -23,6 +23,12 @@ import type {
   ReleaseTimelineEntry,
   ReleaseBookingCreatePayload,
 } from '../types/release';
+import type {
+  GateCriterion,
+  GateCriterionWithGate,
+  GateCriterionCreatePayload,
+  GateCriterionUpdatePayload,
+} from '../types/gateCriterion';
 import type { ReleaseEventResponse, ReleaseEventCreatePayload } from '../types/releaseEvent';
 import type { ReleaseChangeResponse, ReleaseChangeCreatePayload, ReleaseChangeUpdatePayload } from '../types/releaseChange';
 import type { BookingResponse } from '../types/booking';
@@ -158,4 +164,26 @@ export const releaseService = {
 
   unlinkChangeRequest: (releaseId: number, crId: number): Promise<void> =>
     api.delete(`/releases/${releaseId}/change-requests/${crId}/link`).then(() => undefined),
+
+  // --- Gate Criteria ---
+  listCriteria: (releaseId: number, gateId: number): Promise<GateCriterion[]> =>
+    api.get(`/releases/${releaseId}/gates/${gateId}/criteria`).then((r) => r.data),
+
+  createCriterion: (releaseId: number, gateId: number, payload: GateCriterionCreatePayload): Promise<GateCriterion> =>
+    api.post(`/releases/${releaseId}/gates/${gateId}/criteria`, payload).then((r) => r.data),
+
+  updateCriterion: (criterionId: number, payload: GateCriterionUpdatePayload): Promise<GateCriterion> =>
+    api.put(`/gate-criteria/${criterionId}`, payload).then((r) => r.data),
+
+  completeCriterion: (criterionId: number): Promise<GateCriterion> =>
+    api.post(`/gate-criteria/${criterionId}/complete`).then((r) => r.data),
+
+  reopenCriterion: (criterionId: number): Promise<GateCriterion> =>
+    api.post(`/gate-criteria/${criterionId}/reopen`).then((r) => r.data),
+
+  deleteCriterion: (criterionId: number): Promise<void> =>
+    api.delete(`/gate-criteria/${criterionId}`).then(() => undefined),
+
+  listReleaseOverdueCriteria: (releaseId: number): Promise<GateCriterionWithGate[]> =>
+    api.get(`/releases/${releaseId}/overdue-criteria`).then((r) => r.data),
 };

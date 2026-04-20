@@ -265,7 +265,7 @@ const releaseSlice = createSlice({
 
       // create — counts default to 0 for a brand-new release
       .addCase(createRelease.fulfilled, (state, action) => {
-        state.list.unshift({ ...action.payload, phase_count: 0, scope_count: 0, blocker_count: 0 });
+        state.list.unshift({ ...action.payload, phase_count: 0, scope_count: 0, blocker_count: 0, overdue_criterion_count: 0 });
       })
 
       // update — preserve existing counts, merge updated fields
