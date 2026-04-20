@@ -15,6 +15,7 @@ from app.db.models.release import Release, ReleaseStatusHistory
 from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_template import ReleaseTemplate
 from app.db.models.test_phase import TestPhase
+from app.api.v1.schemas.gate_criterion import GateCriterionCreate
 from app.api.v1.schemas.release_template import (
     ReleaseTemplateCreate,
     ReleaseTemplateInstantiate,
@@ -252,6 +253,19 @@ async def instantiate(
             status="pending",
         )
         db.add(gate)
+        await db.flush()
+
+        # Seed a single criterion from acceptance_criteria if present
+        seed_text = (acceptance_criteria or "").strip()
+        if seed_text:
+            from app.services import gate_criterion_service
+            await gate_criterion_service.create_criterion(
+                db,
+                gate_id=gate.id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                data=GateCriterionCreate(title="Acceptance criteria", notes=seed_text),
+            )
 
     await db.flush()
     return release

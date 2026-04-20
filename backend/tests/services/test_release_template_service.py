@@ -6,6 +6,7 @@ import pytest
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 
+from app.db.models.gate_criterion import GateCriterion
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
@@ -137,6 +138,17 @@ async def test_instantiate_materialises_phases_and_gates_with_computed_dates(
         )
     ).scalars().all()
     assert len(gates) == 2
+
+    # Each gate has acceptance_criteria set → one seeded criterion per gate
+    from app.services import gate_criterion_service
+    for gate in gates:
+        criteria = await gate_criterion_service.list_criteria_for_gate(
+            db_session, gate.id, tenant.id
+        )
+        assert len(criteria) == 1, f"gate '{gate.name}' expected 1 criterion, got {len(criteria)}"
+        assert criteria[0].title == "Acceptance criteria"
+        # notes holds the original acceptance_criteria text
+        assert criteria[0].notes in ("Zero Sev1", "Sign-off")
 
 
 # ── test_instantiate_release_level_gate_has_null_phase ────────────────────────
