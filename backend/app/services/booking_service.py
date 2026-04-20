@@ -18,6 +18,7 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
+from app.services import lifecycle_service
 from app.services.lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
@@ -459,42 +460,62 @@ async def delete_series(db: AsyncSession, booking_id: int, current_user) -> None
     await db.flush()
 
 
-async def get_custom_field_perms_for_booking(
-    db: AsyncSession, booking: Booking, user_role: str
-) -> dict[str, dict]:
-    """
-    Load the lifecycle template for a booking and return the resolved
-    custom_field_permissions map for the booking's current state and user role.
-    Returns empty dict if the booking type or template is not found.
-    """
+async def _load_booking_template(
+    db: AsyncSession, booking: "Booking"
+) -> LifecycleTemplate | None:
+    """Resolve the lifecycle template for a booking via its booking_type."""
     booking_type_id = booking.booking_request.booking_type_id
-    bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
-    )
-    booking_type_obj = bt_result.scalar_one_or_none()
-    if not booking_type_obj:
-        return {}
-
-    tmpl_result = await db.execute(
-        select(LifecycleTemplate).where(
-            LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
+    bt = (
+        await db.execute(
+            select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
         )
-    )
-    template = tmpl_result.scalar_one_or_none()
-    if not template:
-        return {}
+    ).scalar_one_or_none()
+    if not bt:
+        return None
+    return (
+        await db.execute(
+            select(LifecycleTemplate).where(LifecycleTemplate.id == bt.lifecycle_template_id)
+        )
+    ).scalar_one_or_none()
 
+
+async def _booking_field_permissions(
+    db: AsyncSession, booking: "Booking", user_role: str
+) -> dict:
+    """Return {custom_field_permissions, standard_field_permissions} for a booking.
+    Fail-closed: returns empty custom map + all-not-editable standard map if the
+    booking type or template cannot be loaded."""
+    template = await _load_booking_template(db, booking)
+    if template is None:
+        return {
+            "custom_field_permissions": {},
+            "standard_field_permissions": {f: {"editable": False} for f in VALID_STANDARD_FIELD_NAMES},
+        }
     active_keys = await get_active_field_keys(db, booking.tenant_id, "booking")
-    return get_custom_field_permissions(
-        template.definition, booking.status, user_role, active_keys
+    return lifecycle_service.get_field_permissions_for_state(
+        template.definition,
+        booking.status,
+        user_role,
+        active_keys,
+        VALID_STANDARD_FIELD_NAMES,
     )
+
+
+async def get_custom_field_perms_for_booking(
+    db: AsyncSession, booking: "Booking", user_role: str
+) -> dict[str, dict]:
+    """Return the resolved custom_field_permissions map for a booking.
+    Preserved for backward compatibility with existing callers."""
+    perms = await _booking_field_permissions(db, booking, user_role)
+    return perms["custom_field_permissions"]
 
 
 def get_standard_field_permissions(
     definition: dict, state_key: str, user_role: str
 ) -> set[str]:
     """Return the set of standard permission keys editable by user_role in state_key.
-    Fail-closed: returns empty set if state not configured."""
+    Fail-closed: returns empty set if state not configured.
+    Preserved: some callers import this directly."""
     perm = definition.get("field_permissions", {}).get(state_key)
     if not perm:
         return set()
@@ -509,24 +530,9 @@ def get_standard_field_permissions(
 async def get_standard_field_perms_for_booking(
     db: AsyncSession, booking: "Booking", user_role: str
 ) -> dict[str, dict]:
-    """Return editable status for all 7 standard fields for the booking's current state and user role.
-    All 7 standard fields are always present in the response.
-    Returns {"project_name": {"editable": True}, "start_date": {"editable": False}, ...}"""
-    booking_type_id = booking.booking_request.booking_type_id
-    bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
-    )
-    bt = bt_result.scalar_one_or_none()
-    if not bt:
-        return {f: {"editable": False} for f in VALID_STANDARD_FIELD_NAMES}
-    template_result = await db.execute(
-        select(LifecycleTemplate).where(LifecycleTemplate.id == bt.lifecycle_template_id)
-    )
-    template = template_result.scalar_one_or_none()
-    if not template:
-        return {f: {"editable": False} for f in VALID_STANDARD_FIELD_NAMES}
-    editable = get_standard_field_permissions(template.definition, booking.status, user_role)
-    return {f: {"editable": f in editable} for f in VALID_STANDARD_FIELD_NAMES}
+    """Return editable status for all 7 standard fields for this booking's state+role."""
+    perms = await _booking_field_permissions(db, booking, user_role)
+    return perms["standard_field_permissions"]
 
 
 async def update_standard_fields(
