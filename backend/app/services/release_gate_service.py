@@ -103,7 +103,6 @@ async def create_gate(
         release_id=release_id,
         test_phase_id=data.test_phase_id,
         name=data.name,
-        acceptance_criteria=data.acceptance_criteria,
         status="pending",
     )
     db.add(gate)

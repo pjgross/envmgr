@@ -249,7 +249,6 @@ async def instantiate(
             release_id=release.id,
             test_phase_id=matched_phase.id if matched_phase else None,
             name=gate_name,
-            acceptance_criteria=acceptance_criteria,
             status="pending",
         )
         db.add(gate)

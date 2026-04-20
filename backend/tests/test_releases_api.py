@@ -295,7 +295,7 @@ async def test_create_and_list_gates(client: AsyncClient, auth_headers, release)
     resp = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Go/No-Go", "acceptance_criteria": "All tests green"},
+        json={"name": "Go/No-Go"},
     )
     assert resp.status_code == 201, resp.text
     gate_id = resp.json()["id"]

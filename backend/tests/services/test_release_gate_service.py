@@ -55,7 +55,7 @@ async def test_pass_gate_records_decision(db_session, tenant, user):
 
     gate = await release_gate_service.create_gate(
         db_session, release.id,
-        ReleaseGateCreate(name="SIT Exit", acceptance_criteria="Zero Sev1"),
+        ReleaseGateCreate(name="SIT Exit"),
         tenant.id,
     )
     assert gate.status == "pending"
