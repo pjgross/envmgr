@@ -22,7 +22,6 @@ from app.services import lifecycle_service
 from app.services.lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
-    get_custom_field_permissions,
 )
 from app.api.v1.schemas.booking_lifecycle import VALID_STANDARD_FIELD_NAMES
 
