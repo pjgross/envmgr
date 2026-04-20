@@ -2,7 +2,7 @@
  * GatesTable — expandable list of release gates with per-gate criteria.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import {
   Box,
   Button,
@@ -26,7 +26,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GavelIcon from '@mui/icons-material/Gavel';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import type { AppDispatch, RootState } from '../../store';
+import type { AppDispatch } from '../../store';
 import {
   createGate,
   deleteGate,
@@ -37,7 +37,7 @@ import {
   reopenCriterion,
   deleteCriterion,
 } from '../../store/releaseSlice';
-import { fetchUsers } from '../../store/tenantAdminSlice';
+import api from '../../services/api';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import GateDecisionDialog from './GateDecisionDialog';
 import CriterionRow from './CriterionRow';
@@ -66,11 +66,13 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
 
-  // Users for criterion assignee select
-  const users = useSelector((s: RootState) => s.tenantAdmin.users);
+  // Users for criterion assignee select — lite endpoint is tenant-member-accessible
+  const [users, setUsers] = useState<Array<{ id: number; username: string }>>([]);
   useEffect(() => {
-    if (users.length === 0) dispatch(fetchUsers());
-  }, [dispatch, users.length]);
+    api.get<Array<{ id: number; username: string }>>('/tenant/users/lite')
+      .then((r) => setUsers(r.data))
+      .catch(() => setUsers([])); // assignee select stays empty on failure
+  }, []);
 
   // Gate create dialog
   const [createOpen, setCreateOpen] = useState(false);
