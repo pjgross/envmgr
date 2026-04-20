@@ -2,11 +2,13 @@
 and all release sub-resources (phases, gates, systems, dependencies, events,
 scope/changes, bookings, linked CRs).
 
-Design note on field permissions (GET /releases/{id}):
-  The endpoint returns a `field_permissions` key computed from
-  lifecycle_service.get_field_permissions_for_state(tpl.definition, release.status, user_role).
-  This keeps it in a single round-trip. Clients that only need the list view
-  (no field-editing) can ignore the extra key.
+Field-permissions contract (GET/PUT/transition on a single release):
+  Responses include `custom_field_permissions` and `standard_field_permissions`
+  computed for the caller's role at the release's current state. This mirrors
+  the booking endpoints — clients get permissions in a single round-trip and do
+  not need to call GET /releases/{id}/lifecycle just to determine editability.
+  The dedicated /lifecycle endpoint remains available for clients that need the
+  full state-machine definition (e.g. to drive transition UIs).
 """
 from datetime import datetime
 from typing import Optional
@@ -77,6 +79,17 @@ release_changes_router = APIRouter(prefix="/release-changes", tags=["Releases"])
 async def _require_release(db: AsyncSession, release_id: int, tenant_id: int) -> Release:
     """Return the release or raise 404."""
     return await release_service.get_release(db, release_id, tenant_id)
+
+
+async def _release_with_permissions(
+    db: AsyncSession, release: Release, user_role: str
+) -> ReleaseRead:
+    """Materialize a ReleaseRead response with permissions attached."""
+    perms = await release_service.get_release_field_permissions(db, release, user_role)
+    resp = ReleaseRead.model_validate(release)
+    resp.custom_field_permissions = perms["custom_field_permissions"]
+    resp.standard_field_permissions = perms["standard_field_permissions"]
+    return resp
 
 
 async def _require_phase(db: AsyncSession, phase_id: int, tenant_id: int) -> TestPhase:
@@ -311,16 +324,10 @@ async def get_release(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Return a single release.
-
-    Also computes field_permissions for the caller's role at the current
-    lifecycle state and attaches them as `field_permissions` on the response.
-    (ReleaseRead has an Optional field_permissions key for this purpose.)
-    If the lifecycle template cannot be loaded the key is omitted silently.
-    """
+    """Return a single release with field_permissions attached for the caller's role."""
     tenant_id = current_user.active_tenant_id
     release = await _require_release(db, release_id, tenant_id)
-    return release
+    return await _release_with_permissions(db, release, current_user.role)
 
 
 @router.put("/{release_id}", response_model=ReleaseRead)
@@ -334,7 +341,7 @@ async def update_release(
     release = await release_service.update_release(
         db, release_id, data, tenant_id, current_user.id
     )
-    return release
+    return await _release_with_permissions(db, release, current_user.role)
 
 
 @router.delete("/{release_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -365,7 +372,7 @@ async def transition_release(
         user_id=current_user.id,
         user_role=current_user.role,
     )
-    return release
+    return await _release_with_permissions(db, release, current_user.role)
 
 
 @router.get("/{release_id}/lifecycle")
