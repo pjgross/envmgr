@@ -15,6 +15,8 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
 from app.services import lifecycle_service
 from app.api.v1.schemas.release import ReleaseCreate, ReleaseUpdate
+from app.api.v1.schemas.booking_lifecycle import ENTITY_FIELD_SPECS
+from app.services.custom_field_service import get_active_field_keys
 
 
 # Deferred import to avoid circular dependency: release_event_service imports nothing from here.
@@ -336,4 +338,39 @@ async def delete_release(
         aggregate_type="Release",
         payload={"id": release.id, "name": release.name},
         tenant_id=tenant_id,
+    )
+
+
+async def get_release_field_permissions(
+    db: AsyncSession, release: Release, user_role: str
+) -> dict:
+    """Return {custom_field_permissions, standard_field_permissions} for this release.
+
+    Loads the release's lifecycle template and the tenant's active release
+    custom-field definitions, then delegates to lifecycle_service. Fail-closed
+    if the template can't be loaded (empty custom map, all-not-editable standard
+    map)."""
+    template = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.id == release.lifecycle_template_id
+            )
+        )
+    ).scalar_one_or_none()
+
+    valid_standard = ENTITY_FIELD_SPECS["release"]["valid"]
+
+    if template is None:
+        return {
+            "custom_field_permissions": {},
+            "standard_field_permissions": {f: {"editable": False} for f in valid_standard},
+        }
+
+    active_keys = await get_active_field_keys(db, release.tenant_id, "release")
+    return lifecycle_service.get_field_permissions_for_state(
+        template.definition,
+        release.status,
+        user_role,
+        active_keys,
+        valid_standard,
     )

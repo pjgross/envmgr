@@ -44,6 +44,8 @@ class ReleaseRead(BaseModel):
     raised_by: int
     created_at: datetime
     updated_at: datetime
+    custom_field_permissions: Optional[dict[str, dict]] = None
+    standard_field_permissions: Optional[dict[str, dict]] = None
 
 
 class ReleaseTransition(BaseModel):

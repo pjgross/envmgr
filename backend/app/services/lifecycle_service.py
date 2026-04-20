@@ -242,3 +242,48 @@ def get_custom_field_permissions(
             "editable": user_role in editable_by,
         }
     return result
+
+
+def get_field_permissions_for_state(
+    definition: dict,
+    state_key: str,
+    user_role: str,
+    active_custom_field_keys: set[str],
+    valid_standard_field_names: set[str],
+) -> dict:
+    """Return {custom_field_permissions, standard_field_permissions} for state+role.
+
+    Shape (matches the existing booking response contract):
+      {
+        "custom_field_permissions": {field_key: {"visible": bool, "editable": bool}},
+        "standard_field_permissions": {field_name: {"editable": bool}},
+      }
+
+    Behavior:
+      - Custom fields: only keys configured for this state AND present in
+        active_custom_field_keys appear. Missing state entry → empty dict.
+      - Standard fields: every name in valid_standard_field_names appears in
+        the output (always). `editable` is True only when the role is in the
+        state's standard_fields[name].editable_by list; False otherwise.
+      - Missing state config fails closed (everything not editable).
+    """
+    state_perm = definition.get("field_permissions", {}).get(state_key, {}) or {}
+
+    # Custom fields — reuse the existing helper so its rules stay single-sourced.
+    custom = get_custom_field_permissions(
+        definition, state_key, user_role, active_custom_field_keys
+    )
+
+    # Standard fields — always include every valid name so clients can render
+    # a stable field list; editability is role/state derived.
+    standard_config = state_perm.get("standard_fields", {}) or {}
+    standard: dict[str, dict] = {}
+    for name in valid_standard_field_names:
+        entry = standard_config.get(name) or {}
+        editable_by = entry.get("editable_by", [])
+        standard[name] = {"editable": user_role in editable_by}
+
+    return {
+        "custom_field_permissions": custom,
+        "standard_field_permissions": standard,
+    }
