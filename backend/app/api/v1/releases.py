@@ -178,12 +178,34 @@ async def list_releases(
     ).all()
     gate_counts = {row.release_id: row.cnt for row in gate_rows}
 
+    # Overdue criterion counts per release
+    from datetime import datetime, timezone
+    from app.db.models.gate_criterion import GateCriterion
+    now = datetime.now(timezone.utc)
+    overdue_rows = (
+        await db.execute(
+            select(ReleaseGate.release_id, func.count(GateCriterion.id).label("cnt"))
+            .join(GateCriterion, GateCriterion.gate_id == ReleaseGate.id)
+            .where(
+                ReleaseGate.release_id.in_(release_ids),
+                ReleaseGate.deleted_at.is_(None),
+                GateCriterion.deleted_at.is_(None),
+                GateCriterion.status == "open",
+                GateCriterion.due_date.is_not(None),
+                GateCriterion.due_date < now,
+            )
+            .group_by(ReleaseGate.release_id)
+        )
+    ).all()
+    overdue_counts = {row.release_id: row.cnt for row in overdue_rows}
+
     result = []
     for r in releases:
         item = ReleaseListItemRead.model_validate(r)
         item.phase_count = phase_counts.get(r.id, 0)
         item.scope_count = scope_counts.get(r.id, 0)
         item.blocker_count = gate_counts.get(r.id, 0)
+        item.overdue_criterion_count = overdue_counts.get(r.id, 0)
         result.append(item)
     return result
 

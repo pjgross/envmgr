@@ -1,13 +1,21 @@
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.core.security import require_tenant_admin
+from app.core.security import require_tenant_admin, get_current_user
+from app.db.models.user import User
 from app.services import tenant_service, user_admin_service
 from app.api.v1.schemas import (
     TenantAdminSettings, TenantResponse, TenantUpdate,
     UserAdminCreate, UserAdminUpdate, UserRoleUpdate, UserResponse,
 )
+
+
+class UserLite(BaseModel):
+    id: int
+    username: str
 
 router = APIRouter()
 
@@ -37,6 +45,23 @@ async def list_users(
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.list_users(db, current_user.active_tenant_id)
+
+
+@router.get("/users/lite", response_model=list[UserLite])
+async def list_users_lite(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Minimal {id, username} list for assignee pickers. Open to any tenant member."""
+    rows = (
+        await db.execute(
+            select(User.id, User.username).where(
+                User.tenant_id == current_user.active_tenant_id,
+                User.is_active.is_(True),
+            ).order_by(User.username)
+        )
+    ).all()
+    return [UserLite(id=r.id, username=r.username) for r in rows]
 
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

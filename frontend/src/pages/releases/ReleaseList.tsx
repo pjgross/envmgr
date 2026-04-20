@@ -120,6 +120,25 @@ export default function ReleaseList() {
           ),
       },
       {
+        field: 'overdue_criterion_count',
+        headerName: 'Overdue',
+        width: 110,
+        align: 'center',
+        headerAlign: 'center',
+        renderCell: (params) =>
+          params.row.overdue_criterion_count > 0 ? (
+            <Chip
+              size="small"
+              color="error"
+              label={`${params.row.overdue_criterion_count} overdue`}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              —
+            </Typography>
+          ),
+      },
+      {
         field: 'created_at',
         headerName: 'Created',
         width: 130,

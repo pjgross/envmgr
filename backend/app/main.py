@@ -67,6 +67,7 @@ from app.api.v1 import infrastructure_components as infrastructure_components_ro
 from app.api.v1 import releases as releases_router
 from app.api.v1 import release_templates as release_templates_router
 from app.api.v1 import release_event_types as release_event_types_router
+from app.api.v1 import gate_criteria as gate_criteria_api
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -98,3 +99,5 @@ app.include_router(releases_router.release_deps_router, prefix="/api/v1")
 app.include_router(releases_router.release_changes_router, prefix="/api/v1")
 app.include_router(release_templates_router.router, prefix="/api/v1")
 app.include_router(release_event_types_router.router, prefix="/api/v1")
+app.include_router(gate_criteria_api.release_sub_router, prefix="/api/v1")
+app.include_router(gate_criteria_api.router, prefix="/api/v1")

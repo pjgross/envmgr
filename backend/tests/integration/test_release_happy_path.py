@@ -142,8 +142,8 @@ async def test_release_happy_path_from_template(
             {"name": "UAT", "order": 2, "default_duration_days": 5, "activities": []},
         ],
         "gates": [
-            {"name": "SIT Exit", "phase_name": "SIT", "acceptance_criteria": "zero sev1"},
-            {"name": "UAT Exit", "phase_name": "UAT", "acceptance_criteria": "signed off"},
+            {"name": "SIT Exit", "phase_name": "SIT"},
+            {"name": "UAT Exit", "phase_name": "UAT"},
         ],
     })
     assert tmpl_resp.status_code == 201, tmpl_resp.text

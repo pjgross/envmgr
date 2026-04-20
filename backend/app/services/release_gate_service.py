@@ -35,6 +35,13 @@ async def _get_gate(
     return gate
 
 
+async def get_gate(
+    db: AsyncSession, gate_id: int, tenant_id: int
+) -> ReleaseGate:
+    """Public tenant-scoped gate fetch. Raises 404 if not found."""
+    return await _get_gate(db, gate_id, tenant_id)
+
+
 async def _find_event_type(
     db: AsyncSession, tenant_id: int, name: str
 ) -> Optional[ReleaseEventType]:
@@ -79,8 +86,17 @@ async def list_gates(
     db: AsyncSession,
     release_id: int,
     tenant_id: int,
-) -> list[ReleaseGate]:
-    rows = (
+) -> list[dict]:
+    """Return gates plus nested criteria + overdue_criterion_count per gate.
+
+    Shape matches ReleaseGateRead + criteria/overdue_criterion_count fields.
+    Returned as dicts (not ORM objects) so the API can pass them straight to
+    response_model without a second round of attribute hydration.
+    """
+    from datetime import datetime, timezone
+    from app.db.models.gate_criterion import GateCriterion
+
+    gate_rows = (
         await db.execute(
             select(ReleaseGate).where(
                 ReleaseGate.release_id == release_id,
@@ -89,7 +105,61 @@ async def list_gates(
             ).order_by(ReleaseGate.id)
         )
     ).scalars().all()
-    return list(rows)
+    if not gate_rows:
+        return []
+
+    gate_ids = [g.id for g in gate_rows]
+    crit_rows = (
+        await db.execute(
+            select(GateCriterion).where(
+                GateCriterion.gate_id.in_(gate_ids),
+                GateCriterion.tenant_id == tenant_id,
+                GateCriterion.deleted_at.is_(None),
+            ).order_by(GateCriterion.id)
+        )
+    ).scalars().all()
+
+    # Batch-load assignee usernames for every criterion in one query (avoids N+1).
+    from app.db.models.user import User
+    assignee_ids = {c.assigned_to_user_id for c in crit_rows if c.assigned_to_user_id is not None}
+    username_by_id: dict[int, str] = {}
+    if assignee_ids:
+        user_rows = (
+            await db.execute(select(User.id, User.username).where(User.id.in_(assignee_ids)))
+        ).all()
+        username_by_id = {row.id: row.username for row in user_rows}
+
+    now = datetime.now(timezone.utc)
+    by_gate: dict[int, list[dict]] = {gid: [] for gid in gate_ids}
+    overdue_count: dict[int, int] = {gid: 0 for gid in gate_ids}
+    for c in crit_rows:
+        crit_dict = {
+            "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
+            "due_date": c.due_date, "assigned_to_user_id": c.assigned_to_user_id,
+            "assigned_to_username": username_by_id.get(c.assigned_to_user_id) if c.assigned_to_user_id else None,
+            "status": c.status,
+            "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
+            "created_at": c.created_at, "updated_at": c.updated_at,
+        }
+        by_gate[c.gate_id].append(crit_dict)
+        if c.status == "open" and c.due_date is not None:
+            due = c.due_date
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+            if due < now:
+                overdue_count[c.gate_id] += 1
+
+    return [
+        {
+            "id": g.id, "tenant_id": g.tenant_id, "release_id": g.release_id,
+            "test_phase_id": g.test_phase_id, "name": g.name, "status": g.status,
+            "decided_by": g.decided_by, "decided_at": g.decided_at,
+            "decision_notes": g.decision_notes,
+            "criteria": by_gate[g.id],
+            "overdue_criterion_count": overdue_count[g.id],
+        }
+        for g in gate_rows
+    ]
 
 
 async def create_gate(
@@ -103,7 +173,6 @@ async def create_gate(
         release_id=release_id,
         test_phase_id=data.test_phase_id,
         name=data.name,
-        acceptance_criteria=data.acceptance_criteria,
         status="pending",
     )
     db.add(gate)
@@ -283,3 +352,59 @@ async def override_gate(
         tenant_id=tenant_id,
     )
     return gate
+
+
+async def maybe_auto_pass_gate(
+    db: AsyncSession,
+    gate: ReleaseGate,
+    tenant_id: int,
+    user_id: int,
+) -> bool:
+    """If the gate is still pending AND has ≥1 non-deleted criterion AND every
+    non-deleted criterion is 'done', transition it to passed. Returns True if
+    the gate was transitioned. One-way: reopening a criterion later does NOT
+    flip the gate back."""
+    from app.db.models.gate_criterion import GateCriterion
+
+    if gate.status != "pending":
+        return False
+
+    rows = (
+        await db.execute(
+            select(GateCriterion.status).where(
+                GateCriterion.gate_id == gate.id,
+                GateCriterion.tenant_id == tenant_id,
+                GateCriterion.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+
+    if not rows:
+        return False  # zero-criteria gate never auto-passes
+    if any(s != "done" for s in rows):
+        return False
+
+    gate.status = "passed"
+    gate.decided_by = user_id
+    gate.decided_at = datetime.now(timezone.utc)
+    gate.decision_notes = "auto: all criteria met"
+    await db.flush()
+
+    await _record_gate_event(
+        db, gate, tenant_id, user_id,
+        f"Gate '{gate.name}' passed automatically (all criteria met).",
+    )
+    await publish_event(
+        db,
+        event_type="GateAutoPassed",
+        aggregate_id=gate.id,
+        aggregate_type="ReleaseGate",
+        payload={
+            "id": gate.id,
+            "release_id": gate.release_id,
+            "name": gate.name,
+            "decided_by": user_id,
+        },
+        tenant_id=tenant_id,
+    )
+    return True

@@ -16,7 +16,7 @@ async def test_release_gate_persists(db_session, tenant, user, release_lifecycle
     db_session.add(phase); await db_session.flush()
     gate = ReleaseGate(
         tenant_id=tenant.id, release_id=release.id, test_phase_id=phase.id,
-        name="SIT Exit", acceptance_criteria="Zero Sev1", status="pending",
+        name="SIT Exit", status="pending",
     )
     db_session.add(gate); await db_session.flush()
     assert gate.id is not None
