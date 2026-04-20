@@ -86,8 +86,17 @@ async def list_gates(
     db: AsyncSession,
     release_id: int,
     tenant_id: int,
-) -> list[ReleaseGate]:
-    rows = (
+) -> list[dict]:
+    """Return gates plus nested criteria + overdue_criterion_count per gate.
+
+    Shape matches ReleaseGateRead + criteria/overdue_criterion_count fields.
+    Returned as dicts (not ORM objects) so the API can pass them straight to
+    response_model without a second round of attribute hydration.
+    """
+    from datetime import datetime, timezone
+    from app.db.models.gate_criterion import GateCriterion
+
+    gate_rows = (
         await db.execute(
             select(ReleaseGate).where(
                 ReleaseGate.release_id == release_id,
@@ -96,7 +105,50 @@ async def list_gates(
             ).order_by(ReleaseGate.id)
         )
     ).scalars().all()
-    return list(rows)
+    if not gate_rows:
+        return []
+
+    gate_ids = [g.id for g in gate_rows]
+    crit_rows = (
+        await db.execute(
+            select(GateCriterion).where(
+                GateCriterion.gate_id.in_(gate_ids),
+                GateCriterion.tenant_id == tenant_id,
+                GateCriterion.deleted_at.is_(None),
+            ).order_by(GateCriterion.id)
+        )
+    ).scalars().all()
+
+    now = datetime.now(timezone.utc)
+    by_gate: dict[int, list[dict]] = {gid: [] for gid in gate_ids}
+    overdue_count: dict[int, int] = {gid: 0 for gid in gate_ids}
+    for c in crit_rows:
+        crit_dict = {
+            "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
+            "due_date": c.due_date, "assigned_to_user_id": c.assigned_to_user_id,
+            "assigned_to_username": None, "status": c.status,
+            "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
+            "created_at": c.created_at, "updated_at": c.updated_at,
+        }
+        by_gate[c.gate_id].append(crit_dict)
+        if c.status == "open" and c.due_date is not None:
+            due = c.due_date
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+            if due < now:
+                overdue_count[c.gate_id] += 1
+
+    return [
+        {
+            "id": g.id, "tenant_id": g.tenant_id, "release_id": g.release_id,
+            "test_phase_id": g.test_phase_id, "name": g.name, "status": g.status,
+            "decided_by": g.decided_by, "decided_at": g.decided_at,
+            "decision_notes": g.decision_notes,
+            "criteria": by_gate[g.id],
+            "overdue_criterion_count": overdue_count[g.id],
+        }
+        for g in gate_rows
+    ]
 
 
 async def create_gate(

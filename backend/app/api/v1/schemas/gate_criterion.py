@@ -39,7 +39,12 @@ class GateCriterionRead(BaseModel):
     def is_overdue(self) -> bool:
         if self.status != "open" or self.due_date is None:
             return False
-        return self.due_date < datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        due = self.due_date
+        # SQLite returns naive datetimes; treat them as UTC for comparison.
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        return due < now
 
 
 class GateCriterionWithGate(GateCriterionRead):
