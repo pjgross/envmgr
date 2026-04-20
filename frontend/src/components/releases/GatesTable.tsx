@@ -173,6 +173,8 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
         snackbar.success('Criterion added');
       }
       setCriterionDialogOpen(false);
+      // Refresh so server-computed overdue_criterion_count on each gate is up to date
+      dispatch(fetchGates(releaseId));
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to save criterion');
     }
@@ -197,6 +199,7 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
     try {
       await dispatch(deleteCriterion(criterion.id)).unwrap();
       snackbar.success('Criterion deleted');
+      dispatch(fetchGates(releaseId));
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to delete criterion');
     }
@@ -226,6 +229,10 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
             <Paper key={gate.id} variant="outlined" sx={{ overflow: 'hidden' }}>
               {/* Gate header row */}
               <Box
+                role="button"
+                tabIndex={0}
+                aria-expanded={isExpanded}
+                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} gate ${gate.name}`}
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -236,8 +243,14 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
                   '&:hover': { bgcolor: 'action.hover' },
                 }}
                 onClick={() => toggleExpand(gate.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleExpand(gate.id);
+                  }
+                }}
               >
-                <IconButton size="small" sx={{ mr: 0.5 }}>
+                <IconButton size="small" sx={{ mr: 0.5 }} tabIndex={-1} aria-hidden="true">
                   {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
                 </IconButton>
 
