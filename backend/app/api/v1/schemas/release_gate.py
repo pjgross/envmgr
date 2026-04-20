@@ -1,7 +1,9 @@
 # backend/app/api/v1/schemas/release_gate.py
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
+
+from app.api.v1.schemas.gate_criterion import GateCriterionRead
 
 
 class ReleaseGateCreate(BaseModel):
@@ -30,3 +32,5 @@ class ReleaseGateRead(BaseModel):
     decided_by: Optional[int]
     decided_at: Optional[datetime]
     decision_notes: Optional[str]
+    criteria: List[GateCriterionRead] = []
+    overdue_criterion_count: int = 0

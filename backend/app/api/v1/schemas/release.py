@@ -68,3 +68,4 @@ class ReleaseListItemRead(ReleaseRead):
     phase_count: int = 0
     scope_count: int = 0
     blocker_count: int = 0
+    overdue_criterion_count: int = 0
