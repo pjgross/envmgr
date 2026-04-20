@@ -4,7 +4,6 @@ Auto-pass of the parent gate is implemented in Task 4. This module stays small
 and pure: CRUD + queries. Events are published from the caller's transaction.
 """
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -167,7 +166,7 @@ async def complete_criterion(
         tenant_id=tenant_id,
     )
 
-    gate = await release_gate_service._get_gate(db, crit.gate_id, tenant_id)
+    gate = await release_gate_service.get_gate(db, crit.gate_id, tenant_id)
     await release_gate_service.maybe_auto_pass_gate(db, gate, tenant_id, user_id)
     return crit
 

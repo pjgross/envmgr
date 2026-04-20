@@ -35,6 +35,13 @@ async def _get_gate(
     return gate
 
 
+async def get_gate(
+    db: AsyncSession, gate_id: int, tenant_id: int
+) -> ReleaseGate:
+    """Public tenant-scoped gate fetch. Raises 404 if not found."""
+    return await _get_gate(db, gate_id, tenant_id)
+
+
 async def _find_event_type(
     db: AsyncSession, tenant_id: int, name: str
 ) -> Optional[ReleaseEventType]:
