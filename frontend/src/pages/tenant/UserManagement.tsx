@@ -112,8 +112,11 @@ export default function UserManagement() {
   };
 
   const handleDeactivate = async (id: number) => {
-    if (await confirm({ message: 'Deactivate this user?', destructive: true })) {
-      dispatch(deactivateUser(id));
+    if (!(await confirm({ message: 'Deactivate this user?', destructive: true }))) return;
+    try {
+      await dispatch(deactivateUser(id)).unwrap();
+    } catch {
+      snackbar.error('Failed to deactivate user');
     }
   };
 
