@@ -35,6 +35,7 @@ import type {
   ReleaseEventTypeCreatePayload,
 } from '../../types/releaseEvent';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface FormState {
   name: string;
@@ -46,6 +47,7 @@ const DEFAULT_FORM: FormState = { name: '', display_color: '' };
 export default function ReleaseEventTypesPanel() {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const { list, loading } = useSelector((s: RootState) => s.releaseEventType);
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -106,7 +108,7 @@ export default function ReleaseEventTypesPanel() {
       setDeleteError(`"${row.name}" is a system event type and cannot be deleted.`);
       return;
     }
-    if (!confirm(`Delete event type "${row.name}"?`)) return;
+    if (!(await confirm({ message: `Delete event type "${row.name}"?`, destructive: true }))) return;
     try {
       await dispatch(deleteReleaseEventType(row.id)).unwrap();
       snackbar.success('Event type deleted');
@@ -222,6 +224,7 @@ export default function ReleaseEventTypesPanel() {
         sx={{ bgcolor: 'background.paper' }}
       />
 
+      {confirmDialog}
       <Dialog open={dialogOpen} onClose={handleClose} maxWidth="xs" fullWidth>
         <DialogTitle>{editTarget ? 'Edit Event Type' : 'New Event Type'}</DialogTitle>
         <DialogContent>

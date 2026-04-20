@@ -9,6 +9,7 @@ import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../DataTable';
 import { releaseService } from '../../services/releaseService';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { ChangeRequestResponse } from '../../types/changeRequest';
 
 interface Props {
@@ -35,9 +36,10 @@ export default function LinkedChangeRequestsSection({
 }: Props) {
   const navigate = useNavigate();
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const handleUnlink = async (crId: number) => {
-    if (!confirm('Unlink this change request from the release?')) return;
+    if (!(await confirm({ message: 'Unlink this change request from the release?', destructive: true }))) return;
     try {
       await releaseService.unlinkChangeRequest(releaseId, crId);
       snackbar.success('Change request unlinked');
@@ -102,6 +104,7 @@ export default function LinkedChangeRequestsSection({
           onRowClick={(params) => navigate(`/change-requests/${params.row.id}`)}
         />
       </Box>
+      {confirmDialog}
     </Box>
   );
 }

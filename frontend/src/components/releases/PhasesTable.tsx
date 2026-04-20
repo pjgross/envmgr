@@ -26,6 +26,7 @@ import {
   deletePhase,
 } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 import { toIsoDatetime } from '../../utils/dates';
 import type { TestPhaseResponse } from '../../types/release';
 
@@ -39,6 +40,7 @@ const PHASE_STATUSES = ['planned', 'in_progress', 'completed', 'blocked'];
 export default function PhasesTable({ releaseId, phases }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TestPhaseResponse | null>(null);
@@ -118,7 +120,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
   };
 
   const handleDelete = async (phaseId: number) => {
-    if (!confirm('Delete this phase?')) return;
+    if (!(await confirm({ message: 'Delete this phase?', destructive: true }))) return;
     try {
       await dispatch(deletePhase({ releaseId, phaseId })).unwrap();
       snackbar.success('Phase deleted');
@@ -189,6 +191,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
         />
       </Box>
 
+      {confirmDialog}
       <Dialog open={dialogOpen} onClose={handleClose} maxWidth="xs" fullWidth>
         <DialogTitle>{editing ? 'Edit Phase' : 'Add Phase'}</DialogTitle>
         <DialogContent>
