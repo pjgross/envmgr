@@ -35,6 +35,7 @@ import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   draft: 'default',
@@ -54,6 +55,7 @@ export default function ReleaseDetail() {
   const snackbar = useSnackbar();
 
   const { detail: release, loading, error } = useSelector((s: RootState) => s.release);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [activeTab, setActiveTab] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [eventLogOpen, setEventLogOpen] = useState(false);
@@ -66,7 +68,7 @@ export default function ReleaseDetail() {
   }, [dispatch, releaseId]);
 
   const handleDelete = async () => {
-    if (!confirm(`Delete release "${release?.name}"? This cannot be undone.`)) return;
+    if (!(await confirm({ title: 'Delete release', message: `Delete release "${release?.name}"? This cannot be undone.`, destructive: true }))) return;
     try {
       await dispatch(deleteRelease(releaseId)).unwrap();
       snackbar.success('Release deleted');
@@ -148,6 +150,7 @@ export default function ReleaseDetail() {
       {activeTab === 3 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
       {activeTab === 4 && <ReleaseScopeTab releaseId={releaseId} />}
 
+      {confirmDialog}
       {/* Side drawers */}
       <ReleaseStatusHistoryDrawer
         open={historyOpen}

@@ -20,6 +20,7 @@ import { fetchTenants, createTenant, disableTenant, signInAsTenant } from '../..
 import type { RootState, AppDispatch } from '../../store';
 import DataTable from '../../components/DataTable';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface TenantRow {
   id: number;
@@ -34,6 +35,7 @@ export default function TenantList() {
   const { tenants, loading, error } = useSelector((state: RootState) => state.admin);
   const currentUserId = useSelector((state: RootState) => state.auth.user?.id);
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -63,7 +65,7 @@ export default function TenantList() {
 
   const handleDisable = useCallback(
     async (id: number) => {
-      if (window.confirm('Disable this tenant? All users will lose access.')) {
+      if (await confirm({ message: 'Disable this tenant? All users will lose access.', destructive: true })) {
         try {
           await dispatch(disableTenant(id)).unwrap();
           snackbar.success('Tenant disabled');
@@ -72,7 +74,7 @@ export default function TenantList() {
         }
       }
     },
-    [dispatch, snackbar]
+    [dispatch, snackbar, confirm]
   );
 
   const handleSignInAs = useCallback(
@@ -177,6 +179,7 @@ export default function TenantList() {
         </Paper>
       )}
 
+      {confirmDialog}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create Tenant</DialogTitle>
         <DialogContent>

@@ -13,6 +13,7 @@ import DataTable from '../DataTable';
 import { AppDispatch } from '../../store';
 import { deleteReleaseChange } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 import ScopeItemDialog from './ScopeItemDialog';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 
@@ -32,6 +33,7 @@ const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
 export default function ScopeTable({ releaseId, changes, loading }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState<ReleaseChangeResponse | null>(null);
@@ -47,7 +49,7 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
   };
 
   const handleDelete = async (changeId: number) => {
-    if (!confirm('Delete this scope item?')) return;
+    if (!(await confirm({ message: 'Delete this scope item?', destructive: true }))) return;
     try {
       await dispatch(deleteReleaseChange(changeId)).unwrap();
       snackbar.success('Scope item deleted');
@@ -144,6 +146,7 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
         />
       </Box>
 
+      {confirmDialog}
       <ScopeItemDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}

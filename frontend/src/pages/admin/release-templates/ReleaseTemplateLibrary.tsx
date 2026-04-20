@@ -31,12 +31,14 @@ import {
 } from '../../../store/releaseTemplateSlice';
 import type { ReleaseTemplateResponse } from '../../../types/releaseTemplate';
 import { useSnackbar } from '../../../hooks/useSnackbar';
+import { useConfirm } from '../../../hooks/useConfirm';
 import { toIsoDatetime } from '../../../utils/dates';
 
 export default function ReleaseTemplateLibrary() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const { list: templates, loading } = useSelector((s: RootState) => s.releaseTemplate);
 
   const [instantiateTarget, setInstantiateTarget] = useState<ReleaseTemplateResponse | null>(null);
@@ -49,7 +51,7 @@ export default function ReleaseTemplateLibrary() {
   }, [dispatch]);
 
   const handleDelete = async (row: ReleaseTemplateResponse) => {
-    if (!confirm(`Delete template "${row.name}"?`)) return;
+    if (!(await confirm({ message: `Delete template "${row.name}"?`, destructive: true }))) return;
     try {
       await dispatch(deleteReleaseTemplate(row.id)).unwrap();
       snackbar.success('Template deleted');
@@ -164,6 +166,7 @@ export default function ReleaseTemplateLibrary() {
         sx={{ bgcolor: 'background.paper' }}
       />
 
+      {confirmDialog}
       {/* Instantiate dialog */}
       <Dialog
         open={Boolean(instantiateTarget)}

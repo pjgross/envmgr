@@ -38,11 +38,15 @@ import {
 } from '../../store/adminSlice';
 import type { UserResponse } from '../../types';
 import type { RootState, AppDispatch } from '../../store';
+import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 
 export default function TenantDetail() {
   const { tenantId } = useParams<{ tenantId: string }>();
   const id = Number(tenantId);
   const dispatch = useDispatch<AppDispatch>();
+  const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const { tenantUsers, tenants, loading, error } = useSelector((state: RootState) => state.admin);
   const tenant = tenants.find((t) => t.id === id);
 
@@ -113,16 +117,16 @@ export default function TenantDetail() {
     try {
       await dispatch(setTenantUserRole({ tenantId: id, userId, role: newRole })).unwrap();
     } catch {
-      alert('Failed to update role');
+      snackbar.error('Failed to update role');
     }
   };
 
   const handleDeactivate = async (userId: number) => {
-    if (window.confirm('Deactivate this user? They will lose access immediately.')) {
+    if (await confirm({ message: 'Deactivate this user? They will lose access immediately.', destructive: true })) {
       try {
         await dispatch(deactivateTenantUser({ tenantId: id, userId })).unwrap();
       } catch {
-        alert('Failed to deactivate user');
+        snackbar.error('Failed to deactivate user');
       }
     }
   };
@@ -131,7 +135,7 @@ export default function TenantDetail() {
     try {
       await dispatch(reactivateTenantUser({ tenantId: id, userId })).unwrap();
     } catch {
-      alert('Failed to reactivate user');
+      snackbar.error('Failed to reactivate user');
     }
   };
 
@@ -287,6 +291,7 @@ export default function TenantDetail() {
         </Paper>
       )}
 
+      {confirmDialog}
       <Dialog open={Boolean(editUser)} onClose={() => setEditUser(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit User</DialogTitle>
         <DialogContent>

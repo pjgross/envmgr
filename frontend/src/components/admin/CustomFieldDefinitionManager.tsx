@@ -25,6 +25,7 @@ import type { AppDispatch, RootState } from '../../store';
 import { fetchDefinitions, deleteDefinition } from '../../store/customFieldSlice';
 import CustomFieldDefinitionDialog from './CustomFieldDefinitionDialog';
 import type { CustomFieldDefinition, EntityType } from '../../types/customField';
+import { useConfirm } from '../../hooks/useConfirm';
 
 const TYPE_COLORS: Record<string, 'primary' | 'warning' | 'success'> = {
   text: 'primary',
@@ -41,6 +42,7 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
   const { definitions, loading, error } = useSelector((state: RootState) => state.customField);
   const defs = definitions[entityType] ?? [];
 
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CustomFieldDefinition | null>(null);
 
@@ -56,8 +58,8 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
     setEditTarget(d);
     setDialogOpen(true);
   };
-  const handleDelete = (id: number) => {
-    if (!window.confirm('Delete this field? This cannot be undone.')) return;
+  const handleDelete = async (id: number) => {
+    if (!(await confirm({ message: 'Delete this field? This cannot be undone.', destructive: true }))) return;
     dispatch(deleteDefinition(id));
   };
 
@@ -140,6 +142,7 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
         </TableContainer>
       )}
 
+      {confirmDialog}
       <CustomFieldDefinitionDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}

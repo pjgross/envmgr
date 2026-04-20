@@ -28,6 +28,7 @@ import TransitionButtons from '../../components/bookings/TransitionButtons';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import BookingScheduleGantt from '../../components/BookingScheduleGantt';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 import { changeRequestService } from '../../services/changeRequestService';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { CHANGE_TYPE_LABELS } from '../../types/changeRequest';
@@ -53,6 +54,7 @@ export default function ChangeRequestDetail() {
     (s: RootState) => s.customField.definitions['change_request'] ?? []
   );
 
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [allowed, setAllowed] = useState<AllowedTransition[]>([]);
   const [editOpen, setEditOpen] = useState(false);
 
@@ -97,7 +99,7 @@ export default function ChangeRequestDetail() {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('Delete this change request?')) return;
+    if (!(await confirm({ message: 'Delete this change request?', destructive: true }))) return;
     try {
       const action = await dispatch(deleteChangeRequest(crId));
       if ('error' in action) throw new Error(action.error.message ?? 'Delete failed');
@@ -346,6 +348,7 @@ export default function ChangeRequestDetail() {
         )}
       </Paper>
 
+      {confirmDialog}
       <ChangeRequestEditDialog
         open={editOpen}
         onClose={() => setEditOpen(false)}

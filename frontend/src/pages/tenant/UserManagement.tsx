@@ -32,9 +32,13 @@ import {
 } from '../../store/tenantAdminSlice';
 import type { UserResponse } from '../../types';
 import type { RootState, AppDispatch } from '../../store';
+import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 
 export default function UserManagement() {
   const dispatch = useDispatch<AppDispatch>();
+  const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const { users, loading, error } = useSelector((state: RootState) => state.tenantAdmin);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -103,12 +107,12 @@ export default function UserManagement() {
     try {
       await dispatch(setUserRole({ id, role: newRole })).unwrap();
     } catch {
-      alert('Failed to update role');
+      snackbar.error('Failed to update role');
     }
   };
 
-  const handleDeactivate = (id: number) => {
-    if (window.confirm('Deactivate this user?')) {
+  const handleDeactivate = async (id: number) => {
+    if (await confirm({ message: 'Deactivate this user?', destructive: true })) {
       dispatch(deactivateUser(id));
     }
   };
@@ -215,6 +219,7 @@ export default function UserManagement() {
         </Paper>
       )}
 
+      {confirmDialog}
       <Dialog open={Boolean(editUser)} onClose={() => setEditUser(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit User</DialogTitle>
         <DialogContent>

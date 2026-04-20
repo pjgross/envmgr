@@ -39,6 +39,7 @@ import {
 } from '../../store/releaseSlice';
 import api from '../../services/api';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useConfirm } from '../../hooks/useConfirm';
 import GateDecisionDialog from './GateDecisionDialog';
 import CriterionRow from './CriterionRow';
 import CriterionDialog from './CriterionDialog';
@@ -65,6 +66,7 @@ const STATUS_COLORS: Record<
 export default function GatesTable({ releaseId, gates, phases, onRefresh }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Users for criterion assignee select — lite endpoint is tenant-member-accessible
   const [users, setUsers] = useState<Array<{ id: number; username: string }>>([]);
@@ -132,7 +134,7 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   };
 
   const handleDelete = async (gateId: number) => {
-    if (!confirm('Delete this gate?')) return;
+    if (!(await confirm({ message: 'Delete this gate?', destructive: true }))) return;
     try {
       await dispatch(deleteGate({ releaseId, gateId })).unwrap();
       onRefresh();
@@ -197,7 +199,7 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   };
 
   const handleDeleteCriterion = async (criterion: GateCriterion) => {
-    if (!confirm('Delete this criterion?')) return;
+    if (!(await confirm({ message: 'Delete this criterion?', destructive: true }))) return;
     try {
       await dispatch(deleteCriterion(criterion.id)).unwrap();
       snackbar.success('Criterion deleted');
@@ -409,6 +411,7 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
         onSubmit={handleCriterionSubmit}
       />
 
+      {confirmDialog}
       <GateDecisionDialog
         open={decisionOpen}
         onClose={() => setDecisionOpen(false)}
