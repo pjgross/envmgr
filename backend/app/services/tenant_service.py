@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.user import Tenant
 from app.api.v1.schemas import TenantCreate, TenantUpdate
 from app.services import change_request_service
+from app.services.release_defaults import seed_release_defaults_for_tenant
 
 
 async def list_tenants(db: AsyncSession) -> list[Tenant]:
@@ -31,6 +32,8 @@ async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
     # Seed default change-request lifecycles so admins have something to link
     # change requests to out of the box.
     await change_request_service.seed_default_lifecycles(db, tenant.id)
+    # Seed default release lifecycle templates + event types.
+    await seed_release_defaults_for_tenant(db, tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return tenant

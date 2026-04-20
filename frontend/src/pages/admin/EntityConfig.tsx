@@ -5,6 +5,7 @@ import CustomFieldDefinitionManager from '../../components/admin/CustomFieldDefi
 import BookingTypesPanel from '../../components/admin/BookingTypesPanel';
 import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
 import ComponentTypesPanel from '../../components/admin/ComponentTypesPanel';
+import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -14,6 +15,7 @@ const ENTITY_LABELS: Record<string, string> = {
   environment: 'Environments',
   booking: 'Bookings',
   'change-request': 'Change Requests',
+  release: 'Releases',
 };
 
 // URL-style entity slug (dash) → internal EntityType (underscore) where they differ.
@@ -23,10 +25,14 @@ const ENTITY_SLUG_TO_TYPE: Record<string, EntityType> = {
   environment: 'environment',
   booking: 'booking',
   'change-request': 'change_request',
+  release: 'release',
 };
 
 // Entities whose Lifecycle tab is fully supported.
-const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request'];
+const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request', 'release'];
+
+// Entities that have event types config.
+const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];
 
 export default function EntityConfig() {
   const { entityType } = useParams<{ entityType: string }>();
@@ -53,6 +59,7 @@ export default function EntityConfig() {
   const et = ENTITY_SLUG_TO_TYPE[entityType];
   const label = ENTITY_LABELS[entityType];
   const hasLifecycle = LIFECYCLE_SUPPORTED.includes(et);
+  const hasEventTypes = EVENT_TYPES_SUPPORTED.includes(et);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -67,6 +74,7 @@ export default function EntityConfig() {
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
           <Tab label="Custom Fields" />
           {hasLifecycle && <Tab label="Lifecycle" />}
+          {hasEventTypes && <Tab label="Event Types" />}
         </Tabs>
       </Box>
 
@@ -82,6 +90,10 @@ export default function EntityConfig() {
           )}
           <LifecycleTemplatesPanel entityType={et} />
         </Box>
+      )}
+
+      {hasEventTypes && tab === (hasLifecycle ? 2 : 1) && (
+        <ReleaseEventTypesPanel />
       )}
     </Box>
   );

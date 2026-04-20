@@ -12,7 +12,7 @@
 | 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
 | 2 | Change Management | ✅ Complete (MR !2, merge `3bb3833`, 2026-04-19) | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
 | 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | ✅ Complete (same MR) | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
-| 3 | Releases, Templates, Enterprise Release, Jira | ⏳ Planned | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
+| 3 | Releases, Templates, Enterprise Release, Jira | 🔄 Sub-project 1 of 3 in review via MR !? (branch `feature/phase-3-core-releases`) — Task 42 will update !? with the real MR number | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
 | 6 | Infrastructure Topology | 🟡 Model pulled forward — Terraform/Neo4j/React Flow still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |

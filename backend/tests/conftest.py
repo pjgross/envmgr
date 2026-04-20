@@ -18,6 +18,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_request import BookingRequest
 from app.db.models.booking import Booking
+from app.db.models.system import System
 from app.core.security import get_password_hash
 from datetime import datetime, timezone, timedelta
 
@@ -216,3 +217,78 @@ async def test_conflicting_booking(db_session, test_tenant, test_environment, te
     await db_session.commit()
     await db_session.refresh(booking)
     return booking
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 short-name aliases and new fixtures
+# ---------------------------------------------------------------------------
+
+@pytest_asyncio.fixture(scope="function")
+async def tenant(db_session) -> Tenant:
+    """Short-name alias for test_tenant; used by Phase 3 model tests."""
+    t = Tenant(name="Phase3 Org", slug="phase3-org")
+    db_session.add(t)
+    await db_session.commit()
+    await db_session.refresh(t)
+    return t
+
+
+@pytest_asyncio.fixture(scope="function")
+async def user(db_session, tenant) -> User:
+    """Short-name alias for a test user in the `tenant` fixture."""
+    u = User(
+        tenant_id=tenant.id,
+        username="p3admin",
+        email="p3admin@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Admin",
+        is_active=True,
+    )
+    db_session.add(u)
+    await db_session.commit()
+    await db_session.refresh(u)
+    return u
+
+
+@pytest_asyncio.fixture(scope="function")
+async def system(db_session, tenant) -> System:
+    """A persisted System row for the `tenant` fixture; used by Phase 3 tests."""
+    s = System(
+        tenant_id=tenant.id,
+        name="Core Platform",
+    )
+    db_session.add(s)
+    await db_session.commit()
+    await db_session.refresh(s)
+    return s
+
+
+@pytest_asyncio.fixture(scope="function")
+async def release_lifecycle_template(db_session, tenant) -> LifecycleTemplate:
+    """A LifecycleTemplate with entity_type='release'; shared by Phase 3 model tests."""
+    template = LifecycleTemplate(
+        tenant_id=tenant.id,
+        entity_type="release",
+        name="Test Major",
+        description="",
+        is_default=True,
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+                {"key": "completed", "label": "Completed", "is_initial": False, "is_terminal": True},
+            ],
+            "transitions": [
+                {"from_state": "draft", "to_state": "submitted", "allowed_roles": ["Admin"]},
+                {"from_state": "submitted", "to_state": "completed", "allowed_roles": ["Admin"]},
+            ],
+            "field_permissions": {
+                "draft": {"standard_fields": {}, "custom_fields": {}},
+                "submitted": {"standard_fields": {}, "custom_fields": {}},
+            },
+        },
+    )
+    db_session.add(template)
+    await db_session.commit()
+    await db_session.refresh(template)
+    return template

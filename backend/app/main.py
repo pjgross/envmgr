@@ -64,6 +64,9 @@ from app.api.v1 import booking_requests as booking_requests_router
 from app.api.v1 import conflicts as conflicts_router
 from app.api.v1 import change_requests as change_requests_router
 from app.api.v1 import infrastructure_components as infrastructure_components_router
+from app.api.v1 import releases as releases_router
+from app.api.v1 import release_templates as release_templates_router
+from app.api.v1 import release_event_types as release_event_types_router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -85,3 +88,13 @@ app.include_router(
     prefix="/api/v1/infrastructure-components",
     tags=["Infrastructure"],
 )
+
+# Releases (main router + sub-resource routers)
+app.include_router(releases_router.router, prefix="/api/v1")
+app.include_router(releases_router.phases_router, prefix="/api/v1")
+app.include_router(releases_router.gates_router, prefix="/api/v1")
+app.include_router(releases_router.release_systems_router, prefix="/api/v1")
+app.include_router(releases_router.release_deps_router, prefix="/api/v1")
+app.include_router(releases_router.release_changes_router, prefix="/api/v1")
+app.include_router(release_templates_router.router, prefix="/api/v1")
+app.include_router(release_event_types_router.router, prefix="/api/v1")

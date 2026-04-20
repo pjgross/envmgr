@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  MenuItem,
   Switch,
   TextField,
   ToggleButton,
@@ -13,9 +14,13 @@ import {
   Typography,
   Alert,
 } from '@mui/material';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch } from '../../store';
 import { createDefinition, updateDefinition } from '../../store/customFieldSlice';
+import {
+  fetchLifecycleTemplates,
+  selectTemplatesForEntity,
+} from '../../store/bookingLifecycleSlice';
 import type {
   CustomFieldDefinition,
   CustomFieldDefinitionCreate,
@@ -57,7 +62,20 @@ export default function CustomFieldDefinitionDialog({
   const [fieldType, setFieldType] = useState<FieldType>('text');
   const [required, setRequired] = useState(false);
   const [displayOrder, setDisplayOrder] = useState(0);
+  const [entitySubtype, setEntitySubtype] = useState<string>('');
   const [error, setError] = useState('');
+
+  // Subtype scoping is currently exposed for 'release' only. Subtype options
+  // for a release come from the tenant's release lifecycle templates — the
+  // template name IS the release type.
+  const showSubtypeField = entityType === 'release';
+  const releaseTemplates = useSelector(selectTemplatesForEntity('release'));
+
+  useEffect(() => {
+    if (open && showSubtypeField) {
+      dispatch(fetchLifecycleTemplates('release'));
+    }
+  }, [open, showSubtypeField, dispatch]);
 
   useEffect(() => {
     if (open) {
@@ -67,6 +85,7 @@ export default function CustomFieldDefinitionDialog({
         setFieldType(editTarget.field_type);
         setRequired(editTarget.required);
         setDisplayOrder(editTarget.display_order);
+        setEntitySubtype(editTarget.entity_subtype ?? '');
         setKeyManuallyEdited(true); // lock key on edit
       } else {
         setLabel('');
@@ -75,6 +94,7 @@ export default function CustomFieldDefinitionDialog({
         setFieldType('text');
         setRequired(false);
         setDisplayOrder(0);
+        setEntitySubtype('');
       }
       setError('');
     }
@@ -102,7 +122,12 @@ export default function CustomFieldDefinitionDialog({
         await dispatch(
           updateDefinition({
             id: editTarget!.id,
-            data: { label, required, display_order: displayOrder },
+            data: {
+              label,
+              required,
+              display_order: displayOrder,
+              ...(showSubtypeField ? { entity_subtype: entitySubtype || null } : {}),
+            },
           })
         ).unwrap();
       } else {
@@ -113,12 +138,23 @@ export default function CustomFieldDefinitionDialog({
           field_type: fieldType,
           required,
           display_order: displayOrder,
+          ...(showSubtypeField ? { entity_subtype: entitySubtype || null } : {}),
         };
         await dispatch(createDefinition(payload)).unwrap();
       }
       onClose();
     } catch (e: unknown) {
-      const msg = (e as { message?: string })?.message;
+      const axiosErr = e as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const fromDetail =
+        typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail) && detail[0]?.msg
+            ? `${(detail[0] as { loc?: unknown[] }).loc?.join?.('.') ?? 'field'}: ${
+                (detail[0] as { msg: string }).msg
+              }`
+            : null;
+      const msg = fromDetail ?? (e as { message?: string })?.message;
       setError(msg ?? 'Save failed');
     }
   };
@@ -190,6 +226,27 @@ export default function CustomFieldDefinitionDialog({
           fullWidth
           size="small"
         />
+
+        {showSubtypeField && (
+          <TextField
+            select
+            label="Release Type (optional)"
+            value={entitySubtype}
+            onChange={(e) => setEntitySubtype(e.target.value)}
+            fullWidth
+            size="small"
+            helperText="Leave blank to apply to all release types."
+          >
+            <MenuItem value="">
+              <em>All release types</em>
+            </MenuItem>
+            {releaseTemplates.map((t) => (
+              <MenuItem key={t.id} value={t.name}>
+                {t.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
 
         <FormControlLabel
           control={<Switch checked={required} onChange={(e) => setRequired(e.target.checked)} />}
