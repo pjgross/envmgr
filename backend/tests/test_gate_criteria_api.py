@@ -56,6 +56,21 @@ async def _make_release_with_gate(client: AsyncClient, headers: dict) -> tuple[i
 
 
 @pytest.mark.asyncio
+async def test_gate_list_includes_assignee_username(
+    client: AsyncClient, auth_headers: dict, lifecycle, test_user,
+):
+    """Criterion nested under GET /releases/{id}/gates should carry assignee_username."""
+    rid, gid = await _make_release_with_gate(client, auth_headers)
+    await client.post(
+        f"/api/v1/releases/{rid}/gates/{gid}/criteria",
+        headers=auth_headers,
+        json={"title": "A", "assigned_to_user_id": test_user.id},
+    )
+    gates = (await client.get(f"/api/v1/releases/{rid}/gates", headers=auth_headers)).json()
+    assert gates[0]["criteria"][0]["assigned_to_username"] == test_user.username
+
+
+@pytest.mark.asyncio
 async def test_create_list_criterion(client: AsyncClient, auth_headers: dict, lifecycle):
     rid, gid = await _make_release_with_gate(client, auth_headers)
     resp = await client.post(

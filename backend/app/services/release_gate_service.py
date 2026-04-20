@@ -119,6 +119,16 @@ async def list_gates(
         )
     ).scalars().all()
 
+    # Batch-load assignee usernames for every criterion in one query (avoids N+1).
+    from app.db.models.user import User
+    assignee_ids = {c.assigned_to_user_id for c in crit_rows if c.assigned_to_user_id is not None}
+    username_by_id: dict[int, str] = {}
+    if assignee_ids:
+        user_rows = (
+            await db.execute(select(User.id, User.username).where(User.id.in_(assignee_ids)))
+        ).all()
+        username_by_id = {row.id: row.username for row in user_rows}
+
     now = datetime.now(timezone.utc)
     by_gate: dict[int, list[dict]] = {gid: [] for gid in gate_ids}
     overdue_count: dict[int, int] = {gid: 0 for gid in gate_ids}
@@ -126,7 +136,8 @@ async def list_gates(
         crit_dict = {
             "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
             "due_date": c.due_date, "assigned_to_user_id": c.assigned_to_user_id,
-            "assigned_to_username": None, "status": c.status,
+            "assigned_to_username": username_by_id.get(c.assigned_to_user_id) if c.assigned_to_user_id else None,
+            "status": c.status,
             "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
             "created_at": c.created_at, "updated_at": c.updated_at,
         }
