@@ -20,6 +20,10 @@ import type {
   ReleaseCalendarEntry,
   ReleaseTimelineEntry,
 } from '../types/release';
+import type {
+  GateCriterionCreatePayload,
+  GateCriterionUpdatePayload,
+} from '../types/gateCriterion';
 import type { ReleaseEventResponse, ReleaseEventCreatePayload } from '../types/releaseEvent';
 import type {
   ReleaseChangeResponse,
@@ -173,6 +177,37 @@ export const overrideGate = createAsyncThunk(
     releaseService.overrideGate(releaseId, gateId, data)
 );
 
+// --- Gate Criteria ---
+export const createCriterion = createAsyncThunk(
+  'release/createCriterion',
+  async (args: { releaseId: number; gateId: number; payload: GateCriterionCreatePayload }) =>
+    releaseService.createCriterion(args.releaseId, args.gateId, args.payload),
+);
+
+export const updateCriterion = createAsyncThunk(
+  'release/updateCriterion',
+  async (args: { criterionId: number; payload: GateCriterionUpdatePayload }) =>
+    releaseService.updateCriterion(args.criterionId, args.payload),
+);
+
+export const completeCriterion = createAsyncThunk(
+  'release/completeCriterion',
+  async (criterionId: number) => releaseService.completeCriterion(criterionId),
+);
+
+export const reopenCriterion = createAsyncThunk(
+  'release/reopenCriterion',
+  async (criterionId: number) => releaseService.reopenCriterion(criterionId),
+);
+
+export const deleteCriterion = createAsyncThunk(
+  'release/deleteCriterion',
+  async (criterionId: number) => {
+    await releaseService.deleteCriterion(criterionId);
+    return criterionId;
+  },
+);
+
 // --- Dependencies ---
 export const fetchDependencies = createAsyncThunk('release/listDependencies', (releaseId: number) =>
   releaseService.listDependencies(releaseId)
@@ -324,6 +359,41 @@ const releaseSlice = createSlice({
       .addCase(overrideGate.fulfilled, (state, action) => {
         const idx = state.gates.findIndex((g) => g.id === action.payload.id);
         if (idx !== -1) state.gates[idx] = action.payload;
+      })
+
+      // criteria
+      .addCase(createCriterion.fulfilled, (state, action) => {
+        const crit = action.payload;
+        const gate = state.gates.find((g) => g.id === crit.gate_id);
+        if (gate) gate.criteria.push(crit);
+      })
+      .addCase(updateCriterion.fulfilled, (state, action) => {
+        const crit = action.payload;
+        const gate = state.gates.find((g) => g.id === crit.gate_id);
+        if (!gate) return;
+        const i = gate.criteria.findIndex((c) => c.id === crit.id);
+        if (i >= 0) gate.criteria[i] = crit;
+      })
+      .addCase(completeCriterion.fulfilled, (state, action) => {
+        const crit = action.payload;
+        const gate = state.gates.find((g) => g.id === crit.gate_id);
+        if (!gate) return;
+        const i = gate.criteria.findIndex((c) => c.id === crit.id);
+        if (i >= 0) gate.criteria[i] = crit;
+        // Auto-pass may have flipped gate.status — calling component must dispatch fetchGates(releaseId).
+      })
+      .addCase(reopenCriterion.fulfilled, (state, action) => {
+        const crit = action.payload;
+        const gate = state.gates.find((g) => g.id === crit.gate_id);
+        if (!gate) return;
+        const i = gate.criteria.findIndex((c) => c.id === crit.id);
+        if (i >= 0) gate.criteria[i] = crit;
+      })
+      .addCase(deleteCriterion.fulfilled, (state, action) => {
+        const criterionId = action.payload;
+        state.gates.forEach((gate) => {
+          gate.criteria = gate.criteria.filter((c) => c.id !== criterionId);
+        });
       })
 
       // dependencies
