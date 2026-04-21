@@ -146,7 +146,7 @@ envmgr/
 
 - [Project Roadmap](docs/plan.md)
 - [Requirements](docs/requirements.md)
-- [Current Phase Tasks](docs/phases/phase-1.md)
+- [Latest Phase Summary — Phase 3 (Core Releases)](docs/phases/phase-3.md)
 - [Architecture Reference](docs/prod%20architecture.md)
 - [API Documentation](http://localhost:8000/docs) (when running)
 

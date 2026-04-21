@@ -1,10 +1,10 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 2 (Change Management) + Phase 2.5 (Hosts / InfrastructureComponent + multi-target CRs, Phase 6 pull-forward) merged to `main` via MR !2 on 2026-04-19 (merge commit `3bb3833`). Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 next up.
+> **Current Phase**: Phase 3 Sub-project 1 (Core Releases) + follow-ups (lifecycle permissions unification, gate criteria with overdue tracking, MUI confirm sweep) merged to `main` on 2026-04-20 / 2026-04-21 via MRs !4–!8 (main tip `2031a76`). Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2/3 (Enterprise, Jira, PIR) deferred | Phase 4 next.
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
-> **Roadmap**: [docs/plan.md](docs/plan.md) | **Phase 1 summary**: [docs/phases/phase-1.md](docs/phases/phase-1.md) | **Phase 2 summary**: [docs/phases/phase-2.md](docs/phases/phase-2.md)
+> **Roadmap**: [docs/plan.md](docs/plan.md) | **Phase 1 summary**: [docs/phases/phase-1.md](docs/phases/phase-1.md) | **Phase 2 summary**: [docs/phases/phase-2.md](docs/phases/phase-2.md) | **Phase 3 summary**: [docs/phases/phase-3.md](docs/phases/phase-3.md)
 
 EnvManager is a multi-tenant test environment management platform: inventory, booking, change management, CI/CD tracking, DORA metrics, and infrastructure topology visualization.
 

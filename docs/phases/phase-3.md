@@ -1,11 +1,11 @@
 # Phase 3: Releases & Test Phases
 
-> Status: 🔄 **Sub-project 1 in review** (MR `feature/phase-3-core-releases` → `main`) | Roadmap: [../plan.md](../plan.md)
+> Status: ✅ **Sub-project 1 merged to `main`** (MR !4, merge commit `8f154bd`, 2026-04-20) | Roadmap: [../plan.md](../plan.md)
 > Duration: 4–6 weeks | Sub-project 1 complete; sub-projects 2 & 3 + Phase 5 items deferred
 
-## Sub-project 1 — Core Releases (in review)
+## Sub-project 1 — Core Releases ✅ Merged
 
-Implemented on `feature/phase-3-core-releases`. All 39 implementation tasks complete; integration test and smoke checklist added as Tasks 40–41.
+Delivered on `main` via MR !4 on 2026-04-20 (merge commit `8f154bd`).
 
 | Artefact | Path |
 |----------|------|
@@ -14,9 +14,22 @@ Implemented on `feature/phase-3-core-releases`. All 39 implementation tasks comp
 | Smoke checklist | `docs/phases/phase-3-sub1-smoke-checklist.md` |
 | Happy-path test | `backend/tests/integration/test_release_happy_path.py` |
 
-**Delivered**: Release Template Library, Release CRUD, TestPhase + ReleaseGate + ReleaseSystem + ReleaseEvent + ReleaseChange models, full lifecycle transitions, release-booking linking with context_tag derivation, calendar and Gantt timeline views, frontend release list / form / detail (Main / Phases / Gates / Systems / Bookings / Scope / Events tabs), admin lifecycle + event-type management pages.
+**Delivered in MR !4**: Release Template Library, Release CRUD, TestPhase + ReleaseGate + ReleaseSystem + ReleaseEvent + ReleaseChange models, full lifecycle transitions, release-booking linking with context_tag derivation, calendar and Gantt timeline views, frontend release list / form / detail (Main / Phases / Gates / Systems / Bookings / Scope / Events tabs), admin lifecycle + event-type management pages.
+
+### Sub-project 1 follow-ups (same delivery window)
+
+| MR | Commit | Summary |
+|----|--------|---------|
+| !5 | `8327f36` | Lifecycle permissions unified: `ReleaseRead` now carries `custom_field_permissions` + `standard_field_permissions` in the same shape as `BookingResponse`; shared `lifecycle_service.get_field_permissions_for_state` core. |
+| !6 | `906ddef` | Gate criteria: `gate_criterion` table 1:N under `release_gate`; criteria have due_date, assigned_to, notes; gate auto-passes (one-way) when all criteria are `done`; per-release `overdue_criterion_count` exposed on list endpoint; drops `release_gate.acceptance_criteria` column. |
+| !7 | `8f49c48` | Frontend MUI confirm sweep: new `useConfirm` hook + `ConfirmDialog` component replace 12 native `confirm()` + 4 `alert()` call sites. |
+| !8 | `2031a76` | Hotfix: committed the `ConfirmDialog` + `useConfirm` files that were referenced by !7 but originally uncommitted. |
+
+Spec + plan for these follow-ups live under `docs/superpowers/specs/` and `docs/superpowers/plans/` with dates `2026-04-20`.
 
 **Deferred to sub-projects 2/3 and Phase 5**: Enterprise Releases (release trains), Jira Integration, Post-Implementation Reviews (PIR). These remain as planned tasks in this file and in Phase 5.
+
+**Pending MR** (not yet merged): `feature/scope-custom-fields` adds custom fields to scope items (`ReleaseChange`), optionally scoped to a specific `change_kind`. Spec: `docs/superpowers/specs/2026-04-21-scope-custom-fields-design.md`.
 
 ---
 
