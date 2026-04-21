@@ -29,6 +29,9 @@ import type {
   ReleaseChangeResponse,
   ReleaseChangeCreatePayload,
   ReleaseChangeUpdatePayload,
+  ReleaseChangeMovePayload,
+  ReleaseChangeReleaseHistoryResponse,
+  ReleaseChangeStatusHistoryResponse,
 } from '../types/releaseChange';
 import { releaseService } from '../services/releaseService';
 
@@ -44,6 +47,9 @@ interface ReleaseState {
   dependencyAlerts: ReleaseDependencyAlert[];
   events: ReleaseEventResponse[];
   changes: ReleaseChangeResponse[];
+  backlog: ReleaseChangeResponse[];
+  changeReleaseHistory: ReleaseChangeReleaseHistoryResponse[];
+  changeStatusHistory: ReleaseChangeStatusHistoryResponse[];
   history: ReleaseStatusHistory[];
   calendar: ReleaseCalendarEntry[];
   timeline: ReleaseTimelineEntry[];
@@ -61,6 +67,9 @@ const initialState: ReleaseState = {
   dependencyAlerts: [],
   events: [],
   changes: [],
+  backlog: [],
+  changeReleaseHistory: [],
+  changeStatusHistory: [],
   history: [],
   calendar: [],
   timeline: [],
@@ -268,6 +277,27 @@ export const deleteReleaseChange = createAsyncThunk(
   (changeId: number) => releaseService.deleteChange(changeId).then(() => changeId)
 );
 
+export const moveReleaseChange = createAsyncThunk(
+  'release/moveChange',
+  ({ changeId, payload }: { changeId: number; payload: ReleaseChangeMovePayload }) =>
+    releaseService.moveReleaseChange(changeId, payload)
+);
+
+export const fetchBacklogChanges = createAsyncThunk(
+  'release/listBacklog',
+  () => releaseService.listBacklogChanges()
+);
+
+export const fetchReleaseChangeReleaseHistory = createAsyncThunk(
+  'release/changeReleaseHistory',
+  (changeId: number) => releaseService.fetchReleaseChangeReleaseHistory(changeId)
+);
+
+export const fetchReleaseChangeStatusHistory = createAsyncThunk(
+  'release/changeStatusHistory',
+  (changeId: number) => releaseService.fetchReleaseChangeStatusHistory(changeId)
+);
+
 const releaseSlice = createSlice({
   name: 'release',
   initialState,
@@ -300,7 +330,16 @@ const releaseSlice = createSlice({
 
       // create — counts default to 0 for a brand-new release
       .addCase(createRelease.fulfilled, (state, action) => {
-        state.list.unshift({ ...action.payload, phase_count: 0, scope_count: 0, blocker_count: 0, overdue_criterion_count: 0 });
+        state.list.unshift({
+          ...action.payload,
+          phase_count: 0,
+          scope_count: 0,
+          blocker_count: 0,
+          overdue_criterion_count: 0,
+          scope_additions_count: 0,
+          scope_removals_count: 0,
+          scope_change_count: 0,
+        });
       })
 
       // update — preserve existing counts, merge updated fields
@@ -420,6 +459,25 @@ const releaseSlice = createSlice({
       })
       .addCase(deleteReleaseChange.fulfilled, (state, action) => {
         state.changes = state.changes.filter((c) => c.id !== action.payload);
+      })
+
+      // move change — update in-state row if found; remove from backlog if it was there
+      .addCase(moveReleaseChange.fulfilled, (state, action) => {
+        const updated = action.payload;
+        const idx = state.changes.findIndex((c) => c.id === updated.id);
+        if (idx !== -1) state.changes[idx] = updated;
+        state.backlog = state.backlog.filter((c) => c.id !== updated.id);
+      })
+
+      // backlog
+      .addCase(fetchBacklogChanges.fulfilled, (state, action) => { state.backlog = action.payload; })
+
+      // change history
+      .addCase(fetchReleaseChangeReleaseHistory.fulfilled, (state, action) => {
+        state.changeReleaseHistory = action.payload;
+      })
+      .addCase(fetchReleaseChangeStatusHistory.fulfilled, (state, action) => {
+        state.changeStatusHistory = action.payload;
       });
   },
 });

@@ -1,14 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Box, Button, Chip, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Chip,
+  MenuItem,
+  Tab,
+  Tabs,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
 import BlockIcon from '@mui/icons-material/Block';
+import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
 import DataTable from '../../components/DataTable';
 import { AppDispatch, RootState } from '../../store';
-import { fetchReleases } from '../../store/releaseSlice';
+import { fetchReleases, fetchBacklogChanges } from '../../store/releaseSlice';
 import type { ReleaseListItemResponse } from '../../types/release';
+import type { ReleaseChangeResponse } from '../../types/releaseChange';
 import ReleaseForm from './ReleaseForm';
+import MoveScopeItemDialog from '../../components/releases/MoveScopeItemDialog';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   draft: 'default',
@@ -21,21 +34,38 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
   cancelled: 'error',
 };
 
+const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
+  story: 'info',
+  defect: 'error',
+  task: 'default',
+  spike: 'warning',
+};
+
 const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
 
 export default function ReleaseList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { list, loading } = useSelector((s: RootState) => s.release);
+  const { list, backlog, loading } = useSelector((s: RootState) => s.release);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
+  const [tab, setTab] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [formOpen, setFormOpen] = useState(false);
 
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<ReleaseChangeResponse | null>(null);
+
   useEffect(() => {
     dispatch(fetchReleases({}));
   }, [dispatch]);
+
+  useEffect(() => {
+    if (tab === 1) {
+      dispatch(fetchBacklogChanges());
+    }
+  }, [tab, dispatch]);
 
   const filteredRows = useMemo(
     () =>
@@ -47,7 +77,7 @@ export default function ReleaseList() {
     [list, statusFilter, typeFilter]
   );
 
-  const columns = useMemo<GridColDef<ReleaseListItemResponse>[]>(
+  const releaseColumns = useMemo<GridColDef<ReleaseListItemResponse>[]>(
     () => [
       { field: 'id', headerName: 'ID', width: 70 },
       {
@@ -96,6 +126,34 @@ export default function ReleaseList() {
         width: 90,
         align: 'center',
         headerAlign: 'center',
+      },
+      {
+        field: 'scope_change_count',
+        headerName: 'Scope Changes',
+        width: 150,
+        align: 'center',
+        headerAlign: 'center',
+        renderCell: (params) => {
+          const row = params.row;
+          if (!row.scope_change_count) {
+            return (
+              <Typography variant="body2" color="text.secondary">
+                —
+              </Typography>
+            );
+          }
+          return (
+            <Tooltip
+              title={`+${row.scope_additions_count} additions, -${row.scope_removals_count} removals`}
+            >
+              <Chip
+                label={`scope: +${row.scope_additions_count}/-${row.scope_removals_count}`}
+                size="small"
+                color="warning"
+              />
+            </Tooltip>
+          );
+        },
       },
       {
         field: 'blocker_count',
@@ -149,6 +207,64 @@ export default function ReleaseList() {
     []
   );
 
+  const backlogColumns = useMemo<GridColDef<ReleaseChangeResponse>[]>(
+    () => [
+      { field: 'external_key', headerName: 'Key', width: 110 },
+      { field: 'title', headerName: 'Title', flex: 1, minWidth: 200 },
+      {
+        field: 'change_kind',
+        headerName: 'Kind',
+        width: 100,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.change_kind}
+            color={KIND_COLORS[params.row.change_kind] ?? 'default'}
+            size="small"
+          />
+        ),
+      },
+      {
+        field: 'external_status',
+        headerName: 'Status',
+        width: 130,
+        renderCell: (params) => (
+          <Typography variant="body2">{params.row.external_status ?? '—'}</Typography>
+        ),
+      },
+      {
+        field: '_actions',
+        headerName: '',
+        width: 80,
+        sortable: false,
+        renderCell: (params) => (
+          <Tooltip
+            title={
+              params.row.source === 'jira'
+                ? 'Cannot move jira-sourced scope items'
+                : 'Move to a release'
+            }
+          >
+            <span>
+              <Button
+                size="small"
+                startIcon={<DriveFileMoveIcon fontSize="small" />}
+                disabled={params.row.source === 'jira'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMoveTarget(params.row);
+                  setMoveDialogOpen(true);
+                }}
+              >
+                Move
+              </Button>
+            </span>
+          </Tooltip>
+        ),
+      },
+    ],
+    []
+  );
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 2 }}>
@@ -160,52 +276,84 @@ export default function ReleaseList() {
         </Button>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-        <TextField
-          select
-          label="Status"
-          size="small"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          sx={{ minWidth: 160 }}
-        >
-          <MenuItem value="all">All</MenuItem>
-          <MenuItem value="draft">Draft</MenuItem>
-          <MenuItem value="planning">Planning</MenuItem>
-          <MenuItem value="in_progress">In Progress</MenuItem>
-          <MenuItem value="completed">Completed</MenuItem>
-          <MenuItem value="cancelled">Cancelled</MenuItem>
-        </TextField>
-        <TextField
-          select
-          label="Type"
-          size="small"
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          sx={{ minWidth: 160 }}
-        >
-          <MenuItem value="all">All</MenuItem>
-          {RELEASE_TYPES.map((t) => (
-            <MenuItem key={t} value={t}>
-              {t}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Box>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+        <Tab label="Releases" />
+        <Tab label="Backlog" />
+      </Tabs>
 
-      <Box sx={{ height: 600, width: '100%' }}>
-        <DataTable<ReleaseListItemResponse>
-          storageKey="releases-list"
-          userId={currentUserId}
-          rows={filteredRows}
-          columns={columns}
-          loading={loading}
-          emptyMessage="No releases yet"
-          onRowClick={(params) => navigate(`/releases/${params.row.id}`)}
-        />
-      </Box>
+      {tab === 0 && (
+        <>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            <TextField
+              select
+              label="Status"
+              size="small"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="all">All</MenuItem>
+              <MenuItem value="draft">Draft</MenuItem>
+              <MenuItem value="planning">Planning</MenuItem>
+              <MenuItem value="in_progress">In Progress</MenuItem>
+              <MenuItem value="completed">Completed</MenuItem>
+              <MenuItem value="cancelled">Cancelled</MenuItem>
+            </TextField>
+            <TextField
+              select
+              label="Type"
+              size="small"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="all">All</MenuItem>
+              {RELEASE_TYPES.map((t) => (
+                <MenuItem key={t} value={t}>
+                  {t}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+
+          <Box sx={{ height: 600, width: '100%' }}>
+            <DataTable<ReleaseListItemResponse>
+              storageKey="releases-list"
+              userId={currentUserId}
+              rows={filteredRows}
+              columns={releaseColumns}
+              loading={loading}
+              emptyMessage="No releases yet"
+              onRowClick={(params) => navigate(`/releases/${params.row.id}`)}
+            />
+          </Box>
+        </>
+      )}
+
+      {tab === 1 && (
+        <Box sx={{ height: 600, width: '100%' }}>
+          <DataTable<ReleaseChangeResponse>
+            storageKey="backlog-list"
+            rows={backlog}
+            columns={backlogColumns}
+            loading={loading}
+            emptyMessage="No backlog items"
+          />
+        </Box>
+      )}
 
       <ReleaseForm open={formOpen} onClose={() => setFormOpen(false)} />
+
+      {moveTarget && (
+        <MoveScopeItemDialog
+          open={moveDialogOpen}
+          onClose={() => setMoveDialogOpen(false)}
+          changeId={moveTarget.id}
+          currentReleaseId={null}
+          itemTitle={moveTarget.title}
+          onMoved={() => dispatch(fetchBacklogChanges())}
+        />
+      )}
     </Box>
   );
 }

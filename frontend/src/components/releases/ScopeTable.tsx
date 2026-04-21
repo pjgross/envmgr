@@ -5,16 +5,20 @@
  */
 import { useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
-import { Box, Button, Chip, Typography } from '@mui/material';
+import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
+import HistoryIcon from '@mui/icons-material/History';
 import type { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import DataTable from '../DataTable';
 import { AppDispatch } from '../../store';
-import { deleteReleaseChange } from '../../store/releaseSlice';
+import { deleteReleaseChange, fetchReleaseChanges } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import ScopeItemDialog from './ScopeItemDialog';
+import MoveScopeItemDialog from './MoveScopeItemDialog';
+import ScopeHistoryDrawer from './ScopeHistoryDrawer';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 
 interface Props {
@@ -38,6 +42,12 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState<ReleaseChangeResponse | null>(null);
 
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<ReleaseChangeResponse | null>(null);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<ReleaseChangeResponse | null>(null);
+
   const openCreate = () => {
     setEditItem(null);
     setDialogOpen(true);
@@ -48,6 +58,16 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
     setDialogOpen(true);
   };
 
+  const openMove = (item: ReleaseChangeResponse) => {
+    setMoveTarget(item);
+    setMoveDialogOpen(true);
+  };
+
+  const openHistory = (item: ReleaseChangeResponse) => {
+    setHistoryTarget(item);
+    setHistoryOpen(true);
+  };
+
   const handleDelete = async (changeId: number) => {
     if (!(await confirm({ message: 'Delete this scope item?', destructive: true }))) return;
     try {
@@ -56,6 +76,10 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to delete scope item');
     }
+  };
+
+  const handleMoved = () => {
+    dispatch(fetchReleaseChanges(releaseId));
   };
 
   const columns = useMemo<GridColDef<ReleaseChangeResponse>[]>(
@@ -104,19 +128,53 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
       {
         field: '_actions',
         headerName: '',
-        width: 70,
+        width: 120,
         sortable: false,
         renderCell: (params) => (
-          <Button
-            size="small"
-            color="error"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(params.row.id);
-            }}
-          >
-            <DeleteIcon fontSize="small" />
-          </Button>
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Tooltip
+              title={
+                params.row.source === 'jira'
+                  ? 'Cannot move jira-sourced scope items'
+                  : 'Move to another release'
+              }
+            >
+              <span>
+                <IconButton
+                  size="small"
+                  color="primary"
+                  disabled={params.row.source === 'jira'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openMove(params.row);
+                  }}
+                >
+                  <DriveFileMoveIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="View history">
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openHistory(params.row);
+                }}
+              >
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <IconButton
+              size="small"
+              color="error"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(params.row.id);
+              }}
+            >
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Box>
         ),
       },
     ],
@@ -153,6 +211,24 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
         releaseId={releaseId}
         item={editItem}
       />
+      {moveTarget && (
+        <MoveScopeItemDialog
+          open={moveDialogOpen}
+          onClose={() => setMoveDialogOpen(false)}
+          changeId={moveTarget.id}
+          currentReleaseId={moveTarget.release_id}
+          itemTitle={moveTarget.title}
+          onMoved={handleMoved}
+        />
+      )}
+      {historyTarget && (
+        <ScopeHistoryDrawer
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          changeId={historyTarget.id}
+          itemTitle={historyTarget.title}
+        />
+      )}
     </Box>
   );
 }
