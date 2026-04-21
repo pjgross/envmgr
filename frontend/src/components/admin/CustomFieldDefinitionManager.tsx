@@ -94,7 +94,7 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
                 <TableCell>Label</TableCell>
                 <TableCell>Key</TableCell>
                 <TableCell>Type</TableCell>
-                {entityType === 'release' && <TableCell>Scope</TableCell>}
+                {(entityType === 'release' || entityType === 'release_change') && <TableCell>Scope</TableCell>}
                 <TableCell>Required</TableCell>
                 <TableCell>Order</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -110,7 +110,7 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
                   <TableCell>
                     <Chip label={d.field_type} color={TYPE_COLORS[d.field_type]} size="small" />
                   </TableCell>
-                  {entityType === 'release' && (
+                  {(entityType === 'release' || entityType === 'release_change') && (
                     <TableCell>
                       {d.entity_subtype ? (
                         <Chip label={d.entity_subtype} size="small" variant="outlined" />
