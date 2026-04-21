@@ -24,12 +24,12 @@ Delivered on `main` via MR !4 on 2026-04-20 (merge commit `8f154bd`).
 | !6 | `906ddef` | Gate criteria: `gate_criterion` table 1:N under `release_gate`; criteria have due_date, assigned_to, notes; gate auto-passes (one-way) when all criteria are `done`; per-release `overdue_criterion_count` exposed on list endpoint; drops `release_gate.acceptance_criteria` column. |
 | !7 | `8f49c48` | Frontend MUI confirm sweep: new `useConfirm` hook + `ConfirmDialog` component replace 12 native `confirm()` + 4 `alert()` call sites. |
 | !8 | `2031a76` | Hotfix: committed the `ConfirmDialog` + `useConfirm` files that were referenced by !7 but originally uncommitted. |
+| !9 | `9c897c5` | Docs refresh: Phase 3 status flipped to merged across CLAUDE.md / plan.md / phase-3.md / requirements.md; GEMINI.md marked as historical. |
+| !10 | `47cce5a` | Scope item custom fields: `release_change` joins the custom-field entity types; fields can be unscoped (apply to every `change_kind`) or scoped to one (`story`/`defect`/`task`/`spike`); validation + admin UI + `ScopeItemDialog` integration. Spec: `docs/superpowers/specs/2026-04-21-scope-custom-fields-design.md`. |
 
-Spec + plan for these follow-ups live under `docs/superpowers/specs/` and `docs/superpowers/plans/` with dates `2026-04-20`.
+Spec + plan for these follow-ups live under `docs/superpowers/specs/` and `docs/superpowers/plans/` with dates `2026-04-20` and `2026-04-21`.
 
 **Deferred to sub-projects 2/3 and Phase 5**: Enterprise Releases (release trains), Jira Integration, Post-Implementation Reviews (PIR). These remain as planned tasks in this file and in Phase 5.
-
-**Pending MR** (not yet merged): `feature/scope-custom-fields` adds custom fields to scope items (`ReleaseChange`), optionally scoped to a specific `change_kind`. Spec: `docs/superpowers/specs/2026-04-21-scope-custom-fields-design.md`.
 
 ---
 
