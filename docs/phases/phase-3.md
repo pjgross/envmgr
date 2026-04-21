@@ -26,6 +26,7 @@ Delivered on `main` via MR !4 on 2026-04-20 (merge commit `8f154bd`).
 | !8 | `2031a76` | Hotfix: committed the `ConfirmDialog` + `useConfirm` files that were referenced by !7 but originally uncommitted. |
 | !9 | `9c897c5` | Docs refresh: Phase 3 status flipped to merged across CLAUDE.md / plan.md / phase-3.md / requirements.md; GEMINI.md marked as historical. |
 | !10 | `47cce5a` | Scope item custom fields: `release_change` joins the custom-field entity types; fields can be unscoped (apply to every `change_kind`) or scoped to one (`story`/`defect`/`task`/`spike`); validation + admin UI + `ScopeItemDialog` integration. Spec: `docs/superpowers/specs/2026-04-21-scope-custom-fields-design.md`. |
+| !12 | `35e3a99` | Scope-item lifecycle: `release_id` nullable (items can sit in a backlog); new `release_change_release_history` + `release_change_status_history` + `scope_change_kind_rule` tables; `POST /release-changes/{id}/move` endpoint; jira-sourced items are read-only for moves; release soft-delete drops items to backlog with audit history; symmetric `scope_additions/removals/change_count` on release list gated by per-tenant kind rules (default: only `story` counts). Frontend: Move dialog, Backlog tab, History drawer, admin rules page. Plan: `~/.claude/plans/one-of-the-things-swirling-manatee.md`. |
 
 Spec + plan for these follow-ups live under `docs/superpowers/specs/` and `docs/superpowers/plans/` with dates `2026-04-20` and `2026-04-21`.
 
