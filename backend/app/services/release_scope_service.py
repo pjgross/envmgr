@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.services import custom_field_service
 from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
@@ -129,6 +130,15 @@ async def create_change(
 ) -> ReleaseChange:
     release_status = await _get_release_status(db, release_id, tenant_id)
 
+    # Validate custom_fields against definitions for this change_kind.
+    defs = await custom_field_service.list_definitions_for_subtype(
+        db, tenant_id, "release_change", data.change_kind,
+    )
+    visible_keys = {d.field_key for d in defs}
+    await custom_field_service.validate_custom_fields(
+        db, tenant_id, "release_change", data.custom_fields, visible_field_keys=visible_keys,
+    )
+
     change = ReleaseChange(
         tenant_id=tenant_id,
         release_id=release_id,
@@ -186,6 +196,17 @@ async def update_change(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"Cannot edit fields {sorted(bad_fields)} on a jira-sourced change item",
             )
+
+    # If custom_fields are being updated, re-validate against the current change_kind.
+    if "custom_fields" in update_data:
+        defs = await custom_field_service.list_definitions_for_subtype(
+            db, tenant_id, "release_change", change.change_kind,
+        )
+        visible_keys = {d.field_key for d in defs}
+        await custom_field_service.validate_custom_fields(
+            db, tenant_id, "release_change", update_data["custom_fields"],
+            visible_field_keys=visible_keys,
+        )
 
     for field, value in update_data.items():
         setattr(change, field, value)

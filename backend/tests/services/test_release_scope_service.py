@@ -182,3 +182,119 @@ async def test_tenant_isolation(db_session, tenant, user):
             tenant_b.id, user.id,
         )
     assert exc_info.value.status_code == 404
+
+
+# ── custom field validation ───────────────────────────────────────────────────
+
+from app.db.models.custom_field import CustomFieldDefinition  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_create_change_persists_valid_custom_fields(
+    db_session, tenant, user, release_lifecycle_template,
+):
+    release = Release(
+        tenant_id=tenant.id, name="R", release_type="Major", release_kind="project",
+        lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(release)
+    await db_session.flush()
+    # Define an unscoped field
+    db_session.add(CustomFieldDefinition(
+        tenant_id=tenant.id, entity_type="release_change", entity_subtype=None,
+        field_key="theme", label="Theme", field_type="text", required=False, display_order=0,
+    ))
+    await db_session.flush()
+
+    change = await release_scope_service.create_change(
+        db_session, release_id=release.id, tenant_id=tenant.id, user_id=user.id,
+        data=ReleaseChangeCreate(
+            title="X", change_kind="story",
+            custom_fields={"theme": "Onboarding"},
+        ),
+    )
+    assert change.custom_fields == {"theme": "Onboarding"}
+
+
+@pytest.mark.asyncio
+async def test_create_change_enforces_required_visible_field(
+    db_session, tenant, user, release_lifecycle_template,
+):
+    """A defect-only required field is enforced on defect items."""
+    from fastapi import HTTPException
+    release = Release(
+        tenant_id=tenant.id, name="R", release_type="Major", release_kind="project",
+        lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(release)
+    await db_session.flush()
+    db_session.add(CustomFieldDefinition(
+        tenant_id=tenant.id, entity_type="release_change", entity_subtype="defect",
+        field_key="prod_bug_ref", label="Prod Bug Ref", field_type="text",
+        required=True, display_order=0,
+    ))
+    await db_session.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await release_scope_service.create_change(
+            db_session, release_id=release.id, tenant_id=tenant.id, user_id=user.id,
+            data=ReleaseChangeCreate(title="X", change_kind="defect"),
+        )
+    assert exc.value.status_code == 422
+    assert "prod_bug_ref" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_create_change_ignores_required_field_for_other_subtype(
+    db_session, tenant, user, release_lifecycle_template,
+):
+    """A required field on entity_subtype='defect' is NOT required for story items."""
+    release = Release(
+        tenant_id=tenant.id, name="R", release_type="Major", release_kind="project",
+        lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(release)
+    await db_session.flush()
+    db_session.add(CustomFieldDefinition(
+        tenant_id=tenant.id, entity_type="release_change", entity_subtype="defect",
+        field_key="prod_bug_ref", label="Prod Bug Ref", field_type="text",
+        required=True, display_order=0,
+    ))
+    await db_session.flush()
+
+    # Should NOT raise
+    change = await release_scope_service.create_change(
+        db_session, release_id=release.id, tenant_id=tenant.id, user_id=user.id,
+        data=ReleaseChangeCreate(title="Y", change_kind="story"),
+    )
+    assert change.id is not None
+
+
+@pytest.mark.asyncio
+async def test_update_change_validates_type(
+    db_session, tenant, user, release_lifecycle_template,
+):
+    from fastapi import HTTPException
+    release = Release(
+        tenant_id=tenant.id, name="R", release_type="Major", release_kind="project",
+        lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(release)
+    await db_session.flush()
+    db_session.add(CustomFieldDefinition(
+        tenant_id=tenant.id, entity_type="release_change", entity_subtype=None,
+        field_key="points", label="Points", field_type="number",
+        required=False, display_order=0,
+    ))
+    await db_session.flush()
+    change = await release_scope_service.create_change(
+        db_session, release_id=release.id, tenant_id=tenant.id, user_id=user.id,
+        data=ReleaseChangeCreate(title="Z", change_kind="story"),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await release_scope_service.update_change(
+            db_session, change_id=change.id, tenant_id=tenant.id, user_id=user.id,
+            data=ReleaseChangeUpdate(custom_fields={"points": "not-a-number"}),
+        )
+    assert exc.value.status_code == 422
