@@ -61,6 +61,9 @@ from app.api.v1.schemas.release_change import (
     ReleaseChangeCreate,
     ReleaseChangeUpdate,
     ReleaseChangeRead,
+    ReleaseChangeMovePayload,
+    ReleaseChangeReleaseHistoryRead,
+    ReleaseChangeStatusHistoryRead,
 )
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
@@ -802,6 +805,67 @@ async def delete_change(
 ):
     await release_scope_service.delete_change(
         db, change_id, current_user.active_tenant_id, current_user.id
+    )
+
+
+@release_changes_router.get("", response_model=list[ReleaseChangeRead])
+async def list_changes_flat(
+    backlog: bool = Query(False, description="If true, return unassigned scope items (release_id IS NULL)"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Flat list — primarily the backlog view. Per-release listing is under
+    GET /releases/{release_id}/changes."""
+    tenant_id = current_user.active_tenant_id
+    return await release_scope_service.list_changes(
+        db, release_id=None, tenant_id=tenant_id, backlog=backlog,
+    )
+
+
+@release_changes_router.post("/{change_id}/move", response_model=ReleaseChangeRead)
+async def move_change(
+    change_id: int,
+    data: ReleaseChangeMovePayload,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Move a scope item to another release, or to the backlog (release_id=null).
+    Jira-sourced items cannot be moved (422)."""
+    return await release_scope_service.move_change(
+        db,
+        change_id=change_id,
+        to_release_id=data.release_id,
+        tenant_id=current_user.active_tenant_id,
+        user_id=current_user.id,
+        notes=data.notes,
+    )
+
+
+@release_changes_router.get(
+    "/{change_id}/release-history",
+    response_model=list[ReleaseChangeReleaseHistoryRead],
+)
+async def get_release_history(
+    change_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await release_scope_service.list_release_history(
+        db, change_id, current_user.active_tenant_id,
+    )
+
+
+@release_changes_router.get(
+    "/{change_id}/status-history",
+    response_model=list[ReleaseChangeStatusHistoryRead],
+)
+async def get_status_history(
+    change_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await release_scope_service.list_status_history(
+        db, change_id, current_user.active_tenant_id,
     )
 
 
