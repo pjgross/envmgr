@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
+from app.db.models.release_change_history import ReleaseChangeReleaseHistory
 from app.services import scope_change_rule_service
 
 
@@ -229,26 +230,16 @@ async def test_status_history_endpoint_returns_list(client, auth_headers, releas
 async def test_release_delete_drops_scope_items_to_backlog(
     client, auth_headers, db_session, test_tenant, release_lifecycle,
 ):
-    """
-    The release service uses soft-delete (sets deleted_at), not a physical SQL DELETE.
-    Therefore the FK ON DELETE SET NULL on release_change.release_id does NOT fire at
-    soft-delete time — it only fires if the row is physically removed from the DB
-    (which production does not do). This test verifies:
-
-    1. The DELETE endpoint returns 204.
-    2. The scope item is still present in the DB (not cascade-deleted).
-    3. The DB-level FK constraint model: release_change.release_id is nullable,
-       so a hard-delete would cause SET NULL — verified by checking the column is nullable.
-    """
+    """Deleting a release (soft-delete) unlinks its scope items to the backlog
+    and writes a history row recording the unlink, rather than leaving the
+    items stranded on a soft-deleted release."""
     rid = await _create_release_via_api(client, auth_headers, name="DeleteR")
-    item = await _create_scope_item(client, auth_headers, rid, title="Persists after release soft-delete")
+    item = await _create_scope_item(client, auth_headers, rid, title="Scope follows to backlog")
     change_id = item["id"]
 
-    # Soft-delete the release
     del_resp = await client.delete(f"/api/v1/releases/{rid}", headers=auth_headers)
     assert del_resp.status_code == 204, del_resp.text
 
-    # Scope item must still exist (not cascade-hard-deleted)
     db_session.expire_all()
     row = (
         await db_session.execute(
@@ -256,8 +247,19 @@ async def test_release_delete_drops_scope_items_to_backlog(
         )
     ).scalar_one()
     assert row is not None, "Scope item must survive release soft-delete"
-    # release_id is still set (soft-delete does not nullify it; only a physical SQL DELETE would)
-    assert row.release_id == rid
+    assert row.release_id is None, "Scope item must be in the backlog after its release is deleted"
+
+    # A history row must record the unlink.
+    hist = (
+        await db_session.execute(
+            select(ReleaseChangeReleaseHistory)
+            .where(ReleaseChangeReleaseHistory.change_id == change_id)
+            .order_by(ReleaseChangeReleaseHistory.moved_at)
+        )
+    ).scalars().all()
+    assert len(hist) >= 2, "Expect initial-assign + delete-driven unlink history rows"
+    assert hist[-1].from_release_id == rid
+    assert hist[-1].to_release_id is None
 
 
 # ── 8. scope_additions_count counts only counting kinds ──────────────────────

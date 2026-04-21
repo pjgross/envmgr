@@ -326,9 +326,43 @@ async def delete_release(
     db: AsyncSession,
     release_id: int,
     tenant_id: int,
+    user_id: int = 0,
 ) -> None:
     release = await _get_release(db, release_id, tenant_id)
-    release.deleted_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+
+    # Drop attached, non-deleted scope items to the backlog so they remain
+    # available for re-prioritisation into a future release. FK ON DELETE
+    # SET NULL would handle physical deletes, but release deletion is soft —
+    # so we null out release_id explicitly here and log the unlink as
+    # release-history for each affected scope item.
+    from app.db.models.release_change import ReleaseChange
+    from app.db.models.release_change_history import ReleaseChangeReleaseHistory
+
+    attached_rows = (
+        await db.execute(
+            select(ReleaseChange).where(
+                ReleaseChange.release_id == release_id,
+                ReleaseChange.tenant_id == tenant_id,
+                ReleaseChange.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    for scope_item in attached_rows:
+        db.add(
+            ReleaseChangeReleaseHistory(
+                tenant_id=tenant_id,
+                change_id=scope_item.id,
+                from_release_id=release_id,
+                to_release_id=None,
+                moved_at=now,
+                moved_by=user_id or None,
+                notes=f"Release '{release.name}' deleted; scope item returned to backlog.",
+            )
+        )
+        scope_item.release_id = None
+
+    release.deleted_at = now
     await db.flush()
 
     await publish_event(

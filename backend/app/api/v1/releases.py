@@ -421,7 +421,7 @@ async def delete_release(
     current_user=Depends(get_current_user),
 ):
     await release_service.delete_release(
-        db, release_id, current_user.active_tenant_id
+        db, release_id, current_user.active_tenant_id, current_user.id
     )
 
 
