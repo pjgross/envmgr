@@ -61,6 +61,9 @@ from app.api.v1.schemas.release_change import (
     ReleaseChangeCreate,
     ReleaseChangeUpdate,
     ReleaseChangeRead,
+    ReleaseChangeMovePayload,
+    ReleaseChangeReleaseHistoryRead,
+    ReleaseChangeStatusHistoryRead,
 )
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
@@ -199,6 +202,47 @@ async def list_releases(
     ).all()
     overdue_counts = {row.release_id: row.cnt for row in overdue_rows}
 
+    # Scope-change counts (additions + removals) per release, filtered by
+    # scope_change_kind_rule.counts_as_scope_change = True. Two grouped
+    # queries, one on to_release_id (additions) and one on from_release_id
+    # (removals). The count includes the "initial assignment" history row
+    # so a brand-new item's first attach counts as an addition. The join
+    # goes through release_change (for change_kind) to scope_change_kind_rule.
+    from app.db.models.release_change_history import ReleaseChangeReleaseHistory
+    from app.db.models.scope_change_kind_rule import ScopeChangeKindRule
+
+    def _scope_change_stmt(direction_col):
+        return (
+            select(direction_col, func.count(ReleaseChangeReleaseHistory.id).label("cnt"))
+            .join(
+                ReleaseChange,
+                ReleaseChange.id == ReleaseChangeReleaseHistory.change_id,
+            )
+            .join(
+                ScopeChangeKindRule,
+                (ScopeChangeKindRule.tenant_id == ReleaseChange.tenant_id)
+                & (ScopeChangeKindRule.change_kind == ReleaseChange.change_kind)
+                & (ScopeChangeKindRule.deleted_at.is_(None)),
+            )
+            .where(
+                direction_col.in_(release_ids),
+                ReleaseChangeReleaseHistory.tenant_id == tenant_id,
+                ReleaseChange.deleted_at.is_(None),
+                ScopeChangeKindRule.counts_as_scope_change.is_(True),
+            )
+            .group_by(direction_col)
+        )
+
+    addition_rows = (
+        await db.execute(_scope_change_stmt(ReleaseChangeReleaseHistory.to_release_id))
+    ).all()
+    additions = {row[0]: row[1] for row in addition_rows}
+
+    removal_rows = (
+        await db.execute(_scope_change_stmt(ReleaseChangeReleaseHistory.from_release_id))
+    ).all()
+    removals = {row[0]: row[1] for row in removal_rows}
+
     result = []
     for r in releases:
         item = ReleaseListItemRead.model_validate(r)
@@ -206,6 +250,11 @@ async def list_releases(
         item.scope_count = scope_counts.get(r.id, 0)
         item.blocker_count = gate_counts.get(r.id, 0)
         item.overdue_criterion_count = overdue_counts.get(r.id, 0)
+        adds = additions.get(r.id, 0)
+        rems = removals.get(r.id, 0)
+        item.scope_additions_count = adds
+        item.scope_removals_count = rems
+        item.scope_change_count = adds + rems
         result.append(item)
     return result
 
@@ -372,7 +421,7 @@ async def delete_release(
     current_user=Depends(get_current_user),
 ):
     await release_service.delete_release(
-        db, release_id, current_user.active_tenant_id
+        db, release_id, current_user.active_tenant_id, current_user.id
     )
 
 
@@ -802,6 +851,67 @@ async def delete_change(
 ):
     await release_scope_service.delete_change(
         db, change_id, current_user.active_tenant_id, current_user.id
+    )
+
+
+@release_changes_router.get("", response_model=list[ReleaseChangeRead])
+async def list_changes_flat(
+    backlog: bool = Query(False, description="If true, return unassigned scope items (release_id IS NULL)"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Flat list — primarily the backlog view. Per-release listing is under
+    GET /releases/{release_id}/changes."""
+    tenant_id = current_user.active_tenant_id
+    return await release_scope_service.list_changes(
+        db, release_id=None, tenant_id=tenant_id, backlog=backlog,
+    )
+
+
+@release_changes_router.post("/{change_id}/move", response_model=ReleaseChangeRead)
+async def move_change(
+    change_id: int,
+    data: ReleaseChangeMovePayload,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Move a scope item to another release, or to the backlog (release_id=null).
+    Jira-sourced items cannot be moved (422)."""
+    return await release_scope_service.move_change(
+        db,
+        change_id=change_id,
+        to_release_id=data.release_id,
+        tenant_id=current_user.active_tenant_id,
+        user_id=current_user.id,
+        notes=data.notes,
+    )
+
+
+@release_changes_router.get(
+    "/{change_id}/release-history",
+    response_model=list[ReleaseChangeReleaseHistoryRead],
+)
+async def get_release_history(
+    change_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await release_scope_service.list_release_history(
+        db, change_id, current_user.active_tenant_id,
+    )
+
+
+@release_changes_router.get(
+    "/{change_id}/status-history",
+    response_model=list[ReleaseChangeStatusHistoryRead],
+)
+async def get_status_history(
+    change_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await release_scope_service.list_status_history(
+        db, change_id, current_user.active_tenant_id,
     )
 
 

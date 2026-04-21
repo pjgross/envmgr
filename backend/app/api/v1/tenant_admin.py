@@ -6,10 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import require_tenant_admin, get_current_user
 from app.db.models.user import User
-from app.services import tenant_service, user_admin_service
+from app.services import tenant_service, user_admin_service, scope_change_rule_service
 from app.api.v1.schemas import (
     TenantAdminSettings, TenantResponse, TenantUpdate,
     UserAdminCreate, UserAdminUpdate, UserRoleUpdate, UserResponse,
+)
+from app.api.v1.schemas.scope_change_rule import (
+    ScopeChangeKindRuleRead,
+    ScopeChangeKindRulesUpsertPayload,
 )
 
 
@@ -118,3 +122,28 @@ async def reactivate_user(
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.reactivate_user(db, user_id, current_user.active_tenant_id)
+
+@router.get("/scope-change-rules", response_model=list[ScopeChangeKindRuleRead])
+async def get_scope_change_rules(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    """Return all scope-change-kind rules for the current tenant."""
+    return await scope_change_rule_service.list_rules(
+        db, current_user.active_tenant_id,
+    )
+
+
+@router.put("/scope-change-rules", response_model=list[ScopeChangeKindRuleRead])
+async def upsert_scope_change_rules(
+    data: ScopeChangeKindRulesUpsertPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    """Upsert the scope-change-kind rules. Body carries the full set."""
+    return await scope_change_rule_service.upsert_rules(
+        db,
+        current_user.active_tenant_id,
+        [(r.change_kind, r.counts_as_scope_change) for r in data.rules],
+    )
+

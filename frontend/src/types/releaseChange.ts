@@ -1,7 +1,7 @@
 export interface ReleaseChangeResponse {
   id: number;
   tenant_id: number;
-  release_id: number;
+  release_id: number | null;
   external_key: string | null;
   title: string;
   description: string | null;
@@ -12,6 +12,33 @@ export interface ReleaseChangeResponse {
   jira_project_config_id: number | null;
   epic_id: number | null;
   source: string; // 'manual' | 'jira'
+  move_count: number;
+  time_in_current_status_seconds: number | null;
+}
+
+export interface ReleaseChangeMovePayload {
+  release_id: number | null;
+  notes?: string | null;
+}
+
+export interface ReleaseChangeReleaseHistoryResponse {
+  id: number;
+  change_id: number;
+  from_release_id: number | null;
+  to_release_id: number | null;
+  moved_at: string;
+  moved_by: number | null;
+  notes: string | null;
+}
+
+export interface ReleaseChangeStatusHistoryResponse {
+  id: number;
+  change_id: number;
+  from_status: string | null;
+  to_status: string | null;
+  changed_at: string;
+  changed_by: number | null;
+  notes: string | null;
 }
 
 export interface ReleaseChangeCreatePayload {

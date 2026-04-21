@@ -30,7 +30,14 @@ import type {
   GateCriterionUpdatePayload,
 } from '../types/gateCriterion';
 import type { ReleaseEventResponse, ReleaseEventCreatePayload } from '../types/releaseEvent';
-import type { ReleaseChangeResponse, ReleaseChangeCreatePayload, ReleaseChangeUpdatePayload } from '../types/releaseChange';
+import type {
+  ReleaseChangeResponse,
+  ReleaseChangeCreatePayload,
+  ReleaseChangeUpdatePayload,
+  ReleaseChangeMovePayload,
+  ReleaseChangeReleaseHistoryResponse,
+  ReleaseChangeStatusHistoryResponse,
+} from '../types/releaseChange';
 import type { BookingResponse } from '../types/booking';
 import type { ChangeRequestResponse } from '../types/changeRequest';
 
@@ -147,6 +154,18 @@ export const releaseService = {
 
   deleteChange: (changeId: number): Promise<void> =>
     api.delete(`/release-changes/${changeId}`).then(() => undefined),
+
+  moveReleaseChange: (changeId: number, payload: ReleaseChangeMovePayload): Promise<ReleaseChangeResponse> =>
+    api.post(`/release-changes/${changeId}/move`, payload).then((r) => r.data),
+
+  listBacklogChanges: (): Promise<ReleaseChangeResponse[]> =>
+    api.get('/release-changes?backlog=true').then((r) => r.data),
+
+  fetchReleaseChangeReleaseHistory: (changeId: number): Promise<ReleaseChangeReleaseHistoryResponse[]> =>
+    api.get(`/release-changes/${changeId}/release-history`).then((r) => r.data),
+
+  fetchReleaseChangeStatusHistory: (changeId: number): Promise<ReleaseChangeStatusHistoryResponse[]> =>
+    api.get(`/release-changes/${changeId}/status-history`).then((r) => r.data),
 
   // --- Bookings ---
   listBookings: (releaseId: number): Promise<BookingResponse[]> =>

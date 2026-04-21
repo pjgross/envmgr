@@ -28,6 +28,9 @@ export interface ReleaseListItemResponse extends ReleaseResponse {
   scope_count: number;
   blocker_count: number;
   overdue_criterion_count: number;
+  scope_additions_count: number;
+  scope_removals_count: number;
+  scope_change_count: number;
 }
 
 export interface TestPhaseResponse {

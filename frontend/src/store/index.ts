@@ -18,6 +18,7 @@ import infrastructureComponentReducer from './infrastructureComponentSlice';
 import releaseReducer from './releaseSlice';
 import releaseTemplateReducer from './releaseTemplateSlice';
 import releaseEventTypeReducer from './releaseEventTypeSlice';
+import scopeChangeRulesReducer from './scopeChangeRulesSlice';
 
 export const store = configureStore({
   reducer: {
@@ -40,6 +41,7 @@ export const store = configureStore({
     release: releaseReducer,
     releaseTemplate: releaseTemplateReducer,
     releaseEventType: releaseEventTypeReducer,
+    scopeChangeRules: scopeChangeRulesReducer,
   },
 });
 

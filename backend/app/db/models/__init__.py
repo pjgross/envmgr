@@ -42,6 +42,11 @@ from app.db.models.release_system import ReleaseSystem
 from app.db.models.release_dependency import ReleaseDependency
 from app.db.models.release_event import ReleaseEventType, ReleaseEvent
 from app.db.models.release_change import ReleaseChange
+from app.db.models.release_change_history import (
+    ReleaseChangeReleaseHistory,
+    ReleaseChangeStatusHistory,
+)
+from app.db.models.scope_change_kind_rule import ScopeChangeKindRule
 
 # This will be expanded as we add more models
 __all__ = [
@@ -86,4 +91,7 @@ __all__ = [
     "ReleaseEventType",
     "ReleaseEvent",
     "ReleaseChange",
+    "ReleaseChangeReleaseHistory",
+    "ReleaseChangeStatusHistory",
+    "ScopeChangeKindRule",
 ]
