@@ -188,3 +188,32 @@ async def validate_custom_fields(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Custom field '{defn.label}' ({defn.field_key}) must be a boolean",
                 )
+
+
+async def list_definitions_for_subtype(
+    db: AsyncSession,
+    tenant_id: int,
+    entity_type: str,
+    subtype: Optional[str],
+) -> list[CustomFieldDefinition]:
+    """Return active definitions for entity_type where entity_subtype IS NULL
+    OR (if subtype is not None) entity_subtype == subtype.
+
+    When subtype is None, returns only unscoped ('applies to all') definitions.
+    Ordered by display_order, id — matches list_definitions.
+    """
+    from sqlalchemy import or_
+
+    conditions = [CustomFieldDefinition.entity_subtype.is_(None)]
+    if subtype is not None:
+        conditions.append(CustomFieldDefinition.entity_subtype == subtype)
+
+    result = await db.execute(
+        select(CustomFieldDefinition).where(
+            CustomFieldDefinition.tenant_id == tenant_id,
+            CustomFieldDefinition.entity_type == entity_type,
+            CustomFieldDefinition.deleted_at.is_(None),
+            or_(*conditions),
+        ).order_by(CustomFieldDefinition.display_order, CustomFieldDefinition.id)
+    )
+    return list(result.scalars().all())

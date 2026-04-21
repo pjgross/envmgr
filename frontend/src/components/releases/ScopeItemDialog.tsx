@@ -1,7 +1,7 @@
 /**
  * ScopeItemDialog — create or edit a scope item (release change).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -12,13 +12,15 @@ import {
   MenuItem,
   TextField,
 } from '@mui/material';
-import { useDispatch } from 'react-redux';
-import { AppDispatch } from '../../store';
+import { useDispatch, useSelector } from 'react-redux';
+import type { AppDispatch, RootState } from '../../store';
 import {
   createReleaseChange,
   updateReleaseChange,
 } from '../../store/releaseSlice';
+import { fetchDefinitions } from '../../store/customFieldSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import CustomFieldsSection from '../CustomFieldsSection';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 
 interface Props {
@@ -40,7 +42,22 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
   const [externalKey, setExternalKey] = useState('');
   const [description, setDescription] = useState('');
   const [externalStatus, setExternalStatus] = useState('');
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  const allDefs = useSelector(
+    (s: RootState) => s.customField.definitions['release_change'] ?? []
+  );
+  const visibleDefs = useMemo(
+    () => allDefs.filter((d) => d.entity_subtype == null || d.entity_subtype === changeKind),
+    [allDefs, changeKind],
+  );
+
+  useEffect(() => {
+    if (open) {
+      dispatch(fetchDefinitions('release_change'));
+    }
+  }, [open, dispatch]);
 
   useEffect(() => {
     if (open) {
@@ -49,8 +66,15 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
       setExternalKey(item?.external_key ?? '');
       setDescription(item?.description ?? '');
       setExternalStatus(item?.external_status ?? '');
+      setCustomFields((item?.custom_fields as Record<string, unknown>) ?? {});
     }
   }, [open, item]);
+
+  const requiredMissing = visibleDefs.some((d) => {
+    if (!d.required) return false;
+    const v = customFields[d.field_key];
+    return v == null || (typeof v === 'string' && v.trim() === '');
+  });
 
   const handleClose = () => {
     if (submitting) return;
@@ -58,7 +82,7 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
   };
 
   const handleSave = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || requiredMissing) return;
     setSubmitting(true);
     try {
       if (isEdit && item) {
@@ -70,6 +94,7 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
               description: description || null,
               external_key: externalKey || null,
               external_status: externalStatus || null,
+              custom_fields: customFields,
             },
           })
         ).unwrap();
@@ -84,6 +109,7 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
               description: description || null,
               external_key: externalKey || null,
               external_status: externalStatus || null,
+              custom_fields: customFields,
             },
           })
         ).unwrap();
@@ -147,6 +173,12 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
             onChange={(e) => setDescription(e.target.value)}
             disabled={submitting}
           />
+
+          <CustomFieldsSection
+            definitions={visibleDefs}
+            values={customFields}
+            onChange={setCustomFields}
+          />
         </Box>
       </DialogContent>
       <DialogActions>
@@ -155,7 +187,7 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
         </Button>
         <Button
           variant="contained"
-          disabled={!title.trim() || submitting}
+          disabled={!title.trim() || requiredMissing || submitting}
           onClick={handleSave}
         >
           {isEdit ? 'Save' : 'Add'}

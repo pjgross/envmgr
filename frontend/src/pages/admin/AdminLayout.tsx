@@ -49,6 +49,11 @@ const entityNavItems = [
     path: '/admin/config/release',
     icon: <BuildIcon fontSize="small" />,
   },
+  {
+    label: 'Release scope item',
+    path: '/admin/config/release-change',
+    icon: <BuildIcon fontSize="small" />,
+  },
 ];
 
 export default function AdminLayout() {

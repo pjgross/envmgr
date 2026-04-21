@@ -65,17 +65,17 @@ export default function CustomFieldDefinitionDialog({
   const [entitySubtype, setEntitySubtype] = useState<string>('');
   const [error, setError] = useState('');
 
-  // Subtype scoping is currently exposed for 'release' only. Subtype options
-  // for a release come from the tenant's release lifecycle templates — the
-  // template name IS the release type.
-  const showSubtypeField = entityType === 'release';
+  // Subtype scoping is exposed for 'release' (lifecycle template names) and
+  // 'release_change' (change kinds: story / defect / task / spike).
+  const CHANGE_KINDS = ['story', 'defect', 'task', 'spike'] as const;
+  const showSubtypeField = entityType === 'release' || entityType === 'release_change';
   const releaseTemplates = useSelector(selectTemplatesForEntity('release'));
 
   useEffect(() => {
-    if (open && showSubtypeField) {
+    if (open && entityType === 'release') {
       dispatch(fetchLifecycleTemplates('release'));
     }
-  }, [open, showSubtypeField, dispatch]);
+  }, [open, entityType, dispatch]);
 
   useEffect(() => {
     if (open) {
@@ -230,21 +230,26 @@ export default function CustomFieldDefinitionDialog({
         {showSubtypeField && (
           <TextField
             select
-            label="Release Type (optional)"
+            label="Scope (optional)"
             value={entitySubtype}
             onChange={(e) => setEntitySubtype(e.target.value)}
             fullWidth
             size="small"
-            helperText="Leave blank to apply to all release types."
+            helperText="Leave blank to apply to all types"
           >
-            <MenuItem value="">
-              <em>All release types</em>
-            </MenuItem>
-            {releaseTemplates.map((t) => (
-              <MenuItem key={t.id} value={t.name}>
-                {t.name}
-              </MenuItem>
-            ))}
+            <MenuItem value="">All types</MenuItem>
+            {entityType === 'release' &&
+              releaseTemplates.map((t) => (
+                <MenuItem key={t.id} value={t.name}>
+                  {t.name}
+                </MenuItem>
+              ))}
+            {entityType === 'release_change' &&
+              CHANGE_KINDS.map((k) => (
+                <MenuItem key={k} value={k}>
+                  {k}
+                </MenuItem>
+              ))}
           </TextField>
         )}
 
