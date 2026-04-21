@@ -13,6 +13,7 @@ VALID_ENTITY_TYPES = {
     "booking",
     "change_request",
     "release",
+    "release_change",
 }
 VALID_FIELD_TYPES = {"text", "number", "boolean"}
 FIELD_KEY_RE = re.compile(r'^[a-z][a-z0-9_]*$')

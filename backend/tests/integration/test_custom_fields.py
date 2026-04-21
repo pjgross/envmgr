@@ -363,3 +363,40 @@ async def test_partial_update_without_custom_fields_succeeds(client: AsyncClient
     )
     assert patch_resp.status_code == 200, patch_resp.text
     assert patch_resp.json()["name"] == "UpdatedName"
+
+
+@pytest.mark.asyncio
+async def test_release_change_entity_type_is_accepted(client, auth_headers):
+    """Admin can create a custom field definition for entity_type='release_change'."""
+    resp = await client.post(
+        "/api/v1/tenant/fields",
+        headers=auth_headers,
+        json={
+            "entity_type": "release_change",
+            "label": "Theme",
+            "field_type": "text",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["entity_type"] == "release_change"
+    assert data["field_key"] == "theme"
+    assert data["entity_subtype"] is None
+
+
+@pytest.mark.asyncio
+async def test_release_change_entity_type_accepts_subtype(client, auth_headers):
+    """Admin can scope a release_change field to a specific change_kind."""
+    resp = await client.post(
+        "/api/v1/tenant/fields",
+        headers=auth_headers,
+        json={
+            "entity_type": "release_change",
+            "entity_subtype": "defect",
+            "label": "Production bug reference",
+            "field_type": "text",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["entity_subtype"] == "defect"
