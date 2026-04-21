@@ -98,6 +98,8 @@ EnvManager replaces a legacy test environment management system and eliminates r
 
 ### 2.5 Release Management
 
+> **Delivery status (2026-04-21):** Sub-project 1 (Core Releases) ✅ merged to main — Release Template Library, Project Releases with configurable lifecycle, Test Phases, Gates (with individual criteria carrying due date + assignee + notes; one-way auto-pass when criteria complete; per-release overdue count), System Roles on releases, Release Dependencies with date-impact alerts, Release Event Log, release-booking linking with derived context tag, calendar + Gantt views. **Deferred:** Enterprise Releases (release trains), Jira Integration, Post-Implementation Reviews — these remain in this section as the target design for sub-projects 2/3 and Phase 5.
+
 #### Release Types
 - Two top-level release kinds:
   - **Enterprise Release (Release Train)**: groups 2+ Project Releases that must be tested and deployed together; each member Project Release must be approved/admitted into the Enterprise Release; the Enterprise Release tracks combined test phases across all members
