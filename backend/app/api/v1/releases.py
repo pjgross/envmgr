@@ -202,6 +202,47 @@ async def list_releases(
     ).all()
     overdue_counts = {row.release_id: row.cnt for row in overdue_rows}
 
+    # Scope-change counts (additions + removals) per release, filtered by
+    # scope_change_kind_rule.counts_as_scope_change = True. Two grouped
+    # queries, one on to_release_id (additions) and one on from_release_id
+    # (removals). The count includes the "initial assignment" history row
+    # so a brand-new item's first attach counts as an addition. The join
+    # goes through release_change (for change_kind) to scope_change_kind_rule.
+    from app.db.models.release_change_history import ReleaseChangeReleaseHistory
+    from app.db.models.scope_change_kind_rule import ScopeChangeKindRule
+
+    def _scope_change_stmt(direction_col):
+        return (
+            select(direction_col, func.count(ReleaseChangeReleaseHistory.id).label("cnt"))
+            .join(
+                ReleaseChange,
+                ReleaseChange.id == ReleaseChangeReleaseHistory.change_id,
+            )
+            .join(
+                ScopeChangeKindRule,
+                (ScopeChangeKindRule.tenant_id == ReleaseChange.tenant_id)
+                & (ScopeChangeKindRule.change_kind == ReleaseChange.change_kind)
+                & (ScopeChangeKindRule.deleted_at.is_(None)),
+            )
+            .where(
+                direction_col.in_(release_ids),
+                ReleaseChangeReleaseHistory.tenant_id == tenant_id,
+                ReleaseChange.deleted_at.is_(None),
+                ScopeChangeKindRule.counts_as_scope_change.is_(True),
+            )
+            .group_by(direction_col)
+        )
+
+    addition_rows = (
+        await db.execute(_scope_change_stmt(ReleaseChangeReleaseHistory.to_release_id))
+    ).all()
+    additions = {row[0]: row[1] for row in addition_rows}
+
+    removal_rows = (
+        await db.execute(_scope_change_stmt(ReleaseChangeReleaseHistory.from_release_id))
+    ).all()
+    removals = {row[0]: row[1] for row in removal_rows}
+
     result = []
     for r in releases:
         item = ReleaseListItemRead.model_validate(r)
@@ -209,6 +250,11 @@ async def list_releases(
         item.scope_count = scope_counts.get(r.id, 0)
         item.blocker_count = gate_counts.get(r.id, 0)
         item.overdue_criterion_count = overdue_counts.get(r.id, 0)
+        adds = additions.get(r.id, 0)
+        rems = removals.get(r.id, 0)
+        item.scope_additions_count = adds
+        item.scope_removals_count = rems
+        item.scope_change_count = adds + rems
         result.append(item)
     return result
 
