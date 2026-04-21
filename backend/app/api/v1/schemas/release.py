@@ -71,3 +71,8 @@ class ReleaseListItemRead(ReleaseRead):
     scope_count: int = 0
     blocker_count: int = 0
     overdue_criterion_count: int = 0
+    # Scope-change KPIs: counts only items whose change_kind has a
+    # scope_change_kind_rule with counts_as_scope_change=True for this tenant.
+    scope_additions_count: int = 0
+    scope_removals_count: int = 0
+    scope_change_count: int = 0
