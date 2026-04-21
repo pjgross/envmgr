@@ -12,8 +12,11 @@ class ReleaseChange(Base):
     __tablename__ = "release_change"
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
-    release_id: Mapped[int] = mapped_column(
-        ForeignKey("release.id", ondelete="CASCADE"), nullable=False, index=True
+    # Nullable: a scope item with release_id=NULL sits in the backlog, un-assigned
+    # to any release until re-prioritised into a new one. On release delete, the
+    # FK constraint sets this to NULL so audit history survives.
+    release_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("release.id", ondelete="SET NULL"), nullable=True, index=True
     )
     external_key: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
