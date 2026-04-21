@@ -1,6 +1,6 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 3 Sub-project 1 (Core Releases) + follow-ups (lifecycle permissions unification, gate criteria with overdue tracking, MUI confirm sweep) merged to `main` on 2026-04-20 / 2026-04-21 via MRs !4–!8 (main tip `2031a76`). Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2/3 (Enterprise, Jira, PIR) deferred | Phase 4 next.
+> **Current Phase**: Phase 3 Sub-project 1 (Core Releases) + follow-ups (lifecycle permissions unification, gate criteria with overdue tracking, MUI confirm sweep, scope-item custom fields) merged to `main` on 2026-04-20 / 2026-04-21 via MRs !4–!10 (main tip `47cce5a`). Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2/3 (Enterprise, Jira, PIR) deferred | Phase 4 next.
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
