@@ -1037,7 +1037,7 @@ async def request_membership(
         db,
         event_type="EnterpriseMembershipRequested",
         aggregate_id=enterprise_id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={
             "membership_id": m.id,
             "project_release_id": project_release_id,
@@ -1237,7 +1237,7 @@ async def accept(
         db,
         event_type="EnterpriseMembershipAccepted",
         aggregate_id=enterprise.id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={
             "membership_id": m.id,
             "project_release_id": project.id,
@@ -1371,7 +1371,7 @@ async def reject(
         db,
         event_type="EnterpriseMembershipRejected",
         aggregate_id=enterprise.id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={"membership_id": m.id, "actor_id": user.id, "notes": notes},
         tenant_id=user.active_tenant_id,
     )
@@ -1403,7 +1403,7 @@ async def withdraw(
         db,
         event_type="EnterpriseMembershipWithdrawn",
         aggregate_id=m.enterprise_release_id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={"membership_id": m.id, "actor_id": user.id},
         tenant_id=user.active_tenant_id,
     )
@@ -1436,7 +1436,7 @@ async def remove(
         db,
         event_type="EnterpriseMembershipRemoved",
         aggregate_id=enterprise.id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={
             "membership_id": m.id,
             "project_release_id": project.id,
@@ -2348,7 +2348,7 @@ async def generate_report(
         db,
         event_type="EnterpriseReportGenerated",
         aggregate_id=enterprise.id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={"enterprise_id": enterprise.id, "generated_by": user.id, "generated_at": now},
         tenant_id=tenant_id,
     )

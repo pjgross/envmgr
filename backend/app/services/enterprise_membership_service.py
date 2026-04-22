@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
@@ -86,13 +87,19 @@ async def request_membership(
         notes=notes,
         late_scope=False,
     )
-    db.add(m)
-    await db.flush()
+    try:
+        db.add(m)
+        await db.flush()
+    except IntegrityError as e:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Project release already has a pending or accepted membership",
+        ) from e
     await publish_event(
         db,
         event_type="EnterpriseMembershipRequested",
         aggregate_id=enterprise_id,
-        aggregate_type="release",
+        aggregate_type="Release",
         payload={
             "membership_id": m.id,
             "project_release_id": project_release_id,
