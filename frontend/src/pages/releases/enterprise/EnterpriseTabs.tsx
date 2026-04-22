@@ -49,7 +49,7 @@ export function EnterpriseTabs({ release }: Props) {
         {tab === 'requests' && <ReleaseLinkedRequestsTab releaseId={release.id} />}
         {tab === 'scope' && <ReleaseScopeTab releaseId={release.id} />}
         {tab === 'systems' && <SystemsRollupTab release={release} />}
-        {tab === 'scope_rollup' && <ScopeRollupTab release={release} />}
+        {tab === 'scope_rollup' && <ScopeRollupTab release={release} onNavigateToReport={() => setTab('report')} />}
         {tab === 'timeline' && <TimelineTab release={release} />}
         {tab === 'report' && <ReportTab release={release} />}
       </Box>
