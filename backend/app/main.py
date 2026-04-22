@@ -69,6 +69,7 @@ from app.api.v1 import release_templates as release_templates_router
 from app.api.v1 import release_event_types as release_event_types_router
 from app.api.v1 import gate_criteria as gate_criteria_api
 from app.api.v1 import enterprise_memberships as enterprise_memberships_router
+from app.api.v1 import enterprise_rollup as enterprise_rollup_router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
@@ -89,6 +90,11 @@ app.include_router(
     infrastructure_components_router.router,
     prefix="/api/v1/infrastructure-components",
     tags=["Infrastructure"],
+)
+
+# Enterprise rollup + report (registered before releases wildcard routes to avoid shadowing)
+app.include_router(
+    enterprise_rollup_router.router, prefix="/api/v1", tags=["enterprise-rollup"]
 )
 
 # Enterprise membership (registered before releases wildcard routes to avoid shadowing)
