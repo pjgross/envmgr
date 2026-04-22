@@ -34,6 +34,7 @@ import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedReq
 import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
+import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 
@@ -95,6 +96,10 @@ export default function ReleaseDetail() {
         </Button>
       </Box>
     );
+  }
+
+  if (release.release_kind === 'enterprise') {
+    return <EnterpriseTabs release={release} />;
   }
 
   return (
