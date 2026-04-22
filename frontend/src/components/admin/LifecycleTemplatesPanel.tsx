@@ -11,10 +11,21 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  FormControl,
   FormControlLabel,
   FormHelperText,
   IconButton,
+  InputLabel,
   MenuItem,
+  Paper,
+  Radio,
+  RadioGroup,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
 } from '@mui/material';
@@ -78,6 +89,7 @@ interface StateRow {
   label: string;
   is_initial: boolean;
   is_terminal: boolean;
+  is_admission_lockdown: boolean;
 }
 
 interface TransitionRow {
@@ -92,7 +104,13 @@ interface FieldPermState {
   custom_fields: Record<string, { editable_by: string[] }>;
 }
 
-const emptyState = (): StateRow => ({ key: '', label: '', is_initial: false, is_terminal: false });
+const emptyState = (): StateRow => ({
+  key: '',
+  label: '',
+  is_initial: false,
+  is_terminal: false,
+  is_admission_lockdown: false,
+});
 const emptyTransition = (): TransitionRow => ({
   from_state: '',
   to_state: '',
@@ -121,9 +139,14 @@ export default function LifecycleTemplatesPanel({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [appliesToKind, setAppliesToKind] = useState<string | null>(null);
   const [states, setStates] = useState<StateRow[]>([]);
   const [transitions, setTransitions] = useState<TransitionRow[]>([]);
   const [fieldPerms, setFieldPerms] = useState<Record<string, FieldPermState>>({});
+  // Enterprise-only: action permissions matrix { [stateKey]: { [action]: [...roles] } }
+  const [actionPermissions, setActionPermissions] = useState<
+    Record<string, Record<string, string[]>>
+  >({});
   const [editTemplateId, setEditTemplateId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fieldPermErrors, setFieldPermErrors] = useState<string[]>([]);
@@ -188,9 +211,11 @@ export default function LifecycleTemplatesPanel({
   const handleOpen = () => {
     setName('');
     setDescription('');
+    setAppliesToKind(null);
     setStates([]);
     setTransitions([]);
     setFieldPerms({});
+    setActionPermissions({});
     setEditTemplateId(null);
     setError(null);
     setFieldPermErrors([]);
@@ -206,12 +231,14 @@ export default function LifecycleTemplatesPanel({
     setEditTemplateId(template.id);
     setName(template.name);
     setDescription(template.description ?? '');
+    setAppliesToKind(template.applies_to_kind ?? null);
     setStates(
       template.definition.states.map((s) => ({
         key: s.key,
         label: s.label,
         is_initial: s.is_initial,
         is_terminal: s.is_terminal,
+        is_admission_lockdown: s.is_admission_lockdown ?? false,
       }))
     );
     setTransitions(
@@ -261,6 +288,9 @@ export default function LifecycleTemplatesPanel({
       }
     }
     setFieldPerms(fp);
+    setActionPermissions(
+      (template.definition.action_permissions as Record<string, Record<string, string[]>>) ?? {}
+    );
     setError(null);
     setFieldPermErrors([]);
     setOpen(true);
@@ -281,12 +311,14 @@ export default function LifecycleTemplatesPanel({
     setFieldPermErrors([]);
     setError(null);
     setSaving(true);
+    const isEnterprise = appliesToKind === 'enterprise';
     const definition = {
       states: states.map((s) => ({
         key: s.key.trim(),
         label: s.label.trim(),
         is_initial: s.is_initial,
         is_terminal: s.is_terminal,
+        ...(isEnterprise ? { is_admission_lockdown: s.is_admission_lockdown } : {}),
       })),
       transitions: transitions.map((t) => ({
         from_state: t.from_state,
@@ -303,6 +335,7 @@ export default function LifecycleTemplatesPanel({
           ];
         })
       ),
+      ...(isEnterprise ? { action_permissions: actionPermissions } : {}),
     };
 
     let result;
@@ -310,7 +343,12 @@ export default function LifecycleTemplatesPanel({
       result = await dispatch(
         updateLifecycleTemplate({
           id: editTemplateId,
-          data: { name: name.trim(), description: description.trim() || null, definition },
+          data: {
+            name: name.trim(),
+            description: description.trim() || null,
+            applies_to_kind: appliesToKind,
+            definition,
+          },
         })
       );
     } else {
@@ -321,6 +359,7 @@ export default function LifecycleTemplatesPanel({
             name: name.trim(),
             description: description.trim() || null,
             is_default: false,
+            applies_to_kind: appliesToKind,
             definition,
           },
         })
@@ -351,6 +390,14 @@ export default function LifecycleTemplatesPanel({
           }
           return updated;
         });
+        setActionPermissions((ap) => {
+          const updated = { ...ap };
+          if (oldKey in updated) {
+            updated[patch.key!] = updated[oldKey];
+            delete updated[oldKey];
+          }
+          return updated;
+        });
       }
       return newStates;
     });
@@ -361,6 +408,11 @@ export default function LifecycleTemplatesPanel({
     setStates((prev) => prev.filter((_, idx) => idx !== i));
     setFieldPerms((fp) => {
       const updated = { ...fp };
+      delete updated[key];
+      return updated;
+    });
+    setActionPermissions((ap) => {
+      const updated = { ...ap };
       delete updated[key];
       return updated;
     });
@@ -377,6 +429,31 @@ export default function LifecycleTemplatesPanel({
       ? t.allowed_roles.filter((r) => r !== role)
       : [...t.allowed_roles, role];
     updateTransition(i, { allowed_roles: roles });
+  };
+
+  /** Set the admission-lockdown state (single-select across the template). */
+  const setLockdownKey = (key: string) => {
+    setStates((prev) =>
+      prev.map((s) => ({ ...s, is_admission_lockdown: s.key === key }))
+    );
+  };
+
+  /** Toggle a role on/off for a given state+action in the admission permissions matrix. */
+  const toggleActionPermission = (
+    stateKey: string,
+    action: string,
+    role: string,
+    checked: boolean
+  ) => {
+    setActionPermissions((prev) => {
+      const statePerm = prev[stateKey] ?? {};
+      const current = statePerm[action] ?? [];
+      const updated = checked ? [...current, role] : current.filter((r) => r !== role);
+      return {
+        ...prev,
+        [stateKey]: { ...statePerm, [action]: updated },
+      };
+    });
   };
 
   const handleToggleRole = (stateKey: string, fieldKey: string, role: string) => {
@@ -537,6 +614,20 @@ export default function LifecycleTemplatesPanel({
             rows={2}
             fullWidth
           />
+
+          <FormControl fullWidth>
+            <InputLabel id="applies-to-kind-label">Kind</InputLabel>
+            <Select
+              labelId="applies-to-kind-label"
+              value={appliesToKind ?? ''}
+              label="Kind"
+              onChange={(e) => setAppliesToKind(e.target.value || null)}
+            >
+              <MenuItem value="">Any</MenuItem>
+              <MenuItem value="project">Project</MenuItem>
+              <MenuItem value="enterprise">Enterprise</MenuItem>
+            </Select>
+          </FormControl>
 
           <Divider />
 
@@ -861,6 +952,103 @@ export default function LifecycleTemplatesPanel({
               })
             )}
           </Box>
+
+          {/* Enterprise-only: Admission Lockdown */}
+          {appliesToKind === 'enterprise' && (
+            <>
+              <Divider />
+              <FormControl sx={{ mt: 1 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Admission lockdown state
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                  When the release is in this state, new membership admissions are blocked.
+                </Typography>
+                <RadioGroup
+                  value={states.find((s) => s.is_admission_lockdown)?.key ?? ''}
+                  onChange={(e) => setLockdownKey(e.target.value)}
+                >
+                  {states
+                    .filter((s) => s.key.trim())
+                    .map((s) => (
+                      <FormControlLabel
+                        key={s.key}
+                        value={s.key}
+                        control={<Radio size="small" />}
+                        label={s.label || s.key}
+                      />
+                    ))}
+                </RadioGroup>
+              </FormControl>
+            </>
+          )}
+
+          {/* Enterprise-only: Admission Permissions matrix */}
+          {appliesToKind === 'enterprise' && (
+            <>
+              <Divider />
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Admission permissions
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  Which roles may admit, reject, or remove members when the release is in each
+                  non-terminal state.
+                </Typography>
+                {states.filter((s) => s.key.trim() && !s.is_terminal).length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Add non-terminal states first.
+                  </Typography>
+                ) : (
+                  states
+                    .filter((s) => s.key.trim() && !s.is_terminal)
+                    .map((s) => (
+                      <Paper key={s.key} variant="outlined" sx={{ p: 1.5, my: 1 }}>
+                        <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                          {s.label || s.key}
+                        </Typography>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Role</TableCell>
+                              <TableCell align="center">Admit</TableCell>
+                              <TableCell align="center">Reject</TableCell>
+                              <TableCell align="center">Remove</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {ALL_ROLES.map((role) => (
+                              <TableRow key={role}>
+                                <TableCell>{role}</TableCell>
+                                {(
+                                  [
+                                    'membership.admit',
+                                    'membership.reject',
+                                    'membership.remove',
+                                  ] as const
+                                ).map((action) => (
+                                  <TableCell key={action} align="center" padding="checkbox">
+                                    <Checkbox
+                                      size="small"
+                                      checked={(
+                                        actionPermissions[s.key]?.[action] ?? []
+                                      ).includes(role)}
+                                      onChange={(e) =>
+                                        toggleActionPermission(s.key, action, role, e.target.checked)
+                                      }
+                                    />
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </Paper>
+                    ))
+                )}
+              </Box>
+            </>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose}>Cancel</Button>

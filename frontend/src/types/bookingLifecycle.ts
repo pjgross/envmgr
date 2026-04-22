@@ -3,6 +3,7 @@ export interface LifecycleState {
   label: string;
   is_initial: boolean;
   is_terminal: boolean;
+  is_admission_lockdown?: boolean;
 }
 
 export interface LifecycleTransition {
@@ -21,6 +22,9 @@ export interface LifecycleDefinition {
   states: LifecycleState[];
   transitions: LifecycleTransition[];
   field_permissions: Record<string, LifecycleFieldPermission>;
+  /** Enterprise-only: per-state per-action role lists.
+   * Shape: { [stateKey]: { "membership.admit": [...roles], ... } } */
+  action_permissions?: Record<string, Record<string, string[]>>;
 }
 
 export interface BookingLifecycleTemplate {
