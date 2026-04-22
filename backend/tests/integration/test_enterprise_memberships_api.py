@@ -328,6 +328,25 @@ async def test_project_membership_endpoint(client: AsyncClient, setup: dict):
 
 
 @pytest.mark.asyncio
+async def test_response_includes_hydrated_names(client: AsyncClient, setup: dict):
+    """Response includes project_release_name, project_release_status, requested_by_username."""
+    headers = setup["headers"]
+    eid = setup["enterprise_id"]
+    pid = setup["project_release_id"]
+
+    r = await client.post(
+        f"/api/v1/releases/{eid}/memberships",
+        json={"project_release_id": pid},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["project_release_name"] == "Project R"
+    assert body["project_release_status"] == "draft"
+    assert body["requested_by_username"] is not None
+
+
+@pytest.mark.asyncio
 async def test_cross_tenant_returns_404(
     client: AsyncClient,
     setup: dict,

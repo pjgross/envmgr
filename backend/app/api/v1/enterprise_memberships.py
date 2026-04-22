@@ -2,10 +2,14 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
 from app.db.base import get_db
+from app.db.models.release import Release
+from app.db.models.release_membership import ReleaseMembership
+from app.db.models.user import User
 from app.api.v1.schemas.release_membership import (
     ReleaseMembershipCreate,
     ReleaseMembershipRead,
@@ -17,8 +21,52 @@ from app.services import enterprise_membership_service
 router = APIRouter()
 
 
-def _to_read(m) -> ReleaseMembershipRead:
-    return ReleaseMembershipRead.model_validate(m)
+async def _hydrate_reads(
+    db: AsyncSession, memberships: list[ReleaseMembership]
+) -> list[ReleaseMembershipRead]:
+    """Populate decorated fields (project_release_name/status + *_username) by
+    batch-loading Users and Releases for a list of membership rows.
+    """
+    if not memberships:
+        return []
+
+    # Gather user ids and project release ids to batch-load
+    user_ids: set[int] = set()
+    for m in memberships:
+        user_ids.add(m.requested_by)
+        if m.decided_by is not None:
+            user_ids.add(m.decided_by)
+        if m.removed_by is not None:
+            user_ids.add(m.removed_by)
+    project_ids = {m.project_release_id for m in memberships}
+
+    users_by_id: dict[int, User] = {}
+    if user_ids:
+        rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+        users_by_id = {u.id: u for u in rows}
+
+    projects_by_id: dict[int, Release] = {}
+    if project_ids:
+        rows = (await db.execute(select(Release).where(Release.id.in_(project_ids)))).scalars().all()
+        projects_by_id = {r.id: r for r in rows}
+
+    def _uname(uid: Optional[int]) -> Optional[str]:
+        if uid is None:
+            return None
+        u = users_by_id.get(uid)
+        return u.username if u else None
+
+    reads: list[ReleaseMembershipRead] = []
+    for m in memberships:
+        r = ReleaseMembershipRead.model_validate(m)
+        proj = projects_by_id.get(m.project_release_id)
+        r.project_release_name = proj.name if proj else None
+        r.project_release_status = proj.status if proj else None
+        r.requested_by_username = _uname(m.requested_by)
+        r.decided_by_username = _uname(m.decided_by)
+        r.removed_by_username = _uname(m.removed_by)
+        reads.append(r)
+    return reads
 
 
 @router.post(
@@ -39,7 +87,7 @@ async def request_membership(
         project_release_id=body.project_release_id,
         notes=body.notes,
     )
-    return _to_read(m)
+    return (await _hydrate_reads(db, [m]))[0]
 
 
 @router.get(
@@ -59,7 +107,7 @@ async def list_memberships(
         enterprise_id=enterprise_id,
         states=state_list,
     )
-    return [_to_read(r) for r in rows]
+    return await _hydrate_reads(db, rows)
 
 
 @router.post(
@@ -77,7 +125,7 @@ async def accept_membership(
         user=user,
         membership_id=membership_id,
     )
-    return _to_read(m)
+    return (await _hydrate_reads(db, [m]))[0]
 
 
 @router.post(
@@ -97,7 +145,7 @@ async def reject_membership(
         membership_id=membership_id,
         notes=body.notes,
     )
-    return _to_read(m)
+    return (await _hydrate_reads(db, [m]))[0]
 
 
 @router.post(
@@ -115,7 +163,7 @@ async def withdraw_membership(
         user=user,
         membership_id=membership_id,
     )
-    return _to_read(m)
+    return (await _hydrate_reads(db, [m]))[0]
 
 
 @router.post(
@@ -135,7 +183,7 @@ async def remove_membership(
         membership_id=membership_id,
         reason=body.reason,
     )
-    return _to_read(m)
+    return (await _hydrate_reads(db, [m]))[0]
 
 
 @router.get(
@@ -157,7 +205,11 @@ async def project_membership_view(
         user=user,
         project_release_id=project_release_id,
     )
+    all_memberships = ([current] if current else []) + history
+    reads = await _hydrate_reads(db, all_memberships)
+    current_read = reads[0] if current else None
+    history_reads = reads[(1 if current else 0):]
     return {
-        "current": _to_read(current).model_dump() if current else None,
-        "history": [_to_read(h).model_dump() for h in history],
+        "current": current_read.model_dump() if current_read else None,
+        "history": [h.model_dump() for h in history_reads],
     }
