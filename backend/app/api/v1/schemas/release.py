@@ -4,6 +4,8 @@ from typing import Optional, Any
 
 from pydantic import BaseModel, Field, ConfigDict
 
+from app.api.v1.schemas.release_membership import MembershipSummary
+
 
 class ReleaseCreate(BaseModel):
     name: str = Field(..., max_length=250)
@@ -46,6 +48,7 @@ class ReleaseRead(BaseModel):
     updated_at: datetime
     custom_field_permissions: Optional[dict[str, dict]] = None
     standard_field_permissions: Optional[dict[str, dict]] = None
+    membership_summary: Optional[MembershipSummary] = None
 
 
 class ReleaseTransition(BaseModel):
