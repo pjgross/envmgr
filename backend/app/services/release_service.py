@@ -153,6 +153,7 @@ async def list_releases(
     has_dependency_alert: Optional[bool] = None,
     owner_id: Optional[int] = None,
     search: Optional[str] = None,
+    release_kind: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Release], int]:
@@ -165,6 +166,8 @@ async def list_releases(
         base_where.append(Release.release_type == release_type)
     if status is not None:
         base_where.append(Release.status == status)
+    if release_kind is not None:
+        base_where.append(Release.release_kind == release_kind)
     if date_from is not None:
         base_where.append(Release.target_date >= date_from)
     if date_to is not None:
