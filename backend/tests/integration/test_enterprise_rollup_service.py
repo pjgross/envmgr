@@ -211,3 +211,158 @@ async def test_systems_rollup_ignores_non_accepted_children(db_session, tenant, 
     assert sys_x.id in system_ids
     assert sys_y.id not in system_ids
     assert len(rows) == 1
+
+
+# ── scope_rollup helpers ──────────────────────────────────────────────────────
+
+
+async def _make_scope_item(
+    db,
+    tenant_id,
+    release_id,
+    external_key,
+    title,
+    change_kind="story",
+    external_status=None,
+    system_id=None,
+):
+    from app.db.models.release_change import ReleaseChange
+
+    item = ReleaseChange(
+        tenant_id=tenant_id,
+        release_id=release_id,
+        external_key=external_key,
+        title=title,
+        change_kind=change_kind,
+        external_status=external_status,
+        system_id=system_id,
+        source="manual",
+    )
+    db.add(item)
+    await db.flush()
+    return item
+
+
+# ── scope_rollup tests ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_scope_rollup_lists_accepted_children_only(db_session, tenant, user):
+    """Scope items from non-accepted children don't appear in the rollup."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(db_session, tenant.id)
+    ent = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise Scope-1", status="admission_open"
+    )
+    p1 = await _make_release(db_session, tenant.id, user.id, tpl.id, "Project Scope-P1")
+    p2 = await _make_release(db_session, tenant.id, user.id, tpl.id, "Project Scope-P2")
+
+    await _make_scope_item(db_session, tenant.id, p1.id, "SC-1", "Item from P1")
+    await _make_scope_item(db_session, tenant.id, p2.id, "SC-2", "Item from P2")
+
+    # Request + accept only p1; leave p2 unrequested
+    m1 = await enterprise_membership_service.request_membership(
+        db_session, user=user, enterprise_id=ent.id, project_release_id=p1.id
+    )
+    await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
+
+    items = await enterprise_rollup_service.scope_rollup(
+        db_session, user=user, enterprise_id=ent.id
+    )
+
+    assert len(items) == 1
+    assert items[0].external_key == "SC-1"
+
+
+@pytest.mark.asyncio
+async def test_scope_rollup_filter_by_change_kind(db_session, tenant, user):
+    """Filter by change_kind narrows results."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(db_session, tenant.id)
+    ent = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise Scope-2", status="admission_open"
+    )
+    p1 = await _make_release(db_session, tenant.id, user.id, tpl.id, "Project Scope-CK")
+
+    await _make_scope_item(db_session, tenant.id, p1.id, "SC-10", "A story", change_kind="story")
+    await _make_scope_item(db_session, tenant.id, p1.id, "SC-11", "A defect", change_kind="defect")
+
+    m1 = await enterprise_membership_service.request_membership(
+        db_session, user=user, enterprise_id=ent.id, project_release_id=p1.id
+    )
+    await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
+
+    story_items = await enterprise_rollup_service.scope_rollup(
+        db_session, user=user, enterprise_id=ent.id, change_kind="story"
+    )
+    assert len(story_items) == 1
+    assert story_items[0].external_key == "SC-10"
+
+    all_items = await enterprise_rollup_service.scope_rollup(
+        db_session, user=user, enterprise_id=ent.id
+    )
+    assert len(all_items) == 2
+
+
+@pytest.mark.asyncio
+async def test_scope_rollup_filter_by_project(db_session, tenant, user):
+    """project_release_id filter limits to that project."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(db_session, tenant.id)
+    ent = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise Scope-3", status="admission_open"
+    )
+    p1 = await _make_release(db_session, tenant.id, user.id, tpl.id, "Project Scope-Proj1")
+    p2 = await _make_release(db_session, tenant.id, user.id, tpl.id, "Project Scope-Proj2")
+
+    await _make_scope_item(db_session, tenant.id, p1.id, "SC-20", "P1 item")
+    await _make_scope_item(db_session, tenant.id, p2.id, "SC-21", "P2 item")
+
+    m1 = await enterprise_membership_service.request_membership(
+        db_session, user=user, enterprise_id=ent.id, project_release_id=p1.id
+    )
+    m2 = await enterprise_membership_service.request_membership(
+        db_session, user=user, enterprise_id=ent.id, project_release_id=p2.id
+    )
+    await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
+    await enterprise_membership_service.accept(db_session, user=user, membership_id=m2.id)
+
+    items = await enterprise_rollup_service.scope_rollup(
+        db_session, user=user, enterprise_id=ent.id, project_release_id=p1.id
+    )
+    assert len(items) == 1
+    assert items[0].external_key == "SC-20"
+
+
+@pytest.mark.asyncio
+async def test_scope_rollup_search(db_session, tenant, user):
+    """Search filter matches title or external_key substring (case-insensitive)."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(db_session, tenant.id)
+    ent = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise Scope-4", status="admission_open"
+    )
+    p1 = await _make_release(db_session, tenant.id, user.id, tpl.id, "Project Scope-Search")
+
+    await _make_scope_item(db_session, tenant.id, p1.id, "SC-30", "Add login")
+    await _make_scope_item(db_session, tenant.id, p1.id, "SC-31", "Fix logout")
+
+    m1 = await enterprise_membership_service.request_membership(
+        db_session, user=user, enterprise_id=ent.id, project_release_id=p1.id
+    )
+    await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
+
+    log_items = await enterprise_rollup_service.scope_rollup(
+        db_session, user=user, enterprise_id=ent.id, search="log"
+    )
+    assert len(log_items) == 2
+
+    add_items = await enterprise_rollup_service.scope_rollup(
+        db_session, user=user, enterprise_id=ent.id, search="add"
+    )
+    assert len(add_items) == 1
+    assert add_items[0].title == "Add login"
