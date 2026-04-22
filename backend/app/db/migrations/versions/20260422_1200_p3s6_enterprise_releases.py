@@ -46,6 +46,8 @@ def upgrade() -> None:
             sa.Column("removal_reason", sa.Text(), nullable=True),
             sa.Column("late_scope", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("notes", sa.Text(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         )
         op.create_index(
             "ix_release_membership_tenant_id", "release_membership", ["tenant_id"]

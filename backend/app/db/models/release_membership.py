@@ -35,10 +35,10 @@ class ReleaseMembership(Base):
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     enterprise_release_id: Mapped[int] = mapped_column(
-        ForeignKey("release.id"), nullable=False, index=True
+        ForeignKey("release.id"), nullable=False
     )
     project_release_id: Mapped[int] = mapped_column(
-        ForeignKey("release.id"), nullable=False, index=True
+        ForeignKey("release.id"), nullable=False
     )
     state: Mapped[str] = mapped_column(String(30), nullable=False)
     requested_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
