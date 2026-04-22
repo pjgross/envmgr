@@ -52,3 +52,31 @@ def test_enterprise_kind_validation_rejects_unknown_action_key():
     )
     with pytest.raises(ValueError, match="unknown action_key"):
         validate_definition_for_entity(d, "release", applies_to_kind="enterprise")
+
+
+def test_non_enterprise_rejects_action_permissions():
+    # Use entity_type="release" which has no mandatory fields, so the
+    # action_permissions guard (in the else branch) is reached cleanly.
+    d = LifecycleDefinition(
+        states=[LifecycleState(key="draft", label="Draft", is_initial=True)],
+        transitions=[],
+        field_permissions={"draft": {"standard_fields": {}}},
+        action_permissions={"draft": {"membership.admit": ["Admin"]}},
+    )
+    # Non-enterprise release template (applies_to_kind="project")
+    with pytest.raises(ValueError, match="action_permissions only valid"):
+        validate_definition_for_entity(d, "release", applies_to_kind="project")
+    # Release template with no applies_to_kind
+    with pytest.raises(ValueError, match="action_permissions only valid"):
+        validate_definition_for_entity(d, "release", applies_to_kind=None)
+
+
+def test_non_enterprise_rejects_lockdown_flag():
+    # Use entity_type="release" (no mandatory fields) so the lockdown guard fires.
+    d = LifecycleDefinition(
+        states=[LifecycleState(key="draft", label="Draft", is_initial=True, is_admission_lockdown=True)],
+        transitions=[],
+        field_permissions={"draft": {"standard_fields": {}}},
+    )
+    with pytest.raises(ValueError, match="is_admission_lockdown only valid"):
+        validate_definition_for_entity(d, "release", applies_to_kind="project")

@@ -116,12 +116,16 @@ def validate_definition_for_entity(
                         f"unknown action_key '{action_key}' at state '{state_key}'"
                     )
     else:
-        # action_permissions ignored for non-enterprise templates — but reject lockdown flag
+        # Reject flags that are only meaningful on enterprise templates.
         for s in definition.states:
             if s.is_admission_lockdown:
                 raise ValueError(
                     "is_admission_lockdown only valid on release/enterprise templates"
                 )
+        if definition.action_permissions:
+            raise ValueError(
+                "action_permissions only valid on release/enterprise templates"
+            )
 
 
 class LifecycleState(BaseModel):
@@ -201,6 +205,7 @@ class LifecycleTemplateResponse(BaseModel):
     id: int
     tenant_id: int
     entity_type: str
+    applies_to_kind: Optional[str] = None
     name: str
     description: Optional[str]
     is_default: bool

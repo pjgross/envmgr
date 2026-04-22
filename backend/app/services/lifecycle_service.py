@@ -161,6 +161,7 @@ async def copy_template(
     new_template = LifecycleTemplate(
         tenant_id=tenant_id,
         entity_type=original.entity_type,
+        applies_to_kind=original.applies_to_kind,
         name=new_name,
         description=original.description,
         is_default=False,
