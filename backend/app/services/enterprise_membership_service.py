@@ -216,3 +216,104 @@ async def accept(
         tenant_id=user.active_tenant_id,
     )
     return m
+
+
+async def reject(
+    db: AsyncSession,
+    *,
+    user: User,
+    membership_id: int,
+    notes: str,
+) -> ReleaseMembership:
+    m = await _get_membership(db, membership_id, user.active_tenant_id)
+    if m.state != MembershipState.PENDING_REQUEST.value:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Membership state is {m.state}, cannot reject",
+        )
+    enterprise = await _get_release(db, m.enterprise_release_id, user.active_tenant_id)
+    await _check_action_permission(db, enterprise, user, "membership.reject")
+
+    m.state = MembershipState.REJECTED.value
+    m.decided_by = user.id
+    m.decided_at = datetime.now(timezone.utc)
+    m.notes = notes
+    await publish_event(
+        db,
+        event_type="EnterpriseMembershipRejected",
+        aggregate_id=enterprise.id,
+        aggregate_type="Release",
+        payload={"membership_id": m.id, "actor_id": user.id, "notes": notes},
+        tenant_id=user.active_tenant_id,
+    )
+    return m
+
+
+async def withdraw(
+    db: AsyncSession,
+    *,
+    user: User,
+    membership_id: int,
+) -> ReleaseMembership:
+    m = await _get_membership(db, membership_id, user.active_tenant_id)
+    if m.state != MembershipState.PENDING_REQUEST.value:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Membership state is {m.state}, cannot withdraw",
+        )
+    user_role_name = getattr(user.role, "name", user.role) if hasattr(user, "role") else None
+    if m.requested_by != user.id and user_role_name != "Admin":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the requester or a tenant admin can withdraw",
+        )
+    m.state = MembershipState.WITHDRAWN.value
+    m.decided_by = user.id
+    m.decided_at = datetime.now(timezone.utc)
+    await publish_event(
+        db,
+        event_type="EnterpriseMembershipWithdrawn",
+        aggregate_id=m.enterprise_release_id,
+        aggregate_type="Release",
+        payload={"membership_id": m.id, "actor_id": user.id},
+        tenant_id=user.active_tenant_id,
+    )
+    return m
+
+
+async def remove(
+    db: AsyncSession,
+    *,
+    user: User,
+    membership_id: int,
+    reason: str,
+) -> ReleaseMembership:
+    m = await _get_membership(db, membership_id, user.active_tenant_id)
+    if m.state != MembershipState.ACCEPTED.value:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Membership state is {m.state}, cannot remove",
+        )
+    enterprise = await _get_release(db, m.enterprise_release_id, user.active_tenant_id)
+    project = await _get_release(db, m.project_release_id, user.active_tenant_id)
+    await _check_action_permission(db, enterprise, user, "membership.remove")
+
+    project.parent_release_id = None
+    m.state = MembershipState.REMOVED.value
+    m.removed_by = user.id
+    m.removed_at = datetime.now(timezone.utc)
+    m.removal_reason = reason
+    await publish_event(
+        db,
+        event_type="EnterpriseMembershipRemoved",
+        aggregate_id=enterprise.id,
+        aggregate_type="Release",
+        payload={
+            "membership_id": m.id,
+            "project_release_id": project.id,
+            "actor_id": user.id,
+            "reason": reason,
+        },
+        tenant_id=user.active_tenant_id,
+    )
+    return m

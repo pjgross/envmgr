@@ -329,3 +329,153 @@ async def test_accept_without_permission_returns_403(db_session, tenant, user):
             membership_id=m.id,
         )
     assert getattr(exc.value, "status_code", None) == 403
+
+
+# ── reject / withdraw / remove tests ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reject_sets_state(db_session, tenant, user):
+    """Admin rejects pending → state='rejected', notes recorded."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(
+        db_session,
+        tenant.id,
+        action_permissions={"admission_open": {"membership.reject": ["Admin"]}},
+    )
+    enterprise = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise R-Reject", status="admission_open"
+    )
+    project = await _make_release(
+        db_session, tenant.id, user.id, tpl.id, "Project R-Reject", release_kind="project"
+    )
+
+    m = await enterprise_membership_service.request_membership(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        project_release_id=project.id,
+    )
+
+    rejected = await enterprise_membership_service.reject(
+        db_session,
+        user=user,
+        membership_id=m.id,
+        notes="out of scope",
+    )
+
+    assert rejected.state == MembershipState.REJECTED.value
+    assert rejected.notes == "out of scope"
+    assert rejected.decided_by == user.id
+    assert rejected.decided_at is not None
+
+
+@pytest.mark.asyncio
+async def test_withdraw_only_by_requester(db_session, tenant, user):
+    """Another Developer attempting withdraw → 403. The original requester succeeds."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(
+        db_session,
+        tenant.id,
+        action_permissions={},
+    )
+    enterprise = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise R-Withdraw", status="admission_open"
+    )
+    project = await _make_release(
+        db_session, tenant.id, user.id, tpl.id, "Project R-Withdraw", release_kind="project"
+    )
+
+    m = await enterprise_membership_service.request_membership(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        project_release_id=project.id,
+    )
+
+    # Create a Developer (stranger) user
+    from app.db.models.user import User as UserModel
+    from app.core.security import get_password_hash
+    stranger = UserModel(
+        tenant_id=tenant.id,
+        username="stranger1",
+        email="stranger@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Developer",
+        is_active=True,
+    )
+    db_session.add(stranger)
+    await db_session.flush()
+    stranger.active_tenant_id = tenant.id
+
+    # Stranger cannot withdraw
+    with pytest.raises(Exception) as exc:
+        await enterprise_membership_service.withdraw(
+            db_session,
+            user=stranger,
+            membership_id=m.id,
+        )
+    assert getattr(exc.value, "status_code", None) == 403
+
+    # Original requester can withdraw
+    withdrawn = await enterprise_membership_service.withdraw(
+        db_session,
+        user=user,
+        membership_id=m.id,
+    )
+
+    assert withdrawn.state == MembershipState.WITHDRAWN.value
+    assert withdrawn.decided_by == user.id
+
+
+@pytest.mark.asyncio
+async def test_remove_nulls_parent_and_writes_audit(db_session, tenant, user):
+    """Admin removes an accepted membership → project.parent_release_id is nulled; removal_reason persisted."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(
+        db_session,
+        tenant.id,
+        action_permissions={
+            "admission_open": {
+                "membership.admit": ["Admin"],
+                "membership.remove": ["Admin"],
+            }
+        },
+    )
+    enterprise = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise R-Remove", status="admission_open"
+    )
+    project = await _make_release(
+        db_session, tenant.id, user.id, tpl.id, "Project R-Remove", release_kind="project"
+    )
+
+    # Request → accept
+    m = await enterprise_membership_service.request_membership(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        project_release_id=project.id,
+    )
+    await enterprise_membership_service.accept(
+        db_session,
+        user=user,
+        membership_id=m.id,
+    )
+    assert project.parent_release_id == enterprise.id
+
+    # Remove
+    removed = await enterprise_membership_service.remove(
+        db_session,
+        user=user,
+        membership_id=m.id,
+        reason="risk to target date",
+    )
+
+    assert removed.state == MembershipState.REMOVED.value
+    assert removed.removal_reason == "risk to target date"
+    assert removed.removed_by == user.id
+    assert removed.removed_at is not None
+    assert project.parent_release_id is None
