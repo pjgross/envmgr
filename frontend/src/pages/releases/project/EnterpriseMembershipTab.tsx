@@ -27,7 +27,7 @@ export function EnterpriseMembershipTab({ releaseId }: Props) {
           <Typography variant="subtitle1">
             Part of enterprise release:{" "}
             <RouterLink to={`/releases/${current.enterpriseReleaseId}`}>
-              #{current.enterpriseReleaseId}
+              {current.enterpriseReleaseName ?? `Release #${current.enterpriseReleaseId}`}
             </RouterLink>
           </Typography>
           <Typography variant="body2">
@@ -50,7 +50,7 @@ export function EnterpriseMembershipTab({ releaseId }: Props) {
           <ul>
             {history.map((h) => (
               <li key={h.id}>
-                {h.state} · enterprise #{h.enterpriseReleaseId} ·{" "}
+                {h.state} · {h.enterpriseReleaseName ?? `enterprise #${h.enterpriseReleaseId}`} ·{" "}
                 {new Date(h.requestedAt).toLocaleString()}
                 {h.removalReason ? ` — ${h.removalReason}` : ""}
                 {h.notes ? ` (${h.notes})` : ""}

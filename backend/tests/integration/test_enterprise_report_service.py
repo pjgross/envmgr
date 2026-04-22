@@ -181,3 +181,43 @@ async def test_generate_report_has_all_sections(db_session, tenant, user):
 
     # dependencies list exists
     assert isinstance(report.dependencies, list)
+
+
+@pytest.mark.asyncio
+async def test_generate_report_nonexistent_id_raises_404(db_session, tenant, user):
+    """generate_report raises HTTP 404 (not 500) when enterprise_id does not exist."""
+    from fastapi import HTTPException
+    user.active_tenant_id = tenant.id
+
+    with pytest.raises(HTTPException) as exc_info:
+        await enterprise_report_service.generate_report(
+            db_session, user=user, enterprise_id=999999
+        )
+    assert exc_info.value.status_code == 404
+    assert "Enterprise release not found" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_generate_report_wrong_tenant_raises_404(db_session, tenant, user):
+    """generate_report raises HTTP 404 when enterprise_id belongs to a different tenant."""
+    from fastapi import HTTPException
+    from app.db.models.user import Tenant
+
+    # Create a second tenant with its own enterprise release
+    other_tenant = Tenant(name="Other Org", slug="other-org")
+    db_session.add(other_tenant)
+    await db_session.flush()
+
+    tpl = await _make_lifecycle_template_with_admission(db_session, other_tenant.id)
+    ent = await _make_enterprise_release(
+        db_session, other_tenant.id, user.id, tpl.id, "Other Ent Release"
+    )
+
+    # current user belongs to tenant, not other_tenant
+    user.active_tenant_id = tenant.id
+
+    with pytest.raises(HTTPException) as exc_info:
+        await enterprise_report_service.generate_report(
+            db_session, user=user, enterprise_id=ent.id
+        )
+    assert exc_info.value.status_code == 404

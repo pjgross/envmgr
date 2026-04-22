@@ -81,7 +81,7 @@ export function TimelineTab({ release }: Props) {
             {data.dependencies.map((d) => (
               <ListItem key={`${d.fromReleaseId}-${d.toReleaseId}`} dense>
                 <ListItemText primary={
-                  `Release #${d.fromReleaseId} → Release #${d.toReleaseId}${d.alert ? ` (${d.alert})` : ""}`
+                  `${d.fromReleaseName ?? `Release #${d.fromReleaseId}`} → ${d.toReleaseName ?? `Release #${d.toReleaseId}`}${d.alert ? ` (${d.alert})` : ""}`
                 } />
               </ListItem>
             ))}

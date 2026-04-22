@@ -402,3 +402,84 @@ async def test_list_releases_filter_by_search(db_session, tenant, user):
 
     results, count = await release_service.list_releases(db_session, tenant.id, search="Release")
     assert count == 2
+
+
+# ── applies_to_kind enforcement tests ────────────────────────────────────────
+
+def _make_lifecycle_with_kind(tenant_id, applies_to_kind, name="Typed", is_default=False):
+    """Build a LifecycleTemplate with a specific applies_to_kind."""
+    return LifecycleTemplate(
+        tenant_id=tenant_id,
+        entity_type="release",
+        name=name,
+        is_default=is_default,
+        applies_to_kind=applies_to_kind,
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {
+                "draft": {"standard_fields": {}, "custom_fields": {}},
+            },
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_project_release_with_enterprise_template_raises_422(db_session, tenant, user):
+    """Creating a project-kind release with an enterprise lifecycle template must fail with 422."""
+    from fastapi import HTTPException
+    ent_tpl = _make_lifecycle_with_kind(tenant.id, applies_to_kind="enterprise", name="Enterprise TPL")
+    db_session.add(ent_tpl)
+    await db_session.flush()
+
+    data = ReleaseCreate(name="Project R", release_type="Major", release_kind="project",
+                         lifecycle_template_id=ent_tpl.id)
+    with pytest.raises(HTTPException) as exc_info:
+        await release_service.create_release(db_session, data, tenant.id, user.id)
+    assert exc_info.value.status_code == 422
+    assert "applies_to_kind" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_create_enterprise_release_with_project_template_raises_422(db_session, tenant, user):
+    """Creating an enterprise-kind release with a project lifecycle template must fail with 422."""
+    from fastapi import HTTPException
+    proj_tpl = _make_lifecycle_with_kind(tenant.id, applies_to_kind="project", name="Project TPL")
+    db_session.add(proj_tpl)
+    await db_session.flush()
+
+    data = ReleaseCreate(name="Enterprise R", release_type="Major", release_kind="enterprise",
+                         lifecycle_template_id=proj_tpl.id)
+    with pytest.raises(HTTPException) as exc_info:
+        await release_service.create_release(db_session, data, tenant.id, user.id)
+    assert exc_info.value.status_code == 422
+    assert "applies_to_kind" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_create_release_with_universal_template_allowed(db_session, tenant, user):
+    """A template with applies_to_kind=None is allowed for any release kind."""
+    univ_tpl = _make_lifecycle_with_kind(tenant.id, applies_to_kind=None, name="Universal", is_default=True)
+    db_session.add(univ_tpl)
+    await db_session.flush()
+
+    data = ReleaseCreate(name="Ent R", release_type="Major", release_kind="enterprise",
+                         lifecycle_template_id=univ_tpl.id)
+    release = await release_service.create_release(db_session, data, tenant.id, user.id)
+    assert release.lifecycle_template_id == univ_tpl.id
+
+
+@pytest.mark.asyncio
+async def test_default_fallback_prefers_kind_specific_default(db_session, tenant, user):
+    """When no explicit template is given, the kind-specific default takes priority over a universal one."""
+    universal_default = _make_lifecycle_with_kind(tenant.id, applies_to_kind=None, name="Universal", is_default=True)
+    enterprise_default = _make_lifecycle_with_kind(tenant.id, applies_to_kind="enterprise", name="Ent Default", is_default=True)
+    db_session.add(universal_default)
+    db_session.add(enterprise_default)
+    await db_session.flush()
+
+    data = ReleaseCreate(name="Ent Release", release_type="Major", release_kind="enterprise")
+    release = await release_service.create_release(db_session, data, tenant.id, user.id)
+    assert release.lifecycle_template_id == enterprise_default.id

@@ -26,6 +26,7 @@ class ReleaseMembershipRead(BaseModel):
     project_release_id: int
     project_release_name: Optional[str] = None
     project_release_status: Optional[str] = None
+    enterprise_release_name: Optional[str] = None
     state: str
     requested_by: int
     requested_by_username: Optional[str] = None

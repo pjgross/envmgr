@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from collections import defaultdict
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +30,9 @@ async def generate_report(
                 Release.deleted_at.is_(None),
             )
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if enterprise is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Enterprise release not found")
 
     members = await enterprise_rollup_service.members_rollup(
         db, user=user, enterprise_id=enterprise_id

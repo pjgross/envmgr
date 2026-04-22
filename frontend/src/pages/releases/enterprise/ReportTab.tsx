@@ -121,7 +121,7 @@ export function ReportTab({ release }: Props) {
           <ul>
             {report.dependencies.map((d, i) => (
               <li key={i}>
-                Release #{d.fromReleaseId} → Release #{d.toReleaseId}
+                {d.fromReleaseName ?? `Release #${d.fromReleaseId}`} → {d.toReleaseName ?? `Release #${d.toReleaseId}`}
                 {d.alert ? ` (${d.alert})` : ""}
               </li>
             ))}

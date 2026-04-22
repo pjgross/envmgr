@@ -12,6 +12,7 @@ export interface ReleaseMembership {
   projectReleaseId: number;
   projectReleaseName?: string | null;
   projectReleaseStatus?: string | null;
+  enterpriseReleaseName?: string | null;
   state: MembershipState;
   requestedBy: number;
   requestedByUsername?: string | null;

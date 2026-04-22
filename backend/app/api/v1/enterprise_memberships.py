@@ -30,7 +30,7 @@ async def _hydrate_reads(
     if not memberships:
         return []
 
-    # Gather user ids and project release ids to batch-load
+    # Gather user ids, project release ids, and enterprise release ids to batch-load
     user_ids: set[int] = set()
     for m in memberships:
         user_ids.add(m.requested_by)
@@ -39,16 +39,19 @@ async def _hydrate_reads(
         if m.removed_by is not None:
             user_ids.add(m.removed_by)
     project_ids = {m.project_release_id for m in memberships}
+    enterprise_ids = {m.enterprise_release_id for m in memberships}
 
     users_by_id: dict[int, User] = {}
     if user_ids:
         rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
         users_by_id = {u.id: u for u in rows}
 
-    projects_by_id: dict[int, Release] = {}
-    if project_ids:
-        rows = (await db.execute(select(Release).where(Release.id.in_(project_ids)))).scalars().all()
-        projects_by_id = {r.id: r for r in rows}
+    # Batch-load both project and enterprise releases in a single query
+    all_release_ids = project_ids | enterprise_ids
+    releases_by_id: dict[int, Release] = {}
+    if all_release_ids:
+        rows = (await db.execute(select(Release).where(Release.id.in_(all_release_ids)))).scalars().all()
+        releases_by_id = {r.id: r for r in rows}
 
     def _uname(uid: Optional[int]) -> Optional[str]:
         if uid is None:
@@ -59,9 +62,11 @@ async def _hydrate_reads(
     reads: list[ReleaseMembershipRead] = []
     for m in memberships:
         r = ReleaseMembershipRead.model_validate(m)
-        proj = projects_by_id.get(m.project_release_id)
+        proj = releases_by_id.get(m.project_release_id)
+        ent = releases_by_id.get(m.enterprise_release_id)
         r.project_release_name = proj.name if proj else None
         r.project_release_status = proj.status if proj else None
+        r.enterprise_release_name = ent.name if ent else None
         r.requested_by_username = _uname(m.requested_by)
         r.decided_by_username = _uname(m.decided_by)
         r.removed_by_username = _uname(m.removed_by)

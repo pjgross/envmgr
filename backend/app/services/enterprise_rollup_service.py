@@ -185,10 +185,23 @@ async def timeline_rollup(
                 ReleaseDependency.tenant_id == tenant_id,
             )
         )).scalars().all()
+
+        # Build a name map for all child releases (already fetched above, re-use rows)
+        name_by_id: dict[int, str] = {}
+        if child_ids:
+            rel_rows = (await db.execute(
+                select(Release.id, Release.name).where(
+                    Release.id.in_(child_ids), Release.tenant_id == tenant_id
+                )
+            )).all()
+            name_by_id = {rid: name for rid, name in rel_rows}
+
         dependencies = [
             TimelineDependencyEdge(
                 from_release_id=d.release_id,
                 to_release_id=d.depends_on_release_id,
+                from_release_name=name_by_id.get(d.release_id),
+                to_release_name=name_by_id.get(d.depends_on_release_id),
                 alert=None,
             )
             for d in dep_rows

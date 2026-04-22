@@ -33,6 +33,8 @@ class TimelinePhaseRead(BaseModel):
 class TimelineDependencyEdge(BaseModel):
     from_release_id: int
     to_release_id: int
+    from_release_name: Optional[str] = None
+    to_release_name: Optional[str] = None
     alert: Optional[str] = None
 
 

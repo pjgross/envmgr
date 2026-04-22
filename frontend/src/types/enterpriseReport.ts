@@ -30,6 +30,8 @@ export interface TimelinePhase {
 export interface TimelineDependencyEdge {
   fromReleaseId: number;
   toReleaseId: number;
+  fromReleaseName?: string | null;
+  toReleaseName?: string | null;
   alert?: string | null;
 }
 

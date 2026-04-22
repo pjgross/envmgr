@@ -13,6 +13,7 @@ const toCamel = (m: any): ReleaseMembership => ({
   projectReleaseId: m.project_release_id,
   projectReleaseName: m.project_release_name,
   projectReleaseStatus: m.project_release_status,
+  enterpriseReleaseName: m.enterprise_release_name,
   state: m.state,
   requestedBy: m.requested_by,
   requestedByUsername: m.requested_by_username,

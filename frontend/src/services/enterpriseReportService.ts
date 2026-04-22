@@ -48,6 +48,8 @@ export const enterpriseReportService = {
       dependencies: data.dependencies.map((d: any) => ({
         fromReleaseId: d.from_release_id,
         toReleaseId: d.to_release_id,
+        fromReleaseName: d.from_release_name,
+        toReleaseName: d.to_release_name,
         alert: d.alert,
       })),
       generatedAt: data.generated_at,
