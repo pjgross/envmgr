@@ -30,6 +30,7 @@ export interface BookingLifecycleTemplate {
   name: string;
   description: string | null;
   is_default: boolean;
+  applies_to_kind?: string | null;
   definition: LifecycleDefinition;
   created_at: string;
   updated_at: string;
