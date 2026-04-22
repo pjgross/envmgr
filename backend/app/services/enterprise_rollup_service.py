@@ -7,12 +7,22 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.enterprise_rollup import ScopeRollupItem, SystemRollupRow
+from app.api.v1.schemas.enterprise_rollup import (
+    MemberRollupRow,
+    MemberStateCount,
+    ScopeRollupItem,
+    SystemRollupRow,
+    TimelineDependencyEdge,
+    TimelinePhaseRead,
+    TimelineRollupRead,
+)
 from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
+from app.db.models.release_dependency import ReleaseDependency
 from app.db.models.release_membership import ReleaseMembership, MembershipState
 from app.db.models.release_system import ReleaseSystem
 from app.db.models.system import System
+from app.db.models.test_phase import TestPhase
 from app.db.models.user import User
 
 
@@ -111,3 +121,125 @@ async def scope_rollup(
             system_name=sys.name if sys else None,
         ))
     return items
+
+
+async def timeline_rollup(
+    db: AsyncSession, *, user: User, enterprise_id: int
+) -> TimelineRollupRead:
+    tenant_id = user.active_tenant_id
+
+    # Enterprise's own phases
+    enterprise_rows = (await db.execute(
+        select(TestPhase, Release)
+        .join(Release, TestPhase.release_id == Release.id)
+        .where(
+            TestPhase.release_id == enterprise_id,
+            TestPhase.tenant_id == tenant_id,
+            TestPhase.deleted_at.is_(None),
+        )
+    )).all()
+    enterprise_phases = [
+        TimelinePhaseRead(
+            release_id=rel.id,
+            release_name=rel.name,
+            release_kind=rel.release_kind,
+            phase_id=tp.id,
+            phase_name=tp.name,
+            start_date=tp.start_date,
+            end_date=tp.end_date,
+            status=tp.status,
+        )
+        for tp, rel in enterprise_rows
+    ]
+
+    child_ids = await _accepted_child_ids(db, tenant_id, enterprise_id)
+    child_phases: dict[int, list[TimelinePhaseRead]] = {cid: [] for cid in child_ids}
+    if child_ids:
+        rows = (await db.execute(
+            select(TestPhase, Release)
+            .join(Release, TestPhase.release_id == Release.id)
+            .where(
+                TestPhase.release_id.in_(child_ids),
+                TestPhase.tenant_id == tenant_id,
+                TestPhase.deleted_at.is_(None),
+            )
+        )).all()
+        for tp, rel in rows:
+            child_phases[rel.id].append(TimelinePhaseRead(
+                release_id=rel.id,
+                release_name=rel.name,
+                release_kind=rel.release_kind,
+                phase_id=tp.id,
+                phase_name=tp.name,
+                start_date=tp.start_date,
+                end_date=tp.end_date,
+                status=tp.status,
+            ))
+
+    dependencies: list[TimelineDependencyEdge] = []
+    if child_ids:
+        dep_rows = (await db.execute(
+            select(ReleaseDependency).where(
+                ReleaseDependency.release_id.in_(child_ids),
+                ReleaseDependency.depends_on_release_id.in_(child_ids),
+                ReleaseDependency.tenant_id == tenant_id,
+            )
+        )).scalars().all()
+        dependencies = [
+            TimelineDependencyEdge(
+                from_release_id=d.release_id,
+                to_release_id=d.depends_on_release_id,
+                alert=None,
+            )
+            for d in dep_rows
+        ]
+
+    return TimelineRollupRead(
+        enterprise_phases=enterprise_phases,
+        child_phases_by_release=child_phases,
+        dependencies=dependencies,
+    )
+
+
+async def member_state_summary(
+    db: AsyncSession, *, user: User, enterprise_id: int
+) -> list[MemberStateCount]:
+    tenant_id = user.active_tenant_id
+    child_ids = await _accepted_child_ids(db, tenant_id, enterprise_id)
+    if not child_ids:
+        return []
+    rows = (await db.execute(
+        select(Release).where(Release.id.in_(child_ids))
+    )).scalars().all()
+    grouped: dict[str, list[str]] = {}
+    for r in rows:
+        grouped.setdefault(r.status, []).append(r.name)
+    return [
+        MemberStateCount(state=s, count=len(names), projects=names)
+        for s, names in grouped.items()
+    ]
+
+
+async def members_rollup(
+    db: AsyncSession, *, user: User, enterprise_id: int
+) -> list[MemberRollupRow]:
+    tenant_id = user.active_tenant_id
+    rows = (await db.execute(
+        select(ReleaseMembership, Release)
+        .join(Release, ReleaseMembership.project_release_id == Release.id)
+        .where(
+            ReleaseMembership.enterprise_release_id == enterprise_id,
+            ReleaseMembership.tenant_id == tenant_id,
+            ReleaseMembership.state == MembershipState.ACCEPTED.value,
+        )
+    )).all()
+    return [
+        MemberRollupRow(
+            project_release_id=rel.id,
+            project_release_name=rel.name,
+            status=rel.status,
+            admitted_at=m.decided_at,
+            late_scope=m.late_scope,
+        )
+        for m, rel in rows
+    ]
