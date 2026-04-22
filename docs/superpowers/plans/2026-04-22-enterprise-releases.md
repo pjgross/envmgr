@@ -98,11 +98,13 @@ class ReleaseMembership(Base):
     __tablename__ = "release_membership"
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
+    # enterprise_release_id + project_release_id are covered by the composite
+    # indexes in __table_args__; no single-column index needed.
     enterprise_release_id: Mapped[int] = mapped_column(
-        ForeignKey("release.id"), nullable=False, index=True
+        ForeignKey("release.id"), nullable=False
     )
     project_release_id: Mapped[int] = mapped_column(
-        ForeignKey("release.id"), nullable=False, index=True
+        ForeignKey("release.id"), nullable=False
     )
     state: Mapped[str] = mapped_column(String(30), nullable=False)
     requested_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
@@ -198,6 +200,10 @@ def upgrade() -> None:
             sa.Column("removal_reason", sa.Text(), nullable=True),
             sa.Column("late_scope", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("notes", sa.Text(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True),
+                      server_default=sa.text("now()"), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True),
+                      server_default=sa.text("now()"), nullable=False),
         )
         op.create_index(
             "ix_release_membership_tenant_id", "release_membership", ["tenant_id"]
