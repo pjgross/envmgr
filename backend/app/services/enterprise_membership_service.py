@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_membership import ReleaseMembership, MembershipState
 from app.db.models.user import User
@@ -106,5 +107,112 @@ async def request_membership(
             "actor_id": user.id,
         },
         tenant_id=tenant_id,
+    )
+    return m
+
+
+# ── accept helpers ────────────────────────────────────────────────────────────
+
+
+def _compute_late_scope(enterprise: Release, template: LifecycleTemplate) -> bool:
+    states = template.definition.get("states", [])
+    try:
+        lockdown_idx = next(
+            i for i, s in enumerate(states) if s.get("is_admission_lockdown")
+        )
+    except StopIteration:
+        return False
+    try:
+        current_idx = next(
+            i for i, s in enumerate(states) if s["key"] == enterprise.status
+        )
+    except StopIteration:
+        return False
+    return current_idx >= lockdown_idx
+
+
+async def _check_action_permission(
+    db: AsyncSession,
+    enterprise: Release,
+    user: User,
+    action_key: str,
+) -> None:
+    tpl = await db.get(LifecycleTemplate, enterprise.lifecycle_template_id)
+    if tpl is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lifecycle template missing")
+    perms = (tpl.definition or {}).get("action_permissions", {}) or {}
+    roles_for_state = perms.get(enterprise.status, {}).get(action_key, [])
+    user_role_name = getattr(user.role, "name", user.role)
+    if user_role_name not in roles_for_state:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not permitted: {action_key}")
+
+
+async def _get_membership(
+    db: AsyncSession, membership_id: int, tenant_id: int
+) -> ReleaseMembership:
+    m = (
+        await db.execute(
+            select(ReleaseMembership).where(
+                ReleaseMembership.id == membership_id,
+                ReleaseMembership.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if m is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membership not found")
+    return m
+
+
+async def accept(
+    db: AsyncSession,
+    *,
+    user: User,
+    membership_id: int,
+) -> ReleaseMembership:
+    m = await _get_membership(db, membership_id, user.active_tenant_id)
+    if m.state != MembershipState.PENDING_REQUEST.value:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Membership state is {m.state}, cannot accept",
+        )
+    enterprise = await _get_release(db, m.enterprise_release_id, user.active_tenant_id)
+    project = await _get_release(db, m.project_release_id, user.active_tenant_id)
+
+    await _check_action_permission(db, enterprise, user, "membership.admit")
+
+    # Double-check no other accepted exists (race protection; partial unique also enforces in PG)
+    existing = (
+        await db.execute(
+            select(ReleaseMembership).where(
+                ReleaseMembership.project_release_id == project.id,
+                ReleaseMembership.state == MembershipState.ACCEPTED.value,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Project already has an accepted membership",
+        )
+
+    tpl = await db.get(LifecycleTemplate, enterprise.lifecycle_template_id)
+    m.late_scope = _compute_late_scope(enterprise, tpl)
+    m.state = MembershipState.ACCEPTED.value
+    m.decided_by = user.id
+    m.decided_at = datetime.now(timezone.utc)
+    project.parent_release_id = enterprise.id
+
+    await publish_event(
+        db,
+        event_type="EnterpriseMembershipAccepted",
+        aggregate_id=enterprise.id,
+        aggregate_type="Release",
+        payload={
+            "membership_id": m.id,
+            "project_release_id": project.id,
+            "actor_id": user.id,
+            "late_scope": m.late_scope,
+        },
+        tenant_id=user.active_tenant_id,
     )
     return m
