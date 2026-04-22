@@ -9,6 +9,8 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -52,6 +54,7 @@ export default function ReleaseList() {
   const [tab, setTab] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [kindFilter, setKindFilter] = useState<'all' | 'project' | 'enterprise'>('all');
   const [formOpen, setFormOpen] = useState(false);
 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -72,9 +75,10 @@ export default function ReleaseList() {
       list.filter((r) => {
         if (statusFilter !== 'all' && r.status !== statusFilter) return false;
         if (typeFilter !== 'all' && r.release_type !== typeFilter) return false;
+        if (kindFilter !== 'all' && r.release_kind !== kindFilter) return false;
         return true;
       }),
-    [list, statusFilter, typeFilter]
+    [list, statusFilter, typeFilter, kindFilter]
   );
 
   const releaseColumns = useMemo<GridColDef<ReleaseListItemResponse>[]>(
@@ -92,6 +96,19 @@ export default function ReleaseList() {
         width: 120,
         renderCell: (params) => (
           <Chip label={params.row.release_type} size="small" variant="outlined" />
+        ),
+      },
+      {
+        field: 'release_kind',
+        headerName: 'Kind',
+        width: 110,
+        renderCell: (params) => (
+          <Chip
+            label={params.row.release_kind}
+            color={params.row.release_kind === 'enterprise' ? 'secondary' : 'default'}
+            size="small"
+            variant="outlined"
+          />
         ),
       },
       {
@@ -283,7 +300,7 @@ export default function ReleaseList() {
 
       {tab === 0 && (
         <>
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             <TextField
               select
               label="Status"
@@ -314,6 +331,17 @@ export default function ReleaseList() {
                 </MenuItem>
               ))}
             </TextField>
+            <ToggleButtonGroup
+              value={kindFilter}
+              exclusive
+              size="small"
+              onChange={(_, v) => v && setKindFilter(v)}
+              aria-label="Release kind filter"
+            >
+              <ToggleButton value="all">All</ToggleButton>
+              <ToggleButton value="project">Projects</ToggleButton>
+              <ToggleButton value="enterprise">Enterprise</ToggleButton>
+            </ToggleButtonGroup>
           </Box>
 
           <Box sx={{ height: 600, width: '100%' }}>
