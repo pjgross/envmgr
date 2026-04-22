@@ -19,6 +19,7 @@ import releaseReducer from './releaseSlice';
 import releaseTemplateReducer from './releaseTemplateSlice';
 import releaseEventTypeReducer from './releaseEventTypeSlice';
 import scopeChangeRulesReducer from './scopeChangeRulesSlice';
+import enterpriseMembershipReducer from './enterpriseMembershipSlice';
 
 export const store = configureStore({
   reducer: {
@@ -42,6 +43,7 @@ export const store = configureStore({
     releaseTemplate: releaseTemplateReducer,
     releaseEventType: releaseEventTypeReducer,
     scopeChangeRules: scopeChangeRulesReducer,
+    enterpriseMembership: enterpriseMembershipReducer,
   },
 });
 
