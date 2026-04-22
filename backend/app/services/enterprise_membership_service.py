@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -317,3 +317,84 @@ async def remove(
         tenant_id=user.active_tenant_id,
     )
     return m
+
+
+# ── query helpers ─────────────────────────────────────────────────────────────
+
+
+async def list_memberships(
+    db: AsyncSession,
+    *,
+    user: User,
+    enterprise_id: int,
+    states: Optional[list[str]] = None,
+) -> list[ReleaseMembership]:
+    await _get_release(db, enterprise_id, user.active_tenant_id)
+    stmt = select(ReleaseMembership).where(
+        ReleaseMembership.enterprise_release_id == enterprise_id,
+        ReleaseMembership.tenant_id == user.active_tenant_id,
+    )
+    if states:
+        stmt = stmt.where(ReleaseMembership.state.in_(states))
+    stmt = stmt.order_by(ReleaseMembership.requested_at.desc())
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_current_membership_for_project(
+    db: AsyncSession,
+    *,
+    user: User,
+    project_release_id: int,
+) -> Optional[ReleaseMembership]:
+    stmt = select(ReleaseMembership).where(
+        ReleaseMembership.project_release_id == project_release_id,
+        ReleaseMembership.tenant_id == user.active_tenant_id,
+        ReleaseMembership.state == MembershipState.ACCEPTED.value,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def list_history_for_project(
+    db: AsyncSession,
+    *,
+    user: User,
+    project_release_id: int,
+) -> list[ReleaseMembership]:
+    stmt = (
+        select(ReleaseMembership)
+        .where(
+            ReleaseMembership.project_release_id == project_release_id,
+            ReleaseMembership.tenant_id == user.active_tenant_id,
+        )
+        .order_by(ReleaseMembership.requested_at.desc())
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def get_membership_summary(
+    db: AsyncSession,
+    *,
+    user: User,
+    enterprise_id: int,
+) -> dict[str, int]:
+    rows = (
+        await db.execute(
+            select(ReleaseMembership.state, func.count())
+            .where(
+                ReleaseMembership.enterprise_release_id == enterprise_id,
+                ReleaseMembership.tenant_id == user.active_tenant_id,
+            )
+            .group_by(ReleaseMembership.state)
+        )
+    ).all()
+    summary = {s.value: 0 for s in MembershipState}
+    for state, count in rows:
+        summary[state] = count
+    return {
+        "pending": summary[MembershipState.PENDING_REQUEST.value],
+        "accepted": summary[MembershipState.ACCEPTED.value],
+        "rejected": summary[MembershipState.REJECTED.value],
+        "withdrawn": summary[MembershipState.WITHDRAWN.value],
+        "removed": summary[MembershipState.REMOVED.value],
+    }

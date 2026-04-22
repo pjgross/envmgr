@@ -479,3 +479,109 @@ async def test_remove_nulls_parent_and_writes_audit(db_session, tenant, user):
     assert removed.removed_by == user.id
     assert removed.removed_at is not None
     assert project.parent_release_id is None
+
+
+# ── query helper tests ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_memberships_filters_by_state(db_session, tenant, user):
+    """Filter by state list returns only matching rows."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(
+        db_session,
+        tenant.id,
+        action_permissions={"admission_open": {"membership.admit": ["Admin"]}},
+    )
+    enterprise = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise Q-List", status="admission_open"
+    )
+    project1 = await _make_release(
+        db_session, tenant.id, user.id, tpl.id, "Project Q-List-1", release_kind="project"
+    )
+    project2 = await _make_release(
+        db_session, tenant.id, user.id, tpl.id, "Project Q-List-2", release_kind="project"
+    )
+
+    # Request both
+    m1 = await enterprise_membership_service.request_membership(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        project_release_id=project1.id,
+    )
+    m2 = await enterprise_membership_service.request_membership(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        project_release_id=project2.id,
+    )
+
+    # Accept one
+    await enterprise_membership_service.accept(
+        db_session,
+        user=user,
+        membership_id=m1.id,
+    )
+
+    # Filter by pending_request — only m2 should appear
+    rows = await enterprise_membership_service.list_memberships(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        states=[MembershipState.PENDING_REQUEST.value],
+    )
+
+    assert len(rows) == 1
+    assert rows[0].id == m2.id
+    assert rows[0].state == MembershipState.PENDING_REQUEST.value
+
+
+@pytest.mark.asyncio
+async def test_get_current_membership_for_project(db_session, tenant, user):
+    """Returns the accepted row for a project, or None when none exists."""
+    user.active_tenant_id = tenant.id
+
+    tpl = await _make_lifecycle_template_with_admission(
+        db_session,
+        tenant.id,
+        action_permissions={"admission_open": {"membership.admit": ["Admin"]}},
+    )
+    enterprise = await _make_enterprise_release(
+        db_session, tenant.id, user.id, tpl.id, "Enterprise Q-Current", status="admission_open"
+    )
+    project = await _make_release(
+        db_session, tenant.id, user.id, tpl.id, "Project Q-Current", release_kind="project"
+    )
+
+    # Before request: should return None
+    result_none = await enterprise_membership_service.get_current_membership_for_project(
+        db_session,
+        user=user,
+        project_release_id=project.id,
+    )
+    assert result_none is None
+
+    # Request → accept
+    m = await enterprise_membership_service.request_membership(
+        db_session,
+        user=user,
+        enterprise_id=enterprise.id,
+        project_release_id=project.id,
+    )
+    await enterprise_membership_service.accept(
+        db_session,
+        user=user,
+        membership_id=m.id,
+    )
+
+    # After accept: should return the accepted row
+    result = await enterprise_membership_service.get_current_membership_for_project(
+        db_session,
+        user=user,
+        project_release_id=project.id,
+    )
+    assert result is not None
+    assert result.id == m.id
+    assert result.state == MembershipState.ACCEPTED.value
