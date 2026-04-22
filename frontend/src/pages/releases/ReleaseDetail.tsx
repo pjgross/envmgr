@@ -5,6 +5,7 @@
  *   2: Environments
  *   3: Linked Requests
  *   4: Scope
+ *   5: Enterprise (membership)
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -35,6 +36,7 @@ import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
 import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
+import { EnterpriseMembershipTab } from './project/EnterpriseMembershipTab';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 
@@ -145,6 +147,7 @@ export default function ReleaseDetail() {
           <Tab label="Environments" />
           <Tab label="Linked Requests" />
           <Tab label="Scope" />
+          <Tab label="Enterprise" />
         </Tabs>
       </Paper>
 
@@ -154,6 +157,7 @@ export default function ReleaseDetail() {
       {activeTab === 2 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
       {activeTab === 3 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
       {activeTab === 4 && <ReleaseScopeTab releaseId={releaseId} />}
+      {activeTab === 5 && <EnterpriseMembershipTab releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}
