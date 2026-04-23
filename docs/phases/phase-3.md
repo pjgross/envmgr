@@ -1,7 +1,7 @@
 # Phase 3: Releases & Test Phases
 
-> Status: ✅ **Sub-project 1 merged to `main`** (MR !4, merge commit `8f154bd`, 2026-04-20) | Roadmap: [../plan.md](../plan.md)
-> Duration: 4–6 weeks | Sub-project 1 complete; sub-projects 2 & 3 + Phase 5 items deferred
+> Status: ✅ **Sub-1 merged to `main`** (MRs !4–!13, 2026-04-20/21, main tip `033444d`) · 🟢 **Sub-2 ready-for-merge** on `feature/enterprise-releases` (tip `20de484`, 2026-04-22/23) · Sub-3 + Phase 5 items deferred | Roadmap: [../plan.md](../plan.md)
+> Duration: 4–6 weeks | Sub-1 complete; Sub-2 implementation complete pending MR review
 
 ## Sub-project 1 — Core Releases ✅ Merged
 
@@ -30,7 +30,67 @@ Delivered on `main` via MR !4 on 2026-04-20 (merge commit `8f154bd`).
 
 Spec + plan for these follow-ups live under `docs/superpowers/specs/` and `docs/superpowers/plans/` with dates `2026-04-20` and `2026-04-21`.
 
-**Deferred to sub-projects 2/3 and Phase 5**: Enterprise Releases (release trains), Jira Integration, Post-Implementation Reviews (PIR). These remain as planned tasks in this file and in Phase 5.
+**Deferred to sub-projects 2/3 and Phase 5**: ~~Enterprise Releases (release trains)~~ now in Sub-2 (below), Jira Integration, Post-Implementation Reviews (PIR).
+
+---
+
+## Sub-project 2 — Enterprise Releases 🟢 Ready-for-merge
+
+Implementation complete on branch `feature/enterprise-releases` (tip `20de484`, dated 2026-04-22/23). 558 backend tests passing; frontend typecheck clean; end-to-end happy-path test covers the full admission + lockdown + late-scope + report flow.
+
+| Artefact | Path |
+|----------|------|
+| Spec | `docs/superpowers/specs/2026-04-22-enterprise-releases-design.md` |
+| Plan | `docs/superpowers/plans/2026-04-22-enterprise-releases.md` |
+| Smoke checklist | `docs/phases/phase-3-sub2-smoke-checklist.md` |
+| Happy-path test | `backend/tests/integration/test_enterprise_release_happy_path.py` |
+| Backfill script | `backend/scripts/backfill_enterprise_lifecycles.py` |
+
+### What's delivered
+
+**Backend**
+- New `release_membership` table with admission workflow (`pending_request → accepted / rejected / withdrawn` + `accepted → removed`), combined partial unique on `(project_release_id) WHERE state IN ('pending_request','accepted')` so a project can only be in one enterprise at a time (DB-enforced).
+- New column `lifecycle_template.applies_to_kind` (`'project' | 'enterprise' | NULL`) with create/update-time enforcement that a release's kind matches its template.
+- Additive JSON keys on `LifecycleTemplate.definition`: `states[i].is_admission_lockdown` (single-select per template) and `action_permissions` (`{state_key: {action_key: [roles]}}`), where action keys are `membership.admit`, `membership.reject`, `membership.remove`.
+- Default Enterprise lifecycle template seeded on tenant creation: `draft → planning → admission_open → admission_closed [lockdown] → integration_testing → uat → staging → cab → deploying → deployed | cancelled`.
+- Three new services:
+  - `enterprise_membership_service` — `request_membership`, `accept`, `reject`, `withdraw`, `remove`, plus query helpers (`list_memberships`, `get_current_membership_for_project`, `list_history_for_project`, `get_membership_summary`). Late-scope computed at decision time (sticky) from the enterprise's current state vs. the lockdown state index. Fail-closed action-permission check. Outbox events emitted in the same transaction.
+  - `enterprise_rollup_service` — `systems_rollup`, `scope_rollup` (with filters), `timeline_rollup`, `member_state_summary`, `members_rollup`. All aggregate over accepted members only; include cross-child dependency edges carrying both endpoint names.
+  - `enterprise_report_service` — `generate_report` returning a deterministic JSON payload (header, members, systems, scope-by-project, events, dependencies, generated-at/by); emits `EnterpriseReportGenerated` event.
+- New API endpoints:
+  - 7 membership routes under `/api/v1/releases/{enterprise_id}/memberships/...` + project-side `GET /api/v1/releases/{project_release_id}/membership`.
+  - 4 rollup routes + 1 report route under `/api/v1/releases/{enterprise_id}/rollup/...` and `/report`.
+  - Existing `GET /api/v1/releases` gains `release_kind=project|enterprise` filter; single `GET /api/v1/releases/{id}` returns `membership_summary` for enterprise kind.
+- 6 new outbox event types (`EnterpriseMembershipRequested/Accepted/Rejected/Withdrawn/Removed` + `EnterpriseReportGenerated`), all with `aggregate_type="Release"`.
+- Backfill script `backend/scripts/backfill_enterprise_lifecycles.py` to seed the enterprise lifecycle template for tenants that existed before migration `p3s6enterprise`.
+
+**Frontend**
+- New types + 3 service clients (membership, rollup, report) with snake↔camel mappers.
+- New Redux slice `enterpriseMembership` with 6 thunks.
+- `ReleaseList`: Project / Enterprise / All toggle + Kind column.
+- `ReleaseForm`: Kind picker + kind-aware lifecycle template filter.
+- `ReleaseDetail`: branches on `release_kind` — enterprise views render a new `EnterpriseTabs` shell with 10 tabs: Main, Members, Gates & Test Phases, Environments, Linked Requests, Scope, Systems Impacted, Scope Rollup, Timeline, Report. Core tabs reuse existing project components.
+- New enterprise tabs: `MembersTab` (pending / accepted / history + `RequestAdmissionDialog`), `SystemsRollupTab`, `ScopeRollupTab` (with filters + generate-report button), `TimelineTab` (summary view of enterprise + per-child phases + cross-child dependencies), `ReportTab` (HTML report with `@media print` CSS).
+- Project-side Enterprise tab on project-kind release detail (current parent + history).
+- Admin `LifecycleTemplatesPanel`: Kind picker, Admission Lockdown radio (enterprise-only, single-select), Admission Permissions matrix (state × role × action, non-terminal states only).
+
+### Migrations
+
+| Revision | Purpose |
+|----------|---------|
+| `p3s6enterprise` (`20260422_1200_p3s6_enterprise_releases.py`) | `release_membership` table + `lifecycle_template.applies_to_kind` column + backfill existing release templates to `applies_to_kind='project'`. |
+| `p3s7memuniq` (`20260422_1400_p3s7_membership_unique.py`) | Collapses the two narrow partial uniques into one combined `UNIQUE (project_release_id) WHERE state IN ('pending_request','accepted')`. |
+
+### Known limitations (tracked in smoke checklist)
+
+- Timeline tab renders a summary view (phases per release + dependency list), not a visual Gantt — follow-up to extract the existing Gantt primitive.
+- `window.prompt()` still used for reject-notes and remove-reason (shared project debt — `useConfirm` prompt variant is a separate piece of work).
+- Report tab is HTML-only; no PDF export.
+- Member-state summary not yet surfaced inside the Gate criteria editor.
+
+### Next step
+
+Open a GitLab MR for `feature/enterprise-releases` → `main`. Run `backend/scripts/backfill_enterprise_lifecycles.py` once per environment after merge.
 
 ---
 

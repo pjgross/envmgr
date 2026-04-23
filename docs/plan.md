@@ -12,7 +12,7 @@
 | 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
 | 2 | Change Management | ✅ Complete (MR !2, merge `3bb3833`, 2026-04-19) | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
 | 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | ✅ Complete (same MR) | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
-| 3 | Releases, Templates, Enterprise Release, Jira | ✅ Sub-project 1 (Core Releases) complete — merged 2026-04-20/21 via MRs !4 (`8f154bd`), !5 (`8327f36` lifecycle perms), !6 (`906ddef` gate criteria), !7 (`8f49c48` MUI confirm sweep), !8 (`2031a76` hotfix), !10 (`47cce5a` scope custom fields), !12 (`35e3a99` scope-item lifecycle + moves + KPIs). Sub-projects 2 (Enterprise Releases) + 3 (Jira Integration) deferred. | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
+| 3 | Releases, Templates, Enterprise Release, Jira | ✅ Sub-1 (Core Releases) merged 2026-04-20/21 via MRs !4–!13 (main tip `033444d`). 🟢 Sub-2 (Enterprise Releases) ready-for-merge on `feature/enterprise-releases` (tip `20de484`, 2026-04-22/23). Sub-3 (Jira) deferred. | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
 | 6 | Infrastructure Topology | 🟡 Model pulled forward — Terraform/Neo4j/React Flow still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
@@ -60,15 +60,15 @@ See [phases/phase-2.md](phases/phase-2.md) for the full commit trail and accepta
 
 ---
 
-## Phase 3: Releases & Test Phases — ✅ Sub-project 1 merged to `main`
+## Phase 3: Releases & Test Phases — ✅ Sub-1 on `main` · 🟢 Sub-2 ready-for-merge
 
-See [phases/phase-3.md](phases/phase-3.md) for the full MR trail (!4 core + !5–!8 follow-ups).
+See [phases/phase-3.md](phases/phase-3.md) for the full MR trail and sub-project detail.
 
-**Delivered** (MR !4, 2026-04-20, merge `8f154bd`): Release Template Library, Project Releases (Major/Minor/Emergency) with configurable lifecycle, Test Phases, Gates, System Roles on releases, Release Dependencies with date-impact alerts, Release Event Log, Scope items (`ReleaseChange`), release↔booking linking with derived context_tag, calendar + Gantt timeline views, frontend detail pages, admin lifecycle + event-type management.
+**Sub-project 1 — Core Releases** (✅ merged). MR !4 (2026-04-20, merge `8f154bd`) plus follow-up MRs !5–!13 (2026-04-20/21): Release Template Library, Project Releases (Major/Minor/Emergency) with configurable lifecycle, Test Phases, Gates + criteria, System Roles, Release Dependencies with date-impact alerts, Release Event Log, Scope items (`ReleaseChange`) with custom fields + lifecycle + moves/backlog/status history + per-tenant scope-change-kind rules, release↔booking linking with derived context_tag, calendar + Gantt timeline views, frontend detail pages, admin lifecycle + event-type management, unified lifecycle field-permissions across release + booking, reusable MUI `useConfirm` hook.
 
-**Delivered in follow-up MRs (2026-04-20/21)**: unified lifecycle field-permissions across release + booking (!5); individual gate criteria with due dates, assignees, notes, one-way auto-pass, per-release `overdue_criterion_count` (!6); reusable MUI `useConfirm` hook replacing native `confirm()` / `alert()` (!7 + !8 hotfix); custom fields on scope items (`ReleaseChange`) scoped by `change_kind` (!10); scope-item lifecycle with moves/backlog/status history + per-tenant scope-change-kind rules + symmetric scope-change KPIs on release list (!12).
+**Sub-project 2 — Enterprise Releases** (🟢 ready-for-merge, branch `feature/enterprise-releases`, tip `20de484`, 2026-04-22/23). First-class enterprise releases on top of the existing module: `release_kind='enterprise'` with own lifecycle, phases, gates, bookings, events; admission workflow via new `release_membership` table (`pending_request → accepted/rejected/withdrawn` + `accepted → removed`); configurable admission-lockdown marker tagging late-arriving scope for audit (not blocking); state × role permissions for admit/reject/remove; rollup views for systems + scope + timeline + members; HTML report with print; project-side Enterprise tab; admin lifecycle editor extensions. 558 backend tests pass; happy-path integration test at `backend/tests/integration/test_enterprise_release_happy_path.py`. Spec: `docs/superpowers/specs/2026-04-22-enterprise-releases-design.md`. Plan: `docs/superpowers/plans/2026-04-22-enterprise-releases.md`. Smoke checklist: `docs/phases/phase-3-sub2-smoke-checklist.md`.
 
-**Deferred** (sub-projects 2 + 3, and Phase 5): Enterprise Releases (release trains); Jira webhook integration for scope import; Post-Implementation Reviews (PIR).
+**Deferred** (sub-project 3 + Phase 5): Jira webhook integration for scope import; Post-Implementation Reviews (PIR).
 
 ---
 
