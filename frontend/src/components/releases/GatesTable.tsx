@@ -14,7 +14,6 @@ import {
   DialogTitle,
   Divider,
   IconButton,
-  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -63,7 +62,7 @@ const STATUS_COLORS: Record<
   overridden: 'info',
 };
 
-export default function GatesTable({ releaseId, gates, phases, onRefresh }: Props) {
+export default function GatesTable({ releaseId, gates, phases: _phases, onRefresh }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -79,7 +78,7 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   // Gate create dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [gateName, setGateName] = useState('');
-  const [gatePhaseId, setGatePhaseId] = useState<number | ''>('');
+  const [gateDueDate, setGateDueDate] = useState<string>('');  // yyyy-mm-dd from <input type="date">
 
   // Gate decision dialog
   const [selectedGate, setSelectedGate] = useState<ReleaseGateResponse | null>(null);
@@ -92,11 +91,6 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   const [criterionDialogOpen, setCriterionDialogOpen] = useState(false);
   const [editingCriterion, setEditingCriterion] = useState<GateCriterion | null>(null);
   const [criterionGateId, setCriterionGateId] = useState<number | null>(null);
-
-  const phaseNameMap = useMemo(
-    () => new Map(phases.map((p) => [p.id, p.name])),
-    [phases]
-  );
 
   const userList = useMemo(
     () => users.map((u) => ({ id: u.id, username: u.username })),
@@ -113,21 +107,20 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
   };
 
   const handleCreate = async () => {
-    if (!gateName.trim()) return;
+    if (!gateName.trim() || !gateDueDate) return;
     try {
+      // Picker gives yyyy-mm-dd — send as midnight UTC ISO string.
+      const iso = new Date(`${gateDueDate}T00:00:00Z`).toISOString();
       await dispatch(
         createGate({
           releaseId,
-          data: {
-            name: gateName.trim(),
-            test_phase_id: gatePhaseId !== '' ? gatePhaseId : undefined,
-          },
+          data: { name: gateName.trim(), due_date: iso },
         })
       ).unwrap();
       snackbar.success('Gate created');
       setCreateOpen(false);
       setGateName('');
-      setGatePhaseId('');
+      setGateDueDate('');
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to create gate');
     }
@@ -262,13 +255,11 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
                   {gate.name}
                 </Typography>
 
-                {gate.test_phase_id && (
-                  <Chip
-                    size="small"
-                    label={phaseNameMap.get(gate.test_phase_id) ?? `Phase ${gate.test_phase_id}`}
-                    variant="outlined"
-                  />
-                )}
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Due ${gate.due_date.slice(0, 10)}`}
+                />
 
                 <Chip
                   size="small"
@@ -373,21 +364,14 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
               onChange={(e) => setGateName(e.target.value)}
             />
             <TextField
-              select
-              label="Phase (optional)"
+              label="Due date"
+              type="date"
+              required
               fullWidth
-              value={gatePhaseId}
-              onChange={(e) =>
-                setGatePhaseId(e.target.value === '' ? '' : Number(e.target.value))
-              }
-            >
-              <MenuItem value="">None</MenuItem>
-              {phases.map((p) => (
-                <MenuItem key={p.id} value={p.id}>
-                  {p.name}
-                </MenuItem>
-              ))}
-            </TextField>
+              value={gateDueDate}
+              onChange={(e) => setGateDueDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
           </Box>
         </DialogContent>
         <DialogActions>
@@ -395,7 +379,7 @@ export default function GatesTable({ releaseId, gates, phases, onRefresh }: Prop
           <Button
             variant="contained"
             onClick={handleCreate}
-            disabled={!gateName.trim()}
+            disabled={!gateName.trim() || !gateDueDate}
           >
             Add
           </Button>
