@@ -20,13 +20,11 @@ interface Props {
 export default function CriterionDialog({ open, initial, users, onClose, onSubmit }: Props) {
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
-  const [dueDate, setDueDate] = useState('');
   const [assignee, setAssignee] = useState<number | ''>('');
 
   useEffect(() => {
     setTitle(initial?.title ?? '');
     setNotes(initial?.notes ?? '');
-    setDueDate(initial?.due_date ? initial.due_date.slice(0, 16) : '');
     setAssignee(initial?.assigned_to_user_id ?? '');
   }, [initial, open]);
 
@@ -34,7 +32,6 @@ export default function CriterionDialog({ open, initial, users, onClose, onSubmi
     onSubmit({
       title: title.trim(),
       notes: notes.trim() || null,
-      due_date: dueDate ? new Date(dueDate).toISOString() : null,
       assigned_to_user_id: assignee === '' ? null : Number(assignee),
     });
   };
@@ -51,11 +48,6 @@ export default function CriterionDialog({ open, initial, users, onClose, onSubmi
           <TextField
             label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)}
             multiline rows={3} fullWidth
-          />
-          <TextField
-            label="Due date" type="datetime-local" value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            InputLabelProps={{ shrink: true }} fullWidth
           />
           <TextField
             label="Assignee" select value={assignee}
