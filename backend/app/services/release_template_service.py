@@ -245,12 +245,19 @@ async def instantiate(
             acceptance_criteria = gate_cfg.acceptance_criteria
 
         matched_phase = phase_objects.get(phase_name) if phase_name else None
+        # Derive due_date: phase end_date → release target_date → release created_at
+        if matched_phase and matched_phase.end_date:
+            gate_due_date = matched_phase.end_date
+        elif release.target_date:
+            gate_due_date = release.target_date
+        else:
+            gate_due_date = release.created_at
         gate = ReleaseGate(
             tenant_id=tenant_id,
             release_id=release.id,
-            test_phase_id=matched_phase.id if matched_phase else None,
             name=gate_name,
             status="pending",
+            due_date=gate_due_date,
         )
         db.add(gate)
         await db.flush()
