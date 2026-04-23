@@ -62,7 +62,9 @@ async def test_ingest_success_creates_build_deployment_and_version_row(
             commit_timestamp=datetime(2026, 4, 23, 14, tzinfo=timezone.utc),
         ),
     )
-    result = await deployment_service.ingest(db_session, tenant.id, payload)
+    result = await deployment_service.ingest(
+        db_session, tenant.id, payload, raised_by_user_id=user.id,
+    )
     await db_session.flush()
 
     assert result.replayed is False

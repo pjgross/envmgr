@@ -69,6 +69,7 @@ async def ingest(
     db: AsyncSession,
     tenant_id: int,
     payload: DeploymentWebhookPayload,
+    raised_by_user_id: int,
 ) -> DeploymentIngestResult:
     if payload.status not in ALLOWED_STATUSES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
@@ -90,9 +91,29 @@ async def ingest(
         release_id=payload.release_id,
     )
 
-    if payload.change_request_id is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            "change_request_id is required — auto-create path not wired yet")
+    if payload.change_request_id is not None:
+        from app.db.models.change_request import ChangeRequest
+        cr = (await db.execute(
+            select(ChangeRequest).where(
+                ChangeRequest.id == payload.change_request_id,
+                ChangeRequest.tenant_id == tenant_id,
+                ChangeRequest.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if cr is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"change_request_id {payload.change_request_id} not found")
+        change_request_id = cr.id
+    else:
+        from app.services import change_request_service
+        cr = await change_request_service.create_code_deployment(
+            db,
+            tenant_id=tenant_id,
+            raised_by=raised_by_user_id,
+            title=f"Deploy {payload.build.git_sha[:8]} → {payload.environment_slug}",
+            description=f"Auto-created from webhook event {payload.event_id}",
+        )
+        change_request_id = cr.id
 
     # Insert deployment.
     completed_at = payload.deployed_at if payload.status in {"success", "failed"} else None
@@ -101,7 +122,7 @@ async def ingest(
         build_id=build.id,
         environment_id=environment_id,
         release_id=payload.release_id or build.release_id,
-        change_request_id=payload.change_request_id,
+        change_request_id=change_request_id,
         event_id=str(payload.event_id),  # model is String(36) for SQLite compat
         deployer_name=payload.deployer_name,
         deployed_at=payload.deployed_at,
