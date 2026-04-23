@@ -66,25 +66,25 @@ async def list_criteria_for_gate(
 
 async def list_overdue_for_release(
     db: AsyncSession, release_id: int, tenant_id: int
-) -> list[GateCriterion]:
-    """Overdue = open AND due_date IS NOT NULL AND due_date < now()."""
+) -> list[tuple[GateCriterion, ReleaseGate]]:
+    """Overdue = criterion is open AND its gate's due_date < now()."""
     now = datetime.now(timezone.utc)
     rows = (
         await db.execute(
-            select(GateCriterion)
+            select(GateCriterion, ReleaseGate)
             .join(ReleaseGate, ReleaseGate.id == GateCriterion.gate_id)
             .where(
                 ReleaseGate.release_id == release_id,
                 GateCriterion.tenant_id == tenant_id,
                 GateCriterion.deleted_at.is_(None),
                 GateCriterion.status == "open",
-                GateCriterion.due_date.is_not(None),
-                GateCriterion.due_date < now,
                 ReleaseGate.deleted_at.is_(None),
-            ).order_by(GateCriterion.due_date.asc())
+                ReleaseGate.due_date < now,
+            )
+            .order_by(ReleaseGate.due_date, GateCriterion.id)
         )
-    ).scalars().all()
-    return list(rows)
+    ).all()
+    return [(c, g) for c, g in rows]
 
 
 async def create_criterion(
@@ -100,7 +100,6 @@ async def create_criterion(
         gate_id=gate.id,
         title=data.title,
         notes=data.notes,
-        due_date=data.due_date,
         assigned_to_user_id=data.assigned_to_user_id,
         status="open",
     )

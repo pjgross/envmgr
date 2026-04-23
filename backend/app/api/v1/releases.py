@@ -204,8 +204,7 @@ async def list_releases(
                 ReleaseGate.deleted_at.is_(None),
                 GateCriterion.deleted_at.is_(None),
                 GateCriterion.status == "open",
-                GateCriterion.due_date.is_not(None),
-                GateCriterion.due_date < now,
+                ReleaseGate.due_date < now,
             )
             .group_by(ReleaseGate.release_id)
         )

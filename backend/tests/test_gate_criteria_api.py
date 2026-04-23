@@ -36,8 +36,16 @@ async def lifecycle(db_session: AsyncSession, test_tenant):
     return tpl
 
 
-async def _make_release_with_gate(client: AsyncClient, headers: dict) -> tuple[int, int]:
-    """Create a release and a gate under it. Returns (release_id, gate_id)."""
+async def _make_release_with_gate(
+    client: AsyncClient, headers: dict, gate_due_date: str | None = None
+) -> tuple[int, int]:
+    """Create a release and a gate under it. Returns (release_id, gate_id).
+
+    gate_due_date: ISO string for the gate's due_date; defaults to 7 days from now.
+    """
+    if gate_due_date is None:
+        gate_due_date = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+
     rel = await client.post(
         "/api/v1/releases",
         headers=headers,
@@ -49,7 +57,7 @@ async def _make_release_with_gate(client: AsyncClient, headers: dict) -> tuple[i
     gate = await client.post(
         f"/api/v1/releases/{rid}/gates",
         headers=headers,
-        json={"name": "SIT Exit"},
+        json={"name": "SIT Exit", "due_date": gate_due_date},
     )
     assert gate.status_code == 201, gate.text
     return rid, gate.json()["id"]
@@ -82,7 +90,6 @@ async def test_create_list_criterion(client: AsyncClient, auth_headers: dict, li
     data = resp.json()
     assert data["title"] == "Zero Sev1"
     assert data["status"] == "open"
-    assert data["is_overdue"] is False
 
     lst = await client.get(
         f"/api/v1/releases/{rid}/gates/{gid}/criteria", headers=auth_headers,
@@ -127,56 +134,79 @@ async def test_reopen_does_not_revert_gate(client: AsyncClient, auth_headers: di
 
 @pytest.mark.asyncio
 async def test_release_overdue_endpoint(client: AsyncClient, auth_headers: dict, lifecycle):
-    rid, gid = await _make_release_with_gate(client, auth_headers)
-    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-    overdue = (await client.post(
+    """Overdue criteria come from gates whose due_date is in the past."""
+    past_gate_due = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    rid, gid = await _make_release_with_gate(client, auth_headers, gate_due_date=past_gate_due)
+
+    # Two criteria on the past-due gate — both are "open" so both should be overdue.
+    overdue1 = (await client.post(
         f"/api/v1/releases/{rid}/gates/{gid}/criteria",
         headers=auth_headers,
-        json={"title": "late", "due_date": past},
+        json={"title": "late one"},
     )).json()
-    _future = await client.post(
+    overdue2 = (await client.post(
         f"/api/v1/releases/{rid}/gates/{gid}/criteria",
         headers=auth_headers,
-        json={"title": "future"},
+        json={"title": "late two"},
+    )).json()
+
+    # A second gate with a future due_date — its criterion should NOT appear.
+    future_gate_due = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    gate2 = (await client.post(
+        f"/api/v1/releases/{rid}/gates",
+        headers=auth_headers,
+        json={"name": "UAT Exit", "due_date": future_gate_due},
+    )).json()
+    await client.post(
+        f"/api/v1/releases/{rid}/gates/{gate2['id']}/criteria",
+        headers=auth_headers,
+        json={"title": "future criterion"},
     )
 
     resp = await client.get(f"/api/v1/releases/{rid}/overdue-criteria", headers=auth_headers)
     assert resp.status_code == 200
     rows = resp.json()
-    assert [r["id"] for r in rows] == [overdue["id"]]
+    overdue_ids = {r["id"] for r in rows}
+    assert overdue1["id"] in overdue_ids
+    assert overdue2["id"] in overdue_ids
+    # gate_name and gate_due_date are hydrated from the parent gate
     assert rows[0]["gate_name"] == "SIT Exit"
-    assert rows[0]["is_overdue"] is True
+    assert rows[0]["gate_due_date"] is not None
+    # Future-gate criterion must not appear
+    assert gate2["id"] not in {r["gate_id"] for r in rows}
 
 
 @pytest.mark.asyncio
 async def test_gate_list_includes_criteria_and_count(
     client: AsyncClient, auth_headers: dict, lifecycle,
 ):
-    rid, gid = await _make_release_with_gate(client, auth_headers)
-    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    """overdue_criterion_count on the gate reflects open criteria on a past-due gate."""
+    past_gate_due = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    rid, gid = await _make_release_with_gate(client, auth_headers, gate_due_date=past_gate_due)
     await client.post(
         f"/api/v1/releases/{rid}/gates/{gid}/criteria",
-        headers=auth_headers, json={"title": "late", "due_date": past},
+        headers=auth_headers, json={"title": "late"},
     )
     await client.post(
         f"/api/v1/releases/{rid}/gates/{gid}/criteria",
-        headers=auth_headers, json={"title": "ontime"},
+        headers=auth_headers, json={"title": "also late"},
     )
 
     gates = (await client.get(f"/api/v1/releases/{rid}/gates", headers=auth_headers)).json()
     assert len(gates[0]["criteria"]) == 2
-    assert gates[0]["overdue_criterion_count"] == 1
+    assert gates[0]["overdue_criterion_count"] == 2
 
 
 @pytest.mark.asyncio
 async def test_list_releases_includes_overdue_count(
     client: AsyncClient, auth_headers: dict, lifecycle,
 ):
-    rid, gid = await _make_release_with_gate(client, auth_headers)
-    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    """Release list row carries overdue_criterion_count from past-due gate criteria."""
+    past_gate_due = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    rid, gid = await _make_release_with_gate(client, auth_headers, gate_due_date=past_gate_due)
     await client.post(
         f"/api/v1/releases/{rid}/gates/{gid}/criteria",
-        headers=auth_headers, json={"title": "late", "due_date": past},
+        headers=auth_headers, json={"title": "late"},
     )
     releases = (await client.get("/api/v1/releases", headers=auth_headers)).json()
     row = next(r for r in releases if r["id"] == rid)

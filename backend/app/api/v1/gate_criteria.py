@@ -14,12 +14,11 @@ Auth: all endpoints require get_current_user. No role-gating for v1.
 from typing import List
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.db.models.release_gate import ReleaseGate
 from app.db.models.user import User
 from app.services import gate_criterion_service, release_service
 from app.api.v1.schemas.gate_criterion import (
@@ -45,7 +44,7 @@ def _crit_to_dict(c) -> dict:
     """
     return {
         "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
-        "due_date": c.due_date, "assigned_to_user_id": c.assigned_to_user_id,
+        "assigned_to_user_id": c.assigned_to_user_id,
         "assigned_to_username": None, "status": c.status,
         "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
         "created_at": c.created_at, "updated_at": c.updated_at,
@@ -122,16 +121,12 @@ async def list_overdue(
     await release_service.get_release(db, release_id, tenant_id)
     rows = await gate_criterion_service.list_overdue_for_release(db, release_id, tenant_id)
     out: list[GateCriterionWithGate] = []
-    for r in rows:
-        gate = (await db.execute(
-            select(ReleaseGate).where(ReleaseGate.id == r.gate_id)
-        )).scalar_one()
-        item = GateCriterionWithGate.model_validate({
-            **_crit_to_dict(r),
+    for crit, gate in rows:
+        out.append(GateCriterionWithGate.model_validate({
+            **_crit_to_dict(crit),
             "gate_name": gate.name,
-        })
-        await _attach_assignee_username(db, item, r.assigned_to_user_id)
-        out.append(item)
+            "gate_due_date": gate.due_date,
+        }))
     return out
 
 
