@@ -186,14 +186,26 @@ async def ingest(
         await db.flush()
 
     # Transition the linked CR on terminal success/failure.
+    # validate_transition uses allowed_roles; empty [] means no role is permitted,
+    # so we bypass lifecycle validation here and write the ChangeHistory row manually
+    # to preserve the audit trail.
     if payload.status in {"success", "failed"}:
-        from app.db.models.change_request import ChangeRequest
+        from app.db.models.change_request import ChangeRequest, ChangeHistory
         cr = (await db.execute(
             select(ChangeRequest).where(ChangeRequest.id == change_request_id)
         )).scalar_one()
         target_state = "deployed" if payload.status == "success" else "failed"
         if cr.status != target_state:
+            from_state = cr.status
             cr.status = target_state
+            db.add(ChangeHistory(
+                change_request_id=cr.id,
+                from_state=from_state,
+                to_state=target_state,
+                changed_by=raised_by_user_id,
+                changed_at=datetime.now(timezone.utc),
+                notes=f"Auto-transitioned from webhook deployment (status={payload.status})",
+            ))
             await db.flush()
 
     await publish_event(

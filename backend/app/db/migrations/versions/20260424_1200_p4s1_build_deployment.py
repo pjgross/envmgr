@@ -92,7 +92,7 @@ def upgrade() -> None:
             sa.Column("environment_id", sa.Integer(), nullable=False),
             sa.Column("release_id", sa.Integer(), nullable=True),
             sa.Column("change_request_id", sa.Integer(), nullable=False),
-            sa.Column("event_id", sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("event_id", sa.String(36), nullable=False),
             sa.Column("deployer_name", sa.String(255), nullable=True),
             sa.Column("deployed_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
