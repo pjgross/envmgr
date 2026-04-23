@@ -89,9 +89,8 @@ async def list_gates(
 ) -> list[dict]:
     """Return gates plus nested criteria + overdue_criterion_count per gate.
 
-    Shape matches ReleaseGateRead + criteria/overdue_criterion_count fields.
-    Returned as dicts (not ORM objects) so the API can pass them straight to
-    response_model without a second round of attribute hydration.
+    overdue_criterion_count is N for a gate whose due_date < now (count of its
+    open criteria) and 0 otherwise — criteria no longer carry their own date.
     """
     from datetime import datetime, timezone
     from app.db.models.gate_criterion import GateCriterion
@@ -119,7 +118,6 @@ async def list_gates(
         )
     ).scalars().all()
 
-    # Batch-load assignee usernames for every criterion in one query (avoids N+1).
     from app.db.models.user import User
     assignee_ids = {c.assigned_to_user_id for c in crit_rows if c.assigned_to_user_id is not None}
     username_by_id: dict[int, str] = {}
@@ -130,33 +128,34 @@ async def list_gates(
         username_by_id = {row.id: row.username for row in user_rows}
 
     now = datetime.now(timezone.utc)
+    open_counts: dict[int, int] = {gid: 0 for gid in gate_ids}
     by_gate: dict[int, list[dict]] = {gid: [] for gid in gate_ids}
-    overdue_count: dict[int, int] = {gid: 0 for gid in gate_ids}
     for c in crit_rows:
-        crit_dict = {
+        by_gate[c.gate_id].append({
             "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
-            "due_date": c.due_date, "assigned_to_user_id": c.assigned_to_user_id,
+            "assigned_to_user_id": c.assigned_to_user_id,
             "assigned_to_username": username_by_id.get(c.assigned_to_user_id) if c.assigned_to_user_id else None,
             "status": c.status,
             "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
             "created_at": c.created_at, "updated_at": c.updated_at,
-        }
-        by_gate[c.gate_id].append(crit_dict)
-        if c.status == "open" and c.due_date is not None:
-            due = c.due_date
-            if due.tzinfo is None:
-                due = due.replace(tzinfo=timezone.utc)
-            if due < now:
-                overdue_count[c.gate_id] += 1
+        })
+        if c.status == "open":
+            open_counts[c.gate_id] += 1
+
+    def _overdue(gate: ReleaseGate) -> int:
+        due = gate.due_date
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        return open_counts[gate.id] if due < now else 0
 
     return [
         {
             "id": g.id, "tenant_id": g.tenant_id, "release_id": g.release_id,
-            "test_phase_id": g.test_phase_id, "name": g.name, "status": g.status,
+            "name": g.name, "due_date": g.due_date, "status": g.status,
             "decided_by": g.decided_by, "decided_at": g.decided_at,
             "decision_notes": g.decision_notes,
             "criteria": by_gate[g.id],
-            "overdue_criterion_count": overdue_count[g.id],
+            "overdue_criterion_count": _overdue(g),
         }
         for g in gate_rows
     ]
@@ -171,8 +170,8 @@ async def create_gate(
     gate = ReleaseGate(
         tenant_id=tenant_id,
         release_id=release_id,
-        test_phase_id=data.test_phase_id,
         name=data.name,
+        due_date=data.due_date,
         status="pending",
     )
     db.add(gate)
@@ -187,6 +186,7 @@ async def create_gate(
             "id": gate.id,
             "release_id": release_id,
             "name": gate.name,
+            "due_date": gate.due_date.isoformat(),
         },
         tenant_id=tenant_id,
     )
@@ -211,7 +211,12 @@ async def update_gate(
         event_type="ReleaseGateUpdated",
         aggregate_id=gate.id,
         aggregate_type="ReleaseGate",
-        payload={"id": gate.id, "release_id": gate.release_id, "name": gate.name},
+        payload={
+            "id": gate.id,
+            "release_id": gate.release_id,
+            "name": gate.name,
+            "due_date": gate.due_date.isoformat(),
+        },
         tenant_id=tenant_id,
     )
     return gate
