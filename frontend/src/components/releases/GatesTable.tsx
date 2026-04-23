@@ -42,13 +42,12 @@ import { useConfirm } from '../../hooks/useConfirm';
 import GateDecisionDialog from './GateDecisionDialog';
 import CriterionRow from './CriterionRow';
 import CriterionDialog from './CriterionDialog';
-import type { ReleaseGateResponse, TestPhaseResponse } from '../../types/release';
+import type { ReleaseGateResponse } from '../../types/release';
 import type { GateCriterion, GateCriterionCreatePayload, GateCriterionUpdatePayload } from '../../types/gateCriterion';
 
 interface Props {
   releaseId: number;
   gates: ReleaseGateResponse[];
-  phases: TestPhaseResponse[];
   onRefresh: () => void;
 }
 
@@ -62,7 +61,7 @@ const STATUS_COLORS: Record<
   overridden: 'info',
 };
 
-export default function GatesTable({ releaseId, gates, phases: _phases, onRefresh }: Props) {
+export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();

@@ -405,7 +405,7 @@ async def get_releases_timeline(
                     {
                         "id": g.id,
                         "name": g.name,
-                        "due_date": g.due_date.isoformat() if g.due_date else None,
+                        "due_date": g.due_date.isoformat(),
                         "status": g.status,
                     }
                     for g in gates
