@@ -55,7 +55,6 @@ export default function ReleasePlanTab({ releaseId }: Props) {
       <GatesTable
         releaseId={releaseId}
         gates={gates}
-        phases={phases}
         onRefresh={refresh}
       />
     </Box>

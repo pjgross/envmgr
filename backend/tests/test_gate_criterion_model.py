@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import pytest
 
 from app.db.models.release import Release
@@ -15,13 +15,13 @@ async def test_gate_criterion_persists(db_session, tenant, user, release_lifecyc
     db_session.add(release); await db_session.flush()
     gate = ReleaseGate(
         tenant_id=tenant.id, release_id=release.id, name="SIT Exit", status="pending",
+        due_date=datetime.now(timezone.utc),
     )
     db_session.add(gate); await db_session.flush()
 
-    due = datetime.now(timezone.utc) + timedelta(days=3)
     crit = GateCriterion(
         tenant_id=tenant.id, gate_id=gate.id,
-        title="Zero Sev1 defects", notes="blocker list in Jira", due_date=due,
+        title="Zero Sev1 defects", notes="blocker list in Jira",
         assigned_to_user_id=user.id, status="open",
     )
     db_session.add(crit); await db_session.flush()
@@ -40,13 +40,13 @@ async def test_gate_criterion_defaults(db_session, tenant, user, release_lifecyc
         lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id,
     )
     db_session.add(release); await db_session.flush()
-    gate = ReleaseGate(tenant_id=tenant.id, release_id=release.id, name="G", status="pending")
+    gate = ReleaseGate(tenant_id=tenant.id, release_id=release.id, name="G", status="pending",
+                      due_date=datetime.now(timezone.utc))
     db_session.add(gate); await db_session.flush()
 
     crit = GateCriterion(tenant_id=tenant.id, gate_id=gate.id, title="Minimal")
     db_session.add(crit); await db_session.flush()
 
     assert crit.status == "open"
-    assert crit.due_date is None
     assert crit.assigned_to_user_id is None
     assert crit.notes is None

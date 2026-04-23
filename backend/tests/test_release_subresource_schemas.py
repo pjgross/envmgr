@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timezone, timedelta
 from app.api.v1.schemas.release_template import ReleaseTemplateCreate, ReleaseTemplateInstantiate
 from app.api.v1.schemas.test_phase import TestPhaseCreate, TestPhaseRead
 from app.api.v1.schemas.release_gate import ReleaseGateCreate, ReleaseGateDecision
@@ -11,7 +12,8 @@ from app.api.v1.schemas.release_change import ReleaseChangeCreate
 def test_schemas_all_importable():
     assert ReleaseTemplateCreate(name="x", release_type="Major").release_type == "Major"
     assert TestPhaseCreate(name="SIT").name == "SIT"
-    assert ReleaseGateCreate(name="g").name == "g"
+    _due = datetime.now(timezone.utc) + timedelta(days=7)
+    assert ReleaseGateCreate(name="g", due_date=_due).name == "g"
     assert ReleaseSystemCreate(system_id=1, role="changing").role == "changing"
     assert ReleaseDependencyCreate(depends_on_release_id=1).kind == "deploys_after"
     assert ReleaseEventCreate(event_type_id=1, description="ok").description == "ok"

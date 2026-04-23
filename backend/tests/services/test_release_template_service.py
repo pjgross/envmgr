@@ -172,7 +172,8 @@ async def test_instantiate_release_level_gate_has_null_phase(db_session, tenant,
         )
     ).scalars().all()
     release_level = next(g for g in gates if g.name == "Release Gate")
-    assert release_level.test_phase_id is None
+    # test_phase_id dropped — gate now carries due_date directly
+    assert release_level.due_date is not None
 
 
 # ── test_delete_refused_when_in_use ─────────────────────────────────────────

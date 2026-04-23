@@ -11,7 +11,6 @@ interface Props {
 }
 
 export default function CriterionRow({ criterion, onToggle, onEdit, onDelete }: Props) {
-  const due = criterion.due_date ? new Date(criterion.due_date).toLocaleDateString() : null;
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', py: 0.5, pl: 4, gap: 1 }}>
       <Checkbox
@@ -29,14 +28,6 @@ export default function CriterionRow({ criterion, onToggle, onEdit, onDelete }: 
       >
         {criterion.title}
       </Typography>
-      {due && (
-        <Chip
-          size="small"
-          label={due}
-          color={criterion.is_overdue ? 'error' : 'default'}
-          variant={criterion.is_overdue ? 'filled' : 'outlined'}
-        />
-      )}
       {criterion.assigned_to_username && (
         <Chip size="small" label={criterion.assigned_to_username} variant="outlined" />
       )}

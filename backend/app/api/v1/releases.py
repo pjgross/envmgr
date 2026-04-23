@@ -204,8 +204,7 @@ async def list_releases(
                 ReleaseGate.deleted_at.is_(None),
                 GateCriterion.deleted_at.is_(None),
                 GateCriterion.status == "open",
-                GateCriterion.due_date.is_not(None),
-                GateCriterion.due_date < now,
+                ReleaseGate.due_date < now,
             )
             .group_by(ReleaseGate.release_id)
         )
@@ -359,6 +358,15 @@ async def get_releases_timeline(
                 )
             )
         ).scalars().all()
+        gates = (
+            await db.execute(
+                select(ReleaseGate).where(
+                    ReleaseGate.release_id == r.id,
+                    ReleaseGate.tenant_id == tenant_id,
+                    ReleaseGate.deleted_at.is_(None),
+                ).order_by(ReleaseGate.due_date)
+            )
+        ).scalars().all()
         result.append(
             {
                 "id": r.id,
@@ -392,6 +400,15 @@ async def get_releases_timeline(
                         ),
                     }
                     for d in dependencies
+                ],
+                "gates": [
+                    {
+                        "id": g.id,
+                        "name": g.name,
+                        "due_date": g.due_date.isoformat(),
+                        "status": g.status,
+                    }
+                    for g in gates
                 ],
             }
         )

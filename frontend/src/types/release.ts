@@ -44,11 +44,18 @@ export interface TestPhaseResponse {
   status: string;
 }
 
+export interface TimelineGate {
+  id: number;
+  name: string;
+  due_date: string;
+  status: 'pending' | 'passed' | 'failed' | 'overridden';
+}
+
 export interface ReleaseGateResponse {
   id: number;
   tenant_id: number;
   release_id: number;
-  test_phase_id: number | null;
+  due_date: string;
   name: string;
   status: 'pending' | 'passed' | 'failed' | 'overridden';
   decided_by: number | null;
@@ -147,12 +154,12 @@ export interface TestPhaseUpdatePayload {
 
 export interface ReleaseGateCreatePayload {
   name: string;
-  test_phase_id?: number | null;
+  due_date: string;
 }
 
 export interface ReleaseGateUpdatePayload {
   name?: string;
-  test_phase_id?: number | null;
+  due_date?: string;
 }
 
 export interface ReleaseGateDecisionPayload {
@@ -189,6 +196,7 @@ export interface ReleaseTimelineEntry {
   target_date: string | null;
   actual_date: string | null;
   phases: TestPhaseResponse[];
+  gates: TimelineGate[];
   /** Backend may omit this when a release has no dependencies. */
   dependencies?: ReleaseDependencyResponse[];
 }

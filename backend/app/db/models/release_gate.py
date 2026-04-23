@@ -14,10 +14,8 @@ class ReleaseGate(Base):
     release_id: Mapped[int] = mapped_column(
         ForeignKey("release.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    test_phase_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("test_phase.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     name: Mapped[str] = mapped_column(String(150), nullable=False)
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     decided_by: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

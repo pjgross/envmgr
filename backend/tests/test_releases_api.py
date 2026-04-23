@@ -292,10 +292,11 @@ async def test_phase_wrong_release_404(client: AsyncClient, auth_headers):
 
 @pytest.mark.asyncio
 async def test_create_and_list_gates(client: AsyncClient, auth_headers, release):
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
     resp = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Go/No-Go"},
+        json={"name": "Go/No-Go", "due_date": _due},
     )
     assert resp.status_code == 201, resp.text
     gate_id = resp.json()["id"]
@@ -308,10 +309,11 @@ async def test_create_and_list_gates(client: AsyncClient, auth_headers, release)
 
 @pytest.mark.asyncio
 async def test_update_gate(client: AsyncClient, auth_headers, release):
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
     cr = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Security Gate"},
+        json={"name": "Security Gate", "due_date": _due},
     )
     gate_id = cr.json()["id"]
     resp = await client.put(
@@ -325,10 +327,11 @@ async def test_update_gate(client: AsyncClient, auth_headers, release):
 
 @pytest.mark.asyncio
 async def test_pass_gate(client: AsyncClient, auth_headers, release):
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
     cr = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Smoke Test Gate"},
+        json={"name": "Smoke Test Gate", "due_date": _due},
     )
     gate_id = cr.json()["id"]
     resp = await client.post(
@@ -342,10 +345,11 @@ async def test_pass_gate(client: AsyncClient, auth_headers, release):
 
 @pytest.mark.asyncio
 async def test_fail_gate(client: AsyncClient, auth_headers, release):
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
     cr = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Performance Gate"},
+        json={"name": "Performance Gate", "due_date": _due},
     )
     gate_id = cr.json()["id"]
     resp = await client.post(
@@ -359,10 +363,11 @@ async def test_fail_gate(client: AsyncClient, auth_headers, release):
 
 @pytest.mark.asyncio
 async def test_override_gate_requires_notes(client: AsyncClient, auth_headers, release):
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
     cr = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Override Gate"},
+        json={"name": "Override Gate", "due_date": _due},
     )
     gate_id = cr.json()["id"]
     # No notes → 422
@@ -376,10 +381,11 @@ async def test_override_gate_requires_notes(client: AsyncClient, auth_headers, r
 
 @pytest.mark.asyncio
 async def test_override_gate_success(client: AsyncClient, auth_headers, release):
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
     cr = await client.post(
         f"/api/v1/releases/{release.id}/gates",
         headers=auth_headers,
-        json={"name": "Must Override"},
+        json={"name": "Must Override", "due_date": _due},
     )
     gate_id = cr.json()["id"]
     resp = await client.post(

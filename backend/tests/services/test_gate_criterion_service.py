@@ -13,7 +13,8 @@ async def _make_gate(db, tenant, user, lifecycle_tmpl) -> ReleaseGate:
         lifecycle_template_id=lifecycle_tmpl.id, status="draft", raised_by=user.id,
     )
     db.add(release); await db.flush()
-    gate = ReleaseGate(tenant_id=tenant.id, release_id=release.id, name="G", status="pending")
+    gate = ReleaseGate(tenant_id=tenant.id, release_id=release.id, name="G", status="pending",
+                      due_date=datetime.now(timezone.utc))
     db.add(gate); await db.flush()
     return gate
 
@@ -50,10 +51,9 @@ async def test_update_edits_fields(db_session, tenant, user, release_lifecycle_t
     gate = await _make_gate(db_session, tenant, user, release_lifecycle_template)
     crit = await gate_criterion_service.create_criterion(
         db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="A"))
-    due = datetime.now(timezone.utc) + timedelta(days=1)
     await gate_criterion_service.update_criterion(
         db_session, crit.id, tenant.id,
-        GateCriterionUpdate(title="A-rev", notes="more", due_date=due, assigned_to_user_id=user.id),
+        GateCriterionUpdate(title="A-rev", notes="more", assigned_to_user_id=user.id),
     )
     await db_session.refresh(crit)
     assert crit.title == "A-rev"
@@ -76,21 +76,32 @@ async def test_tenant_isolation_on_get(db_session, tenant, user, release_lifecyc
 
 @pytest.mark.asyncio
 async def test_list_overdue_for_release(db_session, tenant, user, release_lifecycle_template):
-    gate = await _make_gate(db_session, tenant, user, release_lifecycle_template)
+    """Overdue = criterion is open AND its gate's due_date is in the past."""
+    from app.db.models.release import Release
+    release = Release(
+        tenant_id=tenant.id, name="R-overdue", release_type="Major", release_kind="project",
+        lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(release); await db_session.flush()
+
     past = datetime.now(timezone.utc) - timedelta(days=1)
     future = datetime.now(timezone.utc) + timedelta(days=1)
+
+    from app.db.models.release_gate import ReleaseGate
+    overdue_gate = ReleaseGate(tenant_id=tenant.id, release_id=release.id,
+                               name="Past Gate", status="pending", due_date=past)
+    future_gate = ReleaseGate(tenant_id=tenant.id, release_id=release.id,
+                              name="Future Gate", status="pending", due_date=future)
+    db_session.add_all([overdue_gate, future_gate]); await db_session.flush()
+
     overdue = await gate_criterion_service.create_criterion(
-        db_session, gate.id, tenant.id, user.id,
-        GateCriterionCreate(title="late", due_date=past))
+        db_session, overdue_gate.id, tenant.id, user.id, GateCriterionCreate(title="late"))
     _not_due_yet = await gate_criterion_service.create_criterion(
-        db_session, gate.id, tenant.id, user.id,
-        GateCriterionCreate(title="future", due_date=future))
-    _no_due_date = await gate_criterion_service.create_criterion(
-        db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="nodate"))
+        db_session, future_gate.id, tenant.id, user.id, GateCriterionCreate(title="future"))
 
     rows = await gate_criterion_service.list_overdue_for_release(
-        db_session, release_id=gate.release_id, tenant_id=tenant.id)
-    assert [r.id for r in rows] == [overdue.id]
+        db_session, release_id=release.id, tenant_id=tenant.id)
+    assert [crit.id for crit, _gate in rows] == [overdue.id]
 
 
 from app.services import release_gate_service

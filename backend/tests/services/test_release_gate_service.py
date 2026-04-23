@@ -1,5 +1,6 @@
 """Tests for release_gate_service pass/fail/override with event emission."""
 import pytest
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 
 from app.db.models.lifecycle import LifecycleTemplate
@@ -55,7 +56,7 @@ async def test_pass_gate_records_decision(db_session, tenant, user):
 
     gate = await release_gate_service.create_gate(
         db_session, release.id,
-        ReleaseGateCreate(name="SIT Exit"),
+        ReleaseGateCreate(name="SIT Exit", due_date=datetime.now(timezone.utc) + timedelta(days=14)),
         tenant.id,
     )
     assert gate.status == "pending"
@@ -78,7 +79,7 @@ async def test_pass_gate_emits_event_and_publishes_outbox(db_session, tenant, us
 
     gate = await release_gate_service.create_gate(
         db_session, release.id,
-        ReleaseGateCreate(name="UAT Exit"),
+        ReleaseGateCreate(name="UAT Exit", due_date=datetime.now(timezone.utc) + timedelta(days=14)),
         tenant.id,
     )
 
@@ -105,7 +106,7 @@ async def test_override_requires_notes(db_session, tenant, user):
 
     gate = await release_gate_service.create_gate(
         db_session, release.id,
-        ReleaseGateCreate(name="Overrideable Gate"),
+        ReleaseGateCreate(name="Overrideable Gate", due_date=datetime.now(timezone.utc) + timedelta(days=14)),
         tenant.id,
     )
 
@@ -130,7 +131,7 @@ async def test_override_with_notes_succeeds(db_session, tenant, user):
 
     gate = await release_gate_service.create_gate(
         db_session, release.id,
-        ReleaseGateCreate(name="Gate"),
+        ReleaseGateCreate(name="Gate", due_date=datetime.now(timezone.utc) + timedelta(days=14)),
         tenant.id,
     )
     overridden = await release_gate_service.override_gate(
@@ -151,7 +152,7 @@ async def test_tenant_isolation_pass_gate_cross_tenant_forbidden(db_session, ten
 
     release = await _make_release(db_session, tenant.id, user.id)
     gate = await release_gate_service.create_gate(
-        db_session, release.id, ReleaseGateCreate(name="Gate A"), tenant.id
+        db_session, release.id, ReleaseGateCreate(name="Gate A", due_date=datetime.now(timezone.utc) + timedelta(days=14)), tenant.id
     )
 
     # Trying to operate on tenant A's gate as tenant B should raise 404
@@ -168,7 +169,7 @@ async def test_tenant_isolation_pass_gate_cross_tenant_forbidden(db_session, ten
 async def test_fail_gate(db_session, tenant, user):
     release = await _make_release(db_session, tenant.id, user.id)
     gate = await release_gate_service.create_gate(
-        db_session, release.id, ReleaseGateCreate(name="Gate"), tenant.id
+        db_session, release.id, ReleaseGateCreate(name="Gate", due_date=datetime.now(timezone.utc) + timedelta(days=14)), tenant.id
     )
     failed = await release_gate_service.fail_gate(
         db_session, gate.id, "Tests failed", tenant.id, user.id

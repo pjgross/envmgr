@@ -8,12 +8,12 @@ from app.api.v1.schemas.gate_criterion import GateCriterionRead
 
 class ReleaseGateCreate(BaseModel):
     name: str = Field(..., max_length=150)
-    test_phase_id: Optional[int] = None
+    due_date: datetime
 
 
 class ReleaseGateUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=150)
-    test_phase_id: Optional[int] = None
+    due_date: Optional[datetime] = None
 
 
 class ReleaseGateDecision(BaseModel):
@@ -26,8 +26,8 @@ class ReleaseGateRead(BaseModel):
     id: int
     tenant_id: int
     release_id: int
-    test_phase_id: Optional[int]
     name: str
+    due_date: datetime
     status: str
     decided_by: Optional[int]
     decided_at: Optional[datetime]

@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 import pytest
 from app.db.models.release import Release
-from app.db.models.test_phase import TestPhase
 from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_system import ReleaseSystem
 from app.db.models.release_dependency import ReleaseDependency
@@ -12,11 +11,10 @@ async def test_release_gate_persists(db_session, tenant, user, release_lifecycle
     release = Release(tenant_id=tenant.id, name="R", release_type="Major", release_kind="project",
                       lifecycle_template_id=release_lifecycle_template.id, status="draft", raised_by=user.id)
     db_session.add(release); await db_session.flush()
-    phase = TestPhase(tenant_id=tenant.id, release_id=release.id, name="SIT", order=1, status="pending")
-    db_session.add(phase); await db_session.flush()
     gate = ReleaseGate(
-        tenant_id=tenant.id, release_id=release.id, test_phase_id=phase.id,
+        tenant_id=tenant.id, release_id=release.id,
         name="SIT Exit", status="pending",
+        due_date=datetime.now(timezone.utc),
     )
     db_session.add(gate); await db_session.flush()
     assert gate.id is not None
