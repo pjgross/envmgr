@@ -84,13 +84,21 @@ async def _require_release(db: AsyncSession, release_id: int, tenant_id: int) ->
 
 
 async def _release_with_permissions(
-    db: AsyncSession, release: Release, user_role: str
+    db: AsyncSession, release: Release, user_role: str, current_user=None
 ) -> ReleaseRead:
     """Materialize a ReleaseRead response with permissions attached."""
+    from app.services import enterprise_membership_service
+    from app.api.v1.schemas.release_membership import MembershipSummary
+
     perms = await release_service.get_release_field_permissions(db, release, user_role)
     resp = ReleaseRead.model_validate(release)
     resp.custom_field_permissions = perms["custom_field_permissions"]
     resp.standard_field_permissions = perms["standard_field_permissions"]
+    if release.release_kind == "enterprise" and current_user is not None:
+        summary_dict = await enterprise_membership_service.get_membership_summary(
+            db, user=current_user, enterprise_id=release.id
+        )
+        resp.membership_summary = MembershipSummary(**summary_dict)
     return resp
 
 
@@ -119,6 +127,7 @@ async def list_releases(
     date_to: Optional[datetime] = Query(None),
     owner_id: Optional[int] = Query(None),
     search: Optional[str] = Query(None),
+    release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -134,6 +143,7 @@ async def list_releases(
         date_to=date_to,
         owner_id=owner_id,
         search=search,
+        release_kind=release_kind,
         limit=limit,
         offset=offset,
     )
@@ -397,7 +407,7 @@ async def get_release(
     """Return a single release with field_permissions attached for the caller's role."""
     tenant_id = current_user.active_tenant_id
     release = await _require_release(db, release_id, tenant_id)
-    return await _release_with_permissions(db, release, current_user.role)
+    return await _release_with_permissions(db, release, current_user.role, current_user)
 
 
 @router.put("/{release_id}", response_model=ReleaseRead)
@@ -411,7 +421,7 @@ async def update_release(
     release = await release_service.update_release(
         db, release_id, data, tenant_id, current_user.id
     )
-    return await _release_with_permissions(db, release, current_user.role)
+    return await _release_with_permissions(db, release, current_user.role, current_user)
 
 
 @router.delete("/{release_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -442,7 +452,7 @@ async def transition_release(
         user_id=current_user.id,
         user_role=current_user.role,
     )
-    return await _release_with_permissions(db, release, current_user.role)
+    return await _release_with_permissions(db, release, current_user.role, current_user)
 
 
 @router.get("/{release_id}/lifecycle")

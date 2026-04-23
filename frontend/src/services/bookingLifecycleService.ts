@@ -32,7 +32,10 @@ export const bookingLifecycleService = {
   updateTemplate: (
     id: number,
     data: Partial<
-      Pick<BookingLifecycleTemplate, 'name' | 'description' | 'is_default' | 'definition'>
+      Pick<
+        BookingLifecycleTemplate,
+        'name' | 'description' | 'is_default' | 'definition' | 'applies_to_kind'
+      >
     >
   ): Promise<BookingLifecycleTemplate> =>
     api.put(`/tenant/lifecycle-templates/${id}`, data).then((r) => r.data),

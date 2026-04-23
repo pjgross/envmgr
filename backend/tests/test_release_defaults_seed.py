@@ -6,7 +6,7 @@ from app.services.release_defaults import seed_release_defaults_for_tenant
 
 
 @pytest.mark.asyncio
-async def test_seed_release_defaults_creates_three_lifecycles(db_session, tenant):
+async def test_seed_release_defaults_creates_four_lifecycles(db_session, tenant):
     await seed_release_defaults_for_tenant(db_session, tenant.id)
     await db_session.flush()
     rows = (await db_session.execute(
@@ -16,7 +16,7 @@ async def test_seed_release_defaults_creates_three_lifecycles(db_session, tenant
         )
     )).scalars().all()
     names = {r.name for r in rows}
-    assert names == {"Major", "Minor", "Emergency"}
+    assert names == {"Major", "Minor", "Emergency", "Enterprise Release — default"}
     major = next(r for r in rows if r.name == "Major")
     assert major.is_default is True
 
@@ -46,4 +46,4 @@ async def test_seed_is_idempotent(db_session, tenant):
             LifecycleTemplate.entity_type == "release",
         )
     )).scalars().all()
-    assert len(rows) == 3  # still 3, not 6
+    assert len(rows) == 4  # still 4, not 8

@@ -1,0 +1,11 @@
+@media print {
+  body * { visibility: hidden; }
+  .enterprise-report, .enterprise-report * { visibility: visible; }
+  .enterprise-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .enterprise-report button { display: none; }
+}

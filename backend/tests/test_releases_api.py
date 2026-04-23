@@ -731,3 +731,135 @@ async def test_unlink_cr_not_linked(client: AsyncClient, auth_headers, release):
         headers=auth_headers,
     )
     assert resp.status_code == 404
+
+
+# ── Task 18: release_kind filter + membership_summary ────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_releases_filtered_by_kind(
+    client: AsyncClient, auth_headers, lifecycle, _target
+):
+    """GET /releases?release_kind=enterprise returns only enterprise-kind rows."""
+    # Create a project release
+    r1 = await client.post("/api/v1/releases", headers=auth_headers, json={
+        "name": "project-release-kind-test",
+        "release_type": "minor",
+        "release_kind": "project",
+        "lifecycle_template_id": lifecycle.id,
+        "target_date": _target,
+    })
+    assert r1.status_code == 201, r1.text
+
+    # Create an enterprise release
+    r2 = await client.post("/api/v1/releases", headers=auth_headers, json={
+        "name": "enterprise-release-kind-test",
+        "release_type": "minor",
+        "release_kind": "enterprise",
+        "lifecycle_template_id": lifecycle.id,
+        "target_date": _target,
+    })
+    assert r2.status_code == 201, r2.text
+
+    # Filter by enterprise
+    resp_e = await client.get(
+        "/api/v1/releases?release_kind=enterprise", headers=auth_headers
+    )
+    assert resp_e.status_code == 200, resp_e.text
+    items_e = resp_e.json()
+    assert len(items_e) >= 1
+    assert all(item["release_kind"] == "enterprise" for item in items_e)
+
+    # Filter by project
+    resp_p = await client.get(
+        "/api/v1/releases?release_kind=project", headers=auth_headers
+    )
+    assert resp_p.status_code == 200, resp_p.text
+    items_p = resp_p.json()
+    assert len(items_p) >= 1
+    assert all(item["release_kind"] == "project" for item in items_p)
+
+
+@pytest.mark.asyncio
+async def test_get_enterprise_release_includes_membership_summary(
+    client: AsyncClient,
+    auth_headers,
+    db_session: AsyncSession,
+    test_tenant,
+    test_user,
+    lifecycle,
+    _target,
+):
+    """GET /releases/{id} for an enterprise release includes membership_summary."""
+    from datetime import datetime, timezone
+    from app.db.models.release_membership import ReleaseMembership
+
+    # Create enterprise release via API
+    r_ent = await client.post("/api/v1/releases", headers=auth_headers, json={
+        "name": "ent-summary-test",
+        "release_type": "major",
+        "release_kind": "enterprise",
+        "lifecycle_template_id": lifecycle.id,
+        "target_date": _target,
+    })
+    assert r_ent.status_code == 201, r_ent.text
+    ent_id = r_ent.json()["id"]
+
+    # Create a project release via API
+    r_proj = await client.post("/api/v1/releases", headers=auth_headers, json={
+        "name": "proj-for-membership-test",
+        "release_type": "minor",
+        "release_kind": "project",
+        "lifecycle_template_id": lifecycle.id,
+        "target_date": _target,
+    })
+    assert r_proj.status_code == 201, r_proj.text
+    proj_id = r_proj.json()["id"]
+
+    # Directly insert an accepted membership row (bypasses lifecycle permission checks
+    # that require action_permissions in the template definition)
+    now = datetime.now(timezone.utc)
+    membership = ReleaseMembership(
+        tenant_id=test_tenant.id,
+        enterprise_release_id=ent_id,
+        project_release_id=proj_id,
+        state="accepted",
+        requested_by=test_user.id,
+        requested_at=now,
+        decided_by=test_user.id,
+        decided_at=now,
+        late_scope=False,
+    )
+    db_session.add(membership)
+    await db_session.commit()
+
+    # GET the enterprise release — membership_summary must be present
+    resp = await client.get(f"/api/v1/releases/{ent_id}", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "membership_summary" in data
+    ms = data["membership_summary"]
+    assert ms is not None
+    assert "accepted" in ms
+    assert ms["accepted"] == 1
+    assert ms["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_project_release_omits_membership_summary(
+    client: AsyncClient, auth_headers, lifecycle, _target
+):
+    """GET /releases/{id} for a project release has membership_summary=None."""
+    r = await client.post("/api/v1/releases", headers=auth_headers, json={
+        "name": "proj-no-summary",
+        "release_type": "minor",
+        "release_kind": "project",
+        "lifecycle_template_id": lifecycle.id,
+        "target_date": _target,
+    })
+    assert r.status_code == 201, r.text
+    release_id = r.json()["id"]
+
+    resp = await client.get(f"/api/v1/releases/{release_id}", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data.get("membership_summary") is None

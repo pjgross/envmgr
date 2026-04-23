@@ -123,14 +123,32 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
     }
   }, [open, release]);
 
-  // Auto-select the tenant default on create
+  // Templates that match the currently selected kind (null applies_to_kind = any kind)
+  const filteredTemplates = useMemo(
+    () => templates.filter((t) => t.applies_to_kind === kind || t.applies_to_kind == null),
+    [templates, kind]
+  );
+
+  // Auto-select the tenant default on create (using kind-filtered list)
   useEffect(() => {
-    if (!isEdit && open && templates.length > 0 && lifecycleTemplateId === null) {
-      const defaultTpl = templates.find((t) => t.is_default) ?? templates[0];
+    if (!isEdit && open && filteredTemplates.length > 0 && lifecycleTemplateId === null) {
+      const defaultTpl = filteredTemplates.find((t) => t.is_default) ?? filteredTemplates[0];
       setLifecycleTemplateId(defaultTpl.id);
       setStandardValues((v) => ({ ...v, release_type: defaultTpl.name }));
     }
-  }, [isEdit, open, templates, lifecycleTemplateId]);
+  }, [isEdit, open, filteredTemplates, lifecycleTemplateId]);
+
+  // When kind changes and the selected template no longer applies, reset to default for new kind
+  useEffect(() => {
+    if (!isEdit && lifecycleTemplateId !== null) {
+      const currentTplStillValid = filteredTemplates.some((t) => t.id === lifecycleTemplateId);
+      if (!currentTplStillValid) {
+        const defaultTpl = filteredTemplates.find((t) => t.is_default) ?? filteredTemplates[0] ?? null;
+        setLifecycleTemplateId(defaultTpl?.id ?? null);
+        setStandardValues((v) => ({ ...v, release_type: defaultTpl?.name ?? '' }));
+      }
+    }
+  }, [isEdit, kind, filteredTemplates, lifecycleTemplateId]);
 
   // Bound lifecycle template (fetched into the bookingLifecycle slice by fetchLifecycleTemplates)
   const lifecycleTpl = useMemo(
@@ -241,6 +259,18 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
             <>
               <TextField
                 select
+                label="Kind"
+                fullWidth
+                value={kind}
+                onChange={(e) => setKind(e.target.value as 'project' | 'enterprise')}
+                helperText="Project releases belong to a single team. Enterprise releases roll up multiple project releases."
+              >
+                <MenuItem value="project">Project</MenuItem>
+                <MenuItem value="enterprise">Enterprise</MenuItem>
+              </TextField>
+
+              <TextField
+                select
                 label="Type"
                 required
                 fullWidth
@@ -248,30 +278,19 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
                 onChange={(e) => {
                   const id = e.target.value === '' ? null : Number(e.target.value);
                   setLifecycleTemplateId(id);
-                  const tpl = templates.find((t) => t.id === id);
+                  const tpl = filteredTemplates.find((t) => t.id === id);
                   if (tpl) {
                     setStandardValues((v) => ({ ...v, release_type: tpl.name }));
                   }
                 }}
                 helperText="Type determines the release lifecycle. Manage types in Admin → Releases → Lifecycle."
               >
-                {templates.map((t) => (
+                {filteredTemplates.map((t) => (
                   <MenuItem key={t.id} value={t.id}>
                     {t.name}
                     {t.is_default ? ' (default)' : ''}
                   </MenuItem>
                 ))}
-              </TextField>
-
-              <TextField
-                select
-                label="Kind"
-                fullWidth
-                value={kind}
-                onChange={(e) => setKind(e.target.value as 'project' | 'enterprise')}
-              >
-                <MenuItem value="project">Project</MenuItem>
-                <MenuItem value="enterprise">Enterprise</MenuItem>
               </TextField>
             </>
           ) : (

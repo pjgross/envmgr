@@ -29,9 +29,13 @@ _DEPLOYED_TERMINAL_STATES = {"completed", "completed_with_issues"}
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 async def _resolve_lifecycle_template(
-    db: AsyncSession, lifecycle_template_id: Optional[int], tenant_id: int
+    db: AsyncSession, lifecycle_template_id: Optional[int], tenant_id: int, release_kind: str
 ) -> LifecycleTemplate:
-    """Return the requested lifecycle template, or the tenant's default for 'release'."""
+    """Return the requested lifecycle template, or the tenant's default for 'release'.
+
+    Validates that the template's applies_to_kind is NULL (universal) or matches
+    the release's kind.  A mismatch raises HTTP 422.
+    """
     if lifecycle_template_id is not None:
         tpl = (
             await db.execute(
@@ -48,26 +52,48 @@ async def _resolve_lifecycle_template(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "lifecycle_template_id must refer to an active release lifecycle template for this tenant",
             )
+        # Enforce kind match
+        if tpl.applies_to_kind is not None and tpl.applies_to_kind != release_kind:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Lifecycle template's applies_to_kind={tpl.applies_to_kind} does not match release kind {release_kind}",
+            )
         return tpl
 
-    # Fall back to tenant default
-    tpl = (
+    # Fall back to tenant default: prefer kind-specific default, then universal default
+    kind_specific_tpl = (
         await db.execute(
             select(LifecycleTemplate).where(
                 LifecycleTemplate.tenant_id == tenant_id,
                 LifecycleTemplate.entity_type == "release",
                 LifecycleTemplate.is_default.is_(True),
+                LifecycleTemplate.applies_to_kind == release_kind,
                 LifecycleTemplate.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
-    if tpl is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "No default release lifecycle template found for this tenant. "
-            "Provide lifecycle_template_id explicitly or seed defaults.",
+    if kind_specific_tpl is not None:
+        return kind_specific_tpl
+
+    universal_tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.entity_type == "release",
+                LifecycleTemplate.is_default.is_(True),
+                LifecycleTemplate.applies_to_kind.is_(None),
+                LifecycleTemplate.deleted_at.is_(None),
+            )
         )
-    return tpl
+    ).scalar_one_or_none()
+    if universal_tpl is not None:
+        return universal_tpl
+
+    raise HTTPException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "No default release lifecycle template found for this tenant. "
+        "Provide lifecycle_template_id explicitly or seed defaults.",
+    )
 
 
 async def _get_release(db: AsyncSession, release_id: int, tenant_id: int) -> Release:
@@ -93,7 +119,7 @@ async def create_release(
     tenant_id: int,
     user_id: int,
 ) -> Release:
-    tpl = await _resolve_lifecycle_template(db, data.lifecycle_template_id, tenant_id)
+    tpl = await _resolve_lifecycle_template(db, data.lifecycle_template_id, tenant_id, data.release_kind)
 
     release = Release(
         tenant_id=tenant_id,
@@ -153,6 +179,7 @@ async def list_releases(
     has_dependency_alert: Optional[bool] = None,
     owner_id: Optional[int] = None,
     search: Optional[str] = None,
+    release_kind: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Release], int]:
@@ -165,6 +192,8 @@ async def list_releases(
         base_where.append(Release.release_type == release_type)
     if status is not None:
         base_where.append(Release.status == status)
+    if release_kind is not None:
+        base_where.append(Release.release_kind == release_kind)
     if date_from is not None:
         base_where.append(Release.target_date >= date_from)
     if date_to is not None:

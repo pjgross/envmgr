@@ -47,9 +47,13 @@ ENTITY_FIELD_SPECS: dict[str, dict[str, set[str]]] = {
 VALID_STANDARD_FIELD_NAMES = ENTITY_FIELD_SPECS["booking"]["valid"]
 MANDATORY_STANDARD_FIELDS = ENTITY_FIELD_SPECS["booking"]["mandatory"]
 
+VALID_ENTERPRISE_ACTION_KEYS = {"membership.admit", "membership.reject", "membership.remove"}
+
 
 def validate_definition_for_entity(
-    definition: "LifecycleDefinition", entity_type: str
+    definition: "LifecycleDefinition",
+    entity_type: str,
+    applies_to_kind: Optional[str] = None,
 ) -> None:
     """Enforce entity-specific rules on a LifecycleDefinition. Raises ValueError.
 
@@ -97,12 +101,39 @@ def validate_definition_for_entity(
                 "must have at least one role in editable_by."
             )
 
+    if entity_type == "release" and applies_to_kind == "enterprise":
+        # Single-lockdown invariant
+        lockdowns = [s for s in definition.states if s.is_admission_lockdown]
+        if len(lockdowns) > 1:
+            raise ValueError(
+                "at most one state may have is_admission_lockdown=True"
+            )
+        # Action permissions keys must be recognized
+        for state_key, actions in (definition.action_permissions or {}).items():
+            for action_key in actions:
+                if action_key not in VALID_ENTERPRISE_ACTION_KEYS:
+                    raise ValueError(
+                        f"unknown action_key '{action_key}' at state '{state_key}'"
+                    )
+    else:
+        # Reject flags that are only meaningful on enterprise templates.
+        for s in definition.states:
+            if s.is_admission_lockdown:
+                raise ValueError(
+                    "is_admission_lockdown only valid on release/enterprise templates"
+                )
+        if definition.action_permissions:
+            raise ValueError(
+                "action_permissions only valid on release/enterprise templates"
+            )
+
 
 class LifecycleState(BaseModel):
     key: str
     label: str
     is_initial: bool = False
     is_terminal: bool = False
+    is_admission_lockdown: bool = False  # only meaningful for release/enterprise lifecycles
 
 
 class LifecycleTransition(BaseModel):
@@ -136,6 +167,7 @@ class LifecycleDefinition(BaseModel):
     states: list[LifecycleState]
     transitions: list[LifecycleTransition]
     field_permissions: dict[str, LifecycleFieldPermission]
+    action_permissions: Optional[dict[str, dict[str, list[str]]]] = None
 
     @field_validator("states")
     @classmethod
@@ -153,6 +185,7 @@ class LifecycleTemplateCreate(BaseModel):
     description: Optional[str] = None
     is_default: bool = False
     entity_type: str = "booking"
+    applies_to_kind: Optional[str] = None
     definition: LifecycleDefinition
 
 
@@ -160,6 +193,7 @@ class LifecycleTemplateUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     is_default: Optional[bool] = None
+    applies_to_kind: Optional[str] = None
     definition: Optional[LifecycleDefinition] = None
 
 
@@ -171,6 +205,7 @@ class LifecycleTemplateResponse(BaseModel):
     id: int
     tenant_id: int
     entity_type: str
+    applies_to_kind: Optional[str] = None
     name: str
     description: Optional[str]
     is_default: bool

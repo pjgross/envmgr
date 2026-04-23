@@ -116,10 +116,67 @@ _EMERGENCY_DEFINITION: dict[str, Any] = {
 }
 
 
+_ENTERPRISE_DEFINITION: dict[str, Any] = {
+    "states": [
+        {"key": "draft",                "label": "Draft",               "is_initial": True,  "is_terminal": False},
+        {"key": "planning",             "label": "Planning",            "is_initial": False, "is_terminal": False},
+        {"key": "admission_open",       "label": "Admission Open",      "is_initial": False, "is_terminal": False},
+        {"key": "admission_closed",     "label": "Admission Closed",    "is_initial": False, "is_terminal": False, "is_admission_lockdown": True},
+        {"key": "integration_testing",  "label": "Integration Testing", "is_initial": False, "is_terminal": False},
+        {"key": "uat",                  "label": "UAT",                 "is_initial": False, "is_terminal": False},
+        {"key": "staging",              "label": "Staging",             "is_initial": False, "is_terminal": False},
+        {"key": "cab",                  "label": "CAB",                 "is_initial": False, "is_terminal": False},
+        {"key": "deploying",            "label": "Deploying",           "is_initial": False, "is_terminal": False},
+        {"key": "deployed",             "label": "Deployed",            "is_initial": False, "is_terminal": True},
+        {"key": "cancelled",            "label": "Cancelled",           "is_initial": False, "is_terminal": True},
+    ],
+    "transitions": [
+        {"from_state": "draft",              "to_state": "planning",             "label": "Start Planning",   "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "planning",           "to_state": "admission_open",       "label": "Open Admissions",  "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "admission_open",     "to_state": "admission_closed",     "label": "Close Admissions", "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "admission_closed",   "to_state": "integration_testing",  "label": "Start IT",         "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "integration_testing","to_state": "uat",                  "label": "Promote to UAT",   "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "uat",                "to_state": "staging",              "label": "Promote to Stg",   "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "staging",            "to_state": "cab",                  "label": "Submit for CAB",   "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "cab",                "to_state": "deploying",            "label": "Start Deploy",     "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "deploying",          "to_state": "deployed",             "label": "Deployed",         "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "draft",              "to_state": "cancelled",            "label": "Cancel",           "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "planning",           "to_state": "cancelled",            "label": "Cancel",           "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "admission_open",     "to_state": "cancelled",            "label": "Cancel",           "allowed_roles": ["Admin", "ReleaseManager"]},
+        {"from_state": "admission_closed",   "to_state": "cancelled",            "label": "Cancel",           "allowed_roles": ["Admin", "ReleaseManager"]},
+    ],
+    "field_permissions": {
+        "draft":               {"standard_fields": {"name": {"editable_by": ["Admin","ReleaseManager"]}, "description": {"editable_by": ["Admin","ReleaseManager"]}, "release_type": {"editable_by": ["Admin","ReleaseManager"]}, "target_date": {"editable_by": ["Admin","ReleaseManager"]}}, "custom_fields": {}},
+        "planning":            {"standard_fields": {"description": {"editable_by": ["Admin","ReleaseManager"]}, "target_date": {"editable_by": ["Admin","ReleaseManager"]}}, "custom_fields": {}},
+        "admission_open":      {"standard_fields": {"target_date": {"editable_by": ["Admin","ReleaseManager"]}}, "custom_fields": {}},
+        "admission_closed":    {"standard_fields": {"target_date": {"editable_by": ["Admin","ReleaseManager"]}}, "custom_fields": {}},
+        "integration_testing": {"standard_fields": {}, "custom_fields": {}},
+        "uat":                 {"standard_fields": {}, "custom_fields": {}},
+        "staging":             {"standard_fields": {}, "custom_fields": {}},
+        "cab":                 {"standard_fields": {}, "custom_fields": {}},
+        "deploying":           {"standard_fields": {}, "custom_fields": {}},
+        "deployed":            {"standard_fields": {}, "custom_fields": {}},
+        "cancelled":           {"standard_fields": {}, "custom_fields": {}},
+    },
+    "action_permissions": {
+        state: {
+            "membership.admit":  ["Admin", "ReleaseManager"],
+            "membership.reject": ["Admin", "ReleaseManager"],
+            "membership.remove": ["Admin", "ReleaseManager"],
+        }
+        for state in (
+            "draft", "planning", "admission_open", "admission_closed",
+            "integration_testing", "uat", "staging", "cab", "deploying"
+        )
+    },
+}
+
+
 _DEFAULT_LIFECYCLES: list[dict[str, Any]] = [
-    {"name": "Major",     "is_default": True,  "description": "Full governance (waterfall-shaped)", "definition": _MAJOR_DEFINITION},
-    {"name": "Minor",     "is_default": False, "description": "Light approval",                     "definition": _MINOR_DEFINITION},
-    {"name": "Emergency", "is_default": False, "description": "Fast-track",                         "definition": _EMERGENCY_DEFINITION},
+    {"name": "Major",     "is_default": True,  "applies_to_kind": "project",    "description": "Full governance (waterfall-shaped)", "definition": _MAJOR_DEFINITION},
+    {"name": "Minor",     "is_default": False, "applies_to_kind": "project",    "description": "Light approval",                     "definition": _MINOR_DEFINITION},
+    {"name": "Emergency", "is_default": False, "applies_to_kind": "project",    "description": "Fast-track",                         "definition": _EMERGENCY_DEFINITION},
+    {"name": "Enterprise Release — default", "is_default": True, "applies_to_kind": "enterprise", "description": "Multi-team enterprise release lifecycle", "definition": _ENTERPRISE_DEFINITION},
 ]
 
 
@@ -151,6 +208,7 @@ async def seed_release_defaults_for_tenant(db: AsyncSession, tenant_id: int) -> 
             name=cfg["name"],
             description=cfg["description"],
             is_default=cfg["is_default"],
+            applies_to_kind=cfg["applies_to_kind"],
             definition=cfg["definition"],
         ))
 

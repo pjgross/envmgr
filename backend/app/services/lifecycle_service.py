@@ -52,7 +52,7 @@ async def create_template(
 ) -> LifecycleTemplate:
     # Validate JSONB shape + enforce entity-specific field rules (-> 422)
     try:
-        validate_definition_for_entity(data.definition, entity_type)
+        validate_definition_for_entity(data.definition, entity_type, applies_to_kind=data.applies_to_kind)
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     definition_dict = migrate_field_permissions(data.definition.model_dump(), entity_type)
@@ -62,6 +62,7 @@ async def create_template(
         name=data.name,
         description=data.description,
         is_default=data.is_default,
+        applies_to_kind=data.applies_to_kind,
         definition=definition_dict,
     )
     db.add(template)
@@ -114,9 +115,12 @@ async def update_template(
         template.description = data.description
     if data.is_default is not None:
         template.is_default = data.is_default
+    if data.applies_to_kind is not None:
+        template.applies_to_kind = data.applies_to_kind
     if data.definition is not None:
+        effective_kind = data.applies_to_kind if data.applies_to_kind is not None else template.applies_to_kind
         try:
-            validate_definition_for_entity(data.definition, template.entity_type)
+            validate_definition_for_entity(data.definition, template.entity_type, applies_to_kind=effective_kind)
         except ValueError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
         template.definition = migrate_field_permissions(
@@ -157,6 +161,7 @@ async def copy_template(
     new_template = LifecycleTemplate(
         tenant_id=tenant_id,
         entity_type=original.entity_type,
+        applies_to_kind=original.applies_to_kind,
         name=new_name,
         description=original.description,
         is_default=False,

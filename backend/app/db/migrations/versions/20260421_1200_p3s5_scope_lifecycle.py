@@ -53,6 +53,7 @@ def upgrade() -> None:
                 "fk_release_change_release_id_set_null",
                 "release",
                 ["release_id"],
+                ["id"],
                 ondelete="SET NULL",
             )
 
@@ -158,5 +159,6 @@ def downgrade() -> None:
                 "release_change_release_id_fkey",
                 "release",
                 ["release_id"],
+                ["id"],
                 ondelete="CASCADE",
             )
