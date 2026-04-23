@@ -47,10 +47,16 @@ from app.db.models.release_change_history import (
     ReleaseChangeStatusHistory,
 )
 from app.db.models.scope_change_kind_rule import ScopeChangeKindRule
+from app.db.models.api_key import ApiKey
+from app.db.models.build import Build
+from app.db.models.deployment import Deployment
 
 # This will be expanded as we add more models
 __all__ = [
     "Base",
+    "ApiKey",
+    "Build",
+    "Deployment",
     "Tenant",
     "User",
     "CustomFieldDefinition",

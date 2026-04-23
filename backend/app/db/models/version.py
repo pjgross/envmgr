@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import String, DateTime, ForeignKey, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,7 +16,10 @@ class EnvironmentSubSystemVersion(Base):
     subsystem_id: Mapped[int] = mapped_column(
         ForeignKey("subsystem.id"), nullable=False, index=True
     )
-    build_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    build_identifier: Mapped[str] = mapped_column(String(200), nullable=False)
+    build_fk_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("build.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     version_label: Mapped[str] = mapped_column(String(200), nullable=False)
     installed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -26,8 +30,6 @@ class EnvironmentSubSystemVersion(Base):
     tenant_id: Mapped[int] = mapped_column(
         ForeignKey("tenant.id"), nullable=False, index=True
     )
-    # No deleted_at — append-only audit trail
-    # Relationships for name resolution
     environment: Mapped["Environment"] = relationship("Environment")  # type: ignore[name-defined]
     subsystem: Mapped["SubSystem"] = relationship("SubSystem")  # type: ignore[name-defined]
 

@@ -114,7 +114,7 @@ async def test_record_version(client: AsyncClient, auth_headers, test_tenant, db
         headers=auth_headers,
         json={
             "subsystem_id": sub_id,
-            "build_id": "build-001",
+            "build_identifier": "build-001",
             "version_label": "v1.0.0",
         },
     )
@@ -122,7 +122,7 @@ async def test_record_version(client: AsyncClient, auth_headers, test_tenant, db
     data = resp.json()
     assert data["environment_id"] == env_id
     assert data["subsystem_id"] == sub_id
-    assert data["build_id"] == "build-001"
+    assert data["build_identifier"] == "build-001"
     assert data["version_label"] == "v1.0.0"
     assert data["subsystem_name"] == "TestSubSystem"
     assert "id" in data
@@ -143,7 +143,7 @@ async def test_list_versions_all(client: AsyncClient, auth_headers, test_tenant,
             headers=auth_headers,
             json={
                 "subsystem_id": sub_id,
-                "build_id": f"build-{i:03d}",
+                "build_identifier": f"build-{i:03d}",
                 "version_label": f"v1.{i}.0",
             },
         )
@@ -171,7 +171,7 @@ async def test_list_versions_current_only(client: AsyncClient, auth_headers, tes
             headers=auth_headers,
             json={
                 "subsystem_id": sub_id,
-                "build_id": f"build-{i:03d}",
+                "build_identifier": f"build-{i:03d}",
                 "version_label": f"v1.{i}.0",
             },
         )
@@ -208,7 +208,7 @@ async def test_version_history_current_only_returns_latest(
         headers=auth_headers,
         json={
             "subsystem_id": sub_id,
-            "build_id": "build-old",
+            "build_identifier": "build-old",
             "version_label": "v1.0.0",
             "installed_at": t1.isoformat(),
         },
@@ -218,7 +218,7 @@ async def test_version_history_current_only_returns_latest(
         headers=auth_headers,
         json={
             "subsystem_id": sub_id,
-            "build_id": "build-new",
+            "build_identifier": "build-new",
             "version_label": "v2.0.0",
             "installed_at": t2.isoformat(),
         },
@@ -238,7 +238,7 @@ async def test_version_history_current_only_returns_latest(
     )
     data = current_resp.json()
     assert len(data) == 1
-    assert data[0]["build_id"] == "build-new"
+    assert data[0]["build_identifier"] == "build-new"
     assert data[0]["version_label"] == "v2.0.0"
 
 
@@ -264,7 +264,7 @@ async def test_version_tenant_isolation(
         headers=auth_headers,
         json={
             "subsystem_id": sub_id,
-            "build_id": "build-x",
+            "build_identifier": "build-x",
             "version_label": "v1.0.0",
         },
     )
@@ -286,7 +286,7 @@ async def test_version_invalid_subsystem(
         headers=auth_headers,
         json={
             "subsystem_id": other_sub_id,
-            "build_id": "build-x",
+            "build_identifier": "build-x",
             "version_label": "v1.0.0",
         },
     )
@@ -307,7 +307,7 @@ async def test_version_subsystem_not_linked_to_env(
         headers=auth_headers,
         json={
             "subsystem_id": sub_id,
-            "build_id": "build-x",
+            "build_identifier": "build-x",
             "version_label": "v1.0.0",
         },
     )
@@ -319,13 +319,13 @@ async def test_version_subsystem_not_linked_to_env(
 # ---------------------------------------------------------------------------
 
 
-async def _record_version(client, auth_headers, env_id: int, sub_id: int, build_id="build-001", version_label="v1.0.0") -> int:
+async def _record_version(client, auth_headers, env_id: int, sub_id: int, build_identifier="build-001", version_label="v1.0.0") -> int:
     resp = await client.post(
         f"/api/v1/environments/{env_id}/versions",
         headers=auth_headers,
         json={
             "subsystem_id": sub_id,
-            "build_id": build_id,
+            "build_identifier": build_identifier,
             "version_label": version_label,
         },
     )
@@ -344,12 +344,12 @@ async def test_update_version(client: AsyncClient, auth_headers, test_tenant, db
     resp = await client.patch(
         f"/api/v1/environments/{env_id}/versions/{version_id}",
         headers=auth_headers,
-        json={"build_id": "build-edited", "version_label": "v1.0.1"},
+        json={"build_identifier": "build-edited", "version_label": "v1.0.1"},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["id"] == version_id
-    assert data["build_id"] == "build-edited"
+    assert data["build_identifier"] == "build-edited"
     assert data["version_label"] == "v1.0.1"
 
 
@@ -359,16 +359,16 @@ async def test_update_version_partial(client: AsyncClient, auth_headers, test_te
     env_id = await _create_env(client, auth_headers, "PartialUpdateVersionEnv")
     sys_id, sub_id = await _create_system_and_subsystem(db_session, test_tenant.id)
     await _link_system_to_env(client, auth_headers, env_id, sys_id)
-    version_id = await _record_version(client, auth_headers, env_id, sub_id, build_id="build-orig", version_label="v2.0.0")
+    version_id = await _record_version(client, auth_headers, env_id, sub_id, build_identifier="build-orig", version_label="v2.0.0")
 
     resp = await client.patch(
         f"/api/v1/environments/{env_id}/versions/{version_id}",
         headers=auth_headers,
-        json={"build_id": "build-changed"},
+        json={"build_identifier": "build-changed"},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["build_id"] == "build-changed"
+    assert data["build_identifier"] == "build-changed"
     assert data["version_label"] == "v2.0.0"  # unchanged
 
 
@@ -410,7 +410,7 @@ async def test_update_version_wrong_tenant_returns_404(
     resp = await client.patch(
         f"/api/v1/environments/{other_env_id}/versions/{version_id}",
         headers=auth_headers,
-        json={"build_id": "hacked"},
+        json={"build_identifier": "hacked"},
     )
     assert resp.status_code == 404
 
@@ -457,7 +457,7 @@ async def test_non_admin_cannot_edit_version(client: AsyncClient, db_session, te
     resp = await client.patch(
         "/api/v1/environments/1/versions/1",
         headers=viewer_headers,
-        json={"build_id": "nope"},
+        json={"build_identifier": "nope"},
     )
     assert resp.status_code == 403
 

@@ -6,13 +6,13 @@ from pydantic import BaseModel
 
 class VersionCreate(BaseModel):
     subsystem_id: int
-    build_id: str
+    build_identifier: str
     version_label: str
     installed_at: Optional[datetime] = None  # if None, use server default
 
 
 class VersionUpdate(BaseModel):
-    build_id: Optional[str] = None
+    build_identifier: Optional[str] = None
     version_label: Optional[str] = None
     installed_at: Optional[datetime] = None
 
@@ -30,7 +30,7 @@ class VersionResponse(BaseModel):
     environment_id: int
     subsystem_id: int
     subsystem_name: str
-    build_id: str
+    build_identifier: str
     version_label: str
     installed_at: datetime
     tenant_id: int
@@ -44,7 +44,7 @@ class VersionResponse(BaseModel):
             environment_id=obj.environment_id,
             subsystem_id=obj.subsystem_id,
             subsystem_name=obj.subsystem.name if obj.subsystem else "",
-            build_id=obj.build_id,
+            build_identifier=obj.build_identifier,
             version_label=obj.version_label,
             installed_at=obj.installed_at,
             tenant_id=obj.tenant_id,

@@ -60,7 +60,7 @@ async def record_version(
     version_kwargs: dict = dict(
         environment_id=env_id,
         subsystem_id=data.subsystem_id,
-        build_id=data.build_id,
+        build_identifier=data.build_identifier,
         version_label=data.version_label,
         tenant_id=tenant_id,
     )
@@ -135,8 +135,8 @@ async def update_version(
     if version is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found")
 
-    if data.build_id is not None:
-        version.build_id = data.build_id
+    if data.build_identifier is not None:
+        version.build_identifier = data.build_identifier
     if data.version_label is not None:
         version.version_label = data.version_label
     if data.installed_at is not None:

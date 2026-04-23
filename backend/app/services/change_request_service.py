@@ -22,6 +22,7 @@ from app.db.models.change_request import (
     ChangeRequest,
     ChangeRequestEnvironment,
     ChangeRequestHost,
+    ChangeType,
 )
 from app.db.models.environment import (
     Environment,
@@ -48,6 +49,7 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "Simple Approval",
         "is_default": True,
+        "is_system": False,
         "description": "Standard change-request flow with an approval gate.",
         "definition": {
             "states": [
@@ -75,6 +77,7 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "Emergency",
         "is_default": False,
+        "is_system": False,
         "description": "Minimal flow for urgent changes — no approval gate.",
         "definition": {
             "states": [
@@ -89,6 +92,28 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
                  "allowed_roles": ["Admin", "Release Manager", "Test Manager", "Developer"]},
             ],
             "field_permissions": {},
+        },
+    },
+    {
+        "name": "Code Deployment",
+        "is_default": False,
+        "is_system": True,
+        "description": "Lifecycle for code deployment change requests.",
+        "definition": {
+            "states": [
+                {"key": "created", "label": "Created", "is_initial": True, "is_terminal": False},
+                {"key": "deployed", "label": "Deployed", "is_initial": False, "is_terminal": True},
+                {"key": "failed", "label": "Failed", "is_initial": False, "is_terminal": True},
+            ],
+            "transitions": [
+                {"from": "created", "to": "deployed", "roles": []},
+                {"from": "created", "to": "failed", "roles": []},
+            ],
+            "field_permissions": {
+                "created": {"standard_fields": {}, "custom_fields": {}},
+                "deployed": {"standard_fields": {}, "custom_fields": {}},
+                "failed": {"standard_fields": {}, "custom_fields": {}},
+            },
         },
     },
 ]
@@ -113,8 +138,9 @@ async def seed_default_lifecycles(db: AsyncSession, tenant_id: int) -> None:
             tenant_id=tenant_id,
             entity_type=ENTITY_TYPE,
             name=spec["name"],
-            description=spec["description"],
+            description=spec.get("description"),
             is_default=spec["is_default"],
+            is_system=spec.get("is_system", False),
             definition=spec["definition"],
         )
         db.add(tpl)
@@ -747,6 +773,61 @@ async def get_allowed_transitions(
     )
 
 
+async def create_code_deployment(
+    db: AsyncSession,
+    tenant_id: int,
+    raised_by: int,
+    title: str,
+    description: str,
+) -> ChangeRequest:
+    """Create a ChangeRequest wired to the Code Deployment lifecycle.
+
+    Caller is the webhook ingest — the CR records the fact of a deployment.
+    State starts at 'created'; the ingest flow transitions it to
+    'deployed' or 'failed' based on webhook status.
+    """
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.entity_type == "change_request",
+                LifecycleTemplate.name == "Code Deployment",
+                LifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if tpl is None:
+        raise RuntimeError(
+            f"Code Deployment lifecycle template missing for tenant {tenant_id}. "
+            "Run the seed before creating code-deployment CRs."
+        )
+
+    now = datetime.now(timezone.utc)
+    cr = ChangeRequest(
+        tenant_id=tenant_id,
+        title=title,
+        description=description,
+        change_type=ChangeType.CODE_DEPLOYMENT,
+        status="created",
+        lifecycle_id=tpl.id,
+        raised_by=raised_by,
+        scheduled_start=now,
+        scheduled_end=now,
+    )
+    db.add(cr)
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="ChangeRequestCreated",
+        aggregate_id=cr.id,
+        aggregate_type="ChangeRequest",
+        payload={"id": cr.id, "change_type": "code_deployment"},
+        tenant_id=tenant_id,
+    )
+    return cr
+
+
 async def soft_delete_change_request(
     db: AsyncSession, cr_id: int, tenant_id: int
 ) -> None:
@@ -977,5 +1058,37 @@ async def get_environment_schedule(
             }
             for cr in change_requests
         ],
-        "deployments": [],
+        "deployments": await _get_deployments_for_schedule(
+            db, tenant_id, env_id, start_date, end_date,
+        ),
     }
+
+
+async def _get_deployments_for_schedule(
+    db: AsyncSession,
+    tenant_id: int,
+    environment_id: int,
+    date_from: datetime,
+    date_to: datetime,
+):
+    from app.db.models.deployment import Deployment
+    q = select(Deployment).where(
+        Deployment.tenant_id == tenant_id,
+        Deployment.environment_id == environment_id,
+        Deployment.deleted_at.is_(None),
+        Deployment.deployed_at >= date_from,
+        Deployment.deployed_at <= date_to,
+    ).order_by(Deployment.deployed_at)
+    rows = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": d.id,
+            "build_id": d.build_id,
+            "release_id": d.release_id,
+            "change_request_id": d.change_request_id,
+            "status": d.status,
+            "deployed_at": d.deployed_at.isoformat(),
+            "deployer_name": d.deployer_name,
+        }
+        for d in rows
+    ]

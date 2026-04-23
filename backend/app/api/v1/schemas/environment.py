@@ -67,7 +67,7 @@ class EnvironmentSystemsResponse(BaseModel):
 
 
 class VersionSummary(BaseModel):
-    build_id: str
+    build_identifier: str
     version_label: str
     installed_at: datetime
 
