@@ -16,7 +16,6 @@ class GateCriterion(Base):
     )
     title: Mapped[str] = mapped_column(String(250), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     assigned_to_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("user.id"), nullable=True, index=True
     )
