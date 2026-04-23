@@ -48,6 +48,7 @@ async def health_check():
 
 
 # Import and include routers
+from app.api.v1 import api_keys as api_keys_router
 from app.api.v1 import auth
 from app.api.v1 import admin as admin_router
 from app.api.v1 import tenant_admin as tenant_admin_router
@@ -71,6 +72,7 @@ from app.api.v1 import gate_criteria as gate_criteria_api
 from app.api.v1 import enterprise_memberships as enterprise_memberships_router
 from app.api.v1 import enterprise_rollup as enterprise_rollup_router
 
+app.include_router(api_keys_router.router, prefix="/api/v1/api-keys", tags=["api-keys"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Admin"])
 app.include_router(tenant_admin_router.router, prefix="/api/v1/tenant", tags=["Tenant Admin"])
