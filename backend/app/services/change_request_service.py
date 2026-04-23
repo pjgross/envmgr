@@ -22,6 +22,7 @@ from app.db.models.change_request import (
     ChangeRequest,
     ChangeRequestEnvironment,
     ChangeRequestHost,
+    ChangeType,
 )
 from app.db.models.environment import (
     Environment,
@@ -770,6 +771,61 @@ async def get_allowed_transitions(
     return lifecycle_service.get_allowed_transitions(
         tpl.definition, cr.status, current_user.role
     )
+
+
+async def create_code_deployment(
+    db: AsyncSession,
+    tenant_id: int,
+    raised_by: int,
+    title: str,
+    description: str,
+) -> ChangeRequest:
+    """Create a ChangeRequest wired to the Code Deployment lifecycle.
+
+    Caller is the webhook ingest — the CR records the fact of a deployment.
+    State starts at 'created'; the ingest flow transitions it to
+    'deployed' or 'failed' based on webhook status.
+    """
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.entity_type == "change_request",
+                LifecycleTemplate.name == "Code Deployment",
+                LifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if tpl is None:
+        raise RuntimeError(
+            f"Code Deployment lifecycle template missing for tenant {tenant_id}. "
+            "Run the seed before creating code-deployment CRs."
+        )
+
+    now = datetime.now(timezone.utc)
+    cr = ChangeRequest(
+        tenant_id=tenant_id,
+        title=title,
+        description=description,
+        change_type=ChangeType.CODE_DEPLOYMENT,
+        status="created",
+        lifecycle_id=tpl.id,
+        raised_by=raised_by,
+        scheduled_start=now,
+        scheduled_end=now,
+    )
+    db.add(cr)
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="ChangeRequestCreated",
+        aggregate_id=cr.id,
+        aggregate_type="ChangeRequest",
+        payload={"id": cr.id, "change_type": "code_deployment"},
+        tenant_id=tenant_id,
+    )
+    return cr
 
 
 async def soft_delete_change_request(
