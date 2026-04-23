@@ -99,40 +99,24 @@ async def test_list_gates_overdue_criterion_count(db_session, tenant, user):
         tenant.id,
     )
 
-    # Add 2 open + 1 done criterion to each gate.
+    # Add 2 open + 1 done criterion to each gate (no criterion-level due_date —
+    # overdue_criterion_count is driven entirely by the gate's due_date).
     for gate in (gate_past, gate_future):
-        for i in range(2):
-            db_session.add(GateCriterion(
-                tenant_id=tenant.id,
-                gate_id=gate.id,
-                title=f"Open criterion {i}",
-                status="open",
-                due_date=past_due,  # criterion-level due_date drives the count
-            ))
-        db_session.add(GateCriterion(
-            tenant_id=tenant.id,
-            gate_id=gate.id,
-            title="Done criterion",
-            status="done",
-            due_date=past_due,
-        ))
+        db_session.add_all([
+            GateCriterion(tenant_id=tenant.id, gate_id=gate.id, title="a", status="open"),
+            GateCriterion(tenant_id=tenant.id, gate_id=gate.id, title="b", status="open"),
+            GateCriterion(tenant_id=tenant.id, gate_id=gate.id, title="c", status="done"),
+        ])
     await db_session.flush()
 
-    gates = await release_gate_service.list_gates(db_session, release.id, tenant.id)
-    assert len(gates) == 2
+    rows = await release_gate_service.list_gates(db_session, release_id=release.id, tenant_id=tenant.id)
+    assert len(rows) == 2
 
-    by_name = {g["name"]: g for g in gates}
-    # Past gate: 2 open criteria with past due_date → 2 overdue
+    by_name = {r["name"]: r for r in rows}
+    # Past gate: gate due_date is in the past → 2 open criteria counted as overdue.
     assert by_name["Past Gate"]["overdue_criterion_count"] == 2
-    # Future gate: criteria have past due_date but the test verifies gate-level
-    # due_date is stored; criterion overdue count is still 2 (criteria themselves
-    # are overdue regardless of gate due_date).
-    # The important assertion is that both gates expose `due_date` in their dict.
+    # Future gate: gate due_date is in the future → 0 overdue regardless of criteria.
+    assert by_name["Future Gate"]["overdue_criterion_count"] == 0
     assert "due_date" in by_name["Past Gate"]
-    assert "due_date" in by_name["Future Gate"]
-    assert by_name["Past Gate"]["due_date"] is not None
-    assert by_name["Future Gate"]["due_date"] is not None
-    # Done criteria must NOT be counted even when overdue.
-    assert by_name["Past Gate"]["overdue_criterion_count"] == 2
     assert "test_phase_id" not in by_name["Past Gate"]
     assert "test_phase_id" not in by_name["Future Gate"]
