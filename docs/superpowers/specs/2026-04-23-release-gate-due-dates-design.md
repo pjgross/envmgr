@@ -1,6 +1,6 @@
 # Release Gates: self-contained due dates + timeline diamonds
 
-**Status:** Draft — awaiting user review
+**Status:** Implemented on `feature/release-gate-due-dates` — awaiting MR merge
 **Date:** 2026-04-23
 **Phase:** Phase 3 follow-up (post Sub-1/Sub-2 merge)
 
