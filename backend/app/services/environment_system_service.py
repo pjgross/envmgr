@@ -292,7 +292,7 @@ async def get_environment_subsystems(
                 mock_notes=row.mock_notes,
                 custom_fields=row.custom_fields,
                 latest_version=VersionSummary(
-                    build_id=ver.build_id,
+                    build_identifier=ver.build_identifier,
                     version_label=ver.version_label,
                     installed_at=ver.installed_at,
                 ) if ver else None,
