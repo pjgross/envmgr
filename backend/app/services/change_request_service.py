@@ -1058,5 +1058,37 @@ async def get_environment_schedule(
             }
             for cr in change_requests
         ],
-        "deployments": [],
+        "deployments": await _get_deployments_for_schedule(
+            db, tenant_id, env_id, start_date, end_date,
+        ),
     }
+
+
+async def _get_deployments_for_schedule(
+    db: AsyncSession,
+    tenant_id: int,
+    environment_id: int,
+    date_from: datetime,
+    date_to: datetime,
+):
+    from app.db.models.deployment import Deployment
+    q = select(Deployment).where(
+        Deployment.tenant_id == tenant_id,
+        Deployment.environment_id == environment_id,
+        Deployment.deleted_at.is_(None),
+        Deployment.deployed_at >= date_from,
+        Deployment.deployed_at <= date_to,
+    ).order_by(Deployment.deployed_at)
+    rows = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": d.id,
+            "build_id": d.build_id,
+            "release_id": d.release_id,
+            "change_request_id": d.change_request_id,
+            "status": d.status,
+            "deployed_at": d.deployed_at.isoformat(),
+            "deployer_name": d.deployer_name,
+        }
+        for d in rows
+    ]
