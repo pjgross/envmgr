@@ -29,6 +29,13 @@ const PHASE_STATUS_COLORS: Record<string, string> = {
   skipped: '#bdbdbd',
 };
 
+const GATE_STATUS_COLORS: Record<string, string> = {
+  pending: '#607d8b',     // slate — not yet decided
+  passed: '#43a047',      // green
+  failed: '#e53935',      // red — draws the eye
+  overridden: '#ffb300',  // amber — distinct from orange target_date
+};
+
 const RELEASE_STATUS_CHIP: Record<string, { color: 'default' | 'primary' | 'success' | 'warning' | 'error'; label: string }> = {
   draft: { color: 'default', label: 'Draft' },
   planning: { color: 'default', label: 'Planning' },
@@ -50,6 +57,9 @@ function computeDateRange(entries: ReleaseTimelineEntry[]): { minDate: Date; max
     for (const p of e.phases) {
       if (p.start_date) dates.push(new Date(p.start_date));
       if (p.end_date) dates.push(new Date(p.end_date));
+    }
+    for (const g of e.gates ?? []) {
+      dates.push(new Date(g.due_date));
     }
   }
   if (dates.length === 0) {
@@ -295,6 +305,28 @@ export default function ReleaseTimeline({ releaseId, alerts = [] }: Props) {
                         </Tooltip>
                       );
                     })()}
+                    {/* Gate diamonds */}
+                    {(entry.gates ?? []).map((gate) => {
+                      const gx = dateToX(new Date(gate.due_date), minDate, totalDays, chartWidth);
+                      const cy = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2 + HEADER_HEIGHT;
+                      const s = 7;
+                      const fill = GATE_STATUS_COLORS[gate.status] ?? '#607d8b';
+                      return (
+                        <Tooltip
+                          key={`gate-${gate.id}`}
+                          title={`${gate.name} — ${gate.status} — due ${gate.due_date.slice(0, 10)}`}
+                          placement="top"
+                        >
+                          <polygon
+                            points={`${gx},${cy - s} ${gx + s},${cy} ${gx},${cy + s} ${gx - s},${cy}`}
+                            fill={fill}
+                            opacity={0.95}
+                            stroke="#fff"
+                            strokeWidth={1}
+                          />
+                        </Tooltip>
+                      );
+                    })}
                   </g>
                 ))}
 
@@ -372,6 +404,20 @@ export default function ReleaseTimeline({ releaseId, alerts = [] }: Props) {
               />
               <Typography variant="caption">target date</Typography>
             </Box>
+            {(['pending', 'passed', 'failed', 'overridden'] as const).map((s) => (
+              <Box key={`gate-${s}`} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box
+                  sx={{
+                    width: 0,
+                    height: 0,
+                    borderLeft: '6px solid transparent',
+                    borderRight: '6px solid transparent',
+                    borderBottom: `12px solid ${GATE_STATUS_COLORS[s]}`,
+                  }}
+                />
+                <Typography variant="caption">gate {s}</Typography>
+              </Box>
+            ))}
           </Box>
         </Paper>
       )}
