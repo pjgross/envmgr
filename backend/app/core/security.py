@@ -127,3 +127,29 @@ class Role:
 def require_tenant_admin():
     """Dependency to require tenant admin (Admin role) privileges."""
     return require_role(Role.ADMIN)
+
+
+def api_key_auth(required_scope: str):
+    """FastAPI dependency factory. Returns a dependency that requires a
+    valid X-Api-Key header whose key has the given scope."""
+    from datetime import datetime, timezone as _tz
+    from fastapi import Depends, Header, HTTPException, status
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.db.base import get_db
+    from app.services import api_key_service
+
+    async def _dep(
+        x_api_key: str | None = Header(default=None),
+        db: AsyncSession = Depends(get_db),
+    ):
+        if not x_api_key:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing API key")
+        key = await api_key_service.authenticate(db, x_api_key)
+        api_key_service.require_scope(key, required_scope)
+        # Bump last_used_at inline — small write inside the request
+        # transaction; get_db auto-commits on success.
+        key.last_used_at = datetime.now(_tz.utc)
+        await db.flush()
+        return key
+    return _dep
