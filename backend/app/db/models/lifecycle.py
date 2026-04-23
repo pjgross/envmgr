@@ -24,6 +24,7 @@ class LifecycleTemplate(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     applies_to_kind: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     # JSON for SQLite compat in tests; PostgreSQL migrations use JSONB DDL.
     definition: Mapped[dict] = mapped_column(JSON, nullable=False)

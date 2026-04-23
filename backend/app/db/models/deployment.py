@@ -1,9 +1,7 @@
 from datetime import datetime
 from typing import Optional
-from uuid import UUID
 
 from sqlalchemy import String, DateTime, ForeignKey, JSON, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -28,7 +26,7 @@ class Deployment(Base):
     change_request_id: Mapped[int] = mapped_column(
         ForeignKey("change_request.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    event_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False)
     deployer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     deployed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

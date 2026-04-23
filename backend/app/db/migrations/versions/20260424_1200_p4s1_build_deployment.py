@@ -128,14 +128,72 @@ def upgrade() -> None:
             "ix_essv_build_fk_id", "environment_subsystem_version", ["build_fk_id"]
         )
 
+    # Add is_system column to lifecycle_template if not present.
+    if not _column_exists(conn, "lifecycle_template", "is_system"):
+        op.add_column(
+            "lifecycle_template",
+            sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        )
+
+    # Per-tenant seed of the Code Deployment lifecycle template.
+    # Idempotent: skip tenants where a template with the same
+    # (tenant_id, entity_type, name) already exists.
+    import json
+    definition = json.dumps({
+        "states": [
+            {"key": "created", "label": "Created", "is_initial": True, "is_terminal": False},
+            {"key": "deployed", "label": "Deployed", "is_initial": False, "is_terminal": True},
+            {"key": "failed", "label": "Failed", "is_initial": False, "is_terminal": True},
+        ],
+        "transitions": [
+            {"from": "created", "to": "deployed", "roles": []},
+            {"from": "created", "to": "failed", "roles": []},
+        ],
+        "field_permissions": {
+            "created": {"standard_fields": {}, "custom_fields": {}},
+            "deployed": {"standard_fields": {}, "custom_fields": {}},
+            "failed": {"standard_fields": {}, "custom_fields": {}},
+        },
+    })
+    op.execute(sa.text("""
+        INSERT INTO lifecycle_template (
+            tenant_id, entity_type, name, is_system, is_default, definition,
+            created_at, updated_at
+        )
+        SELECT t.id, 'change_request', 'Code Deployment', true, false,
+               CAST(:definition AS JSONB), now(), now()
+        FROM tenant t
+        WHERE NOT EXISTS (
+            SELECT 1 FROM lifecycle_template lt
+            WHERE lt.tenant_id = t.id
+              AND lt.entity_type = 'change_request'
+              AND lt.name = 'Code Deployment'
+        )
+    """).bindparams(definition=definition))
+
 
 def downgrade() -> None:
     conn = op.get_bind()
+
+    op.execute(sa.text("""
+        DELETE FROM lifecycle_template
+        WHERE entity_type = 'change_request' AND name = 'Code Deployment'
+    """))
+
+    if _column_exists(conn, "lifecycle_template", "is_system"):
+        op.drop_column("lifecycle_template", "is_system")
 
     if _column_exists(conn, "environment_subsystem_version", "build_fk_id"):
         op.drop_index("ix_essv_build_fk_id", table_name="environment_subsystem_version")
         op.drop_constraint("fk_essv_build_fk", "environment_subsystem_version", type_="foreignkey")
         op.drop_column("environment_subsystem_version", "build_fk_id")
+
+    # Drop the FK on build_identifier → build before dropping build table.
+    insp = Inspector.from_engine(conn)
+    essv_fks = {fk["name"] for fk in insp.get_foreign_keys("environment_subsystem_version")}
+    if "fk_env_sub_version_build_id" in essv_fks:
+        op.drop_constraint("fk_env_sub_version_build_id", "environment_subsystem_version", type_="foreignkey")
+
     if _column_exists(conn, "environment_subsystem_version", "build_identifier"):
         op.alter_column("environment_subsystem_version", "build_identifier", new_column_name="build_id")
 

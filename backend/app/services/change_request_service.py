@@ -48,6 +48,7 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "Simple Approval",
         "is_default": True,
+        "is_system": False,
         "description": "Standard change-request flow with an approval gate.",
         "definition": {
             "states": [
@@ -75,6 +76,7 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "Emergency",
         "is_default": False,
+        "is_system": False,
         "description": "Minimal flow for urgent changes — no approval gate.",
         "definition": {
             "states": [
@@ -89,6 +91,28 @@ DEFAULT_LIFECYCLE_DEFINITIONS: list[dict[str, Any]] = [
                  "allowed_roles": ["Admin", "Release Manager", "Test Manager", "Developer"]},
             ],
             "field_permissions": {},
+        },
+    },
+    {
+        "name": "Code Deployment",
+        "is_default": False,
+        "is_system": True,
+        "description": "Lifecycle for code deployment change requests.",
+        "definition": {
+            "states": [
+                {"key": "created", "label": "Created", "is_initial": True, "is_terminal": False},
+                {"key": "deployed", "label": "Deployed", "is_initial": False, "is_terminal": True},
+                {"key": "failed", "label": "Failed", "is_initial": False, "is_terminal": True},
+            ],
+            "transitions": [
+                {"from": "created", "to": "deployed", "roles": []},
+                {"from": "created", "to": "failed", "roles": []},
+            ],
+            "field_permissions": {
+                "created": {"standard_fields": {}, "custom_fields": {}},
+                "deployed": {"standard_fields": {}, "custom_fields": {}},
+                "failed": {"standard_fields": {}, "custom_fields": {}},
+            },
         },
     },
 ]
@@ -113,8 +137,9 @@ async def seed_default_lifecycles(db: AsyncSession, tenant_id: int) -> None:
             tenant_id=tenant_id,
             entity_type=ENTITY_TYPE,
             name=spec["name"],
-            description=spec["description"],
+            description=spec.get("description"),
             is_default=spec["is_default"],
+            is_system=spec.get("is_system", False),
             definition=spec["definition"],
         )
         db.add(tpl)
