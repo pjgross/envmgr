@@ -1,6 +1,6 @@
 # Phase 4 Sub-1 — Build + Deployment Ingestion (Backend)
 
-**Status:** Draft — awaiting user review
+**Status:** Implemented on `feature/phase-4-sub1-build-deployment` — awaiting MR merge
 **Date:** 2026-04-23
 **Phase:** Phase 4 (CI/CD Deployment Tracking), sub-project 1 of 2
 
