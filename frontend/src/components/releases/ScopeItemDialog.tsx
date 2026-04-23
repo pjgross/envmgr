@@ -19,6 +19,7 @@ import {
   updateReleaseChange,
 } from '../../store/releaseSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
+import { fetchScopeChangeKinds } from '../../store/scopeChangeRulesSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import CustomFieldsSection from '../CustomFieldsSection';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
@@ -30,15 +31,13 @@ interface Props {
   item?: ReleaseChangeResponse | null;
 }
 
-const CHANGE_KINDS = ['story', 'defect', 'task', 'spike'];
-
 export default function ScopeItemDialog({ open, onClose, releaseId, item }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const isEdit = !!item;
 
   const [title, setTitle] = useState('');
-  const [changeKind, setChangeKind] = useState('story');
+  const [changeKind, setChangeKind] = useState('');
   const [externalKey, setExternalKey] = useState('');
   const [description, setDescription] = useState('');
   const [externalStatus, setExternalStatus] = useState('');
@@ -48,6 +47,7 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
   const allDefs = useSelector(
     (s: RootState) => s.customField.definitions['release_change'] ?? []
   );
+  const changeKinds = useSelector((s: RootState) => s.scopeChangeRules.kinds);
   const visibleDefs = useMemo(
     () => allDefs.filter((d) => d.entity_subtype == null || d.entity_subtype === changeKind),
     [allDefs, changeKind],
@@ -56,19 +56,27 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
   useEffect(() => {
     if (open) {
       dispatch(fetchDefinitions('release_change'));
+      dispatch(fetchScopeChangeKinds());
     }
   }, [open, dispatch]);
 
   useEffect(() => {
     if (open) {
       setTitle(item?.title ?? '');
-      setChangeKind(item?.change_kind ?? 'story');
+      setChangeKind(item?.change_kind ?? '');
       setExternalKey(item?.external_key ?? '');
       setDescription(item?.description ?? '');
       setExternalStatus(item?.external_status ?? '');
       setCustomFields((item?.custom_fields as Record<string, unknown>) ?? {});
     }
   }, [open, item]);
+
+  // On create, pick the first kind once the list loads.
+  useEffect(() => {
+    if (open && !isEdit && !changeKind && changeKinds.length) {
+      setChangeKind(changeKinds[0]);
+    }
+  }, [open, isEdit, changeKind, changeKinds]);
 
   const requiredMissing = visibleDefs.some((d) => {
     if (!d.required) return false;
@@ -83,6 +91,7 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
 
   const handleSave = async () => {
     if (!title.trim() || requiredMissing) return;
+    if (!isEdit && !changeKind) return;
     setSubmitting(true);
     try {
       if (isEdit && item) {
@@ -142,9 +151,14 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
             fullWidth
             value={changeKind}
             onChange={(e) => setChangeKind(e.target.value)}
-            disabled={submitting || isEdit}
+            disabled={submitting || isEdit || changeKinds.length === 0}
+            helperText={
+              changeKinds.length === 0
+                ? 'No change kinds configured. Ask an admin to add some.'
+                : undefined
+            }
           >
-            {CHANGE_KINDS.map((k) => (
+            {changeKinds.map((k) => (
               <MenuItem key={k} value={k}>
                 {k}
               </MenuItem>
@@ -187,7 +201,12 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
         </Button>
         <Button
           variant="contained"
-          disabled={!title.trim() || requiredMissing || submitting}
+          disabled={
+            !title.trim() ||
+            requiredMissing ||
+            submitting ||
+            (!isEdit && !changeKind)
+          }
           onClick={handleSave}
         >
           {isEdit ? 'Save' : 'Add'}

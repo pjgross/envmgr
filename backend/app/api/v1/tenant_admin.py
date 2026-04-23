@@ -134,6 +134,20 @@ async def get_scope_change_rules(
     )
 
 
+@router.get("/scope-change-rules/kinds", response_model=list[str])
+async def get_scope_change_kinds(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """List of active change_kind names for the tenant. Open to any tenant
+    member so the scope-item dialog and custom-field editor can populate
+    their kind pickers."""
+    rules = await scope_change_rule_service.list_rules(
+        db, current_user.active_tenant_id,
+    )
+    return [r.change_kind for r in rules]
+
+
 @router.put("/scope-change-rules", response_model=list[ScopeChangeKindRuleRead])
 async def upsert_scope_change_rules(
     data: ScopeChangeKindRulesUpsertPayload,
