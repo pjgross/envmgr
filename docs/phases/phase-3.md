@@ -1,7 +1,7 @@
 # Phase 3: Releases & Test Phases
 
-> Status: ✅ **Sub-1 merged** (MRs !4–!13, 2026-04-20/21) · ✅ **Sub-2 merged** (MR !15 = `64c52e3`, 2026-04-23) · Sub-3 + Phase 5 items deferred | Roadmap: [../plan.md](../plan.md)
-> Duration: 4–6 weeks | Both sub-projects complete
+> Status: ✅ **Sub-1 merged** (MRs !4–!13, 2026-04-20/21) · ✅ **Sub-2 merged** (MR !15 = `64c52e3`, 2026-04-23) · ✅ **Post-Sub-2 follow-ups** MR !17 (`a2f55de`, gate due dates + timeline diamonds) + MR !18 (`0fa2eb5`, tenant-configurable change kinds) on 2026-04-23 · Sub-3 (Jira) deferred | Roadmap: [../plan.md](../plan.md)
+> Duration: 4–6 weeks | Both sub-projects complete; main tip `0fa2eb5`, latest migration `p3s8gateduedate`
 
 ## Sub-project 1 — Core Releases ✅ Merged
 
@@ -91,6 +91,19 @@ Merged to `main` via MR !15 (merge commit `64c52e3`, 2026-04-23). 558 backend te
 ### Post-merge action
 
 Run `backend/scripts/backfill_enterprise_lifecycles.py` once per environment to seed the enterprise lifecycle template for tenants that existed before migration `p3s6enterprise`.
+
+---
+
+## Post-Sub-2 follow-ups — ✅ Merged 2026-04-23
+
+Two small follow-up MRs landed on `main` after Sub-2 to close long-standing quality-of-life gaps around release gates and scope-change kinds. Neither was originally scoped in Sub-1 or Sub-2.
+
+| MR | Merge commit | Summary |
+|----|--------------|---------|
+| !17 | `a2f55de` | **Release gates: self-contained due dates + timeline diamonds.** Drops `release_gate.test_phase_id`; gates now carry a required `due_date`. `gate_criterion.due_date` removed — criteria inherit from the parent gate. `overdue_criterion_count` becomes gate-level (N open criteria when `gate.due_date < now`, else 0). `GET /releases/timeline` returns `gates[]`; Gantt renders status-coloured diamonds (slate / green / red / amber for pending / passed / failed / overridden). Gate create dialog now has a required date picker (no phase selector); gate rows show a `Due YYYY-MM-DD` chip. Migration `p3s8gateduedate` backfills `due_date` via chain: linked phase.end_date → MAX(criterion.due_date) → release.target_date → release.created_at, then drops `test_phase_id` + `gate_criterion.due_date`. Spec: `docs/superpowers/specs/2026-04-23-release-gate-due-dates-design.md`. Plan: `docs/superpowers/plans/2026-04-23-release-gate-due-dates.md`. |
+| !18 | `0fa2eb5` | **Tenant-configurable scope change kinds.** Admin Scope Change Rules page gains an "Add a new change kind" panel with inline validation (lowercase slug, up to 20 chars, duplicates blocked). New `GET /tenant/scope-change-rules/kinds` endpoint, open to any tenant member (follows the `/users/lite` precedent). `ScopeItemDialog`, `CustomFieldDefinitionDialog`, and `ScopeRollupTab` now fetch the live kind list instead of hardcoding `['story', 'defect', 'task', 'spike']`. Pydantic validator on `change_kind` in `schemas/scope_change_rule.py` normalises + enforces the same rules. No new migration — existing `scope_change_kind_rule` table already supports arbitrary kinds. |
+
+After MR !18, `main` tip = `0fa2eb5`, latest alembic revision = `p3s8gateduedate`, backend test count = 560 passed + 1 skipped.
 
 ---
 
