@@ -1,7 +1,7 @@
 # Phase 3: Releases & Test Phases
 
-> Status: ✅ **Sub-1 merged to `main`** (MRs !4–!13, 2026-04-20/21, main tip `033444d`) · 🟢 **Sub-2 ready-for-merge** on `feature/enterprise-releases` (tip `20de484`, 2026-04-22/23) · Sub-3 + Phase 5 items deferred | Roadmap: [../plan.md](../plan.md)
-> Duration: 4–6 weeks | Sub-1 complete; Sub-2 implementation complete pending MR review
+> Status: ✅ **Sub-1 merged** (MRs !4–!13, 2026-04-20/21) · ✅ **Sub-2 merged** (MR !15 = `64c52e3`, 2026-04-23) · Sub-3 + Phase 5 items deferred | Roadmap: [../plan.md](../plan.md)
+> Duration: 4–6 weeks | Both sub-projects complete
 
 ## Sub-project 1 — Core Releases ✅ Merged
 
@@ -34,9 +34,9 @@ Spec + plan for these follow-ups live under `docs/superpowers/specs/` and `docs/
 
 ---
 
-## Sub-project 2 — Enterprise Releases 🟢 Ready-for-merge
+## Sub-project 2 — Enterprise Releases ✅ Merged
 
-Implementation complete on branch `feature/enterprise-releases` (tip `20de484`, dated 2026-04-22/23). 558 backend tests passing; frontend typecheck clean; end-to-end happy-path test covers the full admission + lockdown + late-scope + report flow.
+Merged to `main` via MR !15 (merge commit `64c52e3`, 2026-04-23). 558 backend tests passing; frontend typecheck clean; end-to-end happy-path test covers the full admission + lockdown + late-scope + report flow.
 
 | Artefact | Path |
 |----------|------|
@@ -88,9 +88,9 @@ Implementation complete on branch `feature/enterprise-releases` (tip `20de484`, 
 - Report tab is HTML-only; no PDF export.
 - Member-state summary not yet surfaced inside the Gate criteria editor.
 
-### Next step
+### Post-merge action
 
-Open a GitLab MR for `feature/enterprise-releases` → `main`. Run `backend/scripts/backfill_enterprise_lifecycles.py` once per environment after merge.
+Run `backend/scripts/backfill_enterprise_lifecycles.py` once per environment to seed the enterprise lifecycle template for tenants that existed before migration `p3s6enterprise`.
 
 ---
 

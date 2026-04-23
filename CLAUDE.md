@@ -1,6 +1,6 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 3 Sub-project 1 (Core Releases) + follow-ups merged to `main` on 2026-04-20 / 2026-04-21 via MRs !4–!13 (main tip `033444d`). Phase 3 Sub-project 2 (Enterprise Releases) implementation complete on branch `feature/enterprise-releases` — open MR. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2 🟢 ready-for-merge | Phase 3 Sub-3 (Jira, PIR) deferred | Phase 4 next.
+> **Current Phase**: Phase 3 Sub-1 (Core Releases) + Sub-2 (Enterprise Releases) merged to `main` (MRs !4–!13 on 2026-04-20/21; MR !15 on 2026-04-23, main tip `64c52e3`). Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2 ✅ | Phase 3 Sub-3 (Jira) deferred | Phase 4 next.
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
