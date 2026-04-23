@@ -122,3 +122,7 @@ app.include_router(
     prefix="/api/v1/webhooks",
     tags=["webhooks"],
 )
+
+from app.api.v1 import builds as builds_router
+
+app.include_router(builds_router.router, prefix="/api/v1/builds", tags=["builds"])
