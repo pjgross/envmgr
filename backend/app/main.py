@@ -71,6 +71,7 @@ from app.api.v1 import release_event_types as release_event_types_router
 from app.api.v1 import gate_criteria as gate_criteria_api
 from app.api.v1 import enterprise_memberships as enterprise_memberships_router
 from app.api.v1 import enterprise_rollup as enterprise_rollup_router
+from app.api.v1.webhooks import deployment as webhook_deployment_router
 
 app.include_router(api_keys_router.router, prefix="/api/v1/api-keys", tags=["api-keys"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
@@ -115,3 +116,9 @@ app.include_router(release_templates_router.router, prefix="/api/v1")
 app.include_router(release_event_types_router.router, prefix="/api/v1")
 app.include_router(gate_criteria_api.release_sub_router, prefix="/api/v1")
 app.include_router(gate_criteria_api.router, prefix="/api/v1")
+
+app.include_router(
+    webhook_deployment_router.router,
+    prefix="/api/v1/webhooks",
+    tags=["webhooks"],
+)
