@@ -15,12 +15,13 @@ import {
   Alert,
 } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
-import type { AppDispatch } from '../../store';
+import type { AppDispatch, RootState } from '../../store';
 import { createDefinition, updateDefinition } from '../../store/customFieldSlice';
 import {
   fetchLifecycleTemplates,
   selectTemplatesForEntity,
 } from '../../store/bookingLifecycleSlice';
+import { fetchScopeChangeKinds } from '../../store/scopeChangeRulesSlice';
 import type {
   CustomFieldDefinition,
   CustomFieldDefinitionCreate,
@@ -66,14 +67,17 @@ export default function CustomFieldDefinitionDialog({
   const [error, setError] = useState('');
 
   // Subtype scoping is exposed for 'release' (lifecycle template names) and
-  // 'release_change' (change kinds: story / defect / task / spike).
-  const CHANGE_KINDS = ['story', 'defect', 'task', 'spike'] as const;
+  // 'release_change' (tenant-configurable change kinds).
   const showSubtypeField = entityType === 'release' || entityType === 'release_change';
   const releaseTemplates = useSelector(selectTemplatesForEntity('release'));
+  const changeKinds = useSelector((s: RootState) => s.scopeChangeRules.kinds);
 
   useEffect(() => {
     if (open && entityType === 'release') {
       dispatch(fetchLifecycleTemplates('release'));
+    }
+    if (open && entityType === 'release_change') {
+      dispatch(fetchScopeChangeKinds());
     }
   }, [open, entityType, dispatch]);
 
@@ -245,7 +249,7 @@ export default function CustomFieldDefinitionDialog({
                 </MenuItem>
               ))}
             {entityType === 'release_change' &&
-              CHANGE_KINDS.map((k) => (
+              changeKinds.map((k) => (
                 <MenuItem key={k} value={k}>
                   {k}
                 </MenuItem>

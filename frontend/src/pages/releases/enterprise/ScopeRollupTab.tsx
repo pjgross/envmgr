@@ -3,6 +3,9 @@ import {
   Paper, Stack, TextField, MenuItem, Button,
 } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { useDispatch, useSelector } from "react-redux";
+import type { AppDispatch, RootState } from "../../../store";
+import { fetchScopeChangeKinds } from "../../../store/scopeChangeRulesSlice";
 import { enterpriseRollupService } from "../../../services/enterpriseRollupService";
 import type { ScopeRollupItem } from "../../../types/enterpriseReport";
 import type { ReleaseResponse } from "../../../types/release";
@@ -16,10 +19,17 @@ interface TabChangeProps {
 }
 
 export function ScopeRollupTab({ release, onNavigateToReport }: Props & TabChangeProps) {
+  const dispatch = useDispatch<AppDispatch>();
+  const changeKinds = useSelector((s: RootState) => s.scopeChangeRules.kinds);
+
   const [rows, setRows] = useState<ScopeRollupItem[]>([]);
   const [kind, setKind] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [search, setSearch] = useState<string>("");
+
+  useEffect(() => {
+    dispatch(fetchScopeChangeKinds());
+  }, [dispatch]);
 
   useEffect(() => {
     if (release?.id == null) return;
@@ -48,10 +58,11 @@ export function ScopeRollupTab({ release, onNavigateToReport }: Props & TabChang
           sx={{ minWidth: 140 }}
         >
           <MenuItem value="">Any</MenuItem>
-          <MenuItem value="story">Story</MenuItem>
-          <MenuItem value="defect">Defect</MenuItem>
-          <MenuItem value="task">Task</MenuItem>
-          <MenuItem value="spike">Spike</MenuItem>
+          {changeKinds.map((k) => (
+            <MenuItem key={k} value={k}>
+              {k.charAt(0).toUpperCase() + k.slice(1)}
+            </MenuItem>
+          ))}
         </TextField>
         <TextField
           size="small" label="Status"

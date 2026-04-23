@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.scope_change_kind_rule import ScopeChangeKindRule
 
 
-# The canonical set of change_kind values the frontend exposes. Kept in sync
-# with frontend/src/components/releases/ScopeItemDialog.tsx.
+# Kinds seeded for every new tenant. Admins can add more from the tenant
+# settings page; the frontend reads the live list from
+# GET /tenant/scope-change-rules/kinds rather than hardcoding it.
 DEFAULT_KINDS: tuple[str, ...] = ("story", "defect", "task", "spike")
 
 # Default counts_as_scope_change value per kind at tenant creation.
