@@ -23,6 +23,14 @@ from app.services import build_service, custom_field_service
 
 ALLOWED_STATUSES = {"pending", "in_progress", "success", "failed", "rolled_back"}
 
+ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    "pending": {"pending", "in_progress", "success", "failed"},
+    "in_progress": {"in_progress", "success", "failed"},
+    "success": {"success", "rolled_back"},
+    "failed": {"failed", "rolled_back"},
+    "rolled_back": {"rolled_back"},
+}
+
 
 async def _resolve_subsystem(
     db: AsyncSession, tenant_id: int, system_slug: str, subsystem_slug: str
@@ -75,66 +83,97 @@ async def ingest(
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"Unknown status '{payload.status}'")
 
+    # Idempotency lookup by (tenant_id, event_id).
+    existing = (await db.execute(
+        select(Deployment).where(
+            Deployment.tenant_id == tenant_id,
+            Deployment.event_id == str(payload.event_id),
+        )
+    )).scalar_one_or_none()
+
+    if existing is not None and existing.status == payload.status:
+        return DeploymentIngestResult(
+            deployment_id=existing.id,
+            build_id=existing.build_id,
+            change_request_id=existing.change_request_id,
+            replayed=True,
+        )
+
+    if existing is not None:
+        allowed = ALLOWED_TRANSITIONS.get(existing.status, set())
+        if payload.status not in allowed:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Deployment status {existing.status} cannot transition to {payload.status}",
+            )
+
     subsystem_id = await _resolve_subsystem(
         db, tenant_id, payload.system_slug, payload.subsystem_slug,
     )
     environment_id = await _resolve_environment(db, tenant_id, payload.environment_slug)
 
-    # Validate deployment-level custom fields before doing any writes.
     await custom_field_service.validate_custom_fields(
         db, tenant_id, "deployment", payload.deployment_custom_fields or {},
     )
 
-    # Upsert build.
     build = await build_service.upsert_build(
         db, tenant_id=tenant_id, subsystem_id=subsystem_id, data=payload.build,
         release_id=payload.release_id,
     )
 
-    if payload.change_request_id is not None:
-        from app.db.models.change_request import ChangeRequest
-        cr = (await db.execute(
-            select(ChangeRequest).where(
-                ChangeRequest.id == payload.change_request_id,
-                ChangeRequest.tenant_id == tenant_id,
-                ChangeRequest.deleted_at.is_(None),
+    # CR resolution — only when creating a new deployment.
+    if existing is None:
+        if payload.change_request_id is not None:
+            from app.db.models.change_request import ChangeRequest
+            cr = (await db.execute(
+                select(ChangeRequest).where(
+                    ChangeRequest.id == payload.change_request_id,
+                    ChangeRequest.tenant_id == tenant_id,
+                    ChangeRequest.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if cr is None:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                    f"change_request_id {payload.change_request_id} not found")
+            change_request_id = cr.id
+        else:
+            from app.services import change_request_service
+            cr = await change_request_service.create_code_deployment(
+                db,
+                tenant_id=tenant_id,
+                raised_by=raised_by_user_id,
+                title=f"Deploy {payload.build.git_sha[:8]} → {payload.environment_slug}",
+                description=f"Auto-created from webhook event {payload.event_id}",
             )
-        )).scalar_one_or_none()
-        if cr is None:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                f"change_request_id {payload.change_request_id} not found")
-        change_request_id = cr.id
+            change_request_id = cr.id
     else:
-        from app.services import change_request_service
-        cr = await change_request_service.create_code_deployment(
-            db,
-            tenant_id=tenant_id,
-            raised_by=raised_by_user_id,
-            title=f"Deploy {payload.build.git_sha[:8]} → {payload.environment_slug}",
-            description=f"Auto-created from webhook event {payload.event_id}",
-        )
-        change_request_id = cr.id
+        change_request_id = existing.change_request_id
 
-    # Insert deployment.
     completed_at = payload.deployed_at if payload.status in {"success", "failed"} else None
-    deployment = Deployment(
-        tenant_id=tenant_id,
-        build_id=build.id,
-        environment_id=environment_id,
-        release_id=payload.release_id or build.release_id,
-        change_request_id=change_request_id,
-        event_id=str(payload.event_id),  # model is String(36) for SQLite compat
-        deployer_name=payload.deployer_name,
-        deployed_at=payload.deployed_at,
-        completed_at=completed_at,
-        status=payload.status,
-        custom_fields=dict(payload.deployment_custom_fields or {}),
-    )
-    db.add(deployment)
-    await db.flush()
+
+    if existing is None:
+        deployment = Deployment(
+            tenant_id=tenant_id,
+            build_id=build.id,
+            environment_id=environment_id,
+            release_id=payload.release_id or build.release_id,
+            change_request_id=change_request_id,
+            event_id=str(payload.event_id),
+            deployer_name=payload.deployer_name,
+            deployed_at=payload.deployed_at,
+            completed_at=completed_at,
+            status=payload.status,
+            custom_fields=dict(payload.deployment_custom_fields or {}),
+        )
+        db.add(deployment)
+        await db.flush()
+    else:
+        deployment = existing
+        deployment.status = payload.status
+        deployment.completed_at = completed_at or deployment.completed_at
+        await db.flush()
 
     if payload.status == "success":
-        # Audit-trail insert for the installed version.
         version_label = payload.build.build_number or payload.build.git_sha[:8]
         db.add(EnvironmentSubSystemVersion(
             tenant_id=tenant_id,
@@ -145,6 +184,17 @@ async def ingest(
             version_label=version_label,
         ))
         await db.flush()
+
+    # Transition the linked CR on terminal success/failure.
+    if payload.status in {"success", "failed"}:
+        from app.db.models.change_request import ChangeRequest
+        cr = (await db.execute(
+            select(ChangeRequest).where(ChangeRequest.id == change_request_id)
+        )).scalar_one()
+        target_state = "deployed" if payload.status == "success" else "failed"
+        if cr.status != target_state:
+            cr.status = target_state
+            await db.flush()
 
     await publish_event(
         db,
@@ -162,8 +212,8 @@ async def ingest(
             "build_id": build.id,
             "environment_id": environment_id,
             "release_id": deployment.release_id,
-            "change_request_id": deployment.change_request_id,
-            "status": deployment.status,
+            "change_request_id": change_request_id,
+            "status": payload.status,
         },
         tenant_id=tenant_id,
     )
@@ -171,6 +221,6 @@ async def ingest(
     return DeploymentIngestResult(
         deployment_id=deployment.id,
         build_id=build.id,
-        change_request_id=deployment.change_request_id,
+        change_request_id=change_request_id,
         replayed=False,
     )
