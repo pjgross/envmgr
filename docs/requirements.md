@@ -177,6 +177,8 @@ EnvManager replaces a legacy test environment management system and eliminates r
 
 ### 2.6 Build Tracking
 
+> **Delivery status (2026-04-23):** ✅ merged via MR !20. `Build` model with `git_sha`, `git_branch`, `build_number`, `commit_timestamp`, `build_started_at` / `build_finished_at`, `jira_tickets[]`, `pipeline_steps[]`, `custom_fields`. Builds upserted by `(tenant_id, subsystem_id, git_sha)`; replays merge `pipeline_steps` and `custom_fields`. List + detail endpoints with `subsystem_name` / `release_name` denormalised onto `BuildRead`.
+
 - A **Build** represents a new version of a system or component
 - Build fields: `git_sha`, `branch`, `build_number`, optional `jira_tickets[]` (Jira issue keys included in the build), optional `pipeline_steps[]` (key execution steps from the DevOps pipeline with timestamps and status)
 - Builds are linked to a **System** (or Sub-System) and a **Release**
@@ -184,6 +186,8 @@ EnvManager replaces a legacy test environment management system and eliminates r
 - Builds are separate from Deployments (a Build is the artifact; a Deployment is the act of installing it into an environment)
 
 ### 2.7 Deployment Tracking
+
+> **Delivery status (2026-04-25):** ✅ merged via MR !20 (backend, 2026-04-23) + MR !21 (frontend + API keys, 2026-04-25). `POST /api/v1/webhooks/deployment` authenticated by API key with `webhooks:deployment` scope; idempotent ingest keyed on `Deployment.event_id`; auto-creates a `code_deployment` ChangeRequest via the seeded `Code Deployment` lifecycle and transitions it (`deploying → deployed | failed`); manual relink supported only when the current CR is auto-generated. UI: top-level Builds and Deployments pages, Deployments tabs on EnvironmentDetail and ReleaseDetail, deployments rendered on the unified `EnvironmentSchedule`. Per-tenant API key admin page (`/tenant/api-keys`) with raw-key-shown-once dialog.
 
 - Deployment events ingested from **GitHub Actions** (primary CI/CD tool)
 - Deployments track: environment, release, build, commit SHA, build number, deployer, timestamp, status (`success | failed | rolled_back`)

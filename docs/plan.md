@@ -13,7 +13,7 @@
 | 2 | Change Management | ✅ Complete (MR !2, merge `3bb3833`, 2026-04-19) | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
 | 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | ✅ Complete (same MR) | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
 | 3 | Releases, Templates, Enterprise Release, Jira | ✅ Sub-1 merged 2026-04-20/21 (MRs !4–!13); ✅ Sub-2 (Enterprise Releases) merged 2026-04-23 (MR !15, `64c52e3`); ✅ follow-ups MR !17 (gate due dates + timeline diamonds, `a2f55de`) + MR !18 (tenant-configurable change kinds, `0fa2eb5`) on 2026-04-23. Sub-3 (Jira) deferred. | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
-| 4 | Build Tracking + CI/CD Deployment Tracking | ⏳ Planned | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
+| 4 | Build Tracking + CI/CD Deployment Tracking | ✅ Sub-1 (backend) merged 2026-04-23 (MR !20); ✅ Sub-2 (frontend + API keys) merged 2026-04-25 (MR !21, `d802797`) | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
 | 6 | Infrastructure Topology | 🟡 Model pulled forward — Terraform/Neo4j/React Flow still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
 | 7 | Multi-Project Coordination | ⏳ Planned | 4–6 weeks | [phases/phase-7.md](phases/phase-7.md) |
@@ -78,11 +78,15 @@ After MR !18, `main` tip = `0fa2eb5`, latest alembic revision = `p3s8gateduedate
 
 ---
 
-## Phase 4: CI/CD Deployment Tracking — ⏳ Planned
+## Phase 4: CI/CD Deployment Tracking — ✅ Sub-1 & Sub-2 on `main`
 
-See [phases/phase-4.md](phases/phase-4.md).
+See [phases/phase-4.md](phases/phase-4.md) for the full delivery summary.
 
-**Objectives**: Build model (git SHA, branch, Jira tickets, pipeline steps); deployment ingestion from GitHub Actions; link deployments to builds, releases, and change requests; environment subsystem version updated on deployment.
+**Sub-project 1 — Backend** (✅ merged via MR !20 on 2026-04-23). `Build` and `Deployment` models with alembic revision `p4s1builddeploy`; `POST /api/v1/webhooks/deployment` authenticated by API key with `webhooks:deployment` scope; idempotent `DeploymentService.ingest` keyed on `event_id` that auto-creates a `code_deployment` ChangeRequest via the seeded `Code Deployment` lifecycle when none is supplied, and transitions the linked CR (`deploying → deployed | failed`) recording each transition in `change_history`; `Build` upsert keyed on `(tenant_id, subsystem_id, git_sha)` merging `pipeline_steps` + `custom_fields` on replay; `GET /builds`, `GET /deployments`, `POST /deployments/{id}/link-change`, `GET /environments/{id}/deployments`; `EnvironmentSchedule.deployments[]` populated.
+
+**Sub-project 2 — Frontend UI + API keys** (✅ merged via MR !21 on 2026-04-25, `d802797`). `/tenant/api-keys` admin page with raw-key-shown-once dialog; top-level Builds and Deployments list/detail; `LinkChangeDialog` (relink only when current CR is auto-generated `Code Deployment`); Deployments tab on EnvironmentDetail and ReleaseDetail; deployments rendered on EnvironmentSchedule (FullCalendar) with palette + legend; admin `EntityConfig` extended with `build` + `deployment` slugs. Backend follow-on: `BuildRead` denormalises `subsystem_name` + `release_name`; `DeploymentRead` denormalises `environment_name`, `release_name`, `build_sha_short`, `change_request_title`; `_get_deployments_for_schedule` returns `build_sha` + `build_sha_short`. Cross-tenant isolation test landed in `backend/tests/integration/test_phase4_tenant_isolation.py`. Banner doc-only follow-up (MR !22) brought main tip to `dc5ca92`. Backend test count: **601 passed, 1 skipped**.
+
+**Deferred** (still): Jira webhook integration (Phase 3 Sub-3), incident tracking + DORA dashboard + PIR (Phase 5).
 
 ---
 
