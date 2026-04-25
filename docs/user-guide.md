@@ -546,7 +546,40 @@ If a deployment failed, see [ch. 10 (Tips and common workflows)](#10-tips-and-co
 
 ## 9. Topology and dependency views
 
-*To be drafted in Task 23.*
+### Where to find topology views
+
+The topology view is embedded in two places: the *Topology* tab on a System detail page (`/systems/:id`) and on an Environment detail page (`/environments/:id`). There's no top-level topology page — you always view a topology in the context of one entity.
+
+### System topology
+
+Subsystems are grouped inside their parent system. The current system gets a blue dashed border; external systems pulled in by cross-system dependencies sit alongside it with a grey border. Subsystems render as rounded boxes with a coloured chip for the *component type* — `database` (blue), `cache` (amber), `message_queue` (purple), `web_service` (green), `api_gateway` (teal), `worker` (orange), `frontend` (indigo), `other` (grey). The *technology* tag, if set, appears below the chip.
+
+Edges are component dependencies. The arrow head points from consumer to provider — an edge from A to B means "A depends on B". Two-way dependencies show arrow heads at both ends. Edge labels show the dependency's *label* (or its *type* as a fallback).
+
+Click any edge to open the *Link Details* pane: from/to subsystems, dependency type, direction, *protocol* and *port* if recorded, and documented endpoints (HTTP method + path). Click the edge again to dismiss. Nodes are not clickable and not draggable.
+
+### Environment topology
+
+The environment view groups per-environment subsystem instances under their parent system. Systems belonging to the environment use the blue dashed border; systems pulled in only as dependency targets are labelled `— not in environment` with a grey border.
+
+Mocked subsystems render with a dashed grey border and a `mocked` caption. Outside dependencies — links that cross the environment boundary — are drawn alongside in-environment edges. Click an edge to inspect details in the same side pane.
+
+The *Verify environment* action on the *Overview* tab populates the mocked / not-in-environment annotations.
+
+### Reading the diagram
+
+- **Pan**: drag the background.
+- **Zoom**: scroll wheel or the zoom controls in the bottom-left.
+- **Minimap**: bottom-right; keeps you oriented when zoomed in.
+- **Click an edge**: open the *Link Details* pane.
+- Layout is auto-computed; you cannot reposition nodes manually.
+
+> **Not yet available:** node-click handlers — clicking a system or subsystem node doesn't navigate anywhere. Use the breadcrumbs or the *Overview* tab to jump to related entities.
+
+### When topology helps
+
+- **Impact analysis**: if subsystem X is going down, inbound edges show every subsystem (and parent system) that depends on it.
+- **Onboarding**: a new team member can see the platform shape at a glance.
 
 ## 10. Tips and common workflows
 
