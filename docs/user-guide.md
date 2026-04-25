@@ -20,7 +20,17 @@ This guide is for **Release Managers, Test Managers, Developers, and Viewers** u
 
 ## 1. Introduction
 
-*To be drafted in Task 15.*
+EnvManager keeps track of the systems, environments, and release work going on across your tenant. From the UI you'll browse the systems and environments your team owns, book environments through a calendar, raise *change requests* and group them into *releases*, and watch a feed of CI builds and deployments as they land. The view is single-tenant: you only see data belonging to the tenant you're signed into.
+
+**Who this guide is for.** Day-to-day end users — **Release Managers** planning and shipping releases, **Test Managers** booking environments for test cycles, **Developers** raising change requests and watching deployments, and **Viewers** reading status and history. Most actions in the UI are open to anyone signed into your tenant; senior responsibilities (managing other users, configuring tenant-level settings) sit with **Admin**. For anything setup-related, see [`admin-guide.md`](admin-guide.md).
+
+**How to read this guide.** Three orientation pointers:
+
+- For the big picture, read [ch. 3 (Concepts in 5 minutes)](#3-concepts-in-5-minutes) first — it diagrams how the entities fit together.
+- For day-to-day workflows, [ch. 5 (Booking environments)](#5-booking-environments) and [ch. 7 (Working with releases)](#7-working-with-releases) are the meatiest chapters.
+- For quick recipes, [ch. 10 (Tips and common workflows)](#10-tips-and-common-workflows) has cookbook-style scenarios.
+
+If you're standing up a new tenant or modelling your platform, see [`admin-guide.md`](admin-guide.md). If you're working on EnvManager itself, see [`../CLAUDE.md`](../CLAUDE.md).
 
 ## 2. Logging in and the dashboard
 
