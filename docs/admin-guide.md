@@ -490,7 +490,105 @@ Templates earn their keep when releases follow a predictable cadence: a monthly 
 
 ## 10. API keys and webhooks
 
-*To be drafted in Task 11.*
+### Concept
+
+API keys are tenant-scoped, scope-restricted credentials that let external systems — typically your CI/CD pipelines — write to EnvManager. A key belongs to one tenant, carries one or more named scopes, and is presented in the `X-Api-Key` header. Keys are stored as a SHA-256 hash; the plaintext is shown **once**, on the screen that follows creation. EnvManager has no way to recover a lost plaintext — if you lose it, revoke and re-issue.
+
+Today the only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 8.
+
+### Walkthrough: creating an API key
+
+API keys are managed by **Tenant Admins** at `/tenant/api-keys` (left nav: *API keys*).
+
+1. Navigate to `/tenant/api-keys`.
+2. Click *New key* (top right).
+3. Fill the *New API key* dialog:
+   - *Name* — required, max 120 chars; pick something that identifies the consumer (for example `gitlab-ci-deploy`).
+   - *Scopes* — at least one must be selected. Today the only scope on offer is *CI/CD deployment webhook* (`webhooks:deployment`).
+   - *Expires at (optional)* — calendar field; leave blank for a non-expiring key.
+4. Click *Create*. The dialog closes and the *API key created* dialog opens with a one-time read-only field containing the plaintext. Use the copy icon to drop it into your CI secrets store **now**.
+5. Click *I've copied it*. The plaintext is gone — only its hash, plus the metadata you entered, remain on the *API keys* page.
+
+> **Warning** If you dismiss the reveal screen without copying the key, your only recourse is to revoke the row and issue a new key. There is no "show key again" path.
+
+### Walkthrough: revoking a key
+
+On the *API keys* table, click the red trash icon in the *Actions* column and confirm. Revocation soft-deletes the row immediately: any subsequent request that presents the revoked key fails with `401 Unauthorized`, and the row disappears from the list. Revocation is permanent — re-issuing means creating a new key.
+
+### Available scopes
+
+Each handler declares the scope it requires; a key passes auth only if its scope set includes that scope and the key has not expired or been revoked.
+
+| Scope | What it grants | Example use |
+|-------|----------------|-------------|
+| `webhooks:deployment` | `POST /api/v1/webhooks/deployment` — register a build and deployment, auto-create a `code_deployment` change request on first call. | GitLab/Jenkins/GitHub Actions step that fires after a successful deploy stage. |
+
+Future phases will extend this list.
+
+### Worked example: deployment webhook
+
+**Endpoint** `POST /api/v1/webhooks/deployment`
+**Required scope** `webhooks:deployment`
+**Auth header** `X-Api-Key: <plaintext key>`
+
+Each call carries a top-level deployment record plus a nested `build` block. Slugs (`system_slug`, `subsystem_slug`, `environment_slug`) are resolved against your tenant; mistyped slugs return `400 Bad Request`.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/webhooks/deployment \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: $YOUR_KEY" \
+  -d '{
+    "event_id": "8b1f3c8e-2a17-4cf6-9b3d-4e9a55c1a201",
+    "system_slug": "checkout",
+    "subsystem_slug": "checkout-api",
+    "environment_slug": "checkout-staging",
+    "status": "success",
+    "deployed_at": "2026-04-25T14:32:10Z",
+    "deployer_name": "gitlab-ci",
+    "build": {
+      "git_sha": "f3a9c1d8b2e470c5a91e7a2e6b4d8f0c12a3b4d5",
+      "git_branch": "main",
+      "build_number": "1287",
+      "commit_timestamp": "2026-04-25T14:18:02Z",
+      "build_started_at": "2026-04-25T14:20:11Z",
+      "build_finished_at": "2026-04-25T14:31:42Z",
+      "jira_tickets": ["CHK-4421", "CHK-4438"],
+      "pipeline_steps": [
+        {
+          "name": "deploy",
+          "status": "success",
+          "started_at": "2026-04-25T14:30:05Z",
+          "finished_at": "2026-04-25T14:31:42Z"
+        }
+      ],
+      "custom_fields": { "artifact_url": "https://artifacts/checkout-api/1287.tgz" }
+    },
+    "deployment_custom_fields": { "k8s_namespace": "checkout-staging" }
+  }'
+```
+
+Optional top-level fields you may also send: `release_id` (link to an existing release), `change_request_id` (skip auto-CR creation and link to one you already raised).
+
+#### Idempotency
+
+- **Builds** upsert on the tuple `(tenant_id, subsystem_id, git_sha, build_number)`. A replay with the same tuple updates the existing row — `pipeline_steps`, `jira_tickets`, `custom_fields`, `git_branch`, and the `build_started_at` / `build_finished_at` timestamps are **replaced wholesale** from the new payload, so always send the canonical view.
+- **Deployments** dedupe on the tuple `(tenant_id, event_id)`. Re-sending the same `event_id` with the same `status` is a no-op (the response carries `replayed: true`). Re-sending the same `event_id` with a *new* status (e.g. `started` → `success`) is allowed only along the legal transition graph; an illegal transition returns `409 Conflict`.
+
+Always generate a fresh UUID for `event_id` per logical deployment event, and reuse it on retries.
+
+#### What the webhook creates on first call
+
+When EnvManager has not seen the `event_id` before, a single call writes:
+
+1. A **Build** row (or updates the matching one).
+2. A **Deployment** row, linked to the build and the resolved environment.
+3. An auto-generated `code_deployment` **Change Request** titled `Deploy <sha8> → <env-slug>`, raised by the API-key owner.
+
+The auto CR is a placeholder so every deployment is auditable. To register the change manually first, send the existing `change_request_id` in the payload to skip auto-create; you can also swap the linked CR after the fact from the *Deployments* page (see user guide ch. 8).
+
+### Rotation and revocation guidance
+
+Treat keys as production secrets. Issue one per consumer so you can revoke a single integration without disrupting the rest, and audit the list quarterly — anything that has not authenticated in ninety days (check the *Last used* column) is a candidate for revocation. Set *Expires at* on short-lived projects so they self-retire.
 
 ## 11. Tenant settings
 
