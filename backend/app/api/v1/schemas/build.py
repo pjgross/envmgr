@@ -15,7 +15,7 @@ class BuildPayload(BaseModel):
     """Nested block inside the deployment webhook payload."""
     git_sha: str = Field(..., max_length=64)
     git_branch: Optional[str] = Field(None, max_length=255)
-    build_number: Optional[str] = Field(None, max_length=80)
+    build_number: str = Field(..., min_length=1, max_length=80)
     commit_timestamp: datetime
     build_started_at: Optional[datetime] = None
     build_finished_at: Optional[datetime] = None

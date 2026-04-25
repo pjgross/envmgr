@@ -90,3 +90,28 @@ async def test_webhook_wrong_scope(client, db_session, tenant, user):
         headers={"X-Api-Key": raw}, json=_body(),
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_missing_build_number(client, db_session, tenant, user):
+    raw = await _scaffold(db_session, tenant, user)
+    body = _body()
+    del body["build"]["build_number"]
+    r = await client.post(
+        "/api/v1/webhooks/deployment",
+        headers={"X-Api-Key": raw}, json=body,
+    )
+    assert r.status_code == 422
+    assert "build_number" in r.text
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_empty_build_number(client, db_session, tenant, user):
+    raw = await _scaffold(db_session, tenant, user)
+    body = _body()
+    body["build"]["build_number"] = ""
+    r = await client.post(
+        "/api/v1/webhooks/deployment",
+        headers={"X-Api-Key": raw}, json=body,
+    )
+    assert r.status_code == 422

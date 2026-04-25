@@ -571,7 +571,9 @@ curl -X POST http://localhost:8000/api/v1/webhooks/deployment \
   }'
 ```
 
-Optional top-level fields you may also send: `release_id` (link to an existing release), `change_request_id` (skip auto-CR creation and link to one you already raised).
+**Required build fields:** `git_sha`, `build_number`, `commit_timestamp`. **Optional build fields:** `git_branch`, `build_started_at`, `build_finished_at`, `jira_tickets`, `pipeline_steps`, `custom_fields`. Optional top-level fields: `release_id` (link to an existing release), `change_request_id` (skip auto-CR creation and link to one you already raised), `deployer_name`, `deployment_custom_fields`.
+
+> **Why `build_number` is required:** it is part of the build's identity tuple (see *Idempotency* below), so it determines whether two webhook calls with the same `git_sha` represent the same build (one Build row, one artefact deployed twice) or distinct builds (two Build rows — same code, two pipeline runs). Send a stable monotonic value from your CI: GitLab `CI_PIPELINE_ID`, GitHub Actions `${{ github.run_id }}`, Jenkins `${BUILD_NUMBER}`. The same value also gives you a direct lookup back to the build logs in your CI system.
 
 #### Idempotency
 
