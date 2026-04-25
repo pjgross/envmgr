@@ -644,7 +644,161 @@ Two paths — pick whichever is more direct.
 
 ## 11. Appendix: status lifecycles cheat sheet
 
-*To be drafted in Task 25.*
+This appendix collects the four entity lifecycles described in earlier chapters into a single quick-reference card. Booking, Change Request, and Release lifecycles are template-driven — your tenant Admin may have customised them. Deployment is the only fixed-enum lifecycle. Each diagram links back to the chapter where the entity is described in detail.
+
+### Booking
+
+A booking reserves an environment for a time window; see [ch. 5 (Booking environments)](#5-booking-environments) for walkthroughs and conflict rules. Six states on the default template.
+
+```
+            ┌─────────┐
+            │  draft  │  ◄──── (Return for Revision)
+            └────┬────┘                     ▲
+                 │ Submit                    │
+                 ▼                           │
+          ┌────────────┐                     │
+          │ submitted  │ ────────────────────┘
+          └─┬────────┬─┘
+   Approve  │        │  Reject
+            ▼        ▼
+       ┌────────┐  ┌──────────┐
+       │approved│  │ rejected │  (terminal)
+       └─┬────┬─┘  └──────────┘
+         │    │ Close
+         │    ▼
+         │  ┌────────┐
+         │  │ closed │  (terminal)
+         │  └────────┘
+         │
+         │ Request Extension
+         ▼
+  ┌──────────────────────┐  Approve Extension
+  │ extension_requested  │ ─────────────────► approved
+  └──────────┬───────────┘
+             │ Reject Extension
+             ▼
+          rejected
+```
+
+### Change Request
+
+A CR describes a planned change against environments or hosts; see [ch. 6 (Raising change requests)](#6-raising-change-requests). Three default templates ship with each tenant.
+
+*Simple Approval* (default human flow):
+
+```
+        ┌─────────┐
+        │  draft  │ ◄────────────── (Return for Revision)
+        └────┬────┘                          ▲
+             │ Submit                         │
+             ▼                                │
+       ┌───────────┐                          │
+       │ submitted │ ─────────────────────────┘
+       └─┬───────┬─┘
+ Approve │       │ Reject
+         ▼       ▼
+   ┌──────────┐ ┌──────────┐
+   │ approved │ │ rejected │  (terminal)
+   └─────┬────┘ └──────────┘
+         │ Mark Completed
+         ▼
+   ┌───────────┐
+   │ completed │  (terminal)
+   └───────────┘
+```
+
+*Emergency* (no approval gate):
+
+```
+   ┌───────┐  Start   ┌─────────────┐  Complete   ┌───────────┐
+   │ draft │ ───────▶ │ in_progress │ ──────────▶ │ completed │
+   └───────┘          └─────────────┘             └───────────┘
+                                                   (terminal)
+```
+
+*Code Deployment* (system-only, webhook-driven):
+
+```
+   ┌─────────┐  webhook    ┌──────────┐
+   │ created │ ──────────▶ │ deployed │  (terminal)
+   └────┬────┘             └──────────┘
+        │ webhook
+        ▼
+   ┌────────┐
+   │ failed │  (terminal)
+   └────────┘
+```
+
+### Release
+
+A release groups CRs, scope, gates, and deployments under a shippable unit; see [ch. 7 (Working with releases)](#7-working-with-releases). The lifecycle is picked by release *type*.
+
+*Major* (full ten-state flow):
+
+```
+     ┌─────┐  Submit   ┌──────────┐  Approve   ┌──────────┐
+     │draft│ ────────▶ │submitted │ ─────────▶ │ approved │
+     └──┬──┘           └─────┬────┘            └─────┬────┘
+        │                    │ Reject                │ Start Release
+        │                    ▼                       ▼
+        │              ┌──────────┐            ┌──────────────┐
+        │              │ rejected │            │ in_progress  │
+        │              └──────────┘            └──────┬───────┘
+        │                                             │ Mark Ready
+        │ Cancel                                      ▼
+        ▼                                ┌────────────────────┐
+  ┌──────────┐                           │ ready_for_release  │
+  │cancelled │                           └──┬─────────┬────┬──┘
+  └──────────┘                  Complete │       │ │ Back Out
+                                          ▼       ▼ ▼
+                              ┌──────────┐ ┌───────────────────────┐ ┌────────────┐
+                              │completed │ │completed_with_issues  │ │ backed_out │
+                              └──────────┘ └───────────────────────┘ └────────────┘
+```
+
+*Minor* (drops *submitted* — no approval gate):
+
+```
+     ┌─────┐  Approve   ┌──────────┐  Start Release   ┌──────────────┐
+     │draft│ ─────────▶ │ approved │ ───────────────▶ │ in_progress  │
+     └──┬──┘            └──────────┘                  └──────┬───────┘
+        │                                                    │ Mark Ready
+        │ Cancel                                             ▼
+        ▼                                       ┌────────────────────┐
+  ┌──────────┐                                  │ ready_for_release  │
+  │cancelled │                                  └──┬─────────┬────┬──┘
+  └──────────┘                         Complete │       │ │ Back Out
+                                                 ▼       ▼ ▼
+                              ┌──────────┐ ┌───────────────────────┐ ┌────────────┐
+                              │completed │ │completed_with_issues  │ │ backed_out │
+                              └──────────┘ └───────────────────────┘ └────────────┘
+```
+
+*Emergency* (drops *submitted* and *ready_for_release*):
+
+```
+     ┌─────┐  Approve   ┌──────────┐  Start Release   ┌──────────────┐
+     │draft│ ─────────▶ │ approved │ ───────────────▶ │ in_progress  │
+     └──┬──┘            └──────────┘                  └──┬─────────┬─┘
+        │                                       Complete │         │ Back Out
+        │ Cancel                                         ▼         ▼
+        ▼                              ┌──────────┐ ┌───────────────────────┐ ┌────────────┐
+  ┌──────────┐                         │completed │ │completed_with_issues  │ │ backed_out │
+  │cancelled │                         └──────────┘ └───────────────────────┘ └────────────┘
+  └──────────┘
+```
+
+### Deployment
+
+A deployment is a build landing on an environment instance; see [ch. 8 (Builds and deployments)](#8-builds-and-deployments). All transitions come from the CI webhook — this is the only fixed-enum lifecycle.
+
+```
+ pending --> in_progress --+--> success --+--> rolled_back
+                            |              |
+                            `--> failed ---'
+```
+
+Lifecycle templates are defined per tenant; see [admin guide ch. 8](admin-guide.md#8-configuring-change-kinds-and-gates) for editing change kinds and the lifecycle templates the system seeds.
 
 ---
 
