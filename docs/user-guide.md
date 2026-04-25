@@ -583,7 +583,64 @@ The *Verify environment* action on the *Overview* tab populates the mocked / not
 
 ## 10. Tips and common workflows
 
-*To be drafted in Task 24.*
+These recipes chain steps from earlier chapters — refer back to chapters 4–9 for the underlying screens. Each scenario assumes you have the relevant role or template permissions; if a button isn't visible, your tenant's lifecycle template may have role-restricted that step.
+
+### Recipe 1: I'm releasing a hotfix
+
+1. From `/releases`, click *New Release* (top right).
+2. In the *New Release* dialog: *Kind* = *Project*, *Type* = *Emergency* (the *Emergency* template skips *submitted* and *ready_for_release* for fast-track), *Name* = e.g. `2026-04-25-hotfix-payments-401`, *Target Date* = today. Click *Create Release*.
+3. The release lands in *draft* on the detail page.
+4. On the *Scope* tab, click *Add Item* and describe the fix. Pick a *change_kind* (typically *defect*) — see admin guide ch. 8 for what counts as a scope change once you leave *draft*.
+5. On the *Environments* tab, attach the production environment.
+6. *(Optional)* On the *Linked Requests* tab, link a pre-existing CR. If you skip this, the deployment webhook will auto-create a `code_deployment` CR.
+7. Back on *Main*, click the *Emergency* template's first transition (typically *Start Release*) — *draft → in_progress*.
+8. Trigger your CI pipeline. CI calls `POST /api/v1/webhooks/deployment` (admin guide ch. 10). EnvManager upserts the Build, creates the Deployment, and (if you skipped step 6) auto-creates the CR. The Deployment appears on the release's *Deployments* tab.
+9. On *Gates & Test Phases*, mark gates *passed* via *Decide*, then transition through to *completed* on *Main*. Gates are UX cues, not enforced preconditions (see ch. 7).
+
+### Recipe 2: I need to book UAT for a 2-week test cycle
+
+1. Open `/bookings/calendar` and click *New Booking* in the top toolbar (or open `/bookings/list` and click *+ New Booking* in the top-right).
+2. Fill the *New Booking Request* dialog:
+   - *Environments* — multi-select; pick UAT (add other envs if your test campaign needs them).
+   - *Project Name* — your project or test cycle name; this is what shows on the calendar.
+   - *Booking Type* — picks the lifecycle template; defaults to *Standard Booking*.
+   - *Start Date & Time* / *End Date & Time* — your two-week window.
+   - *Context Tag* — *None* / *Deployment* / *Regression*.
+   - *Exclusive use requested* — toggle on if you need the env locked to your team for the window.
+   - *Delegates (optional)* — other tenant users who can act on the booking on your behalf.
+   - *Notes* and any custom fields the booking type exposes.
+3. Click *Create Booking*. The booking is saved in *draft* (the dialog banner confirms this).
+4. Open the booking detail (click the calendar block, or the row on `/bookings/list`) and click *Submit* — state moves to *submitted*, awaiting an Admin or Release Manager.
+5. If the live conflict preview flagged an exclusive overlap, creation will have failed with HTTP 409 — pick a different window, drop the exclusive flag, or coordinate with the existing booker.
+6. If your work overruns once approved, click *Request Extension* on the per-env panel, edit the end-date via *Edit dates*, add a justification, and wait for an Admin or Release Manager to *Approve Extension* (see ch. 5).
+
+### Recipe 3: My deployment failed — where do I look?
+
+1. Open `/deployments`. Set *Status* = `failed` and *Environment* = the affected env (substring match). Click the *Deployed at* column header to sort descending.
+2. Click into the failing deployment.
+3. Read the header: *Environment*, linked *Release*, *Deployed* timestamp, *by* deployer name, and the status chip — *failed* (or *rolled_back* if a recovery rollout followed).
+4. In the *Build* card, click *View full build* to jump to `/builds/:id`. The *Pipeline steps* section shows one row per step with status and duration — the first non-success step is your starting point.
+5. Pivot back to the deployment and click into the *Change request* card. If it's the auto-created `Code Deployment` CR, the title anchors what was being deployed; the CR's status will have auto-transitioned to *failed* per the deployment lifecycle (ch. 8).
+6. If CI re-runs the deployment, the new event upserts the same Build (matched on subsystem + git_sha) and creates a fresh Deployment row keyed on `event_id`. The failed row stays in history.
+7. To swap the auto-CR for a human-authored RFC, click *Link a different change request* on the *Change request* card. The button greys out after one swap.
+
+### Recipe 4: I want to see what changed in production last week
+
+Two paths — pick whichever is more direct.
+
+**Path A: deployments feed.** Best when you want a clean roll-up of just deployments.
+
+1. Open `/deployments`. Set *Environment* = your production env and *Status* = `success`.
+2. Click the *Deployed at* column header to sort descending. Scroll down to a week ago — there is no built-in date-range filter today, so the sort is the way to scope.
+3. Each row's *Build* column shows the eight-character SHA of the deployed commit; click into the deployment to pivot to the build (commit SHA, branch, and any Jira tickets the webhook attached) via *View full build*.
+4. The *Change request* column links to the CR-of-record for that deployment — the auto-`Code Deployment` CR by default, or a human-authored CR if someone relinked it. The *Release* column tells you whether the deployment was part of a coordinated release or an ad-hoc roll-out.
+
+**Path B: per-environment schedule.** Best when you want bookings, change requests, and deployments together for context.
+
+1. Open `/environments` and click your production env.
+2. Switch to the *Schedule* tab — bookings, change requests, and deployments are overlaid on one calendar (Phase 4 Sub-2).
+3. Page back to the last 7 days. Each deployment block links to its detail page; bookings and CRs in the same window give you the why-context (was someone testing? was a config change running?).
+4. The *Deployments* tab on the same env page is the unfiltered feed for that environment if you'd rather scroll a list than read a calendar.
 
 ## 11. Appendix: status lifecycles cheat sheet
 
