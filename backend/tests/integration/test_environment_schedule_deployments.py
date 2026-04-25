@@ -51,4 +51,6 @@ async def test_schedule_includes_deployments(client, auth_headers, db_session, t
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert any(d["id"] == dep.id for d in body["deployments"])
+    matching = next(d for d in body["deployments"] if d["id"] == dep.id)
+    assert matching["build_sha_short"] == "a" * 8
+    assert matching["status"] == "success"
