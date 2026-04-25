@@ -1,6 +1,6 @@
 # Phase 4 Sub-2 — Frontend: Build + Deployment UI + API keys
 
-**Status:** Draft — awaiting user review
+**Status:** Implemented on `feature/phase-4-sub2-frontend` — awaiting MR merge
 **Date:** 2026-04-24
 **Phase:** Phase 4 (CI/CD Deployment Tracking), sub-project 2 of 2
 
