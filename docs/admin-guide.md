@@ -418,7 +418,45 @@ Hosts get attached to instances on the *Components* tab of an environment — se
 
 ## 8. Configuring change kinds and gates
 
-*To be drafted in Task 9.*
+### Concept
+
+A **change kind** is a tenant-configurable category of work that flows through a release — `story`, `defect`, `task`, `spike`, plus anything you add yourself. Kinds drive which scope items show up on a release's *Scope* tab, and whether a particular kind *counts as a scope change* for the rolled-up scope-churn metric. They also discriminate custom-field definitions, so you can attach (say) a `severity` field that only appears on items of kind `defect`.
+
+A **gate** is a checkpoint on a single release that must be cleared before the release advances — *UAT sign-off*, *Security review*, *CAB approval*. Each gate carries a required `due_date` (an absolute timestamp, not a relative offset) and a list of *criteria*. Gates block release transitions until cleared, and the `due_date` renders as a status-coloured diamond on the release timeline.
+
+### Walkthrough: managing change kinds
+
+The change-kind admin UI lives at `/admin/scope-change-rules` — page component `TenantScopeChangeRules`. Every new tenant is seeded with four kinds:
+
+| Kind | Counts as scope change |
+|------|------------------------|
+| `story` | yes |
+| `defect` | no |
+| `task` | no |
+| `spike` | no |
+
+To add a kind:
+
+1. Navigate to `/admin/scope-change-rules`.
+2. In the *Add a new change kind* panel, type a slug into the *Kind* field. Allowed: lowercase letters, digits, `_` and `-`, up to 20 characters. Examples: `chore`, `epic`, `migration`.
+3. Click *Add*. The new kind appears in the rules table with *Counts as scope change* off.
+4. Toggle the switch on if items of this kind should contribute to the rolled-up scope-change metric.
+5. Click *Save* to persist all pending changes in one batch.
+
+> **Not yet available:** the UI has no rename, archive, or delete control — once a kind exists, the only switch you can flip is *Counts as scope change*. To remove or relabel a kind today, edit `scope_change_kind_rule` directly; the admin API at `PUT /api/v1/tenant/scope-change-rules` only upserts. A full CRUD page is on the backlog.
+
+### Walkthrough: configuring gates
+
+There is **no tenant-level gate library**. Gates exist in two places only:
+
+- **On a release template** — the template's `gates` JSON array carries a skeleton that is materialised into real gate rows when a release is created from the template. Edit the skeleton from the *Release Templates* admin page — see ch. 9.
+- **On a release** — the *Plan* tab on any release has a *Gates* section. Click *Add Gate*, fill *Name* (e.g. *UAT Sign-off*) and *Due date* (a calendar picker — required, stored as an absolute UTC timestamp), then *Create*. Each gate can carry one or more *criteria*, each assignable to a user and toggleable as *open* or *done*.
+
+A release cannot advance while any gate is pending or has open criteria past `due_date`. Gate dates render on the release Gantt as coloured diamonds — slate pending, green passed, red failed, amber overridden — so missed milestones jump out.
+
+### Tips
+
+Keep the change-kind list short — three to six is plenty. Use kind-scoped custom fields rather than free-text fields for any value you'll later filter or report on. Pre-define gates on release templates so each new release starts with the same readiness checklist, and override only when a release genuinely deviates.
 
 ## 9. Release templates
 
