@@ -226,7 +226,67 @@ Master-admin elevation lives in [ch. 2](#2-provisioning-a-new-tenant-master-admi
 
 ## 5. Modelling your platform: systems and subsystems
 
-*To be drafted in Task 6.*
+### Concept
+
+A **System** is a product or app at the business level — *Payments*, *Identity*, *Search*. A **Subsystem** is one deployable unit of that product — *payments-api*, *payments-web*, *payments-worker*. One System contains many Subsystems.
+
+```
+System "Payments"
+  ├── Subsystem: payments-api
+  ├── Subsystem: payments-web
+  └── Subsystem: payments-worker
+```
+
+Modelling both layers is what makes EnvManager useful: business-level rollups (the *Payments* release, the *Payments* DORA scores) live on the System, while deployable-unit tracking (which build of *payments-api* is in *staging*) lives on the Subsystem. Get the split right at the start of onboarding — re-parenting subsystems later is fiddly.
+
+### Walkthrough: creating a system
+
+1. Navigate to `/systems`. The page is titled *System Catalog*.
+2. Click *New System* in the page header.
+3. Fill the *New System* dialog:
+   - *Name* — required, e.g. `Payments`.
+   - *Description* — free text, multi-line.
+   - *GitHub Repository URL* — optional, e.g. `https://github.com/org/payments`. Surfaces as a *GitHub* chip on the catalog row.
+   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured under tenant settings (see [ch. 11](#11-tenant-settings)).
+4. Click *Create*. The system appears in the catalog. Click its row to open `/systems/:id`.
+
+There is no slug field — the system is referenced by its numeric id in the URL.
+
+### Walkthrough: adding subsystems
+
+Subsystems live on the system detail page, not in the global navigation. From `/systems/:id`, switch to the *SubSystems* tab and click *Add SubSystem*. The *Add SubSystem* dialog asks for:
+
+- *Name* — required, e.g. `payments-api`.
+- *Description* — free text.
+- *Component Type* — one of *Web Service*, *API Gateway*, *Database*, *Cache*, *Message Queue*, *Worker*, *Frontend*, *Other*. Drives the colour and label of the topology node.
+- *Technology* — free text, e.g. `FastAPI`, `PostgreSQL 15`.
+- Tenant-defined custom fields for the *subsystem* entity, if any.
+
+Each subsystem belongs to exactly one system; the parent is fixed by the page you are on.
+
+Two import shortcuts also live on this tab — *Import Docker Compose* and *Import Terraform* — for bulk-loading subsystems from an existing repo. They are covered in [ch. 12](#12-importexport).
+
+### System dependencies vs component dependencies
+
+EnvManager models dependencies at both layers, on two separate tabs of the system detail page.
+
+- **System dependency** — *Dependencies* tab. A link from this **system** to another system: *Payments depends on Identity*. Click *Add Dependency*, pick a *Target System*, choose a *Dependency Type* (*API Call*, *Database*, *Message Queue*, *Event*, *File*, *Other*) and a *Direction* (*One-way* or *Two-way*). The table shows incoming and outgoing edges side by side.
+- **Component dependency** — *Component Deps* tab. A link from one **subsystem** to another, possibly in a different system: *payments-api depends on identity-api*. *Add Component Dependency* asks for *From SubSystem* (constrained to this system's subsystems), *To SubSystem* (any subsystem in the tenant), *Type*, and *Direction*. Editing a component dependency lets you record *Protocol*, *Port*, and individual API *Endpoints* (HTTP method + path + description).
+
+Rule of thumb: declare a system dependency once you know two products talk to each other; add component dependencies as you learn which specific services carry that traffic. System dependencies drive impact rollups; component dependencies drive the topology diagram.
+
+### Reading the topology view
+
+The *Topology* tab on the system detail page renders a graph using React Flow. Each subsystem is a rectangular node, outlined and chip-coloured by component type — *Web Service* green, *API Gateway* teal, *Database* blue, *Cache* amber, *Message Queue* purple, *Worker* orange, *Frontend* indigo, *Other* grey. Subsystems of the current system are grouped inside a labelled box; subsystems of any system referenced by a component dependency appear as a second group alongside.
+
+Edges are component dependencies. The arrow points from dependent to dependency (`from → to`); two-way dependencies have arrowheads on both ends. The edge label is the dependency type (or its custom label, if set). Click an edge to open a detail pane with the protocol, port, and endpoint list; click again to deselect. Pan and zoom controls plus a minimap are provided. Nodes are not draggable.
+
+> **Not yet available:** clicking a subsystem node does not navigate or open a detail pane — only edge clicks are wired up.
+
+### Tips
+
+- Keep the System/Subsystem split honest: one System per shippable product. Resist the urge to model an internal library as its own System.
+- Each Subsystem should map 1:1 to a CI build target — *payments-api* corresponds to one build pipeline. This pairing matters for the deployment webhook (see [ch. 10](#10-api-keys-and-webhooks)).
 
 ## 6. Modelling environments
 
