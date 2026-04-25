@@ -50,7 +50,65 @@ See ch. 13 (Appendix: role permission matrix) for the full route × role × {rea
 
 ## 2. Provisioning a new tenant *(Master Admin only)*
 
-*To be drafted in Task 3.*
+### Master Admin scope
+
+A Master Admin is a cross-tenant operator. The role exists to stand up new tenants, seed each tenant's first Admin, and step in for support — nothing more. It is not a senior version of *Admin*: a tenant Admin owns one tenant; a Master Admin operates *across* tenants. Master Admin status is a flag (`is_master_admin`) on the user, not a separate role; the user still carries an ordinary tenant role for their own home tenant. Master Admins live in the dedicated `system` tenant. The seeded password below is a development default and **must be rotated before any production use** — see ch. 4 for password reset.
+
+### Logging in as the master admin
+
+The seeded credentials, created by `backend/scripts/seed_master_admin.py`, are:
+
+- **Tenant slug**: `system`
+- **Username**: `masteradmin`
+- **Password**: `masteradmin123`
+
+Open the standard login page, enter the tenant slug `system` along with the username and password, and submit. After logging in, change the password immediately via the user menu — the seeded value is public knowledge and is unsuitable for any environment beyond local development.
+
+### Walkthrough: creating a new tenant
+
+1. Navigate to `/admin/tenants`. The route is gated to Master Admins; tenant Admins do not see it.
+2. Click *New Tenant* in the page header.
+3. Fill the *Create Tenant* dialog:
+   - *Name* — the human-readable tenant name (e.g. `Acme Corp`).
+   - *Slug* — the URL-friendly identifier the helper text describes as "URL-friendly identifier (e.g. acme-corp)". Use lowercase letters, digits, and hyphens; the slug becomes part of every login.
+4. Click *Create*. The new tenant appears in the tenant table with *Status* `Active`.
+
+### Walkthrough: creating the first Tenant Admin
+
+1. From `/admin/tenants`, click the tenant's name in the *Name* column to open `/admin/tenants/:tenantId`.
+2. In the *Users* section, click *Create User* and fill the dialog:
+   - *Username*
+   - *Email*
+   - *Password*
+   - *Role* — choose *Admin* (the selector also offers *Viewer*, *Developer*, *Test Manager*, *Release Manager*).
+   - *Master Admin (cross-tenant access)* checkbox — leave **unchecked** for an ordinary tenant Admin.
+3. The first user must have role *Admin*. Only *Admin* can manage other users in that tenant, configure entity types, gates, change kinds, and tenant settings — without one, the tenant cannot be onboarded.
+4. Click *Create*. The new user appears in the user table with *Status* `Active`. They can now log in using the tenant slug plus their credentials, and chapter 3 onward applies to them.
+
+### Walkthrough: signing in as a tenant
+
+The *Sign In As* action lives on each row of the `/admin/tenants` table. Clicking it issues an impersonation token: your session adopts the target tenant's `active_tenant_id`, so every page renders exactly as that tenant's Admin would see it. Use it for support, smoke-testing a freshly provisioned tenant, or troubleshooting a reported issue. While impersonating, a sticky warning banner reads "Viewing as *<tenant name>*. Exit to return to your account." Click *Exit* in that banner to drop the impersonation token and return to your master-admin context.
+
+### Walkthrough: disabling a tenant
+
+The *Disable* action also lives on each row of the `/admin/tenants` table, beside *Sign In As*, and only appears while the tenant is *Active*. Clicking it asks for confirmation ("Disable this tenant? All users will lose access.") and then sets the tenant inactive: every user in that tenant is locked out at login, but no data is deleted. To re-enable a disabled tenant, use the `PATCH /api/v1/admin/tenants/{tenant_id}` endpoint to set `is_active=true`; a UI re-enable control is not yet available. You cannot disable your own tenant.
+
+### Provisioning flow at a glance
+
+```
+masteradmin login (system tenant)
+        │
+        ▼
+  /admin/tenants ── New Tenant ──▶ tenant created
+        │
+        ▼
+/admin/tenants/:id ── New User (role=Admin) ──▶ first Tenant Admin
+        │
+        ▼
+   Sign in as tenant ──▶ tenant Admin starts ch. 3 onward
+```
+
+From here, the tenant Admin takes over — see [chapter 3](#3-onboarding-your-tenant).
 
 ## 3. Onboarding your tenant
 
