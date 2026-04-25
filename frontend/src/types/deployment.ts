@@ -16,6 +16,7 @@ export interface Deployment {
   release_id: number | null;
   release_name: string | null;
   change_request_id: number;
+  change_request_title: string | null;
   event_id: string;
   deployer_name: string | null;
   deployed_at: string;

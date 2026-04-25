@@ -26,20 +26,23 @@ def _deployment_to_read(
     build_sha: Optional[str],
     environment_name: Optional[str],
     release_name: Optional[str],
+    cr_title: Optional[str],
 ) -> DeploymentRead:
     payload = {c.name: getattr(dep, c.name) for c in dep.__table__.columns}
     payload["build_sha_short"] = build_sha[:8] if build_sha else None
     payload["environment_name"] = environment_name
     payload["release_name"] = release_name
+    payload["change_request_title"] = cr_title
     return DeploymentRead.model_validate(payload)
 
 
 def _select_with_joins():
     return (
-        select(Deployment, Build.git_sha, Environment.name, Release.name)
+        select(Deployment, Build.git_sha, Environment.name, Release.name, ChangeRequest.title)
         .outerjoin(Build, Build.id == Deployment.build_id)
         .outerjoin(Environment, Environment.id == Deployment.environment_id)
         .outerjoin(Release, Release.id == Deployment.release_id)
+        .outerjoin(ChangeRequest, ChangeRequest.id == Deployment.change_request_id)
     )
 
 
@@ -74,7 +77,10 @@ async def list_deployments(
         q = q.where(Deployment.deployed_at <= date_to)
     q = q.order_by(Deployment.deployed_at.desc()).limit(limit).offset(offset)
     rows = (await db.execute(q)).all()
-    return [_deployment_to_read(d, sha, env_name, rel_name) for d, sha, env_name, rel_name in rows]
+    return [
+        _deployment_to_read(d, sha, env_name, rel_name, cr_title)
+        for d, sha, env_name, rel_name, cr_title in rows
+    ]
 
 
 @router.get("/{deployment_id}", response_model=DeploymentRead)
@@ -92,8 +98,8 @@ async def get_deployment(
     )).one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Deployment not found")
-    dep, sha, env_name, rel_name = row
-    return _deployment_to_read(dep, sha, env_name, rel_name)
+    dep, sha, env_name, rel_name, cr_title = row
+    return _deployment_to_read(dep, sha, env_name, rel_name, cr_title)
 
 
 @router.post("/{deployment_id}/link-change", response_model=DeploymentRead)
@@ -144,8 +150,8 @@ async def link_change(
     row = (await db.execute(
         _select_with_joins().where(Deployment.id == dep.id)
     )).one()
-    d, sha, env_name, rel_name = row
-    return _deployment_to_read(d, sha, env_name, rel_name)
+    d, sha, env_name, rel_name, cr_title = row
+    return _deployment_to_read(d, sha, env_name, rel_name, cr_title)
 
 
 @env_sub_router.get("/{environment_id}/deployments", response_model=list[DeploymentRead])
@@ -160,4 +166,7 @@ async def list_environment_deployments(
         Deployment.deleted_at.is_(None),
     ).order_by(Deployment.deployed_at.desc())
     rows = (await db.execute(q)).all()
-    return [_deployment_to_read(d, sha, env_name, rel_name) for d, sha, env_name, rel_name in rows]
+    return [
+        _deployment_to_read(d, sha, env_name, rel_name, cr_title)
+        for d, sha, env_name, rel_name, cr_title in rows
+    ]

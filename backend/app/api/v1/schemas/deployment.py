@@ -34,6 +34,7 @@ class DeploymentRead(BaseModel):
     release_id: Optional[int]
     release_name: Optional[str] = None
     change_request_id: int
+    change_request_title: Optional[str] = None
     event_id: UUID
     deployer_name: Optional[str]
     deployed_at: datetime

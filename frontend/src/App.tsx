@@ -33,6 +33,7 @@ import TenantScopeChangeRules from './pages/admin/TenantScopeChangeRules';
 import ApiKeyManagement from './pages/admin/ApiKeyManagement';
 import BuildList from './pages/builds/BuildList';
 import BuildDetail from './pages/builds/BuildDetail';
+import DeploymentList from './pages/deployments/DeploymentList';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
@@ -148,6 +149,7 @@ function App() {
           />
           <Route path="/builds" element={<BuildList />} />
           <Route path="/builds/:id" element={<BuildDetail />} />
+          <Route path="/deployments" element={<DeploymentList />} />
           <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
           <Route path="/import" element={<ImportPage />} />
           <Route
