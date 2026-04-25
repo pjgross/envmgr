@@ -71,7 +71,9 @@ const navItems: NavItem[] = [
       { label: 'List', path: '/bookings/list', icon: <ListIcon /> },
     ],
   },
+  { label: 'Builds', path: '/builds', icon: <BuildIcon /> },
   { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
+  { label: 'Deployments', path: '/deployments', icon: <RocketLaunchIcon /> },
   {
     label: 'Releases',
     icon: <RocketLaunchIcon />,

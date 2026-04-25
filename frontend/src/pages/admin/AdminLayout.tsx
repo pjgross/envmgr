@@ -17,12 +17,14 @@ import LanguageIcon from '@mui/icons-material/Language';
 import EventIcon from '@mui/icons-material/Event';
 import CategoryIcon from '@mui/icons-material/Category';
 import BuildIcon from '@mui/icons-material/Build';
+import VpnKeyIcon from '@mui/icons-material/VpnKey';
 
 const DRAWER_WIDTH = 220;
 
 const adminNavItems = [
   { label: 'General Settings', path: '/tenant/settings', icon: <SettingsIcon fontSize="small" /> },
   { label: 'User Management', path: '/tenant/users', icon: <PeopleIcon fontSize="small" /> },
+  { label: 'API keys', path: '/tenant/api-keys', icon: <VpnKeyIcon fontSize="small" /> },
 ];
 
 const entityNavItems = [
@@ -52,6 +54,16 @@ const entityNavItems = [
   {
     label: 'Release scope item',
     path: '/admin/config/release-change',
+    icon: <BuildIcon fontSize="small" />,
+  },
+  {
+    label: 'Builds',
+    path: '/admin/config/build',
+    icon: <BuildIcon fontSize="small" />,
+  },
+  {
+    label: 'Deployments',
+    path: '/admin/config/deployment',
     icon: <BuildIcon fontSize="small" />,
   },
   {

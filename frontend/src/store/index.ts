@@ -1,11 +1,14 @@
 import { configureStore } from '@reduxjs/toolkit';
 import authReducer from './authSlice';
 import adminReducer from './adminSlice';
+import apiKeyReducer from './apiKeySlice';
+import buildReducer from './buildSlice';
 import tenantAdminReducer from './tenantAdminSlice';
 import systemReducer from './systemSlice';
 import environmentReducer from './environmentSlice';
 import dependencyReducer from './dependencySlice';
 import bookingReducer from './bookingSlice';
+import deploymentReducer from './deploymentSlice';
 import bookingRequestReducer from './bookingRequestSlice';
 import versionReducer from './versionSlice';
 import customFieldReducer from './customFieldSlice';
@@ -26,10 +29,13 @@ export const store = configureStore({
     auth: authReducer,
     ui: uiReducer,
     admin: adminReducer,
+    apiKey: apiKeyReducer,
+    build: buildReducer,
     tenantAdmin: tenantAdminReducer,
     system: systemReducer,
     environment: environmentReducer,
     dependency: dependencyReducer,
+    deployment: deploymentReducer,
     booking: bookingReducer,
     bookingRequest: bookingRequestReducer,
     version: versionReducer,

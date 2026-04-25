@@ -30,7 +30,9 @@ class BuildRead(BaseModel):
     id: int
     tenant_id: int
     subsystem_id: int
+    subsystem_name: Optional[str] = None
     release_id: Optional[int]
+    release_name: Optional[str] = None
     git_sha: str
     git_branch: Optional[str]
     build_number: Optional[str]

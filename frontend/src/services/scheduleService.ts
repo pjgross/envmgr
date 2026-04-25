@@ -23,14 +23,25 @@ export interface ScheduleChangeRequest {
   outage_end: string | null;
 }
 
+export interface ScheduleDeployment {
+  id: number;
+  build_id: number;
+  build_sha: string;
+  build_sha_short: string;
+  release_id: number | null;
+  change_request_id: number;
+  status: string;
+  deployed_at: string;
+  deployer_name: string | null;
+}
+
 export interface EnvironmentScheduleResponse {
   environment_id: number;
   start_date: string;
   end_date: string;
   bookings: ScheduleBooking[];
   change_requests: ScheduleChangeRequest[];
-  /** Phase 4 will populate; always empty today. */
-  deployments: unknown[];
+  deployments: ScheduleDeployment[];
 }
 
 export const scheduleService = {
