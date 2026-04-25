@@ -1,139 +1,99 @@
 # Phase 4: Build Tracking + CI/CD Deployment Tracking
 
-> Status: ⏳ **Planned** | Roadmap: [../plan.md](../plan.md)
-> Duration: 6–8 weeks | Starts after Phase 3 completion
+> Status: ✅ **Sub-1 (backend) merged** via MR !20 on 2026-04-23 · ✅ **Sub-2 (frontend + API keys) merged** via MR !21 on 2026-04-25 (merge commit `d802797`) | Roadmap: [../plan.md](../plan.md)
+> Both sub-projects on `main`. After the post-merge banner update (MR !22), main tip = `dc5ca92`. Latest alembic revision = `p4s1builddeploy`.
+> Backend tests on main: **601 passed, 1 skipped**. Frontend typecheck: clean.
 
 ---
 
-## Objectives
+## Sub-project 1 — Backend (Build, Deployment, webhook ingest, code-deployment auto-CR) ✅ Merged
 
-- Build entity: versioned software artifact (git SHA, branch, Jira tickets, pipeline steps) — primary DORA data source
-- Deployment ingestion from **GitHub Actions** (primary CI/CD tool)
-- Link deployments to builds, releases, and change requests
-- Automatically update `EnvironmentSubSystemVersion` on successful deployment
-- `Deployment.status = rolled_back` triggers optional incident creation prompt
-- API key authentication for CI/CD integrations (required for webhook security)
-- Extend Phase 2 unified schedule to include deployment events
+Delivered via **MR !20** on 2026-04-23.
 
----
+| Artefact | Path |
+|----------|------|
+| Spec | `docs/superpowers/specs/2026-04-23-phase-4-sub1-build-deployment-design.md` |
+| Plan | `docs/superpowers/plans/2026-04-23-phase-4-sub1-build-deployment.md` |
+| Migration | `p4s1builddeploy` |
 
-## Backend Tasks
+### What's delivered
 
-### Data Models & Migrations
+**Data models**
+- `ApiKey` — `key_hash` (SHA-256 of the raw secret), `name`, `scopes` (JSONB), `created_by`, `last_used_at`, `expires_at`, soft-delete; raw key shown once on creation, never persisted.
+- `Build` — `subsystem_id`, `release_id`, `git_sha`, `git_branch`, `build_number`, `commit_timestamp`, `build_started_at` / `build_finished_at`, `jira_tickets` (JSONB), `pipeline_steps` (JSONB), `custom_fields`, soft-delete.
+- `Deployment` — `build_id`, `environment_id`, `release_id`, `change_request_id` (NOT NULL), `event_id` (UUID, idempotency key), `deployer_name`, `deployed_at`, `completed_at`, `status` (`pending | in_progress | success | failed | rolled_back`), `custom_fields`, soft-delete.
+- `event_id` modelled as `String(36)` (SQLite test compatibility); enums use `native_enum=False`.
 
-- [ ] `ApiKey` model (`backend/app/db/models/api_key.py`)
-  - Fields: `key_hash` (SHA-256 of the raw key), `name` (label for display), `tenant_id`, `scopes` (JSONB array of allowed endpoint patterns), `created_by` (user_id), `last_used_at`, `expires_at` (nullable), `deleted_at`
-  - Raw key is shown once on creation and never stored; only the hash is persisted
+**Services**
+- `api_key_service` — `create_key` (returns ORM row + raw secret), `list_keys`, `revoke_key`, `authenticate`.
+- `build_service` — `upsert_by_sha` keyed by `(tenant_id, subsystem_id, git_sha)`; merges `pipeline_steps` and `custom_fields` on replay.
+- `deployment_service.ingest` — idempotent on `event_id` (replay returns the original record); resolves system/subsystem/environment by slug; auto-creates a `code_deployment` ChangeRequest via the seeded `Code Deployment` lifecycle template if no `change_request_id` supplied; transitions the linked CR (`deploying → deployed | failed`) and records a row in `change_history` for that transition.
+- `EnvironmentService.get_environment_schedule` populates the `deployments[]` array (placeholder shape introduced in Phase 2).
 
-- [ ] `Build` model (`backend/app/db/models/build.py`)
-  - Fields: `system_id` (FK → System), `release_id` (nullable FK → Release), `git_sha`, `branch`, `build_number`, `commit_timestamp` (datetime — critical for DORA Lead Time calculation), `jira_tickets` (JSONB array of Jira issue keys), `pipeline_steps` (JSONB array: `{name, status, started_at, finished_at}`), `tenant_id`, `deleted_at`
+**API endpoints**
+- `POST /api/v1/webhooks/deployment` — authenticated by API key (`X-Api-Key` header) with `webhooks:deployment` scope.
+- `GET /api/v1/api-keys`, `POST /api/v1/api-keys`, `DELETE /api/v1/api-keys/{id}`.
+- `GET /api/v1/builds` (filters: `subsystem_id`, `release_id`, `branch`, date range), `GET /api/v1/builds/{id}`.
+- `GET /api/v1/deployments` (filters: `environment_id`, `release_id`, `build_id`, `status`, date range), `GET /api/v1/deployments/{id}`, `POST /api/v1/deployments/{id}/link-change`, `GET /api/v1/environments/{id}/deployments`.
 
-- [ ] `Deployment` model (`backend/app/db/models/deployment.py`)
-  - Fields: `environment_id` (FK → Environment), `release_id` (nullable FK → Release), `build_id` (FK → Build), `change_request_id` (nullable FK → ChangeRequest — phase 4 adds this FK; links deployment to its associated change request), `deployer` (user_id or CI/CD system name), `deployed_at` (datetime), `status` (enum: `pending | in_progress | success | failed | rolled_back`), `tenant_id`, `deleted_at`
-  - Deployment linking modes:
-    - **Automated**: `DeploymentService.ingest()` auto-creates a `ChangeRequest` (type = `code_deployment`) and sets `change_request_id`
-    - **Manual**: CI/CD caller can pass an existing `change_request_id` in the webhook payload to link to a pre-existing change
+**Auth**
+- `verify_api_key` dependency for the webhook endpoint; user JWT path unchanged.
 
-- [ ] Phase 4 migration also adds FK constraint for `EnvironmentSubSystemVersion.build_id` → `Build` (column was created in Phase 1 migration without constraint)
-
-- [ ] Alembic migrations for all new tables
-
-### Service Layer
-
-- [ ] `ApiKeyService` (`backend/app/services/api_key_service.py`)
-  - `create_key(tenant_id, name, scopes)` — generates raw key (returned once), stores hash
-  - `authenticate(raw_key)` → `ApiKey` or raise 401
-  - `revoke_key(tenant_id, key_id)`
-  - `list_keys(tenant_id)`
-
-- [ ] `BuildService` (`backend/app/services/build_service.py`)
-  - `create_build(tenant_id, data)` — registers a new build artifact
-  - `get_build(tenant_id, build_id)`
-  - `list_builds(tenant_id, filters)` — by system, release, branch, date range
-
-- [ ] `DeploymentService` (`backend/app/services/deployment_service.py`)
-  - `ingest(tenant_id, payload)` — entry point for GitHub Actions webhook; creates/updates Deployment record
-  - `link_change_request(tenant_id, deployment_id, change_request_id)` — manual linking
-  - `auto_create_change_request(tenant_id, deployment)` — creates a `code_deployment` ChangeRequest and links it
-  - `on_success(tenant_id, deployment_id)` — updates `EnvironmentSubSystemVersion` with the new build
-  - `on_rollback(tenant_id, deployment_id)` — emits `DeploymentRolledBack` event (notification consumers can prompt incident creation)
-  - `list_deployments(tenant_id, filters)` — by environment, release, build, status, date range
-  - `get_environment_deployments(tenant_id, env_id, start_date, end_date)` — for schedule endpoint extension
-
-- [ ] Extend `EnvironmentService.get_environment_schedule()` (Phase 2) to include deployments in the response (populates the `deployments: []` array introduced in Phase 2)
-
-### Authentication
-
-- [ ] `ApiKeyMiddleware` (`backend/app/core/auth.py`) — authenticate requests using `X-Api-Key` header; used on webhook endpoints; falls back to JWT for user-facing endpoints
-- [ ] Webhook endpoint `POST /api/v1/webhooks/github/deployment` requires API key auth; all other endpoints remain JWT
-
-### API Endpoints
-
-- [ ] `backend/app/api/v1/api_keys.py`
-  - `GET /api/v1/api-keys` — list keys (hash + metadata; not raw key)
-  - `POST /api/v1/api-keys` — create (returns raw key once)
-  - `DELETE /api/v1/api-keys/{id}` — revoke
-
-- [ ] `backend/app/api/v1/builds.py`
-  - `GET /api/v1/builds` — list (system, release, branch, date filters)
-  - `POST /api/v1/builds` — register build
-  - `GET /api/v1/builds/{id}` — build detail (includes pipeline steps, linked deployments)
-
-- [ ] `backend/app/api/v1/deployments.py`
-  - `GET /api/v1/deployments` — list (env, release, build, status, date filters)
-  - `GET /api/v1/deployments/{id}` — deployment detail (build info, change request link, environment)
-  - `POST /api/v1/deployments/{id}/link-change` — manually link to a ChangeRequest
-  - `GET /api/v1/environments/{id}/deployments` — deployment history for an environment
-
-- [ ] `backend/app/api/v1/webhooks/github.py`
-  - `POST /api/v1/webhooks/github/deployment` — GitHub Actions deployment event receiver (API key authenticated)
-  - Verifies GitHub webhook signature (HMAC-SHA256)
-  - Routes to `DeploymentService.ingest()`
-
-### Events
-
-- [ ] `DeploymentStarted`, `DeploymentCompleted`, `DeploymentFailed`, `DeploymentRolledBack`
-- [ ] Notification consumer: on `DeploymentRolledBack`, send alert to release manager and environment owner with a prompt to raise an incident
+**Custom fields**
+- `entity_type` accepts `"build"` and `"deployment"`; admin custom-field manager picks them up automatically.
 
 ---
 
-## Frontend Tasks
+## Sub-project 2 — Frontend UI + API keys ✅ Merged
 
-### Services & State
+Delivered via **MR !21** on 2026-04-25 (merge commit `d802797`). 18 commits.
 
-- [ ] `frontend/src/services/buildService.ts` — build CRUD API calls
-- [ ] `frontend/src/services/deploymentService.ts` — deployment list, detail, link API calls
-- [ ] `frontend/src/services/apiKeyService.ts` — API key management
-- [ ] `frontend/src/store/buildSlice.ts`
-- [ ] `frontend/src/store/deploymentSlice.ts`
+| Artefact | Path |
+|----------|------|
+| Spec | `docs/superpowers/specs/2026-04-24-phase-4-sub2-frontend-design.md` |
+| Plan | `docs/superpowers/plans/2026-04-24-phase-4-sub2-frontend.md` |
+| Cross-tenant test | `backend/tests/integration/test_phase4_tenant_isolation.py` |
 
-### TypeScript Types
+### What's delivered
 
-- [ ] `frontend/src/types/build.ts` — `Build`, `BuildCreate`, `PipelineStep`
-- [ ] `frontend/src/types/deployment.ts` — `Deployment`, `DeploymentStatus`, `DeploymentCreate`
-- [ ] `frontend/src/types/apiKey.ts` — `ApiKey`, `ApiKeyCreate`
+**Frontend pages and components**
+- **API key admin** at `/tenant/api-keys` — list / create / revoke; raw key shown ONCE in `ApiKeyCreatedDialog` with copy-to-clipboard.
+- **Top-level Builds**: `/builds` list (subsystem name / branch / SHA / build # / release / commit time / latest pipeline step) with name-based filtering; `/builds/:id` detail showing pipeline steps, jira tickets, custom fields, linked deployments.
+- **Top-level Deployments**: `/deployments` list (environment name / build SHA / status / deployer / release / change-request title); `/deployments/:id` detail with build summary + linked CR + relink dialog.
+- `LinkChangeDialog` — relink only enabled when the current CR's lifecycle template is `Code Deployment` (i.e. an auto-created CR); human-authored CRs are guarded by a tooltip.
+- **Deployments tab** on `EnvironmentDetail` and `ReleaseDetail`.
+- **EnvironmentSchedule** (FullCalendar) — deployments rendered as coloured events (`success` green, `failed` red, `rolled_back` amber, in-progress slate); legend chips added; click-through to `/deployments/:id`.
+- **Admin EntityConfig** — `build` and `deployment` slugs added to `ENTITY_SLUG_TO_TYPE` and `ENTITY_LABELS`; nav entries in `AdminLayout`.
+- Shared `DeploymentStatusChip` component with palette + vitest tests.
+- Redux slices: `apiKeySlice`, `buildSlice`, `deploymentSlice` (with `byBuild` cache for build detail page).
 
-### Pages & Components
+**Backend follow-on (in support of the "render names, never `#N` fallbacks" feedback rule)**
+- `BuildRead` joins `subsystem` + `release` and returns `subsystem_name`, `release_name`.
+- `DeploymentRead` joins `build` + `environment` + `release` + `change_request` and returns `build_sha_short`, `environment_name`, `release_name`, `change_request_title`.
+- `_get_deployments_for_schedule` joins `build` and returns `build_sha` + `build_sha_short` so calendar event labels are meaningful.
+- New conftest fixture `second_tenant_factory` for multi-tenant test scenarios.
 
-- [ ] `frontend/src/pages/BuildList.tsx` — list with system, release, branch, date filters
-- [ ] `frontend/src/pages/BuildDetail.tsx` — build info, pipeline steps timeline, linked deployments
-- [ ] `frontend/src/pages/DeploymentList.tsx` — list with status and environment filters
-- [ ] `frontend/src/pages/DeploymentDetail.tsx` — linked build, release, environment, change request; rollback history
-- [ ] Deployment history timeline component (reusable; used on EnvironmentDetail and ReleaseDetail)
-- [ ] `frontend/src/pages/ApiKeyManagement.tsx` — admin: list keys, create (shows raw key once), revoke
-- [ ] Add **Deployments** section to `EnvironmentDetail.tsx` and `ReleaseDetail.tsx`
-- [ ] Show deployments on the unified `EnvironmentSchedule.tsx` timeline (Phase 2 component) as a third item type alongside bookings and TECRs
+**Tests**
+- `test_phase4_tenant_isolation.py` — Tenant A's JWT cannot list/get Tenant B's api_keys / builds / deployments; cross-tenant link-change request → 400.
+- Existing schedule deployments test extended to assert `build_sha_short` denormalisation.
 
 ---
 
-## Acceptance Criteria
+## Architectural decisions preserved
 
-- [ ] `POST /api/v1/webhooks/github/deployment` correctly creates Build + Deployment records from a GitHub Actions event payload
-- [ ] On successful deployment, `EnvironmentSubSystemVersion` is updated with the new `build_id`, `version_label`, and `installed_at`
-- [ ] `Deployment.change_request_id` is set on creation (automated) or via `POST /.../link-change` (manual)
-- [ ] Rolled-back deployment emits a `DeploymentRolledBack` notification to the release manager
-- [ ] `GET /api/v1/environments/{id}/schedule` response includes `deployments` array populated with deployment events (extends Phase 2 endpoint)
-- [ ] API key authentication works: valid key grants access to webhook endpoint; invalid key returns 401; JWT endpoints are unaffected
-- [ ] DORA-critical fields present: `Build.commit_timestamp`, `Deployment.deployed_at`, `Deployment.status`
-- [ ] All service methods have unit tests; all API endpoints have integration tests
-- [ ] Tenant isolation verified: builds and deployments from one tenant are never accessible to another
+- **Auto-created `code_deployment` ChangeRequest** uses a dedicated seeded `Code Deployment` lifecycle template (separate from human-authored CRs). Only deployments linked to that template can be relinked via `link-change`; human-authored links return 409 to avoid clobbering decision history.
+- **Idempotent ingest** keyed on `Deployment.event_id` (UUID) — webhook retries are safe.
+- **Build upsert** keyed on `(tenant_id, subsystem_id, git_sha)` — multiple deployment events from the same SHA replay onto a single Build row, merging `pipeline_steps` + `custom_fields`.
+- **Denormalised names on read endpoints** (subsystem / environment / release / change_request title; build SHA short) so the UI never has to render `Env #5` or `SubSystem #2` placeholders. Trade-off: extra joins on list endpoints, accepted because the lists are bounded (default `limit=100`).
+- **API keys** are hashed with SHA-256; only the hash is stored. Scopes are JSONB arrays (`["webhooks:deployment"]` is the only scope used today, future-proofed for additional webhook flows).
+- **`change_request_id` is NOT NULL on Deployment** — every deployment must be tied to a change record (audit), even if auto-generated.
+
+---
+
+## Deferred / not in this phase
+
+- Jira webhook integration (Phase 3 Sub-3, deferred).
+- DORA metrics dashboard, incident tracking, PIR — Phase 5.
+- Environment health check dashboard — Phase 5.
+- GitHub repository scanning + topology — Phase 6.
+- Native enum types in PostgreSQL — kept as VARCHAR with `native_enum=False` to preserve SQLite test compatibility.
