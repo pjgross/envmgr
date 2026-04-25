@@ -9,6 +9,7 @@ import type {
 
 interface DeploymentState {
   items: Deployment[];
+  byBuild: Record<number, Deployment[]>;
   current: Deployment | null;
   loading: boolean;
   error: string | null;
@@ -16,6 +17,7 @@ interface DeploymentState {
 
 const initialState: DeploymentState = {
   items: [],
+  byBuild: {},
   current: null,
   loading: false,
   error: null,
@@ -28,6 +30,10 @@ export const fetchDeployments = createAsyncThunk(
 export const fetchDeploymentById = createAsyncThunk(
   'deployment/fetchById',
   (id: number) => deploymentService.get(id),
+);
+export const fetchDeploymentsByBuild = createAsyncThunk(
+  'deployment/fetchByBuild',
+  (buildId: number) => deploymentService.list({ build_id: buildId }),
 );
 export const linkDeploymentChange = createAsyncThunk(
   'deployment/linkChange',
@@ -47,6 +53,9 @@ const slice = createSlice({
       s.error = a.error.message ?? 'Failed to load deployments';
     });
     b.addCase(fetchDeploymentById.fulfilled, (s, a) => { s.current = a.payload; });
+    b.addCase(fetchDeploymentsByBuild.fulfilled, (s, a) => {
+      s.byBuild[a.meta.arg] = a.payload;
+    });
     b.addCase(linkDeploymentChange.fulfilled, (s, a) => {
       s.current = a.payload;
       s.items = s.items.map((d) => (d.id === a.payload.id ? a.payload : d));
