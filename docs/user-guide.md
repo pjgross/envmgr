@@ -452,7 +452,97 @@ Once a release is in flight, see [ch. 8 (Builds and deployments)](#8-builds-and-
 
 ## 8. Builds and deployments
 
-*To be drafted in Task 22.*
+### Concept
+
+Builds and deployments are **read-only artefacts** in the UI. You never create them by hand — your CI system POSTs to the deployment webhook (admin guide ch. 10), and EnvManager turns one event into three things: a Build (per Subsystem + git_sha, idempotently upserted), a Deployment (per `event_id`), and an auto-created `code_deployment` CR so every deployment has a CR-of-record. Builds belong to a Subsystem; Deployments belong to an Environment Instance. Together they answer "what's deployed where, and from which commit?"
+
+```
+   CI runs --> POST /api/v1/webhooks/deployment --> EnvManager
+                                                      |
+                                                      |--> upsert Build (per subsystem + git_sha)
+                                                      |--> create Deployment (per event_id)
+                                                      `--> auto-create code_deployment ChangeRequest
+```
+
+### Browsing builds
+
+Navigate to `/builds`. DataGrid columns, in order:
+
+- *SubSystem* — the subsystem the build belongs to.
+- *Branch* — git branch the commit was on.
+- *SHA* — first eight characters of the commit SHA.
+- *Build #* — the CI build number, if your pipeline supplied one.
+- *Release* — linked release name, if the webhook included a `release_id`.
+- *Commit at* — commit timestamp.
+- *Latest step* — name and status of the last pipeline step recorded.
+
+Filters above the grid: *SubSystem* (substring match on the subsystem name), *Branch* (server-side filter), *From* / *To* (date range on the commit timestamp). Click any row to open the build detail.
+
+### Inside a build
+
+The build detail page (`/builds/:id`) opens with a header showing *SubSystem*, *Branch*, *SHA* (first 12 chars), *Build #* (if any), linked *Release* (if any), and the *Committed* timestamp.
+
+Below the header you get four sections, rendered only if there's content:
+
+- *Pipeline steps* — one row per step: a status chip, the step name, and the duration computed from `started_at`/`finished_at`.
+- *Jira tickets* — chips for any ticket keys the webhook attached.
+- *Custom fields* — the per-tenant build custom fields (admin guide ch. 5).
+- *Deployments* — every deployment that came from this build, with environment, status chip, and timestamp; click to pivot to the deployment detail.
+
+### Browsing deployments
+
+Navigate to `/deployments`. DataGrid columns, in order:
+
+- *Environment* — the environment instance the deployment landed in.
+- *Build* — the eight-character SHA of the deployed commit.
+- *Status* — coloured status chip (see lifecycle below).
+- *Deployer* — `deployer_name` from the webhook (CI user or pipeline name).
+- *Deployed at* — timestamp the webhook reported as `deployed_at`.
+- *Release* — linked release name, if any.
+- *Change request* — title of the linked CR (auto or human-authored).
+
+Filters above the grid: *Environment* and *Release* (client-side substring match), and *Status* (server-side dropdown — *Any*, *pending*, *in_progress*, *success*, *failed*, *rolled_back*). Click any row to open the deployment detail.
+
+### Inside a deployment
+
+The deployment detail page (`/deployments/:id`) opens with a header combining the environment name and the build identifier, plus a status chip:
+
+- Subline: *Environment*, linked *Release* (if any), *Deployed* timestamp, and *by* deployer name.
+- *Build* card — SubSystem, SHA (12 chars), branch, build number; *View full build* jumps to `/builds/:id`.
+- *Change request* card — the CR title (click to open it) and its current status chip.
+- *Custom fields* — per-tenant deployment custom fields, if any are set.
+
+### Deployment status lifecycle
+
+Five states, all driven by webhook calls from CI:
+
+- *pending* — deployment accepted but not started.
+- *in_progress* — CI has begun rolling out.
+- *success* — completed cleanly. The linked CR auto-transitions to *deployed* and the environment's running version is updated.
+- *failed* — rollout broke. The linked CR auto-transitions to *failed*.
+- *rolled_back* — only reachable from *success* or *failed*.
+
+```
+ pending --> in_progress --+--> success --+--> rolled_back
+                            |              |
+                            `--> failed ---'
+```
+
+Webhook re-deliveries are idempotent (matched by `event_id`) and any forward transition that violates the diagram returns 409.
+
+### The auto-created CR and how to swap it
+
+When a deployment lands, EnvManager files a `Code Deployment` change request automatically — there's always a CR-of-record, even if your team hadn't raised one. After the fact you can swap that auto-CR for a human-authored CR (e.g. a real RFC filed in advance for audit purposes).
+
+Walkthrough:
+
+1. Open the deployment detail page.
+2. In the *Change request* card, click *Link a different change request*. The button is enabled only while the deployment is attached to the auto-created `Code Deployment` CR; after one swap it greys out.
+3. In the dialog, search and select an existing CR; confirm to relink.
+
+This calls `POST /api/v1/deployments/{id}/link-change` and isn't role-gated server-side — any authenticated tenant user can do it. If your policy reserves audit-relinking for Admins, enforce that through process.
+
+If a deployment failed, see [ch. 10 (Tips and common workflows)](#10-tips-and-common-workflows) for the recipe.
 
 ## 9. Topology and dependency views
 
