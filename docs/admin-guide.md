@@ -460,7 +460,33 @@ Keep the change-kind list short — three to six is plenty. Use kind-scoped cust
 
 ## 9. Release templates
 
-*To be drafted in Task 10.*
+### Concept
+
+A *release template* is a reusable skeleton for releases. It bundles a release type, an ordered list of phases, and a set of gates attached to those phases (or to the release as a whole). When your team always ships the same shape of release — a monthly product release, a hotfix, a quarterly platform upgrade — a template gives you consistency, faster setup, and a stable audit trail. Without templates every release is hand-built; with templates the structure is codified once and reused.
+
+### Walkthrough: creating a template
+
+1. Sign in as a tenant admin and navigate to *Admin → Release Templates* (`/admin/release-templates`).
+2. Click *New Template* to open the form at `/admin/release-templates/new`.
+3. Fill in the *Metadata* panel:
+   - *Name* (required, up to 200 chars).
+   - *Release Type* — one of `project`, `hotfix`, `patch`, `major`, `minor`. This becomes the type on every release built from the template.
+   - *Description* (multi-line).
+4. In the *Phases* panel, add one row per phase. Each phase has *Phase Name* (required), *Default Duration (days)* (used to back-compute phase dates from the release's target date — the last phase ends on the target date), and *Activities* (a comma-separated list of free-text labels). Use the up/down arrows to reorder; phase order is renumbered on save.
+5. In the *Gates* panel, add one row per gate. Each gate skeleton holds *Gate Name*, *Attach to Phase* (a phase name from the list above, or "Release-level (no phase)"), and *Acceptance Criteria* (free text). At instantiation each gate becomes a *ReleaseGate* with status `pending`; the acceptance-criteria text, if present, seeds a single criterion titled *Acceptance criteria*.
+6. Click *Save*.
+
+### Walkthrough: editing and deleting
+
+To edit a template, open *Admin → Release Templates* and click the edit (pencil) icon on the row, or visit `/admin/release-templates/:id` directly. The form is the same as create; saving bumps the template's internal version counter.
+
+**Editing a template does *not* affect releases already created from it.** Each release gets its own copies of the *TestPhase* and *ReleaseGate* rows at instantiation — the template is a snapshot, not a live reference. Adjust the in-flight release directly if its gates or phases need to change.
+
+To delete a template, click the red trash icon and confirm. Deletion is refused with a *409 Conflict* if any active release still references the template — release that work first.
+
+### When templates help (and when they don't)
+
+Templates earn their keep when releases follow a predictable cadence: a monthly product release with a fixed test/staging/prod phase shape, a regulated change pipeline where the same gates must always be evidenced, or multi-team coordination where everyone reaches for the same checklist. They are less useful for one-off hotfixes that don't follow your standard shape — for those, start from a blank release and add only the phases and gates that apply.
 
 ## 10. API keys and webhooks
 
