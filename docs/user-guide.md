@@ -91,7 +91,47 @@ The top bar carries the EnvManager logo (click to return to the dashboard) and y
 
 ## 3. Concepts in 5 minutes
 
-*To be drafted in Task 17.*
+### Why eight concepts
+
+Almost everything you do in EnvManager combines a handful of the same eight nouns. Once you can place each one — what it represents, who owns it, and how it links to the others — the rest of this guide will click into place quickly. This chapter is the orientation map; later chapters drill into individual workflows.
+
+### The big picture diagram
+
+Read this diagram from left to right. *Systems* on the left are owned by your platform team; *Releases* on the right are managed by Release Managers; *Environments* in the middle are where work actually happens.
+
+```
+   ┌─ business level ─┐                       ┌─ deployment runtime ─┐
+   │     System       │  defines structure of │   Environment        │
+   │       │          │ ────────────────────▶ │  (e.g. UAT-1)        │
+   │       ▼          │                       │      │               │
+   │   Subsystem      │ ──── ships build ────▶│      ▼               │
+   └──────────────────┘                       │  Env. Instance       │
+                                              │      ▲               │
+   ┌─ planned work ───┐                       │      │               │
+   │   Booking        │ ──── reserves ───────▶│   Environment        │
+   │   Change Request │ ──── changes ────────▶│   Environment        │
+   │   Release        │ ──── delivered to ───▶│   Environment        │
+   └──────────────────┘                       │      ▲               │
+                                              │      │               │
+   ┌─ CI artefact ────┐                       │      │               │
+   │   Build          │ ── deploys to ───────▶│   Deployment         │
+   └──────────────────┘                       └──────────────────────┘
+```
+
+### The eight nouns
+
+- **System** — A product or app at the business level (e.g. *Payments*). Systems are modelled by your Admin during onboarding; see [admin guide ch. 5](admin-guide.md#5-modelling-your-platform-systems-and-subsystems).
+- **Subsystem** — One deployable unit of a system (e.g. *payments-api*, *payments-web*). Each subsystem maps 1:1 to a CI build target. Also covered in [admin guide ch. 5](admin-guide.md#5-modelling-your-platform-systems-and-subsystems).
+- **Environment** — A logical instance of one or more systems (e.g. *UAT-1*, *PROD-EU*) — what humans book, change, and release into. Modelled by your Admin; see [admin guide ch. 6](admin-guide.md#6-modelling-environments). You'll browse them in [ch. 4](#4-browsing-systems-and-environments).
+- **Booking** — A time-bounded reservation of an environment for a test cycle, dry run, or other use. Anyone in the tenant can raise one; see [ch. 5](#5-booking-environments).
+- **Change Request** — A planned change against an environment, with a *kind* (e.g. *Code Deploy*, *Config Change*) and a status lifecycle. Covered in [ch. 6](#6-raising-change-requests).
+- **Release** — A coordinated rollout that groups change requests, scope items, gates, and target environments into a single deliverable. Driven by Release Managers; see [ch. 7](#7-working-with-releases).
+- **Build** — A CI artefact produced for a subsystem. Builds are read-only in EnvManager — they're pushed in by your CI system via webhook. See [ch. 8](#8-builds-and-deployments).
+- **Deployment** — A specific build deployed to an environment instance. Also read-only and pushed in by CI; see [ch. 8](#8-builds-and-deployments).
+
+### What you'll usually do
+
+Day-to-day, you'll spend most of your time in five workflows: browse systems and environments to see what's where ([ch. 4](#4-browsing-systems-and-environments)); book an environment for a test cycle ([ch. 5](#5-booking-environments)); raise a change request when you're about to alter one ([ch. 6](#6-raising-change-requests)); plan, drive, and close out a release ([ch. 7](#7-working-with-releases)); and watch CI builds and deployments land in real time ([ch. 8](#8-builds-and-deployments)). For step-by-step recipes that combine these, see [ch. 10](#10-tips-and-common-workflows).
 
 ## 4. Browsing systems and environments
 
