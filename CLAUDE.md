@@ -1,6 +1,6 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 3 complete on `main` — Sub-1 (MRs !4–!13, 2026-04-20/21), Sub-2 (MR !15, 2026-04-23), plus post-Sub-2 follow-ups MR !17 (gate due dates + timeline diamonds) and MR !18 (tenant-configurable scope change kinds) both on 2026-04-23. Main tip `0fa2eb5`, latest migration `p3s8gateduedate`. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2 ✅ | Phase 3 Sub-3 (Jira) deferred | Phase 4 next.
+> **Current Phase**: Phase 4 complete on `main` — Sub-1 backend MR !20 (2026-04-23) + Sub-2 frontend/API keys MR !21 (2026-04-25). Main tip `d802797`, latest migration `p4s1builddeploy`. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2 ✅ | Phase 3 Sub-3 (Jira) deferred | Phase 4 ✅ | Phase 5 next.
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
