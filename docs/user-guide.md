@@ -593,7 +593,7 @@ These recipes chain steps from earlier chapters — refer back to chapters 4–9
 4. On the *Scope* tab, click *Add Item* and describe the fix. Pick a *change_kind* (typically *defect*) — see admin guide ch. 8 for what counts as a scope change once you leave *draft*.
 5. On the *Environments* tab, attach the production environment.
 6. *(Optional)* On the *Linked Requests* tab, link a pre-existing CR. If you skip this, the deployment webhook will auto-create a `code_deployment` CR.
-7. Back on *Main*, click the *Emergency* template's first transition (typically *Start Release*) — *draft → in_progress*.
+7. Back on *Main*, run the *Emergency* template's two pre-deploy transitions: from *draft*, click *Approve* (*draft → approved*); from *approved*, click *Start Release* (*approved → in_progress*). The Emergency template skips *submitted* and *ready_for_release* but it still gates a release behind an explicit approval.
 8. Trigger your CI pipeline. CI calls `POST /api/v1/webhooks/deployment` (admin guide ch. 10). EnvManager upserts the Build, creates the Deployment, and (if you skipped step 6) auto-creates the CR. The Deployment appears on the release's *Deployments* tab.
 9. On *Gates & Test Phases*, mark gates *passed* via *Decide*, then transition through to *completed* on *Main*. Gates are UX cues, not enforced preconditions (see ch. 7).
 

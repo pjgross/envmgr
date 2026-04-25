@@ -288,6 +288,10 @@ Edges are component dependencies. The arrow points from dependent to dependency 
 - Keep the System/Subsystem split honest: one System per shippable product. Resist the urge to model an internal library as its own System.
 - Each Subsystem should map 1:1 to a CI build target — *payments-api* corresponds to one build pipeline. This pairing matters for the deployment webhook (see [ch. 10](#10-api-keys-and-webhooks)).
 
+> **Not yet available:** DORA metrics dashboards (deployment frequency, lead time, change failure rate, mean time to restore) are planned for Phase 5+. EnvManager currently captures the underlying events (Builds, Deployments, Change Requests) so the data is there when the dashboards land.
+
+> **Not yet available:** GitHub-driven infrastructure discovery enrichment (auto-detecting subsystems, dependencies, IaC links from a repo) beyond the manual *GitHub Repository URL* field on a System is deferred. The current `/api/v1/import/terraform` and `/api/v1/import/docker-compose` endpoints (see [ch. 12](#12-importexport)) populate subsystems and component dependencies but stop short of full enrichment.
+
 ## 6. Modelling environments
 
 ### Concept
@@ -585,6 +589,8 @@ When EnvManager has not seen the `event_id` before, a single call writes:
 3. An auto-generated `code_deployment` **Change Request** titled `Deploy <sha8> → <env-slug>`, raised by the API-key owner.
 
 The auto CR is a placeholder so every deployment is auditable. To register the change manually first, send the existing `change_request_id` in the payload to skip auto-create; you can also swap the linked CR after the fact from the *Deployments* page (see user guide ch. 8).
+
+> **Not yet available:** Jira ticket sync (resolving ticket IDs to live Jira issues, surfacing status / assignees inline) is a Phase 3 Sub-3 deferred item. The webhook stores `jira_tickets` as plain strings today; the Build detail renders them as deep links if a Jira base URL is configured on the system, but no two-way sync exists.
 
 ### Rotation and revocation guidance
 
