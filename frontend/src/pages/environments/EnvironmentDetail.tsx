@@ -60,6 +60,7 @@ import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import EnvironmentSchedule from './EnvironmentSchedule';
+import EnvironmentDeploymentsTab from './EnvironmentDeploymentsTab';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -606,6 +607,7 @@ export default function EnvironmentDetail() {
         <Tab label="Components" />
         <Tab label="Topology" />
         <Tab label="Schedule" />
+        <Tab label="Deployments" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -954,6 +956,9 @@ export default function EnvironmentDetail() {
 
       {/* Schedule Tab */}
       {tab === 4 && <EnvironmentSchedule envId={envId} />}
+
+      {/* Deployments Tab */}
+      {tab === 5 && <EnvironmentDeploymentsTab envId={envId} />}
 
       {/* Edit Version Dialog */}
       <Dialog
