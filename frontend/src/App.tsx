@@ -30,6 +30,7 @@ import ImportPage from './pages/import/ImportPage';
 import AdminLayout from './pages/admin/AdminLayout';
 import EntityConfig from './pages/admin/EntityConfig';
 import TenantScopeChangeRules from './pages/admin/TenantScopeChangeRules';
+import ApiKeyManagement from './pages/admin/ApiKeyManagement';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
@@ -164,6 +165,16 @@ function App() {
             }
           >
             <Route index element={<TenantScopeChangeRules />} />
+          </Route>
+          <Route
+            path="/tenant/api-keys"
+            element={
+              <PrivateRoute requiredRole="Admin">
+                <AdminLayout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<ApiKeyManagement />} />
           </Route>
         </Route>
         <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />
