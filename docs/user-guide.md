@@ -34,7 +34,60 @@ If you're standing up a new tenant or modelling your platform, see [`admin-guide
 
 ## 2. Logging in and the dashboard
 
-*To be drafted in Task 16.*
+### Logging in
+
+EnvManager is multi-tenant: every login is scoped to one tenant. Your Admin will give you a tenant slug, a username, and a password.
+
+1. Open the EnvManager URL given to you (typical dev: `http://localhost:5173`).
+2. Enter the tenant slug into *Tenant* (e.g. `demo`).
+3. Enter your username into *Username* and your password into *Password*.
+4. Click *Login*.
+
+On success you land on `/dashboard`. If you have access to more than one tenant, sign out and sign back in with the other tenant's slug — there is no in-app tenant switcher today. The bundled dev demo tenant uses slug `demo` with `admin` / `admin123`.
+
+### The dashboard
+
+The dashboard is a four-card landing pad above a welcome panel — a quick orientation, not a metrics view. Today only the *Environments* card reflects live data; the other three are wired to placeholder zeros until later phases populate them. Use the left navigation to actually drill in.
+
+- *Environments* — *Total environments* visible to your tenant. (Live.)
+- *Bookings* — *Active bookings*. *(Placeholder zero today.)*
+- *Changes* — *Pending changes*. *(Placeholder zero today.)*
+- *Releases* — *Active releases*. *(Placeholder zero today.)*
+
+> **Not yet available:** the *Bookings*, *Changes*, and *Releases* cards are static zeros in the current build. Treat the dashboard as a landing page, not a status board — head straight to the relevant section in the left navigation for real numbers.
+
+### The left navigation
+
+The sidebar is the same for every authenticated user. *Bookings* and *Releases* are expandable groups; everything else is a single entry.
+
+| Nav entry | Route | What's there | Covered in |
+|-----------|-------|--------------|------------|
+| *Dashboard* | `/dashboard` | Summary cards and welcome panel. | this chapter |
+| *Systems* | `/systems` | System and subsystem catalogue. | [ch. 4](#4-browsing-systems-and-environments) |
+| *Environments* | `/environments` | Environment inventory and detail. | [ch. 4](#4-browsing-systems-and-environments) |
+| *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | [ch. 5](#5-booking-environments) |
+| *Bookings → List* | `/bookings/list` | Tabular view of reservations. | [ch. 5](#5-booking-environments) |
+| *Builds* | `/builds` | CI build feed per subsystem. | [ch. 8](#8-builds-and-deployments) |
+| *Change Requests* | `/change-requests` | Change-request inbox. | [ch. 6](#6-raising-change-requests) |
+| *Deployments* | `/deployments` | Deployment feed per environment. | [ch. 8](#8-builds-and-deployments) |
+| *Releases → List* | `/releases` | Release inventory. | [ch. 7](#7-working-with-releases) |
+| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | [ch. 7](#7-working-with-releases) |
+| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | [ch. 7](#7-working-with-releases) |
+| *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints (read-only for non-Admins). | [`admin-guide.md` ch. 9](admin-guide.md#9-release-templates) |
+| *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 7](admin-guide.md#7-modelling-infrastructure-hosts) |
+| *Import* | `/import` | Bulk Excel import (Admin write — readable nav for everyone). | [`admin-guide.md` ch. 12](admin-guide.md#12-importexport) |
+
+Admin-only pages — user management and tenant configuration — appear under an extra *Admin* sidebar entry that's hidden unless your role is *Admin*.
+
+### The top bar
+
+The top bar carries the EnvManager logo (click to return to the dashboard) and your avatar on the right. Click the avatar to open the user menu:
+
+- Header — your username, email, and role (master admins also see *Master Admin*).
+- *Light mode* / *Dark mode* / *System theme* — click to cycle.
+- *Logout* — ends the session and returns you to `/login`.
+
+> **Not yet available:** there is no in-app *Change password* action or tenant switcher in the user menu today. Ask your Admin to reset your password if needed.
 
 ## 3. Concepts in 5 minutes
 
