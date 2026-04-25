@@ -31,6 +31,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import EntityConfig from './pages/admin/EntityConfig';
 import TenantScopeChangeRules from './pages/admin/TenantScopeChangeRules';
 import ApiKeyManagement from './pages/admin/ApiKeyManagement';
+import BuildList from './pages/builds/BuildList';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
@@ -144,6 +145,7 @@ function App() {
               </PrivateRoute>
             }
           />
+          <Route path="/builds" element={<BuildList />} />
           <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
           <Route path="/import" element={<ImportPage />} />
           <Route
