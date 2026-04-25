@@ -179,7 +179,50 @@ Empty tenants are not useful. Work through these in order — each step unblocks
 
 ## 4. Managing users and roles
 
-*To be drafted in Task 5.*
+### Concept
+
+Roles are tenant-scoped: every user has exactly one role within a tenant, and Admin is the senior tenant role. Only an Admin can manage other users — create them, change their role, deactivate or reactivate them. The Master Admin flag is separate from the role enum and is set only by an existing Master Admin (see [ch. 2](#2-provisioning-a-new-tenant-master-admin-only)). All five tenant roles — *Admin*, *Release Manager*, *Test Manager*, *Developer*, *Viewer* — share one enum, so switching a user's role is a one-click change.
+
+### What each role can do
+
+Use the table below to orient assignments. *Admin* is the only role that can manage users or tenant configuration; the other four are scoped to operational duties.
+
+| Role | Can do | Cannot do |
+|------|--------|-----------|
+| Admin | Manage users; model systems, environments, hosts; configure change kinds, gates, settings, API keys. | Operate outside their tenant. |
+| Release Manager | Plan releases, drive execution, sign off gates, manage release templates. | Manage users or tenant configuration. |
+| Test Manager | Book environments for tests, raise and progress test-related changes. | Manage users, gates, or templates. |
+| Developer | Raise change requests, read builds and deployments, view bookings. | Approve gates or edit tenant configuration. |
+| Viewer | Read inventory, bookings, change requests, releases, deployments. | Make any write. |
+
+See [ch. 13 (Appendix: role permission matrix)](#13-appendix-role-permission-matrix) for the full matrix.
+
+### Walkthrough: creating a user
+
+1. Navigate to `/tenant/users`.
+2. Click *New User* in the page header.
+3. Fill the *Create User* dialog:
+   - *Username*
+   - *Email*
+   - *Password* — initial value; the user can change it after first login.
+   - *Role* — one of *Viewer* (default), *Developer*, *Test Manager*, *Release Manager*, *Admin*.
+4. Click *Create*. The new user appears in the user table with *Status* `Active`.
+
+The role drop-down does **not** include *Master Admin*. Tenant Admins cannot elevate a user to Master Admin from this page; only an existing Master Admin can grant the cross-tenant flag, via `/admin/tenants/:tenantId` (see [ch. 2](#2-provisioning-a-new-tenant-master-admin-only)).
+
+### Walkthrough: editing a user
+
+The user table has five columns: *Username*, *Email*, *Role*, *Status*, *Actions*. To rename a user or correct their email, click *Edit* on their row; the *Edit User* dialog opens with *Username* and *Email* fields only. Make changes and click *Save*. To change the user's role, do **not** use the *Edit User* dialog — change it directly in the per-row *Role* drop-down. The change saves immediately. The drop-down is disabled for inactive users.
+
+### Walkthrough: deactivating and reactivating
+
+To revoke access without losing history, click *Deactivate* on the user's row and confirm. The user is locked out at login but their bookings, change requests, comments, and audit trail are preserved. While inactive, their *Status* chip reads `Inactive` and the per-row *Role* drop-down is disabled. To restore access, click *Reactivate* — the action button toggles to *Reactivate* whenever a user is inactive.
+
+### Password resets
+
+> **Not yet available:** there is no tenant-admin password-reset flow on `/tenant/users`. If a user has lost their password, ask your Master Admin to call `POST /api/v1/admin/tenants/{tenant_id}/users/{user_id}/reset-password` with a fresh `new_password`, then share the new value out of band.
+
+Master-admin elevation lives in [ch. 2](#2-provisioning-a-new-tenant-master-admin-only).
 
 ## 5. Modelling your platform: systems and subsystems
 
