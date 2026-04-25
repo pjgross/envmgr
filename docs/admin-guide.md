@@ -290,7 +290,86 @@ Edges are component dependencies. The arrow points from dependent to dependency 
 
 ## 6. Modelling environments
 
-*To be drafted in Task 7.*
+### Concept
+
+An *Environment* is a logical instance of one or more systems — *UAT-1*, *PROD-EU*, *perf-staging*. It has a name, a free-text *type* (e.g. *staging*, *uat*, *dev*, *prod*), a status, and optional custom fields. Systems are attached to it after creation.
+
+An *Environment Instance* is the deployed copy of a specific subsystem inside that environment, optionally pinned to one or more hosts. Instances live behind the *Components* tab of an environment.
+
+```
+Environment "UAT-1"
+  ├── instance: payments-api  (subsystem) on host-7
+  ├── instance: payments-web  (subsystem) on host-8
+  └── instance: identity-api  (subsystem) on host-9   ← belongs to a different system
+```
+
+*Environment* is what humans book, change, and release into. *Instances* are what builds deploy to and what the topology graph draws.
+
+### Status lifecycle
+
+Every environment has one of four statuses:
+
+- **active** — bookable, deployable, the normal state.
+- **maintenance** — temporarily not bookable; use this for scheduled patching or restores.
+- **inactive** — stood down but not retired; useful for cold-spare environments.
+- **decommissioned** — retired. Hide from default views.
+
+Transitions are unconstrained — you can move between any two statuses by editing the environment. *Decommissioned* is reversible; bring an environment back simply by editing the status.
+
+```
+   ┌──────────────┐
+   │              ▼
+active ◄──► maintenance
+   ▲              │
+   │              ▼
+inactive ◄──► decommissioned
+```
+
+### Walkthrough: creating an environment
+
+1. Navigate to `/environments` and click *New Environment*.
+2. Fill in the form:
+   - **Name** (required) — e.g. *UAT-1*. Unique within the tenant.
+   - **Description** — optional free text.
+   - **Environment Type** (required) — free text, e.g. *staging*, *uat*, *dev*, *prod*. Use a small consistent vocabulary across your tenant; this drives filtering.
+   - **Status** — defaults to *active*.
+   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured in *Tenant Settings → Entity Config*; see [ch. 11](#11-tenant-settings)).
+3. Click *Create*. The environment is created with no systems attached.
+4. Open the new row to land on the detail page, then move to the *Systems* tab to attach systems.
+
+### Walkthrough: adding environment instances
+
+Instances are managed on the *Components* tab. As soon as you attach a system on the *Systems* tab, that system's subsystems appear as candidate instances. For each instance you can:
+
+- Toggle **Real / Mock** — click the chip. Mocked instances are excluded from version recording and shown as dashed nodes on the topology graph. Add *Mock Notes* inline when mocked.
+- Set the **Component Type** — opens a dialog to pick a tenant-defined type (database, cache, web service, etc.).
+- Attach **Hosts** via *Manage…* — opens a dialog where you add one or more hosts and tag each with an optional *role* string (e.g. *primary*, *replica*). A subsystem can span multiple hosts (replicas, multi-AZ).
+- Record a **Version** via *Record Version* — captures *Subsystem*, *Build ID*, *Version Label*, *Installed At*.
+
+Hosts are optional. Purely-logical environments work without them — see [ch. 7](#7-modelling-infrastructure-hosts) for when you actually need to model hosts.
+
+### Walkthrough: environment dependencies
+
+EnvManager does **not** model environment-to-environment dependencies directly. Dependencies are declared once at the *system* and *subsystem* level (see [ch. 5](#5-modelling-your-platform-systems-and-subsystems)), and EnvManager checks them per-environment.
+
+On the *Overview* tab, click *Verify Environment*. Each system dependency is reported as *satisfied* (target system attached), *mocked* (covered by a mocked subsystem), or *missing*. Component dependencies are checked the same way. Run this before each booking — if a dependency is *missing*, attach the required system on the *Systems* tab.
+
+### Walkthrough: decommissioning safely
+
+Before flipping an environment to *decommissioned*:
+
+1. Cancel or close out any active bookings that overlap with today (*Schedule* tab on the environment, or `/bookings`).
+2. Close any in-flight change requests that target this environment.
+3. Detach instances or note that hosts will keep their last attachment record.
+4. Edit the environment and set *Status* to **decommissioned**.
+
+The status change is **reversible** — the environment is still soft-deleted only when you click *Delete* on the list page. Use *decommissioned* to hide an environment from working views without losing history; use *Delete* (which sets `deleted_at`) only when you're sure the audit trail no longer needs to surface it.
+
+### Reading the environment topology
+
+The *Topology* tab on the environment detail page renders a force-directed graph (built on React Flow). Each *system* is a labelled group box; subsystems sit inside their parent system. Solid-bordered nodes are real instances, dashed-grey nodes are mocked. Subsystems pulled in by an outside dependency appear in a separate group labelled *— not in environment*. Edges are component dependencies; arrows show direction (two-way edges have arrowheads on both ends).
+
+You can pan, zoom, and use the minimap. **Click an edge** to open a side panel with the dependency's type, label, protocol/port, and any documented endpoints. Nodes are not draggable — the layout is computed automatically.
 
 ## 7. Modelling infrastructure (hosts)
 
