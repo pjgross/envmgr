@@ -373,7 +373,48 @@ You can pan, zoom, and use the minimap. **Click an edge** to open a side panel w
 
 ## 7. Modelling infrastructure (hosts)
 
-*To be drafted in Task 8.*
+### Concept
+
+Hosts (called *infrastructure components* in the data model) are the physical or virtual machines, clusters, and managed services that environment instances run on. They are **optional**. Purely-logical environments — where you only care about which subsystems are deployed — work fine without any hosts modelled. You'd model hosts when you want to ask cross-cutting questions like *"what's running on this server?"* or *"if `host-7` is decommissioned, which environments break?"*. Hosts live at `/infrastructure/hosts` on the *Hosts & Infrastructure* page.
+
+### When to model hosts
+
+Bother modelling hosts when:
+
+- You consolidate multiple subsystems on one host and need impact analysis if it goes down.
+- You're tracking IaC-managed infra and want a unified inventory across tenants and teams.
+- You audit compliance per-host — patch level, region, provider, ownership.
+
+Skip it when your team runs everything on managed cloud services (Lambda, Cloud Run, RDS-only stacks) where the underlying host is invisible and you have no operational reason to track it. You can always come back and add hosts later — the link from instance to host is a junction record, not a foreign key on the instance.
+
+### Walkthrough: creating a host
+
+1. Navigate to `/infrastructure/hosts`.
+2. Click *New Host*.
+3. Fill the form:
+   - *Name* — required, unique within the tenant (e.g. `host-prod-web-01`).
+   - *Description* — free text.
+   - *Type* — *Server*, *Container Runtime*, *Kubernetes Cluster*, *Managed Database*, *Load Balancer*, *Network*, *CDN*, *Queue*, *Cache*, or *Other*.
+   - *Provider* — short slug, e.g. `aws`, `gcp`, `orbstack`, `on_premise`.
+   - *Region* — e.g. `eu-west-1`.
+   - *Location* — physical hint, e.g. `macmini.lan` or rack ID.
+   - *Source* — see below; defaults to *manual*.
+   - *External ID* — optional handle for future IaC matching (Terraform resource address, ARN, etc.).
+4. Click *Create*. The host now shows up in the grid and is selectable from the *Hosts* dialog on any environment instance.
+
+### Sources
+
+The *Source* field records where a host record originated:
+
+- *manual* — you typed it into the form. This is the only path that is fully wired up today.
+- *terraform* — reserved for hosts populated by a Terraform state-file parser.
+- *docker_compose* — reserved for hosts populated by a Docker Compose parser.
+
+> **Not yet available:** the Terraform and Docker Compose importers (`POST /api/v1/import/terraform`, `POST /api/v1/import/docker-compose`) currently create *subsystems* and *component dependencies* — they do **not** create infrastructure-component (host) rows. Picking *terraform* or *docker_compose* in the form today is purely a label so you can record provenance manually; no automatic discovery exists yet. Treat these values as forward-compatible metadata until the importers are extended.
+
+### Linking a host to an environment instance
+
+Hosts get attached to instances on the *Components* tab of an environment — see [ch. 6 §Walkthrough: adding environment instances](#walkthrough-adding-environment-instances). Click *Manage…* under *Hosts* on any instance to open the dialog, pick one or more hosts, and tag each with an optional *role* string (e.g. *primary*, *replica*).
 
 ## 8. Configuring change kinds and gates
 
