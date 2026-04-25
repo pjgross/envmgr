@@ -10,8 +10,11 @@ export interface Deployment {
   id: number;
   tenant_id: number;
   build_id: number;
+  build_sha_short: string | null;
   environment_id: number;
+  environment_name: string | null;
   release_id: number | null;
+  release_name: string | null;
   change_request_id: number;
   event_id: string;
   deployer_name: string | null;

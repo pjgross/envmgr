@@ -10,7 +10,9 @@ export interface Build {
   id: number;
   tenant_id: number;
   subsystem_id: number;
+  subsystem_name: string | null;
   release_id: number | null;
+  release_name: string | null;
   git_sha: string;
   git_branch: string | null;
   build_number: string | null;

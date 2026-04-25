@@ -9,10 +9,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.db.models.build import Build
+from app.db.models.release import Release
+from app.db.models.system import SubSystem
 from app.api.v1.schemas.build import BuildRead
 
 
 router = APIRouter()
+
+
+def _build_to_read(
+    build: Build,
+    subsystem_name: Optional[str],
+    release_name: Optional[str],
+) -> BuildRead:
+    payload = {c.name: getattr(build, c.name) for c in build.__table__.columns}
+    payload["subsystem_name"] = subsystem_name
+    payload["release_name"] = release_name
+    return BuildRead.model_validate(payload)
 
 
 @router.get("", response_model=list[BuildRead])
@@ -27,9 +40,14 @@ async def list_builds(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    q = select(Build).where(
-        Build.tenant_id == current_user.active_tenant_id,
-        Build.deleted_at.is_(None),
+    q = (
+        select(Build, SubSystem.name, Release.name)
+        .outerjoin(SubSystem, SubSystem.id == Build.subsystem_id)
+        .outerjoin(Release, Release.id == Build.release_id)
+        .where(
+            Build.tenant_id == current_user.active_tenant_id,
+            Build.deleted_at.is_(None),
+        )
     )
     if subsystem_id is not None:
         q = q.where(Build.subsystem_id == subsystem_id)
@@ -42,8 +60,8 @@ async def list_builds(
     if date_to is not None:
         q = q.where(Build.commit_timestamp <= date_to)
     q = q.order_by(Build.commit_timestamp.desc()).limit(limit).offset(offset)
-    rows = (await db.execute(q)).scalars().all()
-    return list(rows)
+    rows = (await db.execute(q)).all()
+    return [_build_to_read(b, sub_name, rel_name) for b, sub_name, rel_name in rows]
 
 
 @router.get("/{build_id}", response_model=BuildRead)
@@ -53,12 +71,16 @@ async def get_build(
     current_user=Depends(get_current_user),
 ):
     row = (await db.execute(
-        select(Build).where(
+        select(Build, SubSystem.name, Release.name)
+        .outerjoin(SubSystem, SubSystem.id == Build.subsystem_id)
+        .outerjoin(Release, Release.id == Build.release_id)
+        .where(
             Build.id == build_id,
             Build.tenant_id == current_user.active_tenant_id,
             Build.deleted_at.is_(None),
         )
-    )).scalar_one_or_none()
+    )).one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Build not found")
-    return row
+    build, sub_name, rel_name = row
+    return _build_to_read(build, sub_name, rel_name)
