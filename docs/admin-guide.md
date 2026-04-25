@@ -656,7 +656,81 @@ The matching key for both entity types is `Name`, scoped to the current tenant a
 
 ## 13. Appendix: role permission matrix
 
-*To be drafted in Task 14.*
+### How to read this matrix
+
+One row per logical resource area, not per endpoint — list / get / create / update / delete are collapsed into one row when their guard is uniform. Where they differ, the splits are called out as separate rows or footnotes. Cell values: `R` = read, `RW` = read + write, `—` = no access. Master-admin-only routes show `RW` only in the *Master Admin* column. Tenant Admin can do everything any other tenant role can do, by virtue of `require_role(X)` admitting Admin in addition to role X. API-key-protected endpoints are not user-role gated and are listed separately at the bottom.
+
+### Convention check
+
+- `require_role(X)` (`backend/app/core/security.py` lines 92–103) admits the user **if** they are master admin **or** their `role == "Admin"` **or** their `role == X`. So any cell granting `Release Manager` write access also grants Admin and Master Admin write access. The matrix shows the senior role implicitly for that reason.
+- `require_tenant_admin()` is `require_role("Admin")` — Admin or Master Admin only.
+- `require_master_admin()` admits master admins only; tenant Admin is rejected.
+- `api_key_auth(scope)` ignores the user model entirely; only a valid `X-Api-Key` header with the required scope passes.
+
+In practice today, **no** v1 endpoint uses `require_role(...)` with a non-Admin role — every guard is either *any authenticated user*, *Admin*, *Master Admin*, or *API key*. Per-role gradations (Release Manager vs Test Manager vs Developer vs Viewer) currently exist only in the frontend and in service-layer ownership rules (see footnotes). This is intentional: the role enum is provisioned for future use and frontend UX hints, but backend authorisation today is two-tier (Admin vs everyone) plus master admin and API keys.
+
+### Matrix
+
+| Resource | Master Admin | Admin | Release Manager | Test Manager | Developer | Viewer | Source |
+|---|---|---|---|---|---|---|---|
+| **Tenants** (list, create, get, update, disable) | RW | — | — | — | — | — | `api/v1/admin.py` |
+| **Cross-tenant users** (list/create/update/role/deactivate/reactivate/reset-password under `/admin/tenants/.../users`) | RW | — | — | — | — | — | `api/v1/admin.py` |
+| **Sign in as tenant** (impersonation) | RW | — | — | — | — | — | `api/v1/admin.py` |
+| **Tenant users** (list, create, update, role, deactivate, reactivate under `/tenant/users`) | RW | RW | — | — | — | — | `api/v1/tenant_admin.py` |
+| **Auth: register** (open — anonymous; only used to seed the first user) | RW | RW | RW | RW | RW | RW | `api/v1/auth.py` |
+| **Auth: login, /me** (any authenticated identity) | RW | RW | RW | RW | RW | RW | `api/v1/auth.py` |
+| **Tenant settings** (`/tenant/settings`) | RW | RW | — | — | — | — | `api/v1/tenant_admin.py` |
+| **Custom field definitions** (`/tenant/fields`) | RW | RW | — | — | — | — | `api/v1/tenant_admin_fields.py` |
+| **Scope-change rules** (change-kind catalogue, `/tenant/scope-change-rules`) | RW | RW | — | — | — | — | `api/v1/tenant_admin.py` |
+| **Component type definitions** (host shapes) | RW | RW | — | — | — | — | `api/v1/component_types.py` |
+| **Booking lifecycle templates** (`/tenant/lifecycle-templates`) | RW | RW | — | — | — | — | `api/v1/booking_lifecycle.py` |
+| **Booking types** (`/tenant/booking-types`) | RW | RW | — | — | — | — | `api/v1/booking_lifecycle.py` |
+| **Systems** (list, create, get, update, delete) — read | R | R | R | R | R | R | `api/v1/systems.py` |
+| **Systems** — write (create / update / delete) | RW | RW | — | — | — | — | `api/v1/systems.py` |
+| **Subsystems** (under `/systems/{id}/subsystems`) — read | R | R | R | R | R | R | `api/v1/systems.py` |
+| **Subsystems** — write | RW | RW | — | — | — | — | `api/v1/systems.py` |
+| **System dependencies** (depends-on edges) | RW (write) / R (read) | RW (write) / R (read) | R | R | R | R | `api/v1/dependencies.py` |
+| **Environments** (list, get, schedule, verify, systems, subsystems, topology, versions) — read | R | R | R | R | R | R | `api/v1/environments.py` |
+| **Environments** — write (create, update, delete, attach systems/subsystems/instances/versions) | RW | RW | — | — | — | — | `api/v1/environments.py` |
+| **Environment instances** (`/environments/{id}/instances`) — read | R | R | R | R | R | R | `api/v1/environments.py` |
+| **Environment instances** — write | RW | RW | — | — | — | — | `api/v1/environments.py` |
+| **Environment dependencies** | RW (write) / R (read) | RW (write) / R (read) | R | R | R | R | `api/v1/dependencies.py` |
+| **Hosts / infrastructure components** — read | R | R | R | R | R | R | `api/v1/infrastructure_components.py` |
+| **Hosts / infrastructure components** — write (create, update, delete) | RW | RW | — | — | — | — | `api/v1/infrastructure_components.py` |
+| **Topology view** (`/systems/{id}/topology`) | R | R | R | R | R | R | `api/v1/topology.py` |
+| **Bookings** (list, get, create, transition, history, allowed-transitions, edit fields) | RW | RW | RW | RW | RW | RW | `api/v1/bookings.py` |
+| **Bookings — delete (series or single occurrence)** | RW | RW | RW | own only | own only | own only | `api/v1/bookings.py` + `services/booking_service.py` (see footnote 1) |
+| **Booking requests** (list, create, get, edit, attach env, preview-conflicts) | RW | RW | RW | RW | RW | RW | `api/v1/booking_requests.py` |
+| **Booking conflicts** (list / acknowledge) | RW | RW | RW | RW | RW | RW | `api/v1/conflicts.py` |
+| **Change requests** (list, create, get, update, transition, allowed-transitions, delete, preview-outage-conflicts) | RW | RW | RW | RW | RW | RW | `api/v1/change_requests.py` (see footnote 2) |
+| **Releases** (list, create, get, update, delete, transition, lifecycle, history, calendar, timeline) | RW | RW | RW | RW | RW | RW | `api/v1/releases.py` (see footnote 3) |
+| **Release phases / gates / criteria** (CRUD) | RW | RW | RW | RW | RW | RW | `api/v1/releases.py`, `api/v1/gate_criteria.py` |
+| **Release systems / dependencies / events / changes / linked CRs / linked bookings** | RW | RW | RW | RW | RW | RW | `api/v1/releases.py` |
+| **Release event types** (`/release-event-types`) | RW | RW | RW | RW | RW | RW | `api/v1/release_event_types.py` (see footnote 4) |
+| **Release templates** (CRUD + instantiate) | RW | RW | RW | RW | RW | RW | `api/v1/release_templates.py` (see footnote 4) |
+| **Builds** (list, get) — read-only over the API; written by webhook only | R | R | R | R | R | R | `api/v1/builds.py` |
+| **Deployments** (list, get, link-change) — read-only over the API; written by webhook only | R | R | R | R | R | R | `api/v1/deployments.py` |
+| **API keys** (list, create, revoke under `/api-keys`) | RW | RW | — | — | — | — | `api/v1/api_keys.py` |
+| **Import** (Excel environments / systems, docker-compose, terraform) | RW | RW | — | — | — | — | `api/v1/import_routes.py` |
+| **Enterprise memberships & roll-ups** | RW | RW | RW | RW | RW | RW | `api/v1/enterprise_memberships.py`, `api/v1/enterprise_rollup.py` (see footnote 5) |
+
+### Webhook / API-key endpoints
+
+These endpoints are **not** role-gated. They reject any request without a valid `X-Api-Key` header carrying the required scope, regardless of the caller's role.
+
+| Endpoint | Required scope | Source |
+|---|---|---|
+| `POST /api/v1/webhooks/deployment` | `webhooks:deployment` | `api/v1/webhooks/deployment.py` |
+
+API keys are issued and revoked per-tenant via the **API keys** row above (Admin only). See chapter 10 for scope details and the deployment webhook payload contract.
+
+### Footnotes
+
+1. **Bookings — delete.** The endpoint guard is `get_current_user` (any tenant user), but `services/booking_service.py` (`delete_occurrence`, `delete_series`, lines 411–438) adds an in-handler check: a non-privileged caller can only delete a booking they own. Privileged = master admin, `role == "Admin"`, or `role == "Release Manager"`. So Test Manager / Developer / Viewer can delete *their own* bookings only.
+2. **Change requests.** No role guard on any endpoint — any authenticated tenant user can create, transition, and delete CRs. Transitions are filtered by the configured CR lifecycle template, not by role. If a tenant wants per-role gating on CR approval, it must be enforced in the lifecycle template, not by the API.
+3. **Releases.** Same shape as change requests — no role guard at the endpoint or service layer. Any tenant user can create a release, drive transitions, and link/unlink change requests. Transitions are bounded by the release lifecycle template only.
+4. **Release templates and event types.** Currently any authenticated tenant user can create, edit, and delete templates and event types — there is no Admin gate. Treat this as a known gap; in practice the frontend hides these admin-flavour pages from non-Admin users.
+5. **Enterprise memberships and roll-ups.** All endpoints are guarded by `get_current_user` only. The `enterprise_id` arrives in the path, and tenant-scoping is enforced inside the service layer. There is no separate enterprise-admin role today.
 
 ---
 
