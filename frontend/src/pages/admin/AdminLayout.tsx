@@ -57,6 +57,16 @@ const entityNavItems = [
     icon: <BuildIcon fontSize="small" />,
   },
   {
+    label: 'Builds',
+    path: '/admin/config/build',
+    icon: <BuildIcon fontSize="small" />,
+  },
+  {
+    label: 'Deployments',
+    path: '/admin/config/deployment',
+    icon: <BuildIcon fontSize="small" />,
+  },
+  {
     label: 'Scope change rules',
     path: '/admin/scope-change-rules',
     icon: <BuildIcon fontSize="small" />,

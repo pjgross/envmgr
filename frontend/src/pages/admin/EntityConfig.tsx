@@ -17,6 +17,8 @@ const ENTITY_LABELS: Record<string, string> = {
   'change-request': 'Change Requests',
   release: 'Releases',
   'release-change': 'Release scope item',
+  build: 'Builds',
+  deployment: 'Deployments',
 };
 
 // URL-style entity slug (dash) → internal EntityType (underscore) where they differ.
@@ -28,6 +30,8 @@ const ENTITY_SLUG_TO_TYPE: Record<string, EntityType> = {
   'change-request': 'change_request',
   release: 'release',
   'release-change': 'release_change',
+  build: 'build',
+  deployment: 'deployment',
 };
 
 // Entities whose Lifecycle tab is fully supported.
