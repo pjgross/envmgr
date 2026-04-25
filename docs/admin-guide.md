@@ -592,7 +592,24 @@ Treat keys as production secrets. Issue one per consumer so you can revoke a sin
 
 ## 11. Tenant settings
 
-*To be drafted in Task 12.*
+### Concept
+
+Tenant settings hold tenant-scoped configuration that does not belong on any single entity and is not covered by per-entity custom fields. The page at `/tenant/settings` exposes one free-form JSON object — the `settings` column on the tenant row — which downstream features can read at runtime. Treat it as a small, hand-curated key/value bag for per-tenant toggles, integration hints, or feature flags that the rest of the platform consults; nothing on this page changes billing, identity, or routing.
+
+### What's editable vs read-only
+
+The header card shows two read-only fields: *Name* (the display label that appears in the tenant switcher and headers) and *Slug* (the short identifier baked into login URLs and tenant-scoped paths). Both are deliberately locked from this page — slug changes would invalidate every existing bookmark and integration, and the name is set when the tenant is provisioned. To change either, a master admin must edit the tenant from `/admin/tenants/{tenantId}`. The only field you can edit here is the *Custom Settings (JSON)* document.
+
+### Walkthrough: editing
+
+1. Open `/tenant/settings`.
+2. Edit the JSON in the *Custom Settings (JSON)* textarea.
+3. Click *Save Settings*.
+4. A green *Settings saved successfully* banner confirms the write; the textarea then reflects the persisted value.
+
+### Validation
+
+The textarea is parsed client-side before the request leaves the browser. Anything that is not valid JSON triggers an inline *Invalid JSON* alert and the *Save Settings* call is suppressed. The payload must parse to a JSON object — top-level arrays, strings, or numbers are rejected. Server-side errors (auth, network) surface in the same alert region with the backend message.
 
 ## 12. Import/export
 
