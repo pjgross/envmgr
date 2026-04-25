@@ -135,7 +135,65 @@ Day-to-day, you'll spend most of your time in five workflows: browse systems and
 
 ## 4. Browsing systems and environments
 
-*To be drafted in Task 18.*
+Most reading in EnvManager starts on one of two list pages: *System Catalog* or *Environments*. Both follow the same pattern — a DataGrid you can search, sort, and click into for a detail page. This chapter covers reading and finding things; for who creates and maintains them, see admin guide ch. 5–6.
+
+### Browsing systems
+
+Open `/systems` from the sidebar to land on the *System Catalog*. The header has a search box and a *New System* button; below it, a paginated DataGrid lists every system in your tenant.
+
+Columns in source order:
+
+- *Name* — system name, in bold.
+- *Description* — the short description, or `—` if none.
+- *GitHub* — a clickable *GitHub* chip when a repository URL is set; clicking opens the repo in a new tab without selecting the row.
+- Any tenant custom fields, one column each.
+- An unlabelled actions column with *Edit* and *Delete* icons (visible to users with edit permission).
+
+The header search box filters rows by *Name* (case-insensitive substring). Click any column header to sort, and use the column-menu on header hover to hide columns; your column visibility is remembered per-user in your browser. Click a row to open `/systems/:id`.
+
+### Inside a system
+
+The system detail page is tab-based. Tabs in source order:
+
+- *Overview* — system metadata (name, description, GitHub repository link) and any tenant custom fields.
+- *SubSystems* — table of the system's deployable units, showing *Name*, *Category* (the component type chip), *Technology*, and *Description*.
+- *Dependencies* — system-to-system dependencies, with direction (incoming / outgoing), the related system, dependency type, and one-way / two-way.
+- *Component Deps* — subsystem-to-subsystem dependencies merged across every subsystem of this system, including protocol, port, and any documented endpoints.
+- *Topology* — an interactive graph rendering of subsystems and the edges between them; click an edge to see its details.
+
+Maintenance of subsystems and dependencies (creation, edits, imports from `docker-compose.yml` or Terraform state) is described in admin guide ch. 5.
+
+### Browsing environments
+
+Open `/environments` from the sidebar. The header has search and *New Environment*; immediately below, a row of status filter chips scopes the grid to *All*, *Active*, *Inactive*, *Maintenance*, or *Decommissioned*.
+
+Columns in source order:
+
+- *Name* — environment name, in bold.
+- *Type* — the free-text type your tenant uses (for example `staging`, `uat`, `prod`).
+- *Status* — a coloured chip: green for *active*, yellow for *maintenance*, grey for *inactive*, red for *decommissioned*.
+- *Created* — localised creation date.
+- Any tenant custom fields, one column each.
+- Actions column with *Edit* and *Delete* icons.
+
+Search filters by *Name*; status chips are AND-combined with the search. Sort and column visibility work as on the System Catalog. Click a row to open `/environments/:id`.
+
+### Inside an environment
+
+The environment detail page is also tab-based. Tabs in source order:
+
+- *Overview* — metadata (name, description, type, status chip), tenant custom fields, created and updated timestamps, and a *Verify Environment* button that runs a dependency check against the environment's system contents (see admin guide ch. 6).
+- *Systems* — the systems attached to this environment; rows for systems that are required by a dependency but not yet attached are listed in greyed-out form.
+- *Components* — one row per subsystem instance, with the *Real / Mock* toggle chip, *Category*, *Type*, *Latest Version*, a *Hosts* dialog button, and a *Record Version* dialog launched from the page header.
+- *Topology* — an interactive graph for this environment's components and their dependencies.
+- *Schedule* — bookings, change requests, and (Phase 4) deployments overlaid on a calendar.
+- *Deployments* — a deployment feed for this environment, showing recent and in-flight deployments (Phase 4).
+
+In day-to-day use, the *Schedule* and *Deployments* tabs are where most reading happens — they answer "is this environment free?" and "what's the latest build out there?" without needing to leave the page.
+
+### How custom fields appear
+
+Tenant-defined custom fields show up as additional columns in the System and Environment DataGrids and as additional sections on the *Overview* tab of each detail page. If your team relies on custom fields, those columns are often the most useful sort keys for finding what you need.
 
 ## 5. Booking environments
 
