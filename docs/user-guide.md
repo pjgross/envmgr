@@ -351,7 +351,104 @@ Environments and hosts are linked at creation via the multi-select fields above,
 
 ## 7. Working with releases
 
-*To be drafted in Task 21.*
+### Concept
+
+A **release** groups change requests, scope items, gates, environments, and (post-deployment) deployments under a single shippable unit. It has a *type* — one of *project*, *hotfix*, *patch*, *major*, or *minor* — a *kind* (*project* or *enterprise*), a target date, and a status that flows through a tenant-configurable lifecycle. The type also picks the release lifecycle template (admin guide ch. 9). A release with kind *project* can join exactly one *enterprise* release — the bundle — letting several teams' work ship together as a coordinated quarterly drop.
+
+```
+     Release "2026-Q2"
+       ├── Scope items (granular work units, each with a change_kind)
+       ├── Linked Requests (change requests pulled into this release)
+       ├── Environments (target envs for this release)
+       ├── Test Phases (time-boxed test cycles with start/end dates)
+       │      └── Gates (pass/fail checkpoints with absolute due dates)
+       └── Deployments (read-only, populated post-rollout by CI)
+
+     Optional: ──── joins ────▶ Enterprise Release "FY26 Q2 Bundle"
+```
+
+### Status lifecycle
+
+The default *Major* lifecycle for project releases has ten states. The happy path is *draft* → *submitted* → *approved* → *in_progress* → *ready_for_release* → *completed*, with branches off to *completed_with_issues*, *backed_out*, *rejected*, or *cancelled*. *Minor* skips *submitted*; *Emergency* skips both *submitted* and *ready_for_release*. State keys below match the *Major* template exactly.
+
+```
+     ┌─────┐  Submit   ┌──────────┐  Approve   ┌──────────┐
+     │draft│ ────────▶ │submitted │ ─────────▶ │ approved │
+     └──┬──┘           └─────┬────┘            └─────┬────┘
+        │                    │ Reject                │ Start Release
+        │                    ▼                       ▼
+        │              ┌──────────┐            ┌──────────────┐
+        │              │ rejected │            │ in_progress  │
+        │              └──────────┘            └──────┬───────┘
+        │                                             │ Mark Ready
+        │ Cancel                                      ▼
+        ▼                                ┌────────────────────┐
+  ┌──────────┐                           │ ready_for_release  │
+  │cancelled │                           └──┬─────────┬────┬──┘
+  └──────────┘                  Complete │       │ │ Back Out
+                                          ▼       ▼ ▼
+                              ┌──────────┐ ┌───────────────────────┐ ┌────────────┐
+                              │completed │ │completed_with_issues  │ │ backed_out │
+                              └──────────┘ └───────────────────────┘ └────────────┘
+```
+
+Tenant Admins can replace this template — see admin guide ch. 9 — so transitions may differ in your tenant. *Enterprise* releases run their own lifecycle (*draft* → *planning* → *admission_open* → *admission_closed* → *integration_testing* → *uat* → *staging* → *cab* → *deploying* → *deployed*).
+
+### The three views
+
+- **List** at `/releases` — DataGrid columns in source order: *ID*, *Name*, *Type*, *Kind*, *Status*, *Target Date*, *Phases*, *Scope*, *Scope Changes*, *Blockers*, *Overdue*, *Created*. Filters: *Status*, *Type*, and a *Kind* toggle (*All / Projects / Enterprise*). A *Backlog* tab lists scope items not yet pulled into any release. Best for "what's in flight?"
+- **Calendar** at `/releases/calendar` — FullCalendar month view of release phases, colour-coded by release status. Click a phase block to open the parent release.
+- **Timeline** at `/releases/timeline` — Gantt: rows are releases, bars are phases, orange diamonds mark *target_date*, status-coloured diamonds mark gate due dates. Best for "what's competing for the same window?"
+
+### Walkthrough: creating a release
+
+1. From `/releases`, click *New Release* (top right).
+2. Fill the *New Release* dialog:
+   - **Kind** — *Project* or *Enterprise*. Project releases belong to a single team; enterprise releases roll up multiple project releases.
+   - **Type** — required; the dropdown lists every release lifecycle template defined for this tenant (e.g. *Major*, *Minor*, *Emergency*). Type determines the lifecycle. The tenant default is pre-selected.
+   - **Name** — required.
+   - **Description**, **Target Date**, and any **custom fields** the lifecycle exposes in *draft*.
+3. Click *Create Release*. You land on the new release's detail page.
+
+The release enters *draft*. If your tenant has configured a release template (admin guide ch. 9) for the chosen type, picking it on creation pre-populates phases and gates so you don't have to build them by hand.
+
+### Inside a release
+
+The detail page at `/releases/:id` is tab-based:
+
+- **Main** — release metadata, target/actual dates, type, kind, current state, and the buttons that drive the lifecycle. Header icons open the *Status history* and *Event log* drawers.
+- **Gates & Test Phases** — read-only phase Gantt at the top, editable phases table below, and the gates list with criteria.
+- **Environments** — target environments for this release.
+- **Linked Requests** — change requests pulled into this release (see ch. 6).
+- **Scope** — granular scope items, each with a *change_kind* (story / defect / task / spike) that tenant rules use to decide whether a late edit counts as a *scope change* (admin guide ch. 8).
+- **Enterprise** — for project releases, shows the current bundle (if any) and a history of past membership requests. For enterprise releases, the page swaps to a layout that lets you triage admission requests.
+- **Deployments** — populated by the CI deployment webhook (see [ch. 8](#8-builds-and-deployments)). Read-only.
+
+Honest API note: every release endpoint is guarded by *get_current_user* only — no `require_role`. Role checks come from the lifecycle template's `allowed_roles` per transition, so whoever configures the template (your Tenant Admin) decides who can advance the release. See admin guide ch. 13, footnote 3.
+
+### Walkthrough: transitioning a release
+
+1. Open the release detail and stay on the *Main* tab.
+2. The available buttons depend on the current state and your role's place in the template's `allowed_roles`. For *Major*, *Admin* / *Release Manager* drive almost every transition; *Developer* can only *Submit for Approval* from *draft*.
+3. Click the next-state button (e.g. *Submit for Approval*, *Approve*, *Start Release*, *Mark Ready*, *Complete*, *Back Out*).
+4. Add an optional note; the transition is recorded in *Status history* and emits an outbox event.
+
+Gate completion is **not** an enforced precondition for advancing — you can mark a release *completed* with pending gates. Gates and their *overdue* badges are UX cues, not a backend block. For hard blocking, configure required fields in the lifecycle template (admin guide ch. 9).
+
+### Gates and scope
+
+- **Gates** live on the *Gates & Test Phases* tab. Click *Add Gate* to create one with a name and an absolute *due_date* (a timestamp, not a relative offset). Add criteria from the expanded row; each criterion has its own due date that drives the gate's *overdue* badge. To move a gate off *pending*, click *Decide* and pick *passed*, *failed*, or *overridden*. Gates render as status-coloured diamonds on the timeline.
+- **Scope items** live on the *Scope* tab. Click *Add Item* to set a *title*, *change_kind* (story / defect / task / spike), and any release custom fields. Late edits — adding or removing a scope item after the release leaves *draft* — count as a *scope change* per tenant rules (admin guide ch. 8) and surface on the *Scope Changes* column on the list view.
+
+### Enterprise membership
+
+A project release joins one enterprise release at a time (the live FK is `parent_release_id`); the membership table records every admission request and decision as an append-only audit log. The *Enterprise* tab on a project release shows the current bundle (if any) plus a *History* list of past requests — *pending_request*, *accepted*, *rejected*, *withdrawn*, or *removed*. Why bother: enterprise releases give you cross-project rollups and one shared schedule when several teams' work must ship together.
+
+### Status history
+
+The header's history icon opens the *Status history* drawer — a read-only audit trail of every state transition: who, when, from-state, to-state, and notes. Useful for compliance reviews and post-go-live retros. The *Event log* icon opens the freeform *Release events* drawer (reschedule reasons, scope-change notes, stakeholder updates, post-go-live incidents) — typed entries you record manually.
+
+Once a release is in flight, see [ch. 8 (Builds and deployments)](#8-builds-and-deployments) for what your CI populates.
 
 ## 8. Builds and deployments
 
