@@ -615,7 +615,7 @@ The textarea is parsed client-side before the request leaves the browser. Anythi
 
 ### Concept
 
-Bulk-load entities into a tenant from an Excel workbook — useful when bootstrapping from an existing CMDB, spreadsheet inventory, or another EnvManager tenant. The page at `/import` covers two entity types: **environments** and **systems**, each uploaded as a `.xlsx` file. Two further importers — *Docker Compose* and *Terraform* — live on the system detail page and load **subsystems** into one specific system; see [ch. 5](#5-systems-and-subsystems).
+Bulk-load entities into a tenant from an Excel workbook — useful when bootstrapping from an existing CMDB, spreadsheet inventory, or another EnvManager tenant. The page at `/import` covers two entity types: **environments** and **systems**, each uploaded as a `.xlsx` file. Two further importers — *Docker Compose* and *Terraform* — live on the system detail page and load **subsystems** into one specific system; see [ch. 5](#5-modelling-your-platform-systems-and-subsystems).
 
 > **Not yet available:** there is no export endpoint or *Download Template* button (the button on the page is rendered but disabled with a *Templates coming soon* tooltip). To migrate data out, use the read-only API endpoints under `/api/v1/environments`, `/api/v1/systems`, etc., documented at `/docs`.
 
