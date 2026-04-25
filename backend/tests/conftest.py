@@ -141,6 +141,29 @@ async def test_booking_type(db_session, test_tenant) -> BookingType:
 
 
 @pytest_asyncio.fixture(scope="function")
+async def second_tenant_factory(db_session):
+    """Yields an async factory that creates a second tenant with its own admin."""
+    async def _factory(name: str = "Second Org", slug: str = "second-org"):
+        t = Tenant(name=name, slug=slug)
+        db_session.add(t)
+        await db_session.commit()
+        await db_session.refresh(t)
+        u = User(
+            tenant_id=t.id,
+            username=f"{slug}-admin",
+            email=f"admin@{slug}.com",
+            password_hash=get_password_hash("password123"),
+            role="Admin",
+            is_active=True,
+        )
+        db_session.add(u)
+        await db_session.commit()
+        await db_session.refresh(u)
+        return t, u
+    return _factory
+
+
+@pytest_asyncio.fixture(scope="function")
 async def auth_headers(client, test_tenant, test_user) -> dict:
     """Bearer token headers for test_user."""
     response = await client.post("/api/v1/auth/login", json={
