@@ -162,7 +162,7 @@ The sidebar is the same for every authenticated user, with one extra entry — *
 | *Releases → Timeline* | `/releases/timeline` | Release timeline view. | `user-guide.md` ch. 7 |
 | *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints. | ch. 9 |
 | *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | ch. 7 |
-| *Import* | `/import` | Bulk CSV/JSON import. | ch. 12 |
+| *Import* | `/import` | Bulk Excel import. | ch. 12 |
 | *Admin* (Admin only) | `/admin/config/booking` | Tenant config: change kinds, gates, scope rules, API keys. | ch. 8, ch. 10, ch. 11 |
 
 ### Suggested setup order
@@ -613,7 +613,46 @@ The textarea is parsed client-side before the request leaves the browser. Anythi
 
 ## 12. Import/export
 
-*To be drafted in Task 13.*
+### Concept
+
+Bulk-load entities into a tenant from an Excel workbook — useful when bootstrapping from an existing CMDB, spreadsheet inventory, or another EnvManager tenant. The page at `/import` covers two entity types: **environments** and **systems**, each uploaded as a `.xlsx` file. Two further importers — *Docker Compose* and *Terraform* — live on the system detail page and load **subsystems** into one specific system; see [ch. 5](#5-systems-and-subsystems).
+
+> **Not yet available:** there is no export endpoint or *Download Template* button (the button on the page is rendered but disabled with a *Templates coming soon* tooltip). To migrate data out, use the read-only API endpoints under `/api/v1/environments`, `/api/v1/systems`, etc., documented at `/docs`.
+
+### Walkthrough: importing
+
+1. Navigate to `/import`. The page shows two cards — *Import Environments* and *Import Systems* — with identical UX.
+2. In the relevant card, click *Choose File* and pick a `.xlsx` workbook. The file picker only accepts the `.xlsx` extension; the first worksheet is used.
+3. The selected filename appears next to the button. Click *Upload*.
+4. The button shows *Uploading…* with a spinner while the request is in flight, then a result banner appears: *Created N, Skipped N* (green) or the same with *N error(s)* (amber). When errors are present, an error table lists each failed row with *Row*, *Field*, and *Message*.
+
+### Excel column shapes
+
+The first row of the worksheet is treated as headers. Header matching is case-insensitive; column order does not matter; unknown columns are ignored.
+
+**Environments** — required: `Name`. Optional: `Type` (defaults to `imported`), `Description`.
+
+```
+| Name      | Type    | Description           |
+| --------- | ------- | --------------------- |
+| dev-eu-1  | dev     | Shared EU dev sandbox |
+| qa-main   | qa      | Regression QA         |
+```
+
+**Systems** — required: `Name`. Optional: `Description`, `GitHub URL`.
+
+```
+| Name     | Description     | GitHub URL                          |
+| -------- | --------------- | ----------------------------------- |
+| Checkout | Order capture   | https://github.com/acme/checkout    |
+| Payments | Card processing |                                     |
+```
+
+For the IaC importers (`POST /api/v1/import/docker-compose`, `POST /api/v1/import/terraform`), see the API reference at `/docs` for the multipart payload — both take a `system_id` form field plus the raw `docker-compose.yml` or `.tfstate` file.
+
+### Upsert semantics
+
+The matching key for both entity types is `Name`, scoped to the current tenant and excluding soft-deleted rows. Duplicates are **skipped** — never updated — and counted under *Skipped*. The page therefore behaves as an *insert-or-skip*; to amend existing rows, edit them via their normal CRUD pages. Each upload returns three counts: `created`, `skipped`, and a list of per-row errors.
 
 ## 13. Appendix: role permission matrix
 
