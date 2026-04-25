@@ -525,7 +525,7 @@ Each handler declares the scope it requires; a key passes auth only if its scope
 
 | Scope | What it grants | Example use |
 |-------|----------------|-------------|
-| `webhooks:deployment` | `POST /api/v1/webhooks/deployment` — register a build and deployment, auto-create a `code_deployment` change request on first call. | GitLab/Jenkins/GitHub Actions step that fires after a successful deploy stage. |
+| `webhooks:deployment` | `POST /api/v1/webhooks/deployment` — register a build and deployment, auto-create a `code_deployment` change request on first call. **Also** `GET /api/v1/webhooks/can-deploy` — preflight gate (see *Preflight: can-deploy* below). | GitLab/Jenkins/GitHub Actions: step that fires before deploying (preflight) and step that fires after a successful deploy (ingest). |
 
 Future phases will extend this list.
 
@@ -593,6 +593,107 @@ When EnvManager has not seen the `event_id` before, a single call writes:
 The auto CR is a placeholder so every deployment is auditable. To register the change manually first, send the existing `change_request_id` in the payload to skip auto-create; you can also swap the linked CR after the fact from the *Deployments* page (see user guide ch. 8).
 
 > **Not yet available:** Jira ticket sync (resolving ticket IDs to live Jira issues, surfacing status / assignees inline) is a Phase 3 Sub-3 deferred item. The webhook stores `jira_tickets` as plain strings today; the Build detail renders them as deep links if a Jira base URL is configured on the system, but no two-way sync exists.
+
+### Preflight: can-deploy
+
+CI pipelines should call this **before** running their deploy stage to find out whether the target environment is currently reservable. It catches three things the post-deploy webhook can only record after the damage is done:
+
+1. The environment is in *maintenance*, *inactive*, or *decommissioned* — block the deploy.
+2. Another project holds an **exclusive booking** that covers right now — block the deploy unless the caller can prove they own the booking.
+3. A change request with `has_outage = true` covers right now (and matches the target subsystem, if the CR is subsystem-scoped) — block the deploy.
+
+It also surfaces non-blocking *warnings* (a non-exclusive booking is in progress; another deployment to the same env+subsystem is still in `pending` / `in_progress` state) so the CI log carries the context.
+
+**Endpoint** `GET /api/v1/webhooks/can-deploy`
+**Required scope** `webhooks:deployment`
+**Auth header** `X-Api-Key: <plaintext key>`
+
+Query parameters:
+
+| Param | Required | Notes |
+|-------|----------|-------|
+| `environment_slug` | yes | Resolved against the tenant. `404` if unknown. |
+| `subsystem_slug` | yes | Resolved against the tenant. `404` if unknown. |
+| `release_id` | no | Claim token: "I'm deploying this release." Unlocks any exclusive booking whose `release_id` matches. |
+| `change_request_id` | no | Logged for traceability; **does not** unlock exclusive bookings today (no booking ↔ CR link in the model). Pass it anyway for forward compatibility. |
+| `booking_id` | no | Direct claim. Strongest unlock — proves the caller is the booking owner. |
+
+```bash
+curl "http://localhost:8000/api/v1/webhooks/can-deploy?\
+environment_slug=uat-1&\
+subsystem_slug=payments-api&\
+release_id=42" \
+  -H "X-Api-Key: $YOUR_KEY"
+```
+
+Response (clean — go ahead):
+
+```json
+{
+  "ok": true,
+  "environment_slug": "uat-1",
+  "subsystem_slug": "payments-api",
+  "checked_at": "2026-04-25T16:42:00Z",
+  "blockers": [],
+  "warnings": [],
+  "claim_matched": null
+}
+```
+
+Response (blocked by another team's exclusive booking):
+
+```json
+{
+  "ok": false,
+  "environment_slug": "uat-1",
+  "subsystem_slug": "payments-api",
+  "checked_at": "2026-04-25T16:42:00Z",
+  "blockers": [
+    {
+      "type": "exclusive_booking",
+      "ref_kind": "booking",
+      "ref_id": 47,
+      "title": "Q2 regression — checkout team",
+      "until": "2026-04-26T18:00:00Z"
+    }
+  ],
+  "warnings": [],
+  "claim_matched": null
+}
+```
+
+Response (allowed because the caller's `release_id` matches the booking):
+
+```json
+{
+  "ok": true,
+  "environment_slug": "uat-1",
+  "subsystem_slug": "payments-api",
+  "checked_at": "2026-04-25T16:42:00Z",
+  "blockers": [],
+  "warnings": [
+    {
+      "type": "deployment_in_progress",
+      "ref_kind": "deployment",
+      "ref_id": 199,
+      "since": "2026-04-25T16:40:11Z"
+    }
+  ],
+  "claim_matched": {"booking_id": 47, "matched_via": "release_id", "claim_value": 42}
+}
+```
+
+`ok` is the only field a CI pipeline strictly needs to read; treat `false` as "do not deploy". The rest is for the log line a human will read when something gets blocked. HTTP status is `200` for any successful evaluation — the body carries the verdict; only auth (`401` / `403`) and slug-lookup (`404`) failures use HTTP status codes for signalling.
+
+> **Advisory only.** Between the preflight call and the actual `POST /webhooks/deployment` there is a race window in which state can change (someone takes an exclusive booking, an outage CR is filed). The preflight is a fast read, not a lock. Plan for a small percentage of races where the post-deploy webhook records a violation that the preflight didn't anticipate. A short-lived deploy-reservation token is on the roadmap if races become a real problem.
+
+#### What CI should pass
+
+The minimum two are the slugs. If your pipeline knows what release or what booking it's deploying for — and it usually does, because release management is the reason the booking exists — pass those tokens too. The tokens are how you tell EnvManager "I'm the project that booked this environment." Without them, an exclusive booking on the env will block every CI call uniformly.
+
+- **Release-managed deploy:** pass `release_id`. The booking on the target env that's tied to that release is auto-unlocked.
+- **Direct claim:** pass `booking_id` if the CI job has been issued the booking's id (e.g. via a CI variable populated when the booking was approved). This is the strongest unlock and the right pattern when `release_id` doesn't apply.
+- **Neither known:** the call still works, but exclusive bookings are unconditional blockers.
 
 ### Rotation and revocation guidance
 
