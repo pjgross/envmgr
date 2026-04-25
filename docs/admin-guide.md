@@ -22,7 +22,31 @@ This guide is for **Master Admins** standing up new tenants and **Tenant Admins*
 
 ## 1. Introduction
 
-*To be drafted in Task 2.*
+EnvManager is a multi-tenant test-environment management platform. It maintains an inventory of systems, subsystems, and the environments they run in. It tracks who has booked which environment and when. It records change requests against environments and the gates they must pass. It coordinates releases that group changes for promotion. It ingests CI/CD build and deployment events so each environment shows what is currently deployed.
+
+This guide is for two audiences. **Master Admins** provision new tenants — that one-time task is covered in chapter 2 only. **Tenant Admins** configure and operate a tenant day-to-day, and chapters 3 onward are written for them. End users — anyone booking environments, raising changes, or reading deployment status — should read [`user-guide.md`](user-guide.md) instead.
+
+### The role model
+
+Roles are tenant-scoped: each user has exactly one role within a tenant, and Admin is the senior tenant role. The Master Admin flag is separate from the role and grants cross-tenant access for provisioning and support.
+
+| Role | Typical responsibility |
+|------|------------------------|
+| Master Admin | Cross-tenant operator who provisions tenants and seeds the first Tenant Admin. |
+| Admin | Tenant owner — manages users, models the platform, and configures tenant settings. |
+| Release Manager | Plans releases, drives release execution, and signs off gates. |
+| Test Manager | Books environments for test campaigns and manages test-related changes. |
+| Developer | Raises change requests and reads build and deployment status. |
+| Viewer | Read-only access to inventory, bookings, changes, and deployments. |
+
+See ch. 13 (Appendix: role permission matrix) for the full route × role × {read, write} matrix.
+
+### Related documentation
+
+- [`user-guide.md`](user-guide.md) — for end users in an already-provisioned tenant.
+- [`../CLAUDE.md`](../CLAUDE.md) — for engineers working on EnvManager itself.
+- [`prod architecture.md`](prod%20architecture.md) — for the production architecture.
+- The Swagger API reference at `http://localhost:8000/docs` — authoritative for API contracts.
 
 ## 2. Provisioning a new tenant *(Master Admin only)*
 
