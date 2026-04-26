@@ -1,0 +1,132 @@
+# EnvManager CI/CD pipeline — registers each successful build with the
+# EnvManager instance running on this laptop (http://localhost:8000).
+#
+# Setup notes: see docs/gitlab-ci-setup.md
+#   - Requires a shell-type GitLab runner registered against this project.
+#   - Requires the `gitlab_ci_envmanager` CI/CD variable to hold a plaintext
+#     API key with the `webhooks:deployment` scope, created in the demo
+#     tenant at /tenant/api-keys.
+#   - The local backend (uvicorn) and the demo tenant must be reachable
+#     when a pipeline runs; jobs will fail fast with connection-refused
+#     otherwise.
+#
+# Per-subsystem layout: frontend jobs only run when frontend/** changes,
+# backend jobs only when backend/** changes. A trivial commit touching
+# only docs runs no build/deploy stages.
+
+stages:
+  - validate
+  - preflight
+  - build_test
+  - register_deployment
+
+variables:
+  ENVMGR_API_URL: "http://localhost:8000"
+  ENVMGR_SYSTEM: "Env Manager"
+  ENVMGR_FRONTEND_SUB: "envManager_Frontend"
+  ENVMGR_BACKEND_SUB: "envManager_Backend"
+  ENVMGR_ENVIRONMENT: "EnvMgr_SIT"
+  # Set BLOCK_ON_BLOCKERS=1 here (or in a project variable) once you're
+  # confident enough in preflight to make blockers fail the pipeline.
+  BLOCK_ON_BLOCKERS: "0"
+
+# ──────────────────────────────────────────────────────────────────────
+# validate — cheap sanity checks that always run
+# ──────────────────────────────────────────────────────────────────────
+
+validate:scripts:
+  stage: validate
+  script:
+    - bash -n scripts/ci/register_deployment.sh
+    - bash -n scripts/ci/preflight.sh
+    - test -x scripts/ci/register_deployment.sh
+    - test -x scripts/ci/preflight.sh
+
+# ──────────────────────────────────────────────────────────────────────
+# preflight — informational gate (will not fail the pipeline by default)
+# ──────────────────────────────────────────────────────────────────────
+
+.preflight_template:
+  stage: preflight
+  script:
+    - ./scripts/ci/preflight.sh
+  allow_failure: true     # informational while BLOCK_ON_BLOCKERS=0
+
+preflight:frontend:
+  extends: .preflight_template
+  variables:
+    ENVMGR_SUBSYSTEM: "$ENVMGR_FRONTEND_SUB"
+  rules:
+    - changes:
+        - frontend/**/*
+
+preflight:backend:
+  extends: .preflight_template
+  variables:
+    ENVMGR_SUBSYSTEM: "$ENVMGR_BACKEND_SUB"
+  rules:
+    - changes:
+        - backend/**/*
+
+# ──────────────────────────────────────────────────────────────────────
+# build_test — frontend
+# ──────────────────────────────────────────────────────────────────────
+
+build_test:frontend:
+  stage: build_test
+  rules:
+    - changes:
+        - frontend/**/*
+  script:
+    - cd frontend
+    - npm ci
+    - npm run lint
+    - npm run test -- --run
+    - npm run build
+
+# ──────────────────────────────────────────────────────────────────────
+# build_test — backend
+# ──────────────────────────────────────────────────────────────────────
+
+build_test:backend:
+  stage: build_test
+  rules:
+    - changes:
+        - backend/**/*
+  script:
+    - cd backend
+    - uv sync --frozen
+    - uv run pytest -q
+
+# ──────────────────────────────────────────────────────────────────────
+# register_deployment — call EnvManager's webhook for each subsystem
+# that actually built in this pipeline
+# ──────────────────────────────────────────────────────────────────────
+
+register_deployment:frontend:
+  stage: register_deployment
+  rules:
+    - changes:
+        - frontend/**/*
+  needs:
+    - job: build_test:frontend
+      artifacts: false
+  variables:
+    ENVMGR_SUBSYSTEM: "$ENVMGR_FRONTEND_SUB"
+    PIPELINE_STEP_NAME: "frontend-ci"
+  script:
+    - ./scripts/ci/register_deployment.sh
+
+register_deployment:backend:
+  stage: register_deployment
+  rules:
+    - changes:
+        - backend/**/*
+  needs:
+    - job: build_test:backend
+      artifacts: false
+  variables:
+    ENVMGR_SUBSYSTEM: "$ENVMGR_BACKEND_SUB"
+    PIPELINE_STEP_NAME: "backend-ci"
+  script:
+    - ./scripts/ci/register_deployment.sh
