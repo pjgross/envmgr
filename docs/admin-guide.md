@@ -830,6 +830,7 @@ These endpoints are **not** role-gated. They reject any request without a valid 
 | Endpoint | Required scope | Source |
 |---|---|---|
 | `POST /api/v1/webhooks/deployment` | `webhooks:deployment` | `api/v1/webhooks/deployment.py` |
+| `GET /api/v1/webhooks/can-deploy` | `webhooks:deployment` | `api/v1/webhooks/can_deploy.py` |
 
 API keys are issued and revoked per-tenant via the **API keys** row above (Admin only). See chapter 10 for scope details and the deployment webhook payload contract.
 

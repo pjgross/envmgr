@@ -459,10 +459,12 @@ Builds and deployments are **read-only artefacts** in the UI. You never create t
 ```
    CI runs --> POST /api/v1/webhooks/deployment --> EnvManager
                                                       |
-                                                      |--> upsert Build (per subsystem + git_sha)
+                                                      |--> upsert Build (per subsystem + git_sha + build_number)
                                                       |--> create Deployment (per event_id)
                                                       `--> auto-create code_deployment ChangeRequest
 ```
+
+CI may also call `GET /api/v1/webhooks/can-deploy` **before** deploying — a lightweight preflight that reports any blockers (environment not active, exclusive booking held by another project, active change-request outage). A release-managed pipeline can pass `release_id` (or `booking_id`) so the booking the release manager owns auto-unlocks for that pipeline only — other CI runs to the same env are still blocked. See admin guide ch. 10 *Preflight: can-deploy* for the contract; this view shows the deployments that ultimately landed.
 
 ### Browsing builds
 

@@ -1,12 +1,14 @@
 # EnvManager - Claude Code Guide
 
 > **Current Phase**: Phase 4 complete on `main` — Sub-1 backend MR !20 (2026-04-23) + Sub-2 frontend/API keys MR !21 (2026-04-25). Main tip `d802797`, latest migration `p4s1builddeploy`. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2 ✅ | Phase 3 Sub-3 (Jira) deferred | Phase 4 ✅ | Phase 5 next.
+> **Unmerged work (2026-04-26)**: `docs/user-manual-spec` carries the admin + user manual, the `build_number` required-field change, and the new `GET /api/v1/webhooks/can-deploy` preflight gate (Phase 4 Sub-3). `feature/gitlab-ci-pipeline` is cut on top and adds `.gitlab-ci.yml` + helpers dogfooding EnvManager via the laptop's shell-type runner. Both ready to push as MRs.
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
 > **Roadmap**: [docs/plan.md](docs/plan.md) | **Phase 1 summary**: [docs/phases/phase-1.md](docs/phases/phase-1.md) | **Phase 2 summary**: [docs/phases/phase-2.md](docs/phases/phase-2.md) | **Phase 3 summary**: [docs/phases/phase-3.md](docs/phases/phase-3.md)
 > **Admin Guide**: [docs/admin-guide.md](docs/admin-guide.md)
 > **User Guide**: [docs/user-guide.md](docs/user-guide.md)
+> **CI/CD setup**: [docs/gitlab-ci-setup.md](docs/gitlab-ci-setup.md)
 
 EnvManager is a multi-tenant test environment management platform: inventory, booking, change management, CI/CD tracking, DORA metrics, and infrastructure topology visualization.
 
