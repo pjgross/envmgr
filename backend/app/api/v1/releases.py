@@ -706,9 +706,28 @@ async def add_release_system(
     current_user=Depends(get_current_user),
 ):
     from app.db.models.release_system import ReleaseSystem
+    from app.db.models.system import System
     from sqlalchemy.exc import IntegrityError
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
+
+    # Tenant isolation: the system must belong to this tenant. Prevents
+    # linking another tenant's system to this release.
+    system_ok = (
+        await db.execute(
+            select(System.id).where(
+                System.id == data.system_id,
+                System.tenant_id == tenant_id,
+                System.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if system_ok is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "system_id must refer to an active system in this tenant",
+        )
+
     rs = ReleaseSystem(
         tenant_id=tenant_id,
         release_id=release_id,

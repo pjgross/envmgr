@@ -199,6 +199,50 @@ async def test_create_rejects_unknown_subsystem(
 
 
 @pytest.mark.asyncio
+async def test_create_rejects_foreign_tenant_release(
+    client, db_session, auth_headers, test_subsystem, test_environment, test_cr_lifecycle,
+):
+    """A change request cannot be attached to another tenant's release."""
+    from app.db.models.user import Tenant, User
+    from app.db.models.release import Release
+    from app.core.security import get_password_hash
+
+    other = Tenant(name="Rel Org", slug="rel-org")
+    db_session.add(other)
+    await db_session.flush()
+    other_user = User(
+        tenant_id=other.id, username="reladmin", email="rel@test.com",
+        password_hash=get_password_hash("password123"), role="Admin", is_active=True,
+    )
+    db_session.add(other_user)
+    other_tpl = LifecycleTemplate(
+        tenant_id=other.id, entity_type="release", name="Rel LC", is_default=True,
+        definition={"states": [], "transitions": [], "field_permissions": {}},
+    )
+    db_session.add(other_tpl)
+    await db_session.flush()
+    foreign_release = Release(
+        tenant_id=other.id, name="Foreign R1", release_type="Major",
+        release_kind="project", lifecycle_template_id=other_tpl.id,
+        status="draft", raised_by=other_user.id,
+    )
+    db_session.add(foreign_release)
+    await db_session.commit()
+    await db_session.refresh(foreign_release)
+
+    resp = await client.post(
+        "/api/v1/change-requests",
+        headers=auth_headers,
+        json=_cr_payload(
+            test_subsystem.id, test_environment.id, test_cr_lifecycle.id,
+            release_id=foreign_release.id,
+        ),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "release_id" in resp.text
+
+
+@pytest.mark.asyncio
 async def test_create_rejects_lifecycle_with_wrong_entity_type(
     client, auth_headers, test_subsystem, test_environment, test_booking_type, db_session,
 ):

@@ -196,3 +196,28 @@ async def test_create_and_list_events(db_session, tenant, user):
     events = await release_event_service.list_events(db_session, release.id, tenant.id)
     assert len(events) == 1
     assert events[0].description == "Stakeholder review complete"
+
+
+# ── tenant isolation: event_type_id must belong to the caller's tenant ────────
+
+@pytest.mark.asyncio
+async def test_create_event_rejects_foreign_tenant_event_type(db_session, tenant, user):
+    """A release event cannot reference another tenant's event type."""
+    from fastapi import HTTPException
+
+    other = Tenant(name="Evt Org", slug="evt-org")
+    db_session.add(other)
+    await db_session.flush()
+    foreign_type = ReleaseEventType(tenant_id=other.id, name="Their Type", is_system=False)
+    db_session.add(foreign_type)
+    await db_session.flush()
+
+    release = await _make_release(db_session, tenant.id, user.id)
+
+    with pytest.raises(HTTPException) as exc:
+        await release_event_service.create_event(
+            db_session, release.id,
+            ReleaseEventCreate(event_type_id=foreign_type.id, description="nope"),
+            tenant.id, user.id,
+        )
+    assert exc.value.status_code == 404

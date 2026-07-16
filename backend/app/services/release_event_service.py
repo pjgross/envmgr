@@ -168,6 +168,10 @@ async def create_event(
     tenant_id: int,
     user_id: int,
 ) -> ReleaseEvent:
+    # Tenant isolation: the event type must belong to this tenant. Reuses
+    # _get_event_type (raises 404) so a foreign-tenant id cannot be linked.
+    await _get_event_type(db, data.event_type_id, tenant_id)
+
     occurred_at = data.occurred_at or datetime.now(timezone.utc)
     event = ReleaseEvent(
         tenant_id=tenant_id,

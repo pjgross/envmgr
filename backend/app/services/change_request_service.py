@@ -31,6 +31,7 @@ from app.db.models.environment import (
 )
 from app.db.models.infrastructure_component import InfrastructureComponent
 from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.release import Release
 from app.db.models.system import SubSystem
 from app.db.models.user import User
 from app.services import lifecycle_service, infrastructure_component_service
@@ -246,6 +247,30 @@ async def _validate_subsystem_scope(
         )
 
 
+async def _validate_release(
+    db: AsyncSession, release_id: Optional[int], tenant_id: int
+) -> None:
+    """Tenant isolation: a supplied release_id must reference an active
+    release in this tenant. Prevents attaching a change request to another
+    tenant's release."""
+    if release_id is None:
+        return
+    rel = (
+        await db.execute(
+            select(Release.id).where(
+                Release.id == release_id,
+                Release.tenant_id == tenant_id,
+                Release.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if rel is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "release_id must refer to an active release in this tenant",
+        )
+
+
 def _cr_load_options() -> list:
     return [
         selectinload(ChangeRequest.environments).selectinload(ChangeRequestEnvironment.environment),
@@ -384,6 +409,7 @@ async def create_change_request(
     await _validate_environments(db, environment_ids, tenant_id)
     await _validate_hosts(db, host_ids, tenant_id)
     await _validate_subsystem_scope(db, data.subsystem_id, environment_ids, tenant_id)
+    await _validate_release(db, data.release_id, tenant_id)
     initial_state = await _initial_state(tpl)
 
     cr = ChangeRequest(
@@ -608,6 +634,10 @@ async def update_change_request(
 
     desired_env_ids = changed.pop("environment_ids", None)
     desired_host_ids = changed.pop("host_ids", None)
+
+    # Tenant isolation: validate a re-pointed release_id before applying it.
+    if "release_id" in changed:
+        await _validate_release(db, changed["release_id"], tenant_id)
 
     scalar_fields = {
         "title",

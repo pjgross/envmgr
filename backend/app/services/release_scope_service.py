@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import publish_event
 from app.services import custom_field_service, scope_change_rule_service
 from app.db.models.release import Release
+from app.db.models.system import System
 from app.db.models.release_change import ReleaseChange
 from app.db.models.release_change_history import (
     ReleaseChangeReleaseHistory,
@@ -125,6 +126,30 @@ async def _record_status_change(
     db.add(row)
     await db.flush()
     return row
+
+
+async def _validate_system(
+    db: AsyncSession, system_id: Optional[int], tenant_id: int
+) -> None:
+    """Tenant isolation: a supplied system_id must reference an active
+    system in this tenant. Prevents linking another tenant's system to a
+    scope item."""
+    if system_id is None:
+        return
+    sys = (
+        await db.execute(
+            select(System.id).where(
+                System.id == system_id,
+                System.tenant_id == tenant_id,
+                System.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if sys is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "system_id must refer to an active system in this tenant",
+        )
 
 
 async def _maybe_emit_scope_change_event(
@@ -241,6 +266,7 @@ async def create_change(
     user_id: int = 0,
 ) -> ReleaseChange:
     release_status = await _get_release_status(db, release_id, tenant_id)
+    await _validate_system(db, data.system_id, tenant_id)
     rules = await scope_change_rule_service.load_rule_map(db, tenant_id)
 
     # Validate custom_fields against definitions for this change_kind.
@@ -309,6 +335,10 @@ async def update_change(
     change = await _get_change(db, change_id, tenant_id)
 
     update_data = data.model_dump(exclude_unset=True)
+
+    # Tenant isolation: validate a re-pointed system_id before applying it.
+    if "system_id" in update_data:
+        await _validate_system(db, update_data["system_id"], tenant_id)
 
     # Reject edits to read-only fields for jira-sourced items
     if change.source == "jira":

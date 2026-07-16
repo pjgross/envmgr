@@ -2,13 +2,27 @@
 import pytest
 from sqlalchemy import select
 
+from fastapi import HTTPException
+
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
+from app.db.models.system import System
 from app.db.models.user import Tenant
 from app.api.v1.schemas.release_change import ReleaseChangeCreate, ReleaseChangeUpdate
 from app.services import release_scope_service
+
+
+async def _make_foreign_system(db_session, name="Foreign System", slug="foreign-sys"):
+    """Create a system owned by a *different* tenant."""
+    other = Tenant(name=name, slug=slug)
+    db_session.add(other)
+    await db_session.flush()
+    sys = System(tenant_id=other.id, name="Their System")
+    db_session.add(sys)
+    await db_session.flush()
+    return sys
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -298,3 +312,40 @@ async def test_update_change_validates_type(
             data=ReleaseChangeUpdate(custom_fields={"points": "not-a-number"}),
         )
     assert exc.value.status_code == 422
+
+
+# ── tenant isolation: system_id must belong to the caller's tenant ────────────
+
+@pytest.mark.asyncio
+async def test_create_change_rejects_foreign_tenant_system(db_session, tenant, user):
+    release = await _make_release(db_session, tenant.id, user.id)
+    foreign = await _make_foreign_system(db_session)
+
+    with pytest.raises(HTTPException) as exc:
+        await release_scope_service.create_change(
+            db_session, release.id,
+            ReleaseChangeCreate(title="X", change_kind="story", system_id=foreign.id),
+            tenant.id, user.id,
+        )
+    assert exc.value.status_code == 400
+    assert "system_id" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_update_change_rejects_foreign_tenant_system(db_session, tenant, user):
+    release = await _make_release(db_session, tenant.id, user.id)
+    change = await release_scope_service.create_change(
+        db_session, release.id,
+        ReleaseChangeCreate(title="X", change_kind="story"),
+        tenant.id, user.id,
+    )
+    foreign = await _make_foreign_system(db_session, name="Org2", slug="org2")
+
+    with pytest.raises(HTTPException) as exc:
+        await release_scope_service.update_change(
+            db_session, change.id,
+            ReleaseChangeUpdate(system_id=foreign.id),
+            tenant.id, user.id,
+        )
+    assert exc.value.status_code == 400
+    assert "system_id" in exc.value.detail

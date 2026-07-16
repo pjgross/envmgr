@@ -441,6 +441,30 @@ async def test_add_system_duplicate_409(
 
 
 @pytest.mark.asyncio
+async def test_add_system_rejects_foreign_tenant(
+    client: AsyncClient, auth_headers, release, db_session
+):
+    """Linking another tenant's system to a release must be rejected."""
+    from app.db.models.user import Tenant
+
+    other = Tenant(name="Sys Org", slug="sys-org")
+    db_session.add(other)
+    await db_session.flush()
+    foreign_system = System(tenant_id=other.id, name="Foreign System")
+    db_session.add(foreign_system)
+    await db_session.commit()
+    await db_session.refresh(foreign_system)
+
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/systems",
+        headers=auth_headers,
+        json={"system_id": foreign_system.id, "role": "changing"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "system_id" in resp.text
+
+
+@pytest.mark.asyncio
 async def test_remove_system(
     client: AsyncClient, auth_headers, release, test_system_for_release
 ):
