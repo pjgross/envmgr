@@ -270,6 +270,74 @@ Key events requiring notifications:
 
 ---
 
+## 2A. Governance & Enterprise-TEM Expansion
+
+> Added 2026-07-16 from the domain-introduction documents. Full capability matrix in
+> [gap-analysis.md](gap-analysis.md). These sections describe the **governance discipline** that
+> wraps the transactional core (§2.1–§2.10). Phase targets in §7.
+
+### 2.11 Release Governance (Phase 9)
+
+- **Release Intake Form** ("front door"): single validated channel; completeness check; per-category lead times; returns incomplete intakes for clarification
+- **Risk classification / scoring** at intake (scope, blast radius, customer impact, regulatory scope, dependency footprint) → drives which gates and approvals apply
+- **Content / scope freeze** at a defined milestone; lock components + versions; formal exception approval for post-freeze additions; **Scope Stability** KPI (% content unchanged window-start → deploy)
+- **Go / No-Go decision record**: joint sign-off (Test Manager quality + Release Manager process + Business Sponsor acceptance); records go / conditional-go / no-go, rationale, conditions, attendees, dissents; "have you tested the rollback?" is a required question
+- **Gate types + evidence + waivers**: typed gates (functional, NFR/performance, integration, security, license, accessibility, business, ops-readiness); per-gate failure behaviour (block / warn / accept-with-exception); waiver workflow with reason, approver, expiry, remediation
+- **Rollback governance**: documented rollback plan agreed **before** deploy; data-reversibility flags surfaced at Plan time; in-flight rollback authorisation recorded (time, trigger, rationale); rollback rehearsal tracked as a gate
+- **Deployment execution**: deployment plan + window on the release record; pre-deployment checklist as a required gate; deploy patterns (rolling / blue-green / canary) per category; post-deployment verification (smoke / synthetic) that can trigger rollback; traffic-ramp schedule with auto-pause
+- **Hyper-care + closeout**: explicit hyper-care window; "declared stable" decision to move Operate → Improve; closeout confirms ops-ownership transfer and records outcome; retrospective produces owned, dated actions
+- **Feature-flag governance**: per-environment flag state + drift; stale-flag tracking; flag lifecycle policy (rollout plan, success criteria, removal-by date); production-flag-change audit feeding the evidence pack
+- **Read-only / "Stable Windows"**: periods where no deploys are allowed (extends the `can-deploy` preflight gate)
+
+### 2.12 Environment Lifecycle & Governance (Phase 7 expanded)
+
+- Environment **tiers** as a first-class field (Dev / SIT / UAT / Pre-Prod / Performance / Training / Production / Other)
+- Extended status set incl. **Reserved** and **Idle** (beyond active/inactive/maintenance/decommissioned)
+- **Named human owner** enforced per environment; **expiry / re-justification date** required
+- **Naming & tagging conventions**: enforced naming pattern; mandatory tags (owner, cost centre, tier, expiry); quarantine/terminate untagged resources after a grace period
+- **Environment Request Form** with mandatory fields + completeness validation; **Welcome Pack** auto-generated on handoff (URLs, credentials, VPN, support/SLA, data profile, known limitations, expiry, decommission steps)
+- **Soft (preemptible) vs hard (protected) reservations**; time-slot bookings (half-day / sprint / release cycle)
+- **Priority-ordered contention resolution** (configured priority order, not first-come-first-served); escalation to the Release Manager with a named owner + response window
+- **Decommissioning process**: 5-day warning → extension approval → final backup → teardown → inventory/calendar update to Available; **idle auto-detection** (no deployments/logins/traffic for N days) flags ghost environments
+- Forward **contention as a leading indicator** on the calendar (surface weeks out)
+
+### 2.13 Test Data Management (Phase 10)
+
+- **Data profile** per environment/request: synthetic / masked / subset / full-refresh, data classification, last refresh date, refresh cadence
+- **Masking / anonymisation** of PII on Production snapshots; **one-way flow enforced (Production → non-Production, never reverse)**; post-load verification that no real data leaked
+- **Scheduled data refreshes** per tier on a known cadence; **Refresh Cycle Time** metric; waive/defer with owner + escalation
+- **Data swimlanes** / account-range partitioning and naming-convention prefixes for shared-environment test data; Team/Tenant-ID isolation
+- Record masking / access-control **waivers** against the environment (never verbal)
+
+### 2.14 Cost & FinOps (Phase 11)
+
+- Cost fields on environments and releases: estimated monthly run-rate, funding source / cost centre, chargeback / showback model
+- **Cost per Environment-Week** (fully loaded) surfacing ghost/idle costs
+- **% of estate under IaC** (rebuildable from version control)
+- Cloud **auto-stop / auto-start** schedules and cost guardrails on self-service creation
+- **ROI model**: quantify benefits (slippage, change-failure, rollback, lead-time, emergency, audit) vs costs (tooling, people, run); compute Net Benefit, ROI %, Payback; baseline + 12-month target
+- Sustainability / compute-footprint reporting (optional)
+
+### 2.15 Compliance & Audit Evidence (Phase 12)
+
+- **Regulatory regime** as a field on the release/environment (SOX, PCI DSS, GDPR/UK DPA, HIPAA, FCA/PRA, NIS2, FedRAMP, ISO 27001); derives required gates and evidence
+- **Evidence pack** captured **at gate time** (not reconstructed at audit): scope, approvals, gate evidence, deployment log, hyper-care incidents, retrospective; attached to the release record
+- **Evidence retention** matching the longest applicable regime; tamper-evident; indexed for retrieval within an audit-response window
+- **Separation of duties** enforced by tooling (builder ≠ approver ≠ deployer) — depends on RBAC upgrade
+- Control-bypass exceptions recorded with reason, approver, remediation date; exceptions-without-remediation flagged as standing findings
+
+### 2.16 ITSM Integration & Enterprise Operations (Phase 13)
+
+- **ITSM change-feed integration** (ServiceNow / BMC Helix / Jira Service Management): pull infrastructure/config/vendor changes onto the unified Environment + Release Schedule
+- **Reconciliation** of the environment/release registers against CI/CD, ITSM, cloud tag inventory, and IaC state on a defined cadence, surfacing discrepancies
+- **SLA / OLA management**: define, track, and publish SLA (consumer) + OLA (internal) performance monthly; on a missed SLA, surface which OLA failed underneath
+- **KPI suite + baselining**: environment KPIs (Lead Time, Up-time, Defect Leakage due to Environment, Utilisation, MTTP, MTTR, Booking Honour, Refresh Cycle Time) and release KPIs (On-Time %, Scope Stability, Rollback Rate, Emergency %, Hotfix Lead Time, Pipeline Reliability); baseline at start, report deltas
+- **5-level Maturity Model** with self-assessment questionnaire; **RACI** + **decision-rights / escalation matrix**; **TEM / RM function risk registers**
+- **Communications**: Stakeholder Communications Plan, weekly bulletin, real-time status page; capacity/demand forecasting from the PMO roadmap
+- BC/DR (RTO/RPO) for the register/calendar/evidence/dashboards with an out-of-band manual fallback
+
+---
+
 ## 3. Non-Functional Requirements
 
 ### 3.1 Performance
@@ -345,6 +413,17 @@ Key events requiring notifications:
 | **Incident** | 5 | An incident record; `release_id` = causal release; `fix_release_id` = fix delivery release; linked to PIR via `PIR.incident_id` |
 | **Environment Health Status** | 5 | Point-in-time up/down/issue status pushed via REST API |
 | **Event Log** | 1 | Outbox event store for reliable event publishing |
+| **Release Intake** | 9 | Front-door request with risk score, before a Release is accepted |
+| **Go/No-Go Decision** | 9 | Recorded joint sign-off (go/conditional/no-go, dissents) on a release |
+| **Rollback Plan** | 9 | Documented rollback for a release incl. data-reversibility flags + in-flight auth record |
+| **Gate Evidence** | 9/12 | Evidence artefact captured at a gate, attached to the release |
+| **Feature Flag State** | 9 | Per-environment flag value + lifecycle (rollout, removal-by) |
+| **Data Profile** | 10 | Per-environment test-data profile (synthetic/masked/subset, classification, refresh) |
+| **Data Refresh** | 10 | A masked Prod→non-Prod refresh event with cadence + verification |
+| **Cost Record** | 11 | Run-rate / funding / chargeback for an environment or release |
+| **Regulatory Regime** | 12 | Compliance regime on a release/environment driving gates + evidence retention |
+| **ITSM Change** | 13 | Infrastructure/config change pulled from ITSM onto the unified schedule |
+| **SLA / OLA** | 13 | Service/operational level agreement definitions + monthly performance |
 
 ---
 
@@ -370,13 +449,18 @@ Key events requiring notifications:
 
 ## 6. Out of Scope
 
+> **2026-07-16 scope change:** Following a gap analysis against the *Release Management* and
+> *Environment Management* introduction documents ([gap-analysis.md](gap-analysis.md)), four
+> previously-excluded areas were brought **into scope**: Test Data Management (Phase 10),
+> Cost & FinOps (Phase 11), Compliance & Audit Evidence (Phase 12), and ITSM change-feed
+> integration (Phase 13). See §2.11–§2.16 and §7.
+
+Still out of scope:
+
 - Mobile application
-- AI-powered recommendations
-- Cost tracking and optimization
-- Compliance auditing
-- Advanced analytics beyond DORA metrics
-- CMDB integration (ServiceNow, Helix)
-- Phase 8 advanced features
+- AI-powered recommendations / Phase 8 advanced AI features (parked design)
+- Advanced analytics beyond DORA metrics + the environment/release KPI set (§2.16)
+- **Full two-way CMDB sync** (ITSM *change-feed* integration IS in scope — §2.15 — but bidirectional CMDB reconciliation as a source of truth is not)
 - Environment automation / TECR-triggered provisioning pipelines (future REST API integration by customer tools — not built by EnvManager)
 
 ---
@@ -390,7 +474,13 @@ Key events requiring notifications:
 | 2 | Change Management |
 | 3 | Release Management (Enterprise + Project Releases, Templates, Dependencies, Events, System Roles, Gantt View, PIR), Jira Integration |
 | 4 | Build Tracking, Deployment Tracking (GitHub Actions) |
-| 5 | DORA Metrics, Incident Tracking (manual), Health Check Dashboard, PIR |
-| 6 | Infrastructure Topology (Terraform, Neo4j, React Flow) |
-| 7 | Multi-Project Coordination, Environment Groups, Usage Agreements |
-| Post-7 | Incident API/webhook ingestion, external incident tool imports, RBAC/OAuth |
+| 5 | DORA Metrics, Incident Tracking (manual), Health Check Dashboard, PIR, scheduled health checks, booking honour/utilisation |
+| 6 | Infrastructure Topology (Terraform, Neo4j, React Flow) + **Environment Drift detection & sync vs Production** (§2.12/B4) |
+| 7 | Multi-Project Coordination, Environment Groups, Usage Agreements + **Environment Lifecycle & Governance** (§2.12: tiers, decommission, welcome pack, priority contention) |
+| 8 | *(reserved — parked AI Copilot / AI-driven Integrations design)* |
+| 9 | **Release Governance & Deployment Safety** (§2.11: intake, go/no-go, scope freeze, rollback, hyper-care, feature flags, deploy patterns) |
+| 10 | **Test Data Management** (§2.13) |
+| 11 | **Cost & FinOps** (§2.14) |
+| 12 | **Compliance & Audit Evidence** (§2.15 — depends on RBAC/OAuth) |
+| 13 | **ITSM Integration & Enterprise Operations** (§2.16: change feed, reconciliation, SLA/OLA, maturity, comms) |
+| Post-13 | Incident API/webhook ingestion, external incident tool imports, RBAC/OAuth, full CMDB sync |

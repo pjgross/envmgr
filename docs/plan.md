@@ -15,8 +15,18 @@
 | 3 | Releases, Templates, Enterprise Release, Jira | ✅ Sub-1 merged 2026-04-20/21 (MRs !4–!13); ✅ Sub-2 (Enterprise Releases) merged 2026-04-23 (MR !15, `64c52e3`); ✅ follow-ups MR !17 (gate due dates + timeline diamonds, `a2f55de`) + MR !18 (tenant-configurable change kinds, `0fa2eb5`) on 2026-04-23. Sub-3 (Jira) deferred. | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ✅ Sub-1 (backend) merged 2026-04-23 (MR !20); ✅ Sub-2 (frontend + API keys) merged 2026-04-25 (MR !21, `d802797`); 🟡 Sub-3 (`can-deploy` preflight gate + `build_number` now required at API) on branch `docs/user-manual-spec`, awaiting MR (2026-04-26) | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned. Pre-work in flight: GitLab CI dogfooding pipeline on branch `feature/gitlab-ci-pipeline` (registers EnvManager's own builds + deployments to demo tenant) — awaiting MR (2026-04-26). | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
-| 6 | Infrastructure Topology | 🟡 Model pulled forward — Terraform/Neo4j/React Flow still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
-| 7 | Multi-Project Coordination | ⏳ Planned | 4–6 weeks | [phases/phase-7.md](phases/phase-7.md) |
+| 6 | Infrastructure Topology **+ Environment Drift** | 🟡 Model pulled forward — Terraform/Neo4j/React Flow + drift-vs-Production still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
+| 7 | Multi-Project Coordination **+ Environment Lifecycle & Governance** | ⏳ Planned (expanded 2026-07-16) | 6–8 weeks | [phases/phase-7.md](phases/phase-7.md) |
+| 8 | *(reserved — parked AI Copilot / AI-driven Integrations)* | ⏸ Parked | — | — |
+| 9 | Release Governance & Deployment Safety | ⏳ Planned (2026-07-16) | 6–8 weeks | — |
+| 10 | Test Data Management | ⏳ Planned (2026-07-16) | 4–6 weeks | — |
+| 11 | Cost & FinOps | ⏳ Planned (2026-07-16) | 3–4 weeks | — |
+| 12 | Compliance & Audit Evidence | ⏳ Planned (2026-07-16, needs RBAC) | 4–6 weeks | — |
+| 13 | ITSM Integration & Enterprise Operations | ⏳ Planned (2026-07-16) | 4–6 weeks | — |
+
+> **2026-07-16 roadmap expansion.** Phases 9–13 (and the expansion of 6 & 7) were added from a gap
+> analysis of the *Release Management* and *Environment Management* introduction documents. Full
+> capability matrix: [gap-analysis.md](gap-analysis.md). Requirements: [requirements.md](requirements.md) §2.11–§2.16.
 
 ---
 
@@ -106,8 +116,31 @@ See [phases/phase-6.md](phases/phase-6.md).
 
 ---
 
-## Phase 7: Multi-Project Coordination — ⏳ Planned
+## Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance — ⏳ Planned
 
 See [phases/phase-7.md](phases/phase-7.md).
 
-**Objectives**: Project management, usage agreements between projects, environment groups, project-aware conflict detection.
+**Objectives**: Project management, usage agreements between projects, environment groups, project-aware conflict detection. **Expanded 2026-07-16** ([requirements.md §2.12](requirements.md)): environment tiers as a first-class field; Reserved/Idle states; named-owner + expiry enforcement; naming & tagging conventions with untagged-quarantine; Environment Request Form + auto-generated Welcome Pack; soft (preemptible) vs hard reservations; priority-ordered contention resolution with escalation; decommissioning process + idle auto-detection (ghost-cost control); forward contention as a calendar leading indicator.
+
+---
+
+## Phases 9–13: Governance & Enterprise-TEM Expansion — ⏳ Planned (2026-07-16)
+
+Added from the gap analysis of the two domain-introduction documents. Capability matrix:
+[gap-analysis.md](gap-analysis.md). Requirements: [requirements.md](requirements.md) §2.11, §2.13–§2.16.
+Phase 8 remains reserved for the parked AI Copilot / AI-driven Integrations design.
+
+### Phase 9 — Release Governance & Deployment Safety
+Release Intake Form + risk scoring; content/scope freeze + Scope Stability KPI; Go/No-Go decision record (joint Test/RM/Sponsor sign-off, dissents); typed gates + evidence + waiver-with-expiry; rollback governance (plan-before-deploy, data-reversibility flags, in-flight authorisation record, rehearsal gate); deployment execution (pre-deploy checklist gate, blue-green/canary, post-deploy verification, traffic ramp); hyper-care window + "declared stable" closeout + retro actions; feature-flag governance (state/drift/lifecycle/audit); read-only "Stable Windows".
+
+### Phase 10 — Test Data Management
+Data profiles; Production-snapshot masking/anonymisation; one-way Prod→non-Prod enforcement + post-load leak check; scheduled refreshes + Refresh Cycle Time; data swimlanes / account-range partitioning; masking waivers recorded against the environment.
+
+### Phase 11 — Cost & FinOps
+Cost fields (run-rate, funding, chargeback/showback); Cost per Environment-Week; % estate under IaC; cloud auto-stop/start + creation guardrails; ROI model (baseline + 12-month target); optional sustainability reporting.
+
+### Phase 12 — Compliance & Audit Evidence  *(depends on RBAC/OAuth upgrade)*
+Regulatory-regime field driving gates/evidence; evidence pack captured at gate time; tamper-evident retention indexed for audit; separation of duties (builder ≠ approver ≠ deployer); control-bypass exception tracking.
+
+### Phase 13 — ITSM Integration & Enterprise Operations
+ITSM change-feed (ServiceNow/Helix/JSM) onto the unified schedule; register reconciliation vs CI/CD/ITSM/cloud-tags/IaC; SLA/OLA management with monthly publishing; full environment + release KPI suite with baselining; 5-level maturity model; RACI + decision-rights/escalation matrices; comms plan + weekly bulletin + status page; capacity/demand forecasting; BC/DR for the register/calendar/evidence services.
