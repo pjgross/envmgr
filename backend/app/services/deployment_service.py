@@ -192,7 +192,10 @@ async def ingest(
     if payload.status in {"success", "failed"}:
         from app.db.models.change_request import ChangeRequest, ChangeHistory
         cr = (await db.execute(
-            select(ChangeRequest).where(ChangeRequest.id == change_request_id)
+            select(ChangeRequest).where(
+                ChangeRequest.id == change_request_id,
+                ChangeRequest.tenant_id == tenant_id,
+            )
         )).scalar_one()
         target_state = "deployed" if payload.status == "success" else "failed"
         if cr.status != target_state:

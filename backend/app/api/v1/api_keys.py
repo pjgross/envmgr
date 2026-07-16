@@ -36,7 +36,10 @@ async def list_keys(
     usernames: dict[int, str] = {}
     if user_ids:
         rows = (
-            await db.execute(select(User.id, User.username).where(User.id.in_(user_ids)))
+            await db.execute(select(User.id, User.username).where(
+                User.id.in_(user_ids),
+                User.tenant_id == current_user.active_tenant_id,
+            ))
         ).all()
         usernames = {r.id: r.username for r in rows}
     out = []

@@ -41,16 +41,24 @@ async def _hydrate_reads(
     project_ids = {m.project_release_id for m in memberships}
     enterprise_ids = {m.enterprise_release_id for m in memberships}
 
+    # All memberships in a call share one tenant (loaded tenant-scoped upstream);
+    # constrain the decoration loads to that tenant for defence in depth.
+    tenant_id = memberships[0].tenant_id
+
     users_by_id: dict[int, User] = {}
     if user_ids:
-        rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+        rows = (await db.execute(select(User).where(
+            User.id.in_(user_ids), User.tenant_id == tenant_id,
+        ))).scalars().all()
         users_by_id = {u.id: u for u in rows}
 
     # Batch-load both project and enterprise releases in a single query
     all_release_ids = project_ids | enterprise_ids
     releases_by_id: dict[int, Release] = {}
     if all_release_ids:
-        rows = (await db.execute(select(Release).where(Release.id.in_(all_release_ids)))).scalars().all()
+        rows = (await db.execute(select(Release).where(
+            Release.id.in_(all_release_ids), Release.tenant_id == tenant_id,
+        ))).scalars().all()
         releases_by_id = {r.id: r for r in rows}
 
     def _uname(uid: Optional[int]) -> Optional[str]:

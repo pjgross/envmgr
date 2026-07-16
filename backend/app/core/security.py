@@ -84,6 +84,13 @@ async def get_current_user(
         )
 
     impersonating = payload.get("impersonating_tenant_id")
+    # An impersonation claim is only honoured while the bearer is still a master
+    # admin. If the privilege was revoked after the token was minted, ignore the
+    # claim and fall back to the user's home tenant — closing cross-tenant access
+    # without a request-time re-mint. (The claim itself is signed, so it can't be
+    # forged; this guards the demoted-admin / stale-token case.)
+    if impersonating and not user.is_master_admin:
+        impersonating = None
     user.active_tenant_id = impersonating if impersonating else user.tenant_id
 
     return user

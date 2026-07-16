@@ -615,8 +615,9 @@ Query parameters:
 | `environment_slug` | yes | Resolved against the tenant. `404` if unknown. |
 | `subsystem_slug` | yes | Resolved against the tenant. `404` if unknown. |
 | `release_id` | no | Claim token: "I'm deploying this release." Unlocks any exclusive booking whose `release_id` matches. |
-| `change_request_id` | no | Logged for traceability; **does not** unlock exclusive bookings today (no booking ↔ CR link in the model). Pass it anyway for forward compatibility. |
 | `booking_id` | no | Direct claim. Strongest unlock — proves the caller is the booking owner. |
+
+> A `change_request_id` claim token was removed (2026-07-16): the booking model has no booking ↔ CR link, so it never unlocked anything. If CR-based claims are wanted later, add the FK first, then re-introduce the token and its response semantics.
 
 ```bash
 curl "http://localhost:8000/api/v1/webhooks/can-deploy?\

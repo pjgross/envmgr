@@ -46,7 +46,6 @@ async def evaluate(
     environment_slug: str,
     subsystem_slug: str,
     release_id: int | None = None,
-    change_request_id: int | None = None,
     booking_id: int | None = None,
 ) -> CanDeployResponse:
     """Evaluate the can-deploy gate for (tenant, env, subsystem) at "now".

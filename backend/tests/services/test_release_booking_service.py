@@ -270,7 +270,7 @@ async def test_update_booking_re_derives_context_tag(db_session, tenant, user):
     ))
     await db_session.flush()
 
-    await derive_and_set_context_tag(db_session, booking.id)
+    await derive_and_set_context_tag(db_session, booking.id, tenant.id)
 
     await db_session.refresh(br)
     assert br.context_tag == ContextTag.DEPLOYMENT

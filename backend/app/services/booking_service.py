@@ -618,7 +618,9 @@ _ROLE_TO_CONTEXT_TAG: dict[str, ContextTag] = {
 }
 
 
-async def derive_and_set_context_tag(db: AsyncSession, booking_id: int) -> None:
+async def derive_and_set_context_tag(
+    db: AsyncSession, booking_id: int, tenant_id: int
+) -> None:
     """Derive and set the context_tag on the booking's parent BookingRequest.
 
     Algorithm:
@@ -634,7 +636,10 @@ async def derive_and_set_context_tag(db: AsyncSession, booking_id: int) -> None:
 
     booking = (
         await db.execute(
-            select(Booking).where(Booking.id == booking_id)
+            select(Booking).where(
+                Booking.id == booking_id,
+                Booking.tenant_id == tenant_id,
+            )
         )
     ).scalar_one_or_none()
     if booking is None:

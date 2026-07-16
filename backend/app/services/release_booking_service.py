@@ -80,6 +80,6 @@ async def book_environment_for_phase(
     booking, _warnings = await create_booking(db, data, fake_user)
 
     # Derive context tag from release_system roles
-    await derive_and_set_context_tag(db, booking.id)
+    await derive_and_set_context_tag(db, booking.id, tenant_id)
 
     return booking

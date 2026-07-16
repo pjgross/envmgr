@@ -407,3 +407,108 @@ async def test_non_exclusive_booking_warns_does_not_block(db_session, tenant, us
     assert w.ref_kind == "booking"
     assert w.ref_id == booking.id
     assert w.until is not None
+
+
+# ── Rule 5 — deployment_in_progress ──────────────────────────────────────────
+
+async def _make_inflight_deployment(
+    db_session, *, tenant, user, subsystem, environment, lifecycle,
+    status: str = "in_progress", deployed_at: datetime,
+):
+    """A Build + in-flight Deployment (needs a CR for the FK) on (env, subsystem)."""
+    build = Build(
+        tenant_id=tenant.id, subsystem_id=subsystem.id,
+        git_sha="abc123", commit_timestamp=deployed_at,
+    )
+    db_session.add(build)
+    now = deployed_at
+    cr = ChangeRequest(
+        tenant_id=tenant.id, title="deploy", change_type="code_deployment",
+        status="deploying", lifecycle_id=lifecycle.id, has_outage=False,
+        scheduled_start=now, scheduled_end=now, raised_by=user.id,
+    )
+    db_session.add(cr)
+    await db_session.flush()
+    dep = Deployment(
+        tenant_id=tenant.id, build_id=build.id, environment_id=environment.id,
+        change_request_id=cr.id, event_id="evt-1", deployed_at=deployed_at,
+        status=status,
+    )
+    db_session.add(dep)
+    await db_session.commit()
+    await db_session.refresh(dep)
+    return dep
+
+
+@pytest.mark.asyncio
+async def test_deployment_in_progress_warns_does_not_block(db_session, tenant, user):
+    s = await _scaffold(db_session, tenant, user)
+    now = datetime.now(timezone.utc)
+    dep = await _make_inflight_deployment(
+        db_session, tenant=tenant, user=user,
+        subsystem=s["subsystem"], environment=s["environment"],
+        lifecycle=s["cr_lifecycle"], status="in_progress",
+        deployed_at=now - timedelta(minutes=5),
+    )
+    resp = await preflight_service.evaluate(
+        db_session, tenant_id=tenant.id,
+        environment_slug="sit", subsystem_slug="orders-api",
+    )
+    assert resp.ok is True          # warnings never block
+    assert resp.blockers == []
+    types = {w.type for w in resp.warnings}
+    assert "deployment_in_progress" in types
+    w = next(w for w in resp.warnings if w.type == "deployment_in_progress")
+    assert w.ref_kind == "deployment"
+    assert w.ref_id == dep.id
+    assert w.since is not None
+
+
+@pytest.mark.asyncio
+async def test_deployment_outside_window_does_not_warn(db_session, tenant, user):
+    s = await _scaffold(db_session, tenant, user)
+    now = datetime.now(timezone.utc)
+    # Deployed 45 min ago — beyond the 30-min in-progress window.
+    await _make_inflight_deployment(
+        db_session, tenant=tenant, user=user,
+        subsystem=s["subsystem"], environment=s["environment"],
+        lifecycle=s["cr_lifecycle"], status="in_progress",
+        deployed_at=now - timedelta(minutes=45),
+    )
+    resp = await preflight_service.evaluate(
+        db_session, tenant_id=tenant.id,
+        environment_slug="sit", subsystem_slug="orders-api",
+    )
+    assert resp.warnings == []
+
+
+# ── Claim precedence — booking_id wins over release_id across bookings ─────────
+
+@pytest.mark.asyncio
+async def test_claim_precedence_prefers_booking_id_over_release_id(db_session, tenant, user):
+    s = await _scaffold(db_session, tenant, user)
+    now = datetime.now(timezone.utc)
+    # Booking A is claimable via its release_id; Booking B via its own booking_id.
+    await _make_booking(
+        db_session, tenant=tenant, user=user,
+        booking_type=s["booking_type"], environment=s["environment"],
+        start=now - timedelta(hours=1), end=now + timedelta(hours=2),
+        exclusive=True, release_id=42,
+    )
+    booking_b = await _make_booking(
+        db_session, tenant=tenant, user=user,
+        booking_type=s["booking_type"], environment=s["environment"],
+        start=now - timedelta(hours=1), end=now + timedelta(hours=2),
+        exclusive=True,
+    )
+    resp = await preflight_service.evaluate(
+        db_session, tenant_id=tenant.id,
+        environment_slug="sit", subsystem_slug="orders-api",
+        release_id=42, booking_id=booking_b.id,
+    )
+    assert resp.ok is True
+    assert resp.blockers == []
+    assert resp.claim_matched is not None
+    # booking_id match takes precedence over the release_id match.
+    assert resp.claim_matched.matched_via == "booking_id"
+    assert resp.claim_matched.booking_id == booking_b.id

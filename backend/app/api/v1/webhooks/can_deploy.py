@@ -2,7 +2,7 @@
 
 Read-only advisory endpoint that answers "may I deploy now?" given an
 (environment_slug, subsystem_slug) pair plus optional claim tokens
-(release_id / change_request_id / booking_id).
+(release_id / booking_id) that can unlock an exclusive-booking blocker.
 
 Auth via the existing `webhooks:deployment` API-key scope. Always returns
 200 OK with a structured body — HTTP status is not the gate.
@@ -24,7 +24,6 @@ async def can_deploy(
     environment_slug: str = Query(...),
     subsystem_slug: str = Query(...),
     release_id: int | None = Query(None),
-    change_request_id: int | None = Query(None),
     booking_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
     api_key=Depends(api_key_auth(required_scope="webhooks:deployment")),
@@ -35,6 +34,5 @@ async def can_deploy(
         environment_slug=environment_slug,
         subsystem_slug=subsystem_slug,
         release_id=release_id,
-        change_request_id=change_request_id,
         booking_id=booking_id,
     )
