@@ -64,16 +64,25 @@ async def evaluate(
     if env is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "environment not found")
 
-    # 2. Resolve subsystem slug.
-    subsystem = (await db.execute(
+    # 2. Resolve subsystem slug. can-deploy takes only a subsystem name (no
+    # system context), so a name shared by subsystems in different systems is
+    # genuinely ambiguous — return 400 rather than 500 on MultipleResultsFound.
+    subsystems = (await db.execute(
         select(SubSystem).where(
             SubSystem.tenant_id == tenant_id,
             SubSystem.name == subsystem_slug,
             SubSystem.deleted_at.is_(None),
         )
-    )).scalar_one_or_none()
-    if subsystem is None:
+    )).scalars().all()
+    if not subsystems:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "subsystem not found")
+    if len(subsystems) > 1:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"subsystem_slug '{subsystem_slug}' is ambiguous — "
+            "multiple systems define a subsystem with this name",
+        )
+    subsystem = subsystems[0]
 
     now = datetime.now(timezone.utc)
     blockers: list[CanDeployBlocker] = []

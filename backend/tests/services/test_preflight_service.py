@@ -512,3 +512,24 @@ async def test_claim_precedence_prefers_booking_id_over_release_id(db_session, t
     # booking_id match takes precedence over the release_id match.
     assert resp.claim_matched.matched_via == "booking_id"
     assert resp.claim_matched.booking_id == booking_b.id
+
+
+# ── Ambiguous subsystem name → 400 (not 500) ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ambiguous_subsystem_name_returns_400(db_session, tenant, user):
+    await _scaffold(db_session, tenant, user)
+    # A second system in the same tenant with a subsystem of the SAME name.
+    sys2 = System(tenant_id=tenant.id, name="Billing")
+    db_session.add(sys2)
+    await db_session.flush()
+    db_session.add(SubSystem(tenant_id=tenant.id, system_id=sys2.id, name="orders-api"))
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await preflight_service.evaluate(
+            db_session, tenant_id=tenant.id,
+            environment_slug="sit", subsystem_slug="orders-api",
+        )
+    assert exc_info.value.status_code == 400
+    assert "ambiguous" in exc_info.value.detail.lower()
