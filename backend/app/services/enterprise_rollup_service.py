@@ -214,6 +214,73 @@ async def timeline_rollup(
     )
 
 
+async def raid_rollup(
+    db: AsyncSession, enterprise_id: int, tenant_id: int, config
+) -> dict:
+    """Aggregate RAID items across an enterprise release's accepted members."""
+    from datetime import datetime, timezone
+
+    from app.db.models.raid import RaidItem
+    from app.services import raid_service
+
+    cfg = raid_service._config_dict(config)
+    counts_by_type = {"risk": 0, "assumption": 0, "issue": 0, "dependency": 0}
+    counts_by_rag = {"green": 0, "amber": 0, "red": 0}
+    open_issues = 0
+    overdue_reviews = 0
+    top_risks: list[dict] = []
+
+    child_ids = await _accepted_child_ids(db, tenant_id, enterprise_id)
+    if not child_ids:
+        return {
+            "counts_by_type": counts_by_type,
+            "counts_by_rag": counts_by_rag,
+            "open_issues": open_issues,
+            "overdue_reviews": overdue_reviews,
+            "top_risks": top_risks,
+        }
+
+    items = (await db.execute(
+        select(RaidItem).where(
+            RaidItem.release_id.in_(child_ids),
+            RaidItem.tenant_id == tenant_id,
+            RaidItem.deleted_at.is_(None),
+        )
+    )).scalars().all()
+
+    now = datetime.now(timezone.utc)
+    candidates: list[dict] = []
+    for it in items:
+        counts_by_type[it.item_type] = counts_by_type.get(it.item_type, 0) + 1
+        sev = raid_service.severity(it.probability, it.impact)
+        r = raid_service.rag(sev, cfg)
+        if r in counts_by_rag:
+            counts_by_rag[r] += 1
+        if it.item_type == "issue" and it.status != "closed":
+            open_issues += 1
+        if it.review_date and it.review_date < now and it.status not in ("closed", "promoted", "met"):
+            overdue_reviews += 1
+        if it.item_type in ("risk", "issue") and sev is not None:
+            candidates.append({
+                "ref_code": raid_service.ref_code(it),
+                "release_id": it.release_id,
+                "title": it.title,
+                "severity": sev,
+                "rag": r,
+            })
+
+    candidates.sort(key=lambda c: c["severity"], reverse=True)
+    top_risks = candidates[:10]
+
+    return {
+        "counts_by_type": counts_by_type,
+        "counts_by_rag": counts_by_rag,
+        "open_issues": open_issues,
+        "overdue_reviews": overdue_reviews,
+        "top_risks": top_risks,
+    }
+
+
 async def member_state_summary(
     db: AsyncSession, *, user: User, enterprise_id: int
 ) -> list[MemberStateCount]:

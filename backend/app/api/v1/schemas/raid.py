@@ -74,6 +74,14 @@ class RaidSummaryRead(BaseModel):
     heatmap: list[list[list[str]]]  # heatmap[probability-1][impact-1] = [ref_code, ...]
 
 
+class RaidRollupRead(BaseModel):
+    counts_by_type: dict[str, int]
+    counts_by_rag: dict[str, int]
+    open_issues: int
+    overdue_reviews: int
+    top_risks: list[dict]  # [{ref_code, release_id, title, severity, rag}], highest severity first
+
+
 class RaidItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -13,6 +13,7 @@ from app.api.v1.schemas.enterprise_rollup import (
     MemberRollupRow,
     EnterpriseReportRead,
 )
+from app.api.v1.schemas.raid import RaidRollupRead
 from app.services import enterprise_rollup_service, enterprise_report_service
 
 router = APIRouter()
@@ -78,6 +79,24 @@ async def members_rollup(
 ):
     return await enterprise_rollup_service.members_rollup(
         db, user=user, enterprise_id=enterprise_id
+    )
+
+
+@router.get(
+    "/releases/{enterprise_id}/rollup/raid",
+    response_model=RaidRollupRead,
+)
+async def raid_rollup(
+    enterprise_id: int,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    tenant_id = user.active_tenant_id
+    from app.services import raid_config_service
+
+    cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
+    return await enterprise_rollup_service.raid_rollup(
+        db, enterprise_id, tenant_id, cfg
     )
 
 
