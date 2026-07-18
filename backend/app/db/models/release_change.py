@@ -26,6 +26,8 @@ class ReleaseChange(Base):
     system_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("system.id"), nullable=True, index=True
     )
+    project_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    project_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     # Sub-project 3 promotes these to real FKs.
     jira_project_config_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
