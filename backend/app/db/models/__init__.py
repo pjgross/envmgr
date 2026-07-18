@@ -50,6 +50,13 @@ from app.db.models.scope_change_kind_rule import ScopeChangeKindRule
 from app.db.models.api_key import ApiKey
 from app.db.models.build import Build
 from app.db.models.deployment import Deployment
+from app.db.models.raid import (
+    RaidItem,
+    RaidConfig,
+    RaidItemScopeLink,
+    RaidItemRelation,
+    RaidItemHistory,
+)
 
 # This will be expanded as we add more models
 __all__ = [
@@ -100,4 +107,9 @@ __all__ = [
     "ReleaseChangeReleaseHistory",
     "ReleaseChangeStatusHistory",
     "ScopeChangeKindRule",
+    "RaidItem",
+    "RaidConfig",
+    "RaidItemScopeLink",
+    "RaidItemRelation",
+    "RaidItemHistory",
 ]
