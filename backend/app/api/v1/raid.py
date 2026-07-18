@@ -9,7 +9,7 @@ from app.core.security import get_current_user, require_tenant_admin
 from app.services import raid_service, raid_config_service, release_service
 from app.api.v1.schemas.raid import (
     RaidItemCreate, RaidItemUpdate, RaidItemRead, RaidPromotePayload,
-    RaidScopeLinkPayload, RaidRelationPayload, RaidLinksRead,
+    RaidScopeLinkPayload, RaidRelationPayload, RaidLinksRead, RaidSummaryRead,
 )
 
 router = APIRouter(prefix="/releases", tags=["RAID"])
@@ -55,6 +55,15 @@ async def create_raid(
     item = await raid_service.create_item(db, release_id, data, tenant_id, current_user.id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
     return raid_service.to_read(item, cfg)
+
+
+@router.get("/{release_id}/raid/summary", response_model=RaidSummaryRead)
+async def raid_summary(release_id: int,
+                       db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
+    return await raid_service.summary(db, release_id, tenant_id, cfg)
 
 
 @router.get("/{release_id}/raid/{item_id}", response_model=RaidItemRead)

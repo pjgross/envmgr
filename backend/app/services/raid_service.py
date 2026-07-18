@@ -243,6 +243,38 @@ async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
     return items
 
 
+async def summary(db, release_id: int, tenant_id: int, config) -> dict:
+    cfg = _config_dict(config)
+    items = await list_items(db, release_id, tenant_id, config=cfg)
+    psize = len(cfg.get("probability_scale", []))
+    isize = len(cfg.get("impact_scale", []))
+    heatmap = [[[] for _ in range(isize)] for _ in range(psize)]
+    counts_by_type = {"risk": 0, "assumption": 0, "issue": 0, "dependency": 0}
+    counts_by_rag = {"green": 0, "amber": 0, "red": 0}
+    open_issues = 0
+    overdue_reviews = 0
+    now = datetime.now(timezone.utc)
+    for it in items:
+        counts_by_type[it.item_type] = counts_by_type.get(it.item_type, 0) + 1
+        r = rag(severity(it.probability, it.impact), cfg)
+        if r in counts_by_rag:
+            counts_by_rag[r] += 1
+        if it.item_type == "issue" and it.status != "closed":
+            open_issues += 1
+        if it.review_date and it.review_date < now and it.status not in ("closed", "promoted", "met"):
+            overdue_reviews += 1
+        if (it.item_type in ("risk", "issue") and it.probability and it.impact
+                and 1 <= it.probability <= psize and 1 <= it.impact <= isize):
+            heatmap[it.probability - 1][it.impact - 1].append(ref_code(it))
+    return {
+        "counts_by_type": counts_by_type,
+        "counts_by_rag": counts_by_rag,
+        "open_issues": open_issues,
+        "overdue_reviews": overdue_reviews,
+        "heatmap": heatmap,
+    }
+
+
 async def get_item(db: AsyncSession, item_id: int, tenant_id: int) -> RaidItem:
     return await _get_item(db, item_id, tenant_id)
 

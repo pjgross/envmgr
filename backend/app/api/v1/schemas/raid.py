@@ -66,6 +66,14 @@ class RaidLinksRead(BaseModel):
     relations: list[dict]
 
 
+class RaidSummaryRead(BaseModel):
+    counts_by_type: dict[str, int]
+    counts_by_rag: dict[str, int]
+    open_issues: int
+    overdue_reviews: int
+    heatmap: list[list[list[str]]]  # heatmap[probability-1][impact-1] = [ref_code, ...]
+
+
 class RaidItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
