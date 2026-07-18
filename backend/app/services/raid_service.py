@@ -12,6 +12,7 @@ from app.db.models.release_dependency import ReleaseDependency
 from app.db.models.release_change import ReleaseChange
 from app.api.v1.schemas.raid import RaidItemCreate, RaidItemUpdate, RaidItemRead
 from app.services import release_service
+from app.core.events import publish_event
 
 # Allowed status transitions per item_type. `promoted` (risk) is a terminal
 # state set only by the promotion action, not by ordinary transitions.
@@ -169,6 +170,10 @@ async def create_item(db: AsyncSession, release_id: int, data: RaidItemCreate,
     await db.flush()
     _record_history(db, item, "created", None, item.status, user_id)
     await db.flush()
+    await publish_event(
+        db, event_type="RaidItemRaised", aggregate_id=item.id, aggregate_type="RaidItem",
+        payload={"item_type": item.item_type, "ref_code": ref_code(item), "release_id": item.release_id},
+        tenant_id=tenant_id)
     return item
 
 
@@ -208,6 +213,10 @@ async def promote_item(db, release_id: int, item_id: int, target_type: str,
         source.status = "promoted"
         _record_history(db, source, "status", prev, "promoted", user_id)
     await db.flush()
+    await publish_event(
+        db, event_type="RaidItemPromoted", aggregate_id=source.id, aggregate_type="RaidItem",
+        payload={"source_id": source.id, "new_id": new.id, "target_type": target_type},
+        tenant_id=tenant_id)
     return new
 
 
@@ -241,6 +250,8 @@ async def get_item(db: AsyncSession, item_id: int, tenant_id: int) -> RaidItem:
 async def update_item(db: AsyncSession, item_id: int, data: RaidItemUpdate,
                       tenant_id: int, user_id: int) -> RaidItem:
     item = await _get_item(db, item_id, tenant_id)
+    _orig_status = item.status
+    _orig_owner = item.owner_id
     update_data = data.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] != item.status:
         if not is_transition_allowed(item.item_type, item.status, update_data["status"]):
@@ -261,6 +272,18 @@ async def update_item(db: AsyncSession, item_id: int, data: RaidItemUpdate,
         item.resolved_at = now
     if item.item_type == "assumption" and item.validation_status == "validated" and item.validated_at is None:
         item.validated_at = now
+    if item.status != _orig_status:
+        await publish_event(
+            db, event_type="RaidItemStatusChanged", aggregate_id=item.id, aggregate_type="RaidItem",
+            payload={"from": _orig_status, "to": item.status}, tenant_id=tenant_id)
+        if item.status == "closed":
+            await publish_event(
+                db, event_type="RaidItemClosed", aggregate_id=item.id, aggregate_type="RaidItem",
+                payload={"ref_code": ref_code(item)}, tenant_id=tenant_id)
+    if item.owner_id != _orig_owner:
+        await publish_event(
+            db, event_type="RaidItemAssigned", aggregate_id=item.id, aggregate_type="RaidItem",
+            payload={"owner_id": item.owner_id}, tenant_id=tenant_id)
     await db.flush()
     return item
 
@@ -297,6 +320,9 @@ async def add_scope_link(db, release_id: int, item_id: int, release_change_id: i
     link = RaidItemScopeLink(tenant_id=tenant_id, raid_item_id=item_id, release_change_id=release_change_id)
     db.add(link)
     await db.flush()
+    await publish_event(
+        db, event_type="RaidItemLinkedToScope", aggregate_id=item_id, aggregate_type="RaidItem",
+        payload={"release_change_id": release_change_id}, tenant_id=tenant_id)
     return link
 
 
