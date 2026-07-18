@@ -12,6 +12,8 @@ class ReleaseChangeCreate(BaseModel):
     external_status: Optional[str] = Field(None, max_length=100)
     system_id: Optional[int] = None
     custom_fields: Optional[dict[str, Any]] = None
+    project_code: Optional[str] = Field(None, max_length=50)
+    project_name: Optional[str] = Field(None, max_length=200)
 
 
 class ReleaseChangeUpdate(BaseModel):
@@ -22,6 +24,8 @@ class ReleaseChangeUpdate(BaseModel):
     external_status: Optional[str] = None
     system_id: Optional[int] = None
     custom_fields: Optional[dict[str, Any]] = None
+    project_code: Optional[str] = Field(None, max_length=50)
+    project_name: Optional[str] = Field(None, max_length=200)
 
 
 class ReleaseChangeMovePayload(BaseModel):
@@ -46,6 +50,8 @@ class ReleaseChangeRead(BaseModel):
     jira_project_config_id: Optional[int]
     epic_id: Optional[int]
     source: str
+    project_code: Optional[str] = None
+    project_name: Optional[str] = None
     # Computed KPIs — populated by service; defaults let list endpoints omit them.
     move_count: int = 0
     time_in_current_status_seconds: Optional[int] = None
@@ -73,3 +79,12 @@ class ReleaseChangeStatusHistoryRead(BaseModel):
     changed_at: datetime
     changed_by: Optional[int]
     notes: Optional[str]
+
+
+from app.api.v1.schemas.version import ImportError  # noqa: E402
+
+
+class ScopeImportResult(BaseModel):
+    created: int
+    updated: int
+    errors: list[ImportError]
