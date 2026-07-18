@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.user import Tenant
 from app.api.v1.schemas import TenantCreate, TenantUpdate
-from app.services import change_request_service, scope_change_rule_service
+from app.services import change_request_service, scope_change_rule_service, raid_config_service
 from app.services.release_defaults import seed_release_defaults_for_tenant
 
 
@@ -36,6 +36,8 @@ async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
     await seed_release_defaults_for_tenant(db, tenant.id)
     # Seed default scope-change-kind rules (story=True, others=False).
     await scope_change_rule_service.seed_default_rules(db, tenant.id)
+    # Seed default RAID probability/impact scales and RAG bands.
+    await raid_config_service.seed_default_config(db, tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return tenant
