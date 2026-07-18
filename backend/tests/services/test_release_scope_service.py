@@ -349,3 +349,37 @@ async def test_update_change_rejects_foreign_tenant_system(db_session, tenant, u
         )
     assert exc.value.status_code == 400
     assert "system_id" in exc.value.detail
+
+
+# ── project_code / project_name persistence ───────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_change_persists_project_fields(db_session, tenant, user):
+    release = await _make_release(db_session, tenant.id, user.id)
+    change = await release_scope_service.create_change(
+        db_session, release.id,
+        ReleaseChangeCreate(
+            title="Login", change_kind="story",
+            project_code="PAY", project_name="Payments Platform",
+        ),
+        tenant.id, user.id,
+    )
+    assert change.project_code == "PAY"
+    assert change.project_name == "Payments Platform"
+
+
+@pytest.mark.asyncio
+async def test_update_change_edits_project_fields(db_session, tenant, user):
+    release = await _make_release(db_session, tenant.id, user.id)
+    change = await release_scope_service.create_change(
+        db_session, release.id,
+        ReleaseChangeCreate(title="X", change_kind="story"),
+        tenant.id, user.id,
+    )
+    updated = await release_scope_service.update_change(
+        db_session, change.id,
+        ReleaseChangeUpdate(project_code="RET", project_name="Retail"),
+        tenant.id, user.id,
+    )
+    assert updated.project_code == "RET"
+    assert updated.project_name == "Retail"

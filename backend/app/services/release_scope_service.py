@@ -288,6 +288,8 @@ async def create_change(
         external_status=data.external_status,
         system_id=data.system_id,
         custom_fields=data.custom_fields,
+        project_code=data.project_code,
+        project_name=data.project_name,
         source="manual",
     )
     db.add(change)
