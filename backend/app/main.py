@@ -66,6 +66,7 @@ from app.api.v1 import conflicts as conflicts_router
 from app.api.v1 import change_requests as change_requests_router
 from app.api.v1 import infrastructure_components as infrastructure_components_router
 from app.api.v1 import releases as releases_router
+from app.api.v1 import raid as raid_router
 from app.api.v1 import release_templates as release_templates_router
 from app.api.v1 import release_event_types as release_event_types_router
 from app.api.v1 import gate_criteria as gate_criteria_api
@@ -117,6 +118,7 @@ app.include_router(release_templates_router.router, prefix="/api/v1")
 app.include_router(release_event_types_router.router, prefix="/api/v1")
 app.include_router(gate_criteria_api.release_sub_router, prefix="/api/v1")
 app.include_router(gate_criteria_api.router, prefix="/api/v1")
+app.include_router(raid_router.router, prefix="/api/v1")
 
 app.include_router(
     webhook_deployment_router.router,
