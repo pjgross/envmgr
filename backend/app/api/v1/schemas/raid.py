@@ -48,6 +48,10 @@ class RaidItemUpdate(BaseModel):
     custom_fields: Optional[dict[str, Any]] = None
 
 
+class RaidPromotePayload(BaseModel):
+    target_type: Literal["risk", "issue"]
+
+
 class RaidItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

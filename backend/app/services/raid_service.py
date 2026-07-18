@@ -171,6 +171,45 @@ async def create_item(db: AsyncSession, release_id: int, data: RaidItemCreate,
     return item
 
 
+_PROMOTABLE = {("risk", "issue"), ("assumption", "risk"), ("assumption", "issue")}
+
+
+async def promote_item(db, release_id: int, item_id: int, target_type: str,
+                       tenant_id: int, user_id: int) -> RaidItem:
+    source = await _get_item(db, item_id, tenant_id)
+    if source.release_id != release_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "RAID item not found")
+    if (source.item_type, target_type) not in _PROMOTABLE:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"cannot promote a {source.item_type} to a {target_type}")
+    max_seq = (await db.execute(
+        select(func.max(RaidItem.seq)).where(
+            RaidItem.tenant_id == tenant_id, RaidItem.release_id == source.release_id,
+            RaidItem.item_type == target_type)
+    )).scalar()
+    now = datetime.now(timezone.utc)
+    new = RaidItem(
+        tenant_id=tenant_id, release_id=source.release_id, item_type=target_type,
+        seq=(max_seq or 0) + 1, title=source.title, description=source.description,
+        status=_INITIAL_STATUS[target_type], owner_id=source.owner_id,
+        raised_by=user_id, raised_at=now,
+        probability=source.probability if target_type in ("risk", "issue") else None,
+        impact=source.impact if target_type in ("risk", "issue") else None,
+        validation_status="unvalidated" if target_type == "assumption" else None,
+        promoted_from_id=source.id,
+    )
+    db.add(new)
+    await db.flush()
+    _record_history(db, new, "created", None, f"promoted from {ref_code(source)}", user_id)
+    if source.item_type == "risk":
+        prev = source.status
+        source.status = "promoted"
+        _record_history(db, source, "status", prev, "promoted", user_id)
+    await db.flush()
+    return new
+
+
 async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
                      item_type=None, status=None, owner_id=None, rag=None, overdue=None, config=None):
     stmt = select(RaidItem).where(

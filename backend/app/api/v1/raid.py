@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.services import raid_service, raid_config_service, release_service
-from app.api.v1.schemas.raid import RaidItemCreate, RaidItemUpdate, RaidItemRead
+from app.api.v1.schemas.raid import RaidItemCreate, RaidItemUpdate, RaidItemRead, RaidPromotePayload
 
 router = APIRouter(prefix="/releases", tags=["RAID"])
 
@@ -81,6 +81,20 @@ async def update_raid(
     item = await raid_service.update_item(db, item_id, data, tenant_id, current_user.id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
     return raid_service.to_read(item, cfg)
+
+
+@router.post("/{release_id}/raid/{item_id}/promote", response_model=RaidItemRead,
+             status_code=status.HTTP_201_CREATED)
+async def promote_raid(
+    release_id: int, item_id: int, data: RaidPromotePayload,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    new = await raid_service.promote_item(db, release_id, item_id, data.target_type, tenant_id, current_user.id)
+    cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
+    return raid_service.to_read(new, cfg)
 
 
 @router.delete("/{release_id}/raid/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
