@@ -6,9 +6,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.raid import RaidItem, RaidItemHistory
+from app.db.models.raid import RaidItem, RaidItemHistory, RaidItemScopeLink, RaidItemRelation
 from app.db.models.user import User
 from app.db.models.release_dependency import ReleaseDependency
+from app.db.models.release_change import ReleaseChange
 from app.api.v1.schemas.raid import RaidItemCreate, RaidItemUpdate, RaidItemRead
 from app.services import release_service
 
@@ -268,3 +269,84 @@ async def delete_item(db: AsyncSession, item_id: int, tenant_id: int, user_id: i
     item = await _get_item(db, item_id, tenant_id)
     item.deleted_at = datetime.now(timezone.utc)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Scope links + item relations
+# ---------------------------------------------------------------------------
+
+_RELATION_KINDS = ("relates_to", "caused_by", "duplicates", "blocks")
+
+
+async def add_scope_link(db, release_id: int, item_id: int, release_change_id: int, tenant_id: int):
+    item = await _get_item(db, item_id, tenant_id)
+    if item.release_id != release_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "RAID item not found")
+    rc = (await db.execute(select(ReleaseChange).where(
+        ReleaseChange.id == release_change_id, ReleaseChange.tenant_id == tenant_id,
+        ReleaseChange.deleted_at.is_(None)))).scalar_one_or_none()
+    if rc is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "release_change_id must be a scope item in this tenant")
+    if rc.release_id != release_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "scope item belongs to a different release")
+    existing = (await db.execute(select(RaidItemScopeLink).where(
+        RaidItemScopeLink.raid_item_id == item_id,
+        RaidItemScopeLink.release_change_id == release_change_id))).scalar_one_or_none()
+    if existing:
+        return existing
+    link = RaidItemScopeLink(tenant_id=tenant_id, raid_item_id=item_id, release_change_id=release_change_id)
+    db.add(link)
+    await db.flush()
+    return link
+
+
+async def remove_scope_link(db, item_id: int, release_change_id: int, tenant_id: int) -> None:
+    await _get_item(db, item_id, tenant_id)
+    link = (await db.execute(select(RaidItemScopeLink).where(
+        RaidItemScopeLink.raid_item_id == item_id,
+        RaidItemScopeLink.release_change_id == release_change_id,
+        RaidItemScopeLink.tenant_id == tenant_id))).scalar_one_or_none()
+    if link:
+        await db.delete(link)
+        await db.flush()
+
+
+async def add_relation(db, from_item_id: int, to_item_id: int, relation: str, tenant_id: int):
+    if relation not in _RELATION_KINDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid relation")
+    if from_item_id == to_item_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot relate an item to itself")
+    await _get_item(db, from_item_id, tenant_id)
+    await _get_item(db, to_item_id, tenant_id)  # 404 if target not in tenant
+    existing = (await db.execute(select(RaidItemRelation).where(
+        RaidItemRelation.from_item_id == from_item_id,
+        RaidItemRelation.to_item_id == to_item_id,
+        RaidItemRelation.relation == relation))).scalar_one_or_none()
+    if existing:
+        return existing
+    rel = RaidItemRelation(tenant_id=tenant_id, from_item_id=from_item_id, to_item_id=to_item_id, relation=relation)
+    db.add(rel)
+    await db.flush()
+    return rel
+
+
+async def remove_relation(db, from_item_id: int, to_item_id: int, relation: str, tenant_id: int) -> None:
+    await _get_item(db, from_item_id, tenant_id)
+    rel = (await db.execute(select(RaidItemRelation).where(
+        RaidItemRelation.from_item_id == from_item_id,
+        RaidItemRelation.to_item_id == to_item_id,
+        RaidItemRelation.relation == relation,
+        RaidItemRelation.tenant_id == tenant_id))).scalar_one_or_none()
+    if rel:
+        await db.delete(rel)
+        await db.flush()
+
+
+async def get_links(db, item_id: int, tenant_id: int) -> dict:
+    await _get_item(db, item_id, tenant_id)
+    scope_ids = [r[0] for r in (await db.execute(select(RaidItemScopeLink.release_change_id).where(
+        RaidItemScopeLink.raid_item_id == item_id, RaidItemScopeLink.tenant_id == tenant_id))).all()]
+    rels = [{"to_item_id": r.to_item_id, "relation": r.relation} for r in (await db.execute(
+        select(RaidItemRelation).where(
+            RaidItemRelation.from_item_id == item_id, RaidItemRelation.tenant_id == tenant_id))).scalars().all()]
+    return {"scope_change_ids": scope_ids, "relations": rels}

@@ -52,6 +52,20 @@ class RaidPromotePayload(BaseModel):
     target_type: Literal["risk", "issue"]
 
 
+class RaidScopeLinkPayload(BaseModel):
+    release_change_id: int
+
+
+class RaidRelationPayload(BaseModel):
+    to_item_id: int
+    relation: Literal["relates_to", "caused_by", "duplicates", "blocks"]
+
+
+class RaidLinksRead(BaseModel):
+    scope_change_ids: list[int]
+    relations: list[dict]
+
+
 class RaidItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

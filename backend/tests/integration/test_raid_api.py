@@ -96,3 +96,32 @@ async def test_raid_tenant_isolation(client: AsyncClient, db_session, auth_heade
     assert (await client.get(f"/api/v1/releases/{raid_release.id}/raid", headers=other_headers)).status_code == 404
     assert (await client.post(f"/api/v1/releases/{raid_release.id}/raid", headers=other_headers,
             json={"item_type": "risk", "title": "sneaky"})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scope_link_cross_tenant_rejected(client, db_session, auth_headers, raid_release):
+    from app.db.models.user import Tenant, User
+    from app.db.models.release import Release
+    from app.db.models.release_change import ReleaseChange
+    from app.db.models.lifecycle import LifecycleTemplate
+    from app.core.security import get_password_hash
+    # A RAID item on tenant A's release
+    created = await client.post(f"/api/v1/releases/{raid_release.id}/raid",
+        headers=auth_headers, json={"item_type": "risk", "title": "X"})
+    item_id = created.json()["id"]
+    # A scope item owned by a DIFFERENT tenant
+    other = Tenant(name="XT Org", slug="xt-org"); db_session.add(other); await db_session.flush()
+    ou = User(tenant_id=other.id, username="xtu", email="xt@o.com",
+              password_hash=get_password_hash("password123"), role="Admin", is_active=True)
+    tpl = LifecycleTemplate(tenant_id=other.id, entity_type="release", name="M", is_default=True,
+        definition={"states": [], "transitions": [], "field_permissions": {}})
+    db_session.add_all([ou, tpl]); await db_session.flush()
+    orel = Release(tenant_id=other.id, name="OR", release_type="Major", release_kind="project",
+        lifecycle_template_id=tpl.id, status="draft", raised_by=ou.id)
+    db_session.add(orel); await db_session.flush()
+    frc = ReleaseChange(tenant_id=other.id, release_id=orel.id, title="F", change_kind="story", source="manual")
+    db_session.add(frc); await db_session.commit(); await db_session.refresh(frc)
+    # tenant A tries to link tenant B's scope item -> 400
+    resp = await client.post(f"/api/v1/releases/{raid_release.id}/raid/{item_id}/scope-links",
+        headers=auth_headers, json={"release_change_id": frc.id})
+    assert resp.status_code == 400, resp.text
