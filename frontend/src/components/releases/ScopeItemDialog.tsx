@@ -41,6 +41,8 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
   const [externalKey, setExternalKey] = useState('');
   const [description, setDescription] = useState('');
   const [externalStatus, setExternalStatus] = useState('');
+  const [projectCode, setProjectCode] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -67,6 +69,8 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
       setExternalKey(item?.external_key ?? '');
       setDescription(item?.description ?? '');
       setExternalStatus(item?.external_status ?? '');
+      setProjectCode(item?.project_code ?? '');
+      setProjectName(item?.project_name ?? '');
       setCustomFields((item?.custom_fields as Record<string, unknown>) ?? {});
     }
   }, [open, item]);
@@ -103,6 +107,8 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
               description: description || null,
               external_key: externalKey || null,
               external_status: externalStatus || null,
+              project_code: projectCode || null,
+              project_name: projectName || null,
               custom_fields: customFields,
             },
           })
@@ -118,6 +124,8 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
               description: description || null,
               external_key: externalKey || null,
               external_status: externalStatus || null,
+              project_code: projectCode || null,
+              project_name: projectName || null,
               custom_fields: customFields,
             },
           })
@@ -177,6 +185,22 @@ export default function ScopeItemDialog({ open, onClose, releaseId, item }: Prop
             value={externalStatus}
             onChange={(e) => setExternalStatus(e.target.value)}
             disabled={submitting}
+          />
+          <TextField
+            label="Project code"
+            fullWidth
+            value={projectCode}
+            onChange={(e) => setProjectCode(e.target.value)}
+            disabled={submitting}
+            inputProps={{ maxLength: 50 }}
+          />
+          <TextField
+            label="Project name"
+            fullWidth
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            disabled={submitting}
+            inputProps={{ maxLength: 200 }}
           />
           <TextField
             label="Description"

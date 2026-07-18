@@ -7,6 +7,8 @@ export interface ReleaseChangeResponse {
   description: string | null;
   change_kind: string; // 'story' | 'defect'
   external_status: string | null;
+  project_code: string | null;
+  project_name: string | null;
   system_id: number | null;
   custom_fields: Record<string, unknown> | null;
   jira_project_config_id: number | null;
@@ -47,6 +49,8 @@ export interface ReleaseChangeCreatePayload {
   description?: string | null;
   change_kind: string;
   external_status?: string | null;
+  project_code?: string | null;
+  project_name?: string | null;
   system_id?: number | null;
   custom_fields?: Record<string, unknown> | null;
 }
@@ -56,6 +60,20 @@ export interface ReleaseChangeUpdatePayload {
   title?: string;
   description?: string | null;
   external_status?: string | null;
+  project_code?: string | null;
+  project_name?: string | null;
   system_id?: number | null;
   custom_fields?: Record<string, unknown> | null;
+}
+
+export interface ScopeImportRowError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface ScopeImportResult {
+  created: number;
+  updated: number;
+  errors: ScopeImportRowError[];
 }

@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
-import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
@@ -47,6 +47,24 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTarget, setHistoryTarget] = useState<ReleaseChangeResponse | null>(null);
+
+  const [projectFilter, setProjectFilter] = useState('');
+
+  const projectCodes = useMemo(() => {
+    const codes = new Set<string>();
+    changes.forEach((c) => {
+      if (c.project_code) codes.add(c.project_code);
+    });
+    return Array.from(codes).sort();
+  }, [changes]);
+
+  const filteredChanges = useMemo(
+    () =>
+      projectFilter
+        ? changes.filter((c) => c.project_code === projectFilter)
+        : changes,
+    [changes, projectFilter],
+  );
 
   const openCreate = () => {
     setEditItem(null);
@@ -118,6 +136,26 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
         ),
       },
       {
+        field: 'project_code',
+        headerName: 'Project',
+        width: 110,
+        renderCell: (params) => (
+          <Typography variant="body2">
+            {params.row.project_code ?? '—'}
+          </Typography>
+        ),
+      },
+      {
+        field: 'project_name',
+        headerName: 'Project Name',
+        width: 160,
+        renderCell: (params) => (
+          <Typography variant="body2" color="text.secondary">
+            {params.row.project_name ?? '—'}
+          </Typography>
+        ),
+      },
+      {
         field: 'source',
         headerName: 'Source',
         width: 90,
@@ -184,19 +222,37 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
         <Typography variant="subtitle2">
-          Scope Items ({changes.length})
+          Scope Items ({filteredChanges.length})
         </Typography>
-        <Button size="small" startIcon={<AddIcon />} onClick={openCreate}>
-          Add Item
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TextField
+            select
+            size="small"
+            label="Project"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            sx={{ minWidth: 160 }}
+            disabled={projectCodes.length === 0}
+          >
+            <MenuItem value="">All projects</MenuItem>
+            {projectCodes.map((code) => (
+              <MenuItem key={code} value={code}>
+                {code}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button size="small" startIcon={<AddIcon />} onClick={openCreate}>
+            Add Item
+          </Button>
+        </Box>
       </Box>
 
       <Box sx={{ height: 400 }}>
         <DataTable<ReleaseChangeResponse>
           storageKey="release-scope-table"
-          rows={changes}
+          rows={filteredChanges}
           columns={columns}
           loading={loading}
           emptyMessage="No scope items yet"
