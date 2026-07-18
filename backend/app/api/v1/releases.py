@@ -13,12 +13,12 @@ Field-permissions contract (GET/PUT/transition on a single release):
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, status, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
@@ -64,6 +64,7 @@ from app.api.v1.schemas.release_change import (
     ReleaseChangeMovePayload,
     ReleaseChangeReleaseHistoryRead,
     ReleaseChangeStatusHistoryRead,
+    ScopeImportResult,
 )
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
@@ -875,6 +876,41 @@ async def create_change(
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     return await release_scope_service.create_change(db, release_id, data, tenant_id, current_user.id)
+
+
+@router.post("/{release_id}/scope/import", response_model=ScopeImportResult)
+async def import_scope(
+    release_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    from app.services import scope_import_service
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    file_bytes = await file.read()
+    return await scope_import_service.import_scope(db, file_bytes, release_id, tenant_id)
+
+
+@router.get("/scope/import-template")
+async def scope_import_template(current_user=Depends(get_current_user)):
+    import openpyxl
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["external_key", "title", "description", "change_kind",
+               "external_status", "project_code", "project_name"])
+    ws.append(["PAY-1", "Example story", "Optional description", "story",
+               "In Progress", "PAY", "Payments Platform"])
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=scope_import_template.xlsx"},
+    )
 
 
 @release_changes_router.put("/{change_id}", response_model=ReleaseChangeRead)
