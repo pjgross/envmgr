@@ -893,16 +893,24 @@ async def import_scope(
 
 
 @router.get("/scope/import-template")
-async def scope_import_template(current_user=Depends(get_current_user)):
+async def scope_import_template(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     import openpyxl
     from io import BytesIO
     from fastapi.responses import StreamingResponse
+    from app.services import custom_field_service
+    defs = await custom_field_service.list_definitions(
+        db, current_user.active_tenant_id, "release_change")
+    custom_headers = [d.field_key for d in defs]
+    base = ["external_key", "title", "description", "change_kind",
+            "external_status", "project_code", "project_name"]
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append(["external_key", "title", "description", "change_kind",
-               "external_status", "project_code", "project_name"])
+    ws.append(base + custom_headers)
     ws.append(["PAY-1", "Example story", "Optional description", "story",
-               "In Progress", "PAY", "Payments Platform"])
+               "In Progress", "PAY", "Payments Platform"] + [""] * len(custom_headers))
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
