@@ -496,7 +496,7 @@ export default function RaidItemDialog({ open, onClose, releaseId, item, default
                 {(links?.scope_change_ids ?? []).map((cid) => (
                   <Stack key={cid} direction="row" alignItems="center" spacing={1}>
                     <Chip
-                      label={changeById(cid) ? scopeLabel(changeById(cid)!) : `Scope #${cid}`}
+                      label={changeById(cid) ? scopeLabel(changeById(cid)!) : 'Linked scope item'}
                       size="small"
                     />
                     <Tooltip title="Unlink">
@@ -536,7 +536,7 @@ export default function RaidItemDialog({ open, onClose, releaseId, item, default
                 {(links?.relations ?? []).map((r) => (
                   <Stack key={`${r.to_item_id}-${r.relation}`} direction="row" alignItems="center" spacing={1}>
                     <Chip
-                      label={`${RAID_RELATION_LABELS[r.relation]} → ${itemById(r.to_item_id)?.ref_code ?? '#' + r.to_item_id}`}
+                      label={`${RAID_RELATION_LABELS[r.relation]} → ${itemById(r.to_item_id)?.ref_code ?? 'linked item'}`}
                       size="small"
                     />
                     <Tooltip title="Remove relation">

@@ -35,12 +35,13 @@ export default function ConfirmDialog({
         <DialogContentText>{message}</DialogContentText>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onCancel}>{cancelLabel}</Button>
+        {/* For destructive actions, focus Cancel so a stray Enter/Space doesn't delete. */}
+        <Button onClick={onCancel} autoFocus={destructive}>{cancelLabel}</Button>
         <Button
           variant="contained"
           color={destructive ? 'error' : 'primary'}
           onClick={onConfirm}
-          autoFocus
+          autoFocus={!destructive}
         >
           {confirmLabel}
         </Button>

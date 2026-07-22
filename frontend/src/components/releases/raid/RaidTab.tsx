@@ -32,7 +32,7 @@ import { useConfirm } from '../../../hooks/useConfirm';
 import type { RaidItemResponse, RaidItemType, RaidRag } from '../../../types/raid';
 import { RAID_TYPE_LABELS } from '../../../types/raid';
 import RaidItemDialog from './RaidItemDialog';
-import { RAID_TYPES, RAID_STATUSES, ragColor, isOverdueReview, titleCase } from './raidConstants';
+import { RAID_TYPES, RAID_STATUSES, ragChipSx, isOverdueReview, titleCase } from './raidConstants';
 
 interface Props {
   releaseId: number;
@@ -160,7 +160,7 @@ export default function RaidTab({ releaseId }: Props) {
               <Chip
                 label={params.row.rag.toUpperCase()}
                 size="small"
-                sx={{ bgcolor: ragColor(params.row.rag as RaidRag, config), color: '#fff' }}
+                sx={ragChipSx(params.row.rag as RaidRag, config)}
               />
             ) : (
               <Typography variant="body2" color="text.secondary">—</Typography>
@@ -205,6 +205,7 @@ export default function RaidTab({ releaseId }: Props) {
           <IconButton
             size="small"
             color="error"
+            aria-label="Delete RAID item"
             onClick={(e) => {
               e.stopPropagation();
               handleDelete(params.row);

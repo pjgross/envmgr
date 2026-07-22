@@ -196,6 +196,7 @@ export default function EnvSubsystemHostsDialog({
                     <IconButton
                       size="small"
                       color="error"
+                      aria-label="Remove host"
                       onClick={() => removeHost(r.host.id)}
                     >
                       <DeleteIcon fontSize="small" />

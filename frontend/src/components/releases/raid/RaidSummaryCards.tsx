@@ -2,7 +2,7 @@
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
 import type { RaidSummaryResponse, RaidRag } from '../../../types/raid';
 import { RAID_TYPE_LABELS } from '../../../types/raid';
-import { RAID_TYPES, ragColor } from './raidConstants';
+import { RAID_TYPES, ragChipSx } from './raidConstants';
 import type { RaidConfig } from '../../../types/raid';
 
 interface Props {
@@ -43,7 +43,7 @@ export default function RaidSummaryCards({ summary, config }: Props) {
             key={rag}
             size="small"
             label={`${rag.toUpperCase()} ${summary.counts_by_rag[rag] ?? 0}`}
-            sx={{ bgcolor: ragColor(rag, config), color: '#fff' }}
+            sx={ragChipSx(rag, config)}
           />
         ))}
       </Stack>

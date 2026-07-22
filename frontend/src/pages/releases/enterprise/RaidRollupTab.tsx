@@ -9,7 +9,7 @@ import { raidService } from '../../../services/raidService';
 import type { RaidRollupResponse, RaidRag } from '../../../types/raid';
 import { RAID_TYPE_LABELS } from '../../../types/raid';
 import type { ReleaseResponse } from '../../../types/release';
-import { RAID_TYPES, ragColor } from '../../../components/releases/raid/raidConstants';
+import { RAID_TYPES, ragChipSx } from '../../../components/releases/raid/raidConstants';
 
 interface Props {
   release: ReleaseResponse;
@@ -57,7 +57,7 @@ export function RaidRollupTab({ release }: Props) {
           <Chip
             label={String(params.row.rag).toUpperCase()}
             size="small"
-            sx={{ bgcolor: ragColor(params.row.rag as RaidRag, config), color: '#fff' }}
+            sx={ragChipSx(params.row.rag as RaidRag, config)}
           />
         ) : (
           <Typography variant="body2" color="text.secondary">—</Typography>
@@ -86,7 +86,7 @@ export function RaidRollupTab({ release }: Props) {
             key={rag}
             size="small"
             label={`${rag.toUpperCase()} ${rollup.counts_by_rag[rag] ?? 0}`}
-            sx={{ bgcolor: ragColor(rag, config), color: '#fff' }}
+            sx={ragChipSx(rag, config)}
           />
         ))}
       </Stack>

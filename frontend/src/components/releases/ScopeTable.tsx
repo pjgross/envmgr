@@ -205,6 +205,7 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
             <IconButton
               size="small"
               color="error"
+              aria-label="Delete scope item"
               onClick={(e) => {
                 e.stopPropagation();
                 handleDelete(params.row.id);

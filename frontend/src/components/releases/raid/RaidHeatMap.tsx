@@ -5,7 +5,7 @@
  */
 import { Box, Tooltip, Typography } from '@mui/material';
 import type { RaidConfig } from '../../../types/raid';
-import { severityColor } from './raidConstants';
+import { severityColor, contrastText } from './raidConstants';
 
 interface Props {
   config: RaidConfig | null;
@@ -67,7 +67,7 @@ export default function RaidHeatMap({ config, heatmap, compact }: Props) {
                         height: cell,
                         bgcolor: severityColor(severity, config),
                         border: '1px solid rgba(255,255,255,0.6)',
-                        color: '#fff',
+                        color: contrastText(severityColor(severity, config)),
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',

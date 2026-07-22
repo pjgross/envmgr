@@ -174,7 +174,7 @@ export default function AppLayout() {
           >
             EnvManager
           </Typography>
-          <IconButton color="inherit" onClick={(e) => setMenuAnchor(e.currentTarget)}>
+          <IconButton color="inherit" aria-label="Account menu" onClick={(e) => setMenuAnchor(e.currentTarget)}>
             <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.dark', fontSize: 14 }}>
               {user?.username?.[0]?.toUpperCase()}
             </Avatar>
