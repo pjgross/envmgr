@@ -9,6 +9,7 @@ import ReleaseScopeTab from '../../../components/releases/ReleaseScopeTab';
 import { MembersTab } from './MembersTab';
 import { SystemsRollupTab } from './SystemsRollupTab';
 import { ScopeRollupTab } from './ScopeRollupTab';
+import { RaidRollupTab } from './RaidRollupTab';
 import { TimelineTab } from './TimelineTab';
 import { ReportTab } from './ReportTab';
 
@@ -37,6 +38,7 @@ export function EnterpriseTabs({ release }: Props) {
           <Tab label="Scope" value="scope" />
           <Tab label="Systems Impacted" value="systems" />
           <Tab label="Scope Rollup" value="scope_rollup" />
+          <Tab label="RAID Rollup" value="raid_rollup" />
           <Tab label="Timeline" value="timeline" />
           <Tab label="Report" value="report" />
         </Tabs>
@@ -50,6 +52,7 @@ export function EnterpriseTabs({ release }: Props) {
         {tab === 'scope' && <ReleaseScopeTab releaseId={release.id} />}
         {tab === 'systems' && <SystemsRollupTab release={release} />}
         {tab === 'scope_rollup' && <ScopeRollupTab release={release} onNavigateToReport={() => setTab('report')} />}
+        {tab === 'raid_rollup' && <RaidRollupTab release={release} />}
         {tab === 'timeline' && <TimelineTab release={release} />}
         {tab === 'report' && <ReportTab release={release} />}
       </Box>
