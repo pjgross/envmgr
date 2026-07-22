@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Box, CircularProgress } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
 import { authService } from './services/authService';
@@ -40,6 +41,14 @@ import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
 
+function FullPageSpinner() {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <CircularProgress />
+    </Box>
+  );
+}
+
 function PrivateRoute({
   children,
   requireMasterAdmin = false,
@@ -49,10 +58,13 @@ function PrivateRoute({
   requireMasterAdmin?: boolean;
   requiredRole?: string;
 }) {
-  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth);
+  const { user, isAuthenticated, authInitialized } = useSelector((state: RootState) => state.auth);
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (requireMasterAdmin && !user?.is_master_admin) return <Navigate to="/dashboard" replace />;
-  if (requiredRole && user?.role !== requiredRole && !user?.is_master_admin)
+  // On a hard reload the token is present but the user is still loading; wait for it
+  // rather than evaluating the role check against a null user (which would bounce to /dashboard).
+  if (!authInitialized || !user) return <FullPageSpinner />;
+  if (requireMasterAdmin && !user.is_master_admin) return <Navigate to="/dashboard" replace />;
+  if (requiredRole && user.role !== requiredRole && !user.is_master_admin)
     return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }

@@ -13,6 +13,9 @@ interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  // False while we still have a token but haven't loaded the user yet (page reload).
+  // Route guards must wait for this before evaluating role checks.
+  authInitialized: boolean;
   impersonationMode: boolean;
   impersonatingTenant: { id: number; name: string; slug: string } | null;
   originalToken: string | null;
@@ -22,6 +25,8 @@ const initialState: AuthState = {
   user: null,
   token: localStorage.getItem('token'),
   isAuthenticated: !!localStorage.getItem('token'),
+  // With no token there's nothing to load → already resolved; with a token we must fetch the user.
+  authInitialized: !localStorage.getItem('token'),
   impersonationMode: false,
   impersonatingTenant: null,
   originalToken: null,
@@ -35,12 +40,20 @@ const authSlice = createSlice({
       state.user = action.payload.user;
       state.token = action.payload.token;
       state.isAuthenticated = true;
+      state.authInitialized = true;
       localStorage.setItem('token', action.payload.token);
+    },
+    // Mark auth resolution complete without changing credentials — used when the
+    // reload user-fetch finishes (success handled by setCredentials; this covers
+    // the "no user came back but keep going" edge).
+    authResolved: (state) => {
+      state.authInitialized = true;
     },
     logout: (state) => {
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
+      state.authInitialized = true;
       state.impersonationMode = false;
       state.impersonatingTenant = null;
       state.originalToken = null;
@@ -70,5 +83,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { setCredentials, logout, enterImpersonation, exitImpersonation } = authSlice.actions;
+export const { setCredentials, authResolved, logout, enterImpersonation, exitImpersonation } =
+  authSlice.actions;
 export default authSlice.reducer;
