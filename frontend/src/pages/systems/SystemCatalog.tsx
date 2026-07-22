@@ -33,6 +33,7 @@ import { fetchSystems, createSystem, updateSystem, deleteSystem } from '../../st
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { SystemResponse, SystemCreate, SystemUpdate } from '../../types/system';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
+import { useSnackbar } from '../../hooks/useSnackbar';
 
 interface SystemFormValues {
   name: string;
@@ -64,6 +65,7 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 
 export default function SystemCatalog() {
   const dispatch = useDispatch<AppDispatch>();
+  const snackbar = useSnackbar();
   const navigate = useNavigate();
   const { systems, loading, error } = useSelector((state: RootState) => state.system);
 
@@ -252,8 +254,10 @@ export default function SystemCatalog() {
     if (!deleteTarget) return;
     try {
       await dispatch(deleteSystem(deleteTarget.id)).unwrap();
-    } finally {
+      snackbar.success('System deleted');
       setDeleteTarget(null);
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to delete system');
     }
   };
 

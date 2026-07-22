@@ -46,6 +46,7 @@ import type {
   EnvironmentUpdate,
 } from '../../types/environment';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
+import { useSnackbar } from '../../hooks/useSnackbar';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -98,6 +99,7 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 
 export default function EnvironmentList() {
   const dispatch = useDispatch<AppDispatch>();
+  const snackbar = useSnackbar();
   const navigate = useNavigate();
   const { environments, loading, error } = useSelector((state: RootState) => state.environment);
   const customFieldDefs = useSelector(
@@ -289,8 +291,10 @@ export default function EnvironmentList() {
     if (!deleteTarget) return;
     try {
       await dispatch(deleteEnvironment(deleteTarget.id)).unwrap();
-    } finally {
+      snackbar.success('Environment deleted');
       setDeleteTarget(null);
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to delete environment');
     }
   };
 

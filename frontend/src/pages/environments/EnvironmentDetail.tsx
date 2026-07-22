@@ -69,6 +69,7 @@ import type {
   EnvironmentSubsystemResponse,
 } from '../../types/environment';
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
+import { useSnackbar } from '../../hooks/useSnackbar';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -94,6 +95,7 @@ export default function EnvironmentDetail() {
   const { id } = useParams<{ id: string }>();
   const envId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
+  const snackbar = useSnackbar();
   const navigate = useNavigate();
 
   const { currentEnvironment, environmentSystemsData, envSubsystems, loading, error } = useSelector(
@@ -226,8 +228,12 @@ export default function EnvironmentDetail() {
       await dispatch(
         removeSystemFromEnvironment({ envId, systemId: sysDeleteTarget.system_id })
       ).unwrap();
-    } finally {
+      // Keep the subsystems/Components tab (a derived view) in sync with the removal.
+      dispatch(fetchEnvSubsystems(envId));
+      snackbar.success('System removed');
       setSysDeleteTarget(null);
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to remove system');
     }
   };
 

@@ -77,6 +77,7 @@ import type {
   ComponentDependencyResponse,
   ComponentDependencyCreate,
 } from '../../types/dependency';
+import { useSnackbar } from '../../hooks/useSnackbar';
 
 const DEP_TYPE_OPTIONS: { value: DependencyType; label: string }[] = [
   { value: 'api_call', label: 'API Call' },
@@ -185,6 +186,7 @@ export default function SystemDetail() {
   const systemId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
+  const snackbar = useSnackbar();
 
   const { currentSystem, subsystems, systems, loading, error } = useSelector(
     (state: RootState) => state.system
@@ -637,8 +639,8 @@ export default function SystemDetail() {
       );
       setAllCompDeps((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
       setCompDepEditTarget(updated);
-    } catch {
-      // silently ignore — endpoint row will remain if delete fails
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to delete endpoint');
     }
   };
 
@@ -652,8 +654,10 @@ export default function SystemDetail() {
       ).unwrap();
       // Remove from local list
       setAllCompDeps((prev) => prev.filter((d) => d.id !== compDepDeleteTarget.id));
-    } finally {
+      snackbar.success('Dependency deleted');
       setCompDepDeleteTarget(null);
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to delete dependency');
     }
   };
 
