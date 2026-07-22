@@ -124,6 +124,7 @@ export default function RaidTab({ releaseId }: Props) {
     try {
       await dispatch(deleteRaidItem({ releaseId, itemId: item.id })).unwrap();
       snackbar.success(`${item.ref_code} deleted`);
+      dispatch(fetchRaidSummary(releaseId));
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to delete item');
     }
