@@ -462,6 +462,19 @@ A release cannot advance while any gate is pending or has open criteria past `du
 
 Keep the change-kind list short — three to six is plenty. Use kind-scoped custom fields rather than free-text fields for any value you'll later filter or report on. Pre-define gates on release templates so each new release starts with the same readiness checklist, and override only when a release genuinely deviates.
 
+### RAID Settings
+
+*RAID Settings* (left nav → **RAID Settings**, Admin only) controls how your tenant scores the **Risks** and **Issues** in every release's RAID log (user guide ch. 7 — RAID log). Each tenant gets a default 5×5 configuration on creation; edit it to match your organisation's risk framework.
+
+There are three things to configure:
+
+- **Probability scale** and **Impact scale** — the ordered levels (1 = lowest). For each level you set a *label* (e.g. *Rare*, *Severe*) and a *colour*. These labels appear on the axes of the probability × impact heat-map.
+- **RAG bands** — the severity ranges that map a score to red / amber / green. Severity is `probability × impact` (1–25 for a 5×5 grid). Each band has a *min*, *max*, and *colour*. The defaults are green `1–5`, amber `6–14`, red `15–25`. Keep the ranges contiguous and non-overlapping so every possible severity falls in exactly one band.
+
+The **Live preview** on the right redraws the heat-map as you edit, colouring each cell by the band its severity falls into — so you can see the effect before saving. Click *Save changes* to persist (`PUT /api/v1/tenant/raid-config`).
+
+Changing the scales or bands re-derives the RAG on existing risks and issues the next time they're read — it does **not** rewrite their stored probability/impact. Widening a band (or recolouring it) is safe to do at any time; the ref-codes and severities of existing items are unaffected.
+
 ## 9. Release templates
 
 ### Concept
