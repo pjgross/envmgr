@@ -33,6 +33,7 @@ import ReleasePlanTab from '../../components/releases/ReleasePlanTab';
 import ReleaseEnvironmentsTab from '../../components/releases/ReleaseEnvironmentsTab';
 import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedRequestsTab';
 import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
+import RaidTab from '../../components/releases/raid/RaidTab';
 import ReleaseDeploymentsTab from '../../components/releases/ReleaseDeploymentsTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
@@ -148,6 +149,7 @@ export default function ReleaseDetail() {
           <Tab label="Environments" />
           <Tab label="Linked Requests" />
           <Tab label="Scope" />
+          <Tab label="RAID" />
           <Tab label="Enterprise" />
           <Tab label="Deployments" />
         </Tabs>
@@ -159,8 +161,9 @@ export default function ReleaseDetail() {
       {activeTab === 2 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
       {activeTab === 3 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
       {activeTab === 4 && <ReleaseScopeTab releaseId={releaseId} />}
-      {activeTab === 5 && <EnterpriseMembershipTab releaseId={releaseId} />}
-      {activeTab === 6 && <ReleaseDeploymentsTab releaseId={releaseId} />}
+      {activeTab === 5 && <RaidTab releaseId={releaseId} />}
+      {activeTab === 6 && <EnterpriseMembershipTab releaseId={releaseId} />}
+      {activeTab === 7 && <ReleaseDeploymentsTab releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}
