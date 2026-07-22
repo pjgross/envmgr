@@ -92,7 +92,7 @@ export function RaidRollupTab({ release }: Props) {
       </Stack>
 
       <Box>
-        <Typography variant="subtitle2" gutterBottom>Top risks by severity</Typography>
+        <Typography variant="subtitle2" gutterBottom>Top risks &amp; issues by severity</Typography>
         <Paper>
           <DataGrid
             rows={rollup.top_risks.map((r, idx) => ({ id: `${r.release_id}-${r.ref_code}-${idx}`, ...r }))}
