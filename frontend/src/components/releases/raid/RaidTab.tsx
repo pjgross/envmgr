@@ -22,9 +22,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import type { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import DataTable from '../../DataTable';
 import { AppDispatch, RootState } from '../../../store';
-import { fetchRaidItems, deleteRaidItem } from '../../../store/raidSlice';
-import { fetchRaidConfig } from '../../../store/raidSlice';
+import { fetchRaidItems, deleteRaidItem, fetchRaidConfig, fetchRaidSummary } from '../../../store/raidSlice';
 import { fetchUsers } from '../../../store/tenantAdminSlice';
+import RaidSummaryCards from './RaidSummaryCards';
+import RaidHeatMap from './RaidHeatMap';
+import { Collapse, Paper } from '@mui/material';
 import { useSnackbar } from '../../../hooks/useSnackbar';
 import { useConfirm } from '../../../hooks/useConfirm';
 import type { RaidItemResponse, RaidItemType, RaidRag } from '../../../types/raid';
@@ -48,7 +50,10 @@ export default function RaidTab({ releaseId }: Props) {
   const items = useSelector((s: RootState) => s.raid.items);
   const loading = useSelector((s: RootState) => s.raid.loading);
   const config = useSelector((s: RootState) => s.raid.config);
+  const summary = useSelector((s: RootState) => s.raid.summary);
   const users = useSelector((s: RootState) => s.tenantAdmin.users);
+
+  const [showHeatMap, setShowHeatMap] = useState(false);
 
   const [typeTab, setTypeTab] = useState<RaidItemType>('risk');
   const [statusFilter, setStatusFilter] = useState('');
@@ -63,6 +68,7 @@ export default function RaidTab({ releaseId }: Props) {
   useEffect(() => {
     dispatch(fetchRaidItems({ releaseId }));
     dispatch(fetchRaidConfig());
+    dispatch(fetchRaidSummary(releaseId));
     dispatch(fetchUsers());
   }, [dispatch, releaseId]);
 
@@ -73,6 +79,7 @@ export default function RaidTab({ releaseId }: Props) {
 
   const refresh = () => {
     dispatch(fetchRaidItems({ releaseId }));
+    dispatch(fetchRaidSummary(releaseId));
   };
 
   const typeItems = useMemo(
@@ -213,6 +220,19 @@ export default function RaidTab({ releaseId }: Props) {
 
   return (
     <Box>
+      <RaidSummaryCards summary={summary} config={config} />
+
+      <Box sx={{ mb: 1 }}>
+        <Button size="small" onClick={() => setShowHeatMap((v) => !v)}>
+          {showHeatMap ? 'Hide' : 'Show'} probability × impact heat-map
+        </Button>
+        <Collapse in={showHeatMap}>
+          <Paper variant="outlined" sx={{ p: 2, mt: 1, display: 'inline-block' }}>
+            <RaidHeatMap config={config} heatmap={summary?.heatmap} />
+          </Paper>
+        </Collapse>
+      </Box>
+
       <Tabs
         value={typeTab}
         onChange={(_, v) => {

@@ -18,6 +18,7 @@ import EventIcon from '@mui/icons-material/Event';
 import CategoryIcon from '@mui/icons-material/Category';
 import BuildIcon from '@mui/icons-material/Build';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 const DRAWER_WIDTH = 220;
 
@@ -25,6 +26,7 @@ const adminNavItems = [
   { label: 'General Settings', path: '/tenant/settings', icon: <SettingsIcon fontSize="small" /> },
   { label: 'User Management', path: '/tenant/users', icon: <PeopleIcon fontSize="small" /> },
   { label: 'API keys', path: '/tenant/api-keys', icon: <VpnKeyIcon fontSize="small" /> },
+  { label: 'RAID Settings', path: '/tenant/raid-settings', icon: <WarningAmberIcon fontSize="small" /> },
 ];
 
 const entityNavItems = [

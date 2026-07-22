@@ -31,6 +31,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import EntityConfig from './pages/admin/EntityConfig';
 import TenantScopeChangeRules from './pages/admin/TenantScopeChangeRules';
 import ApiKeyManagement from './pages/admin/ApiKeyManagement';
+import RaidSettings from './pages/admin/RaidSettings';
 import BuildList from './pages/builds/BuildList';
 import BuildDetail from './pages/builds/BuildDetail';
 import DeploymentList from './pages/deployments/DeploymentList';
@@ -183,6 +184,16 @@ function App() {
             }
           >
             <Route index element={<ApiKeyManagement />} />
+          </Route>
+          <Route
+            path="/tenant/raid-settings"
+            element={
+              <PrivateRoute requiredRole="Admin">
+                <AdminLayout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<RaidSettings />} />
           </Route>
         </Route>
         <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />

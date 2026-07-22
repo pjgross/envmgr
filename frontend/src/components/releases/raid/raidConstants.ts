@@ -28,6 +28,15 @@ export function ragColor(rag: RaidRag | null | undefined, config: RaidConfig | n
   return band?.color ?? RAG_FALLBACK[rag];
 }
 
+/** Colour for a raw severity score, using the tenant's configured bands. */
+export function severityColor(severity: number, config: RaidConfig | null): string | undefined {
+  const band = config?.rag_bands.find((b) => severity >= b.min && severity <= b.max);
+  if (band) return band.color;
+  if (severity <= 5) return RAG_FALLBACK.green;
+  if (severity <= 14) return RAG_FALLBACK.amber;
+  return RAG_FALLBACK.red;
+}
+
 /** Is this item an overdue review? (review_date in the past and not yet closed) */
 export function isOverdueReview(reviewDate: string | null, status: string): boolean {
   if (!reviewDate) return false;
