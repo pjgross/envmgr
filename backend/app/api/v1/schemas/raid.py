@@ -82,6 +82,20 @@ class RaidRollupRead(BaseModel):
     top_risks: list[dict]  # [{ref_code, release_id, title, severity, rag}], highest severity first
 
 
+class RaidConfigRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    probability_scale: list[dict[str, Any]]
+    impact_scale: list[dict[str, Any]]
+    rag_bands: list[dict[str, Any]]
+
+
+class RaidConfigUpdate(BaseModel):
+    probability_scale: Optional[list[dict[str, Any]]] = None
+    impact_scale: Optional[list[dict[str, Any]]] = None
+    rag_bands: Optional[list[dict[str, Any]]] = None
+
+
 class RaidItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

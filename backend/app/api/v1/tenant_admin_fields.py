@@ -4,14 +4,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import require_tenant_admin
-from app.services import custom_field_service
+from app.services import custom_field_service, raid_config_service
 from app.api.v1.schemas.custom_field import (
     CustomFieldDefinitionCreate,
     CustomFieldDefinitionUpdate,
     CustomFieldDefinitionResponse,
 )
+from app.api.v1.schemas.raid import RaidConfigRead, RaidConfigUpdate
 
 router = APIRouter()
+
+
+@router.get("/raid-config", response_model=RaidConfigRead)
+async def get_raid_config(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await raid_config_service.get_or_seed_config(db, current_user.active_tenant_id)
+
+
+@router.put("/raid-config", response_model=RaidConfigRead)
+async def update_raid_config(
+    data: RaidConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await raid_config_service.update_config(
+        db,
+        current_user.active_tenant_id,
+        probability_scale=data.probability_scale,
+        impact_scale=data.impact_scale,
+        rag_bands=data.rag_bands,
+    )
 
 
 @router.get("/fields", response_model=list[CustomFieldDefinitionResponse])
