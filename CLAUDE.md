@@ -1,7 +1,7 @@
 # EnvManager - Claude Code Guide
 
-> **Current Phase**: Phase 4 complete on `main` — Sub-1 backend MR !20 (2026-04-23) + Sub-2 frontend/API keys MR !21 (2026-04-25). Main tip `d802797`, latest migration `p4s1builddeploy`. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1 ✅ | Phase 3 Sub-2 ✅ | Phase 3 Sub-3 (Jira) deferred | Phase 4 ✅ | Phase 5 next.
-> **Unmerged work (2026-04-26)**: `docs/user-manual-spec` carries the admin + user manual, the `build_number` required-field change, and the new `GET /api/v1/webhooks/can-deploy` preflight gate (Phase 4 Sub-3). `feature/gitlab-ci-pipeline` is cut on top and adds `.gitlab-ci.yml` + helpers dogfooding EnvManager via the laptop's shell-type runner. Both ready to push as MRs.
+> **Repo / remote (2026-07-22)**: Canonical remote is now **GitHub `github.com/pjgross/envmgr`** (private, default `main`) via git remote `github`. The old local GitLab (`origin`, `localhost:8929`) is **legacy/dev-only** and its `main` is stale — push and open PRs against **GitHub** (`gh` CLI, account `pjgross`). Main tip `5449625`.
+> **Current Phase (2026-07-22)**: Everything merged to `main`. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1/Sub-2 ✅ (Sub-3 Jira deferred) | Phase 4 ✅ (incl. user/admin manual, `build_number` required, `GET /api/v1/webhooks/can-deploy` preflight, GitLab-CI dogfooding pipeline). **Release RAID log fully shipped + UI-verified** (backend + frontend + docs + enterprise rollup; latest migration `raidlogtables`). **UI audit done** — P1 fixes landed, P2/P3 backlog. Phase 5 (DORA metrics) next.
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
 > **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
 > **Infra (macmini)**: [docs/architecture copy.md](docs/architecture%20copy.md)
@@ -10,6 +10,7 @@
 > **Admin Guide**: [docs/admin-guide.md](docs/admin-guide.md)
 > **User Guide**: [docs/user-guide.md](docs/user-guide.md)
 > **CI/CD setup**: [docs/gitlab-ci-setup.md](docs/gitlab-ci-setup.md)
+> **UI Audit (2026-07-22)**: [docs/ui-audit.md](docs/ui-audit.md) — ranked usability/consistency/a11y findings; P1 fixed, P2/P3 remain as backlog.
 
 EnvManager is a multi-tenant test environment management platform: inventory, booking, change management, CI/CD tracking, DORA metrics, and infrastructure topology visualization.
 
