@@ -27,18 +27,6 @@ import MenuIcon from '@mui/icons-material/Menu';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import LogoutIcon from '@mui/icons-material/Logout';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import ComputerIcon from '@mui/icons-material/Computer';
-import AccountTreeIcon from '@mui/icons-material/AccountTree';
-import EventAvailableIcon from '@mui/icons-material/EventAvailable';
-import UploadIcon from '@mui/icons-material/Upload';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import ListIcon from '@mui/icons-material/List';
-import BuildIcon from '@mui/icons-material/Build';
-import StorageIcon from '@mui/icons-material/Storage';
-import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
-import TimelineIcon from '@mui/icons-material/Timeline';
-import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
@@ -48,45 +36,9 @@ import { RootState } from '../store';
 import { logout } from '../store/authSlice';
 import { setThemeMode, type ThemeModePreference } from '../store/uiSlice';
 import ErrorFallback from './ErrorFallback';
+import { visibleNavGroups, type NavItem } from './navConfig';
 
 const DRAWER_WIDTH = 240;
-
-interface NavItem {
-  label: string;
-  path?: string; // optional: group items have no path
-  icon: React.ReactNode;
-  comingSoon?: boolean;
-  children?: NavItem[]; // sub-items for expandable groups
-}
-
-const navItems: NavItem[] = [
-  { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-  { label: 'Systems', path: '/systems', icon: <AccountTreeIcon /> },
-  { label: 'Environments', path: '/environments', icon: <ComputerIcon /> },
-  {
-    label: 'Bookings',
-    icon: <EventAvailableIcon />,
-    children: [
-      { label: 'Calendar', path: '/bookings/calendar', icon: <CalendarMonthIcon /> },
-      { label: 'List', path: '/bookings/list', icon: <ListIcon /> },
-    ],
-  },
-  { label: 'Builds', path: '/builds', icon: <BuildIcon /> },
-  { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
-  { label: 'Deployments', path: '/deployments', icon: <RocketLaunchIcon /> },
-  {
-    label: 'Releases',
-    icon: <RocketLaunchIcon />,
-    children: [
-      { label: 'List', path: '/releases', icon: <ListIcon /> },
-      { label: 'Calendar', path: '/releases/calendar', icon: <CalendarMonthIcon /> },
-      { label: 'Timeline', path: '/releases/timeline', icon: <TimelineIcon /> },
-      { label: 'Templates', path: '/admin/release-templates', icon: <LibraryBooksIcon /> },
-    ],
-  },
-  { label: 'Hosts', path: '/infrastructure/hosts', icon: <StorageIcon /> },
-  { label: 'Import', path: '/import', icon: <UploadIcon /> },
-];
 
 export default function AppLayout() {
   const dispatch = useDispatch();
@@ -98,14 +50,15 @@ export default function AppLayout() {
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const navGroups = visibleNavGroups(user);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    for (const item of navItems) {
-      if (item.children) {
-        initial[item.label] = item.children.some(
+    for (const group of navGroups) {
+      initial[group.label] =
+        group.defaultOpen === true ||
+        (group.children ?? []).some(
           (child) => child.path !== undefined && location.pathname.startsWith(child.path)
         );
-      }
     }
     return initial;
   });
@@ -250,92 +203,62 @@ export default function AppLayout() {
         <Toolbar />
         <Box sx={{ overflow: 'auto', mt: 1 }}>
           <List dense>
-            {navItems.map((item) => {
-              if (item.children) {
-                // Group item — expandable, no navigation on parent click
-                const isOpen = groupOpen[item.label] ?? false;
-                return (
-                  <div key={item.label}>
-                    <ListItemButton
-                      selected={false}
-                      onClick={() =>
-                        setGroupOpen((prev) => ({ ...prev, [item.label]: !prev[item.label] }))
-                      }
-                      sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
-                      <ListItemText primary={item.label} />
-                      {isOpen ? (
-                        <ExpandLessIcon fontSize="small" />
-                      ) : (
-                        <ExpandMoreIcon fontSize="small" />
-                      )}
-                    </ListItemButton>
-                    <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                      <List dense disablePadding>
-                        {item.children.map((child) => {
-                          const isChildActive =
-                            child.path !== undefined &&
-                            (location.pathname === child.path ||
-                              location.pathname.startsWith(child.path + '/'));
-                          return (
-                            <ListItemButton
-                              key={child.label}
-                              selected={isChildActive}
-                              onClick={() => child.path && navigateAndClose(child.path)}
-                              sx={{ borderRadius: 1, mx: 1, mb: 0.5, pl: 4 }}
-                            >
-                              <ListItemIcon sx={{ minWidth: 36 }}>{child.icon}</ListItemIcon>
-                              <ListItemText primary={child.label} />
-                            </ListItemButton>
-                          );
-                        })}
-                      </List>
-                    </Collapse>
-                  </div>
-                );
-              }
-
-              // Leaf item — original behaviour
-              const isActive =
-                item.path !== undefined &&
-                (location.pathname === item.path ||
-                  (item.path !== '/dashboard' && location.pathname.startsWith(item.path)));
+            {navGroups.map((group) => {
+              const isOpen = groupOpen[group.label] ?? false;
               return (
-                <Tooltip
-                  key={item.label}
-                  title={item.comingSoon ? 'Coming soon' : ''}
-                  placement="right"
-                >
-                  <span>
-                    <ListItemButton
-                      selected={isActive}
-                      disabled={item.comingSoon}
-                      onClick={() => !item.comingSoon && item.path && navigateAndClose(item.path)}
-                      sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
-                      <ListItemText primary={item.label} />
-                      {item.comingSoon && (
-                        <Chip label="Soon" size="small" sx={{ height: 18, fontSize: 10 }} />
-                      )}
-                    </ListItemButton>
-                  </span>
-                </Tooltip>
+                <div key={group.label}>
+                  <ListItemButton
+                    selected={false}
+                    onClick={() =>
+                      setGroupOpen((prev) => ({ ...prev, [group.label]: !prev[group.label] }))
+                    }
+                    sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36 }}>{group.icon}</ListItemIcon>
+                    <ListItemText primary={group.label} />
+                    {isOpen ? (
+                      <ExpandLessIcon fontSize="small" />
+                    ) : (
+                      <ExpandMoreIcon fontSize="small" />
+                    )}
+                  </ListItemButton>
+                  <Collapse in={isOpen} timeout="auto" unmountOnExit>
+                    <List dense disablePadding>
+                      {(group.children ?? []).map((child: NavItem) => {
+                        const isChildActive =
+                          child.path !== undefined &&
+                          (location.pathname === child.path ||
+                            location.pathname.startsWith(child.path + '/'));
+                        return (
+                          <Tooltip
+                            key={child.label}
+                            title={child.comingSoon ? 'Coming soon' : ''}
+                            placement="right"
+                          >
+                            <span>
+                              <ListItemButton
+                                selected={isChildActive}
+                                disabled={child.comingSoon}
+                                onClick={() =>
+                                  !child.comingSoon && child.path && navigateAndClose(child.path)
+                                }
+                                sx={{ borderRadius: 1, mx: 1, mb: 0.5, pl: 4 }}
+                              >
+                                <ListItemIcon sx={{ minWidth: 36 }}>{child.icon}</ListItemIcon>
+                                <ListItemText primary={child.label} />
+                                {child.comingSoon && (
+                                  <Chip label="Soon" size="small" sx={{ height: 18, fontSize: 10 }} />
+                                )}
+                              </ListItemButton>
+                            </span>
+                          </Tooltip>
+                        );
+                      })}
+                    </List>
+                  </Collapse>
+                </div>
               );
             })}
-            {user?.role === 'Admin' && (
-              <ListItemButton
-                selected={location.pathname.startsWith('/admin/config')}
-                onClick={() => navigateAndClose('/admin/config/booking')}
-                sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
-              >
-                <ListItemIcon sx={{ minWidth: 36 }}>
-                  <AdminPanelSettingsIcon />
-                </ListItemIcon>
-                <ListItemText primary="Admin" />
-              </ListItemButton>
-            )}
           </List>
         </Box>
       </Drawer>
