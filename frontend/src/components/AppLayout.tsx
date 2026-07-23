@@ -24,8 +24,6 @@ import {
 } from '@mui/material';
 import { ErrorBoundary } from 'react-error-boundary';
 import MenuIcon from '@mui/icons-material/Menu';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import LogoutIcon from '@mui/icons-material/Logout';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -76,11 +74,6 @@ export default function AppLayout() {
     setMenuAnchor(null);
     dispatch(logout());
     navigate('/login');
-  };
-
-  const handleMenuNav = (path: string) => {
-    setMenuAnchor(null);
-    navigate(path);
   };
 
   const cycleThemeMode = () => {
@@ -152,23 +145,6 @@ export default function AppLayout() {
               </Typography>
             </Box>
             <Divider />
-            {user?.is_master_admin && (
-              <MenuItem onClick={() => handleMenuNav('/admin/tenants')}>
-                <ListItemIcon>
-                  <AdminPanelSettingsIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText>Platform Admin</ListItemText>
-              </MenuItem>
-            )}
-            {user?.role === 'Admin' && (
-              <MenuItem onClick={() => handleMenuNav('/tenant/users')}>
-                <ListItemIcon>
-                  <ManageAccountsIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText>Tenant Admin</ListItemText>
-              </MenuItem>
-            )}
-            {(user?.is_master_admin || user?.role === 'Admin') && <Divider />}
             <MenuItem onClick={cycleThemeMode}>
               <ListItemIcon>{themeIcon}</ListItemIcon>
               <ListItemText>{themeLabel}</ListItemText>
