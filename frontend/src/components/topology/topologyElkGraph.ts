@@ -28,7 +28,9 @@ const ROOT_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
   'elk.direction': 'RIGHT',
   'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '80',
+  // Wider layer gap so edge labels (e.g. "api_call") sit clearly between
+  // adjacent-layer nodes instead of overlapping the node boxes.
+  'elk.layered.spacing.nodeNodeBetweenLayers': '120',
   'elk.spacing.nodeNode': '40',
   'elk.spacing.edgeNode': '20',
   'elk.spacing.edgeEdge': '15',
@@ -37,6 +39,9 @@ const ROOT_OPTIONS: Record<string, string> = {
 const CONTAINER_OPTIONS: Record<string, string> = {
   // Reserve space at the top for the system label; pad the other sides.
   'elk.padding': `[top=${GROUP_LABEL_HEIGHT + 16},left=12,bottom=12,right=12]`,
+  // Widen the gap between a system's own components so edge labels sit clearly
+  // between them (root-level spacing doesn't reach inside containers).
+  'elk.layered.spacing.nodeNodeBetweenLayers': '120',
 };
 
 export function buildElkGraph(input: ElkGraphInput): ElkNode {
