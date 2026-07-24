@@ -15,6 +15,7 @@ import dagre from '@dagrejs/dagre';
 import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
+import FloatingEdge from '../../components/topology/FloatingEdge';
 import DependencyDetailPane from '../../components/topology/DependencyDetailPane';
 import { fetchTopology, clearTopology } from '../../store/topologySlice';
 import type { SubSystemResponse } from '../../types/system';
@@ -81,6 +82,7 @@ function SubsystemNode({ data }: { data: { label: SubSystemResponse; color: stri
 }
 
 const nodeTypes = { subsystemNode: SubsystemNode, systemGroupNode: SystemGroupNode };
+const edgeTypes = { floating: FloatingEdge };
 
 const GROUP_GAP = 80; // horizontal gap between system boxes
 
@@ -215,6 +217,7 @@ function getLayoutedElements(
     id: String(d.id),
     source: String(d.from_subsystem_id),
     target: String(d.to_subsystem_id),
+    type: 'floating',
     label: d.label ?? d.dependency_type,
     markerEnd: { type: MarkerType.ArrowClosed },
     ...(d.direction === 'two_way' ? { markerStart: { type: MarkerType.ArrowClosed } } : {}),
@@ -304,6 +307,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           fitView
           fitViewOptions={{ padding: 0.2 }}
           nodesDraggable={false}
