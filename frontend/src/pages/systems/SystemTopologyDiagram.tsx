@@ -8,20 +8,23 @@ import ReactFlow, {
   Position,
   type Node,
   type Edge,
-  MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import dagre from '@dagrejs/dagre';
+import ELK from 'elkjs/lib/elk.bundled.js';
+import {
+  buildElkGraph,
+  elkToReactFlow,
+  type ElkRenderContext,
+  type RenderSubsystem,
+  type RenderDependency,
+} from '../../components/topology/topologyElkGraph';
 import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
 import FloatingEdge from '../../components/topology/FloatingEdge';
-import { decideExternalSides } from '../../components/topology/externalSidePlacement';
-import { positionColumns, type GroupBox } from '../../components/topology/topologyColumnLayout';
 import DependencyDetailPane from '../../components/topology/DependencyDetailPane';
 import { fetchTopology, clearTopology } from '../../store/topologySlice';
 import type { SubSystemResponse } from '../../types/system';
-import type { ComponentDependencyResponse } from '../../types/dependency';
 
 // Color mapping by component_type
 const COMPONENT_COLORS: Record<string, string> = {
@@ -37,8 +40,6 @@ const COMPONENT_COLORS: Record<string, string> = {
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 70;
-const GROUP_PADDING = 40;
-const GROUP_LABEL_HEIGHT = 20;
 
 // Subsystem node component
 function SubsystemNode({ data }: { data: { label: SubSystemResponse; color: string } }) {
@@ -86,178 +87,7 @@ function SubsystemNode({ data }: { data: { label: SubSystemResponse; color: stri
 const nodeTypes = { subsystemNode: SubsystemNode, systemGroupNode: SystemGroupNode };
 const edgeTypes = { floating: FloatingEdge };
 
-const GROUP_GAP = 80; // horizontal gap between system boxes
-
-function getLayoutedElements(
-  subsystems: SubSystemResponse[],
-  dependencies: ComponentDependencyResponse[],
-  externalSubsystems: SubSystemResponse[],
-  externalDependencies: ComponentDependencyResponse[],
-  systemNames: Record<string, string>,
-  currentSystemId: number,
-  selectedDepId: number | null
-) {
-  const allSubsystems = [...subsystems, ...externalSubsystems];
-  const allDependencies = [...dependencies, ...externalDependencies];
-
-  if (allSubsystems.length === 0) return { nodes: [], edges: [] };
-
-  // Group subsystems by system_id
-  const groups = new Map<number, SubSystemResponse[]>();
-  for (const s of allSubsystems) {
-    if (!groups.has(s.system_id)) groups.set(s.system_id, []);
-    groups.get(s.system_id)!.push(s);
-  }
-
-  // Run dagre independently for each system's subsystems using only that system's internal edges.
-  // This guarantees no overlap between groups.
-  interface GroupLayout {
-    // node positions normalised so the content area starts at (0,0)
-    nodePositions: Map<number, { x: number; y: number }>;
-    contentWidth: number; // right edge of rightmost node
-    contentHeight: number; // bottom edge of bottommost node
-  }
-
-  const groupLayouts = new Map<number, GroupLayout>();
-
-  for (const [sysId, subs] of groups) {
-    const subIds = new Set(subs.map((s) => s.id));
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', ranksep: 80, nodesep: 40 });
-    g.setDefaultEdgeLabel(() => ({}));
-
-    subs.forEach((s) => g.setNode(String(s.id), { width: NODE_WIDTH, height: NODE_HEIGHT }));
-    // Only add edges internal to this system
-    allDependencies.forEach((d) => {
-      if (subIds.has(d.from_subsystem_id) && subIds.has(d.to_subsystem_id)) {
-        g.setEdge(String(d.from_subsystem_id), String(d.to_subsystem_id));
-      }
-    });
-    dagre.layout(g);
-
-    // Normalise: shift so min top-left is (0,0)
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    subs.forEach((s) => {
-      const pos = g.node(String(s.id));
-      minX = Math.min(minX, pos.x - NODE_WIDTH / 2);
-      minY = Math.min(minY, pos.y - NODE_HEIGHT / 2);
-      maxX = Math.max(maxX, pos.x + NODE_WIDTH / 2);
-      maxY = Math.max(maxY, pos.y + NODE_HEIGHT / 2);
-    });
-
-    const positions = new Map<number, { x: number; y: number }>();
-    subs.forEach((s) => {
-      const pos = g.node(String(s.id));
-      positions.set(s.id, { x: pos.x - minX, y: pos.y - minY });
-    });
-
-    groupLayouts.set(sysId, {
-      nodePositions: positions,
-      contentWidth: maxX - minX,
-      contentHeight: maxY - minY,
-    });
-  }
-
-  // Place groups side by side. External systems go on the side of the current
-  // system that faces the component they link to (so a link never has to cross
-  // the current group's other components); the current system sits in between.
-  const currentNodeX = new Map<number, number>();
-  const currentLayout = groupLayouts.get(currentSystemId);
-  if (currentLayout) {
-    for (const [id, pos] of currentLayout.nodePositions) currentNodeX.set(id, pos.x);
-  }
-  const subsystemSystem = new Map<number, number>();
-  for (const s of allSubsystems) subsystemSystem.set(s.id, s.system_id);
-
-  const externalSysIds = [...groups.keys()]
-    .filter((id) => id !== currentSystemId)
-    .sort((a, b) => a - b);
-  const sides = decideExternalSides(
-    currentNodeX,
-    subsystemSystem,
-    allDependencies,
-    externalSysIds,
-    currentSystemId
-  );
-  const leftExternals = externalSysIds.filter((id) => sides.get(id) === 'left');
-  const rightExternals = externalSysIds.filter((id) => sides.get(id) !== 'left');
-  const sortedSysIds = groups.has(currentSystemId)
-    ? [...leftExternals, currentSystemId, ...rightExternals]
-    : [...leftExternals, ...rightExternals];
-
-  // Same-side external systems stack vertically (a column) so that multiple
-  // systems linking to the same component fan into it instead of one system's
-  // link crossing another's box.
-  const boxOf = (sysId: number): GroupBox => {
-    const l = groupLayouts.get(sysId)!;
-    return {
-      id: sysId,
-      width: l.contentWidth + GROUP_PADDING * 2,
-      height: l.contentHeight + GROUP_PADDING * 2 + GROUP_LABEL_HEIGHT,
-    };
-  };
-  const groupOrigins = positionColumns(
-    leftExternals.map(boxOf),
-    groups.has(currentSystemId) ? boxOf(currentSystemId) : null,
-    rightExternals.map(boxOf),
-    GROUP_GAP
-  );
-
-  // Group nodes (must appear before child nodes in array)
-  const groupNodes: Node[] = sortedSysIds.map((sysId) => {
-    const layout = groupLayouts.get(sysId)!;
-    const origin = groupOrigins.get(sysId)!;
-    return {
-      id: `group-${sysId}`,
-      type: 'systemGroupNode',
-      position: { x: origin.x, y: origin.y },
-      data: {
-        label: systemNames[String(sysId)] ?? `System ${sysId}`,
-        isCurrent: sysId === currentSystemId,
-      },
-      style: {
-        width: layout.contentWidth + GROUP_PADDING * 2,
-        height: layout.contentHeight + GROUP_PADDING * 2 + GROUP_LABEL_HEIGHT,
-      },
-      selectable: false,
-      draggable: false,
-    };
-  });
-
-  // Subsystem nodes, positions relative to parent group
-  const subsystemNodes: Node[] = allSubsystems.map((s) => {
-    const layout = groupLayouts.get(s.system_id)!;
-    const nodeCenter = layout.nodePositions.get(s.id)!;
-    const color = COMPONENT_COLORS[s.component_type] ?? COMPONENT_COLORS.other;
-    return {
-      id: String(s.id),
-      parentId: `group-${s.system_id}`,
-      position: {
-        // nodeCenter is the dagre centre; convert to top-left and add padding
-        x: nodeCenter.x - NODE_WIDTH / 2 + GROUP_PADDING,
-        y: nodeCenter.y - NODE_HEIGHT / 2 + GROUP_PADDING + GROUP_LABEL_HEIGHT,
-      },
-      data: { label: s, color },
-      type: 'subsystemNode',
-    };
-  });
-
-  const edges: Edge[] = allDependencies.map((d) => ({
-    id: String(d.id),
-    source: String(d.from_subsystem_id),
-    target: String(d.to_subsystem_id),
-    type: 'floating',
-    label: d.label ?? d.dependency_type,
-    markerEnd: { type: MarkerType.ArrowClosed },
-    ...(d.direction === 'two_way' ? { markerStart: { type: MarkerType.ArrowClosed } } : {}),
-    style: d.id === selectedDepId ? { stroke: '#1976d2', strokeWidth: 2.5 } : undefined,
-  }));
-
-  return { nodes: [...groupNodes, ...subsystemNodes], edges };
-}
+const elk = new ELK();
 
 interface Props {
   systemId: number;
@@ -289,25 +119,72 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     );
   }, [selectedDepId, data]);
 
-  const { nodes, edges } = useMemo(() => {
-    if (!data) return { nodes: [], edges: [] };
-    return getLayoutedElements(
-      data.subsystems,
-      data.dependencies,
-      data.external_subsystems ?? [],
-      data.external_dependencies ?? [],
-      data.system_names ?? {},
-      systemId,
-      selectedDepId
-    );
-  }, [data, systemId, selectedDepId]);
+  const [layout, setLayout] = useState<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] });
+  const [layingOut, setLayingOut] = useState(false);
+
+  useEffect(() => {
+    if (!data) {
+      setLayout({ nodes: [], edges: [] });
+      return;
+    }
+    let cancelled = false;
+    setLayingOut(true);
+
+    const graph = buildElkGraph({
+      subsystems: data.subsystems,
+      dependencies: data.dependencies,
+      externalSubsystems: data.external_subsystems ?? [],
+      externalDependencies: data.external_dependencies ?? [],
+    });
+
+    const subsystems = new Map<number, RenderSubsystem>();
+    for (const s of [...data.subsystems, ...(data.external_subsystems ?? [])]) subsystems.set(s.id, s);
+    const dependencies = new Map<number, RenderDependency>();
+    for (const d of [...data.dependencies, ...(data.external_dependencies ?? [])]) dependencies.set(d.id, d);
+
+    const ctx: ElkRenderContext = {
+      currentSystemId: systemId,
+      systemNames: data.system_names ?? {},
+      subsystems,
+      dependencies,
+      colorFor: (t) => COMPONENT_COLORS[t] ?? COMPONENT_COLORS.other,
+    };
+
+    elk
+      .layout(graph)
+      .then((res) => {
+        if (cancelled) return;
+        setLayout(elkToReactFlow(res, ctx));
+      })
+      .catch(() => {
+        if (!cancelled) setLayout({ nodes: [], edges: [] });
+      })
+      .finally(() => {
+        if (!cancelled) setLayingOut(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data, systemId]);
+
+  const nodes = layout.nodes;
+  const edges = useMemo(
+    () =>
+      layout.edges.map((e) =>
+        Number(e.id) === selectedDepId
+          ? { ...e, style: { stroke: '#1976d2', strokeWidth: 2.5 } }
+          : { ...e, style: undefined }
+      ),
+    [layout.edges, selectedDepId]
+  );
 
   const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     const id = parseInt(edge.id, 10);
     setSelectedDepId((prev) => (prev === id ? null : id));
   }, []);
 
-  if (loading)
+  if (loading || (layingOut && layout.nodes.length === 0))
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
         <CircularProgress />
