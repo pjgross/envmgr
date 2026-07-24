@@ -16,6 +16,7 @@ import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
 import FloatingEdge from '../../components/topology/FloatingEdge';
+import { decideExternalSides } from '../../components/topology/externalSidePlacement';
 import DependencyDetailPane from '../../components/topology/DependencyDetailPane';
 import { fetchTopology, clearTopology } from '../../store/topologySlice';
 import type { SubSystemResponse } from '../../types/system';
@@ -159,12 +160,32 @@ function getLayoutedElements(
     });
   }
 
-  // Place groups side by side: current system first, then external systems
-  const sortedSysIds = [...groups.keys()].sort((a, b) => {
-    if (a === currentSystemId) return -1;
-    if (b === currentSystemId) return 1;
-    return a - b;
-  });
+  // Place groups side by side. External systems go on the side of the current
+  // system that faces the component they link to (so a link never has to cross
+  // the current group's other components); the current system sits in between.
+  const currentNodeX = new Map<number, number>();
+  const currentLayout = groupLayouts.get(currentSystemId);
+  if (currentLayout) {
+    for (const [id, pos] of currentLayout.nodePositions) currentNodeX.set(id, pos.x);
+  }
+  const subsystemSystem = new Map<number, number>();
+  for (const s of allSubsystems) subsystemSystem.set(s.id, s.system_id);
+
+  const externalSysIds = [...groups.keys()]
+    .filter((id) => id !== currentSystemId)
+    .sort((a, b) => a - b);
+  const sides = decideExternalSides(
+    currentNodeX,
+    subsystemSystem,
+    allDependencies,
+    externalSysIds,
+    currentSystemId
+  );
+  const leftExternals = externalSysIds.filter((id) => sides.get(id) === 'left');
+  const rightExternals = externalSysIds.filter((id) => sides.get(id) !== 'left');
+  const sortedSysIds = groups.has(currentSystemId)
+    ? [...leftExternals, currentSystemId, ...rightExternals]
+    : [...leftExternals, ...rightExternals];
 
   const groupOrigins = new Map<number, { x: number; y: number }>();
   let cursorX = 0;
