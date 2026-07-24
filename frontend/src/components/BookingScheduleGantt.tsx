@@ -8,6 +8,7 @@ import {
   Typography,
 } from '@mui/material';
 import { bookingService } from '../services/bookingService';
+import { packLanes, laneCount } from './bookingLanes';
 import type { BookingResponse } from '../types/booking';
 
 interface EnvRow {
@@ -36,8 +37,17 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const LABEL_COL_WIDTH = 140;
-const ROW_HEIGHT = 36;
+const ROW_HEIGHT = 36; // minimum row height (0 or 1 lane looks unchanged)
 const HEADER_HEIGHT = 40;
+const LANE_HEIGHT = 26; // height of a single booking bar
+const LANE_GAP = 4; // vertical gap between stacked lanes
+const ROW_V_PAD = 4; // padding above the first lane / below the last
+
+/** Height of an environment row given how many lanes its bookings need. */
+function rowHeightForLanes(lanes: number): number {
+  if (lanes <= 1) return ROW_HEIGHT;
+  return ROW_V_PAD * 2 + lanes * LANE_HEIGHT + (lanes - 1) * LANE_GAP;
+}
 
 function startOfDay(d: Date): Date {
   const x = new Date(d);
@@ -139,6 +149,35 @@ export default function BookingScheduleGantt({
     return out;
   }, [windowStart, totalDays]);
 
+  // Per-environment layout: clamp each booking to the visible window, drop
+  // those fully outside it, pack overlapping ones into stacked lanes, and size
+  // the row to fit however many lanes it needs.
+  const envLayouts = useMemo(() => {
+    const winStart = windowStart.getTime();
+    const winEnd = windowEnd.getTime();
+    return envs.map((env) => {
+      const raw = bookingsByEnv.get(env.id) ?? [];
+      const visible = raw
+        .map((b) => {
+          const s = Math.max(new Date(b.start_date).getTime(), winStart);
+          const e = Math.min(new Date(b.end_date).getTime(), winEnd);
+          return { booking: b, s, e };
+        })
+        .filter((x) => x.e > x.s);
+      const lanes = packLanes(visible.map((x) => ({ startMs: x.s, endMs: x.e })));
+      const count = laneCount(lanes);
+      const bars = visible.map((x, i) => ({
+        booking: x.booking,
+        lane: lanes[i],
+        left: `${((x.s - winStart) / totalMs) * 100}%`,
+        width: `${((x.e - x.s) / totalMs) * 100}%`,
+      }));
+      return { env, bars, height: rowHeightForLanes(count) };
+    });
+  }, [envs, bookingsByEnv, windowStart, windowEnd, totalMs]);
+
+  const rowsTotalHeight = envLayouts.reduce((sum, l) => sum + l.height, 0);
+
   const barStyle = (startISO: string, endISO: string) => {
     const s = Math.max(new Date(startISO).getTime(), windowStart.getTime());
     const e = Math.min(new Date(endISO).getTime(), windowEnd.getTime());
@@ -218,102 +257,97 @@ export default function BookingScheduleGantt({
 
           {/* Rows */}
           <Stack>
-            {envs.map((env) => {
-              const bookings = bookingsByEnv.get(env.id) ?? [];
-              return (
+            {envLayouts.map(({ env, bars, height }) => (
+              <Box
+                key={env.id}
+                sx={{
+                  display: 'flex',
+                  height,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                }}
+              >
                 <Box
-                  key={env.id}
                   sx={{
+                    width: LABEL_COL_WIDTH,
+                    flexShrink: 0,
                     display: 'flex',
-                    height: ROW_HEIGHT,
-                    borderBottom: 1,
+                    alignItems: 'center',
+                    px: 1,
+                    borderRight: 1,
                     borderColor: 'divider',
                   }}
                 >
-                  <Box
-                    sx={{
-                      width: LABEL_COL_WIDTH,
-                      flexShrink: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      px: 1,
-                      borderRight: 1,
-                      borderColor: 'divider',
-                    }}
-                  >
-                    <Typography variant="body2" noWrap title={env.name}>
-                      {env.name}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ flex: 1, position: 'relative' }}>
-                    {/* Day gridlines */}
-                    {days.map((_, i) => (
-                      <Box
-                        key={i}
-                        sx={{
-                          position: 'absolute',
-                          top: 0,
-                          bottom: 0,
-                          left: `${(i / totalDays) * 100}%`,
-                          borderLeft: i === 0 ? 0 : 1,
-                          borderColor: 'divider',
-                          opacity: 0.5,
-                        }}
-                      />
-                    ))}
-                    {/* Booking bars */}
-                    {bookings.map((b) => {
-                      const style = barStyle(b.start_date, b.end_date);
-                      if (!style) return null;
-                      const color = STATUS_COLORS[b.status] ?? '#bdbdbd';
-                      return (
-                        <Tooltip
-                          key={b.id}
-                          title={
-                            <Box>
-                              <Typography variant="caption" component="div">
-                                <strong>{b.project_name}</strong> · {b.status}
-                              </Typography>
-                              <Typography variant="caption" component="div">
-                                {new Date(b.start_date).toLocaleString()} →{' '}
-                                {new Date(b.end_date).toLocaleString()}
-                              </Typography>
-                            </Box>
-                          }
-                          arrow
-                        >
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              top: 4,
-                              bottom: 4,
-                              left: style.left,
-                              width: style.width,
-                              bgcolor: color,
-                              borderRadius: 0.5,
-                              display: 'flex',
-                              alignItems: 'center',
-                              px: 0.75,
-                              overflow: 'hidden',
-                              cursor: 'default',
-                              color: 'rgba(0,0,0,0.87)',
-                            }}
-                          >
-                            <Typography
-                              variant="caption"
-                              noWrap
-                              sx={{ fontWeight: 500, lineHeight: 1 }}
-                            >
-                              {b.project_name}
+                  <Typography variant="body2" noWrap title={env.name}>
+                    {env.name}
+                  </Typography>
+                </Box>
+                <Box sx={{ flex: 1, position: 'relative' }}>
+                  {/* Day gridlines */}
+                  {days.map((_, i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: `${(i / totalDays) * 100}%`,
+                        borderLeft: i === 0 ? 0 : 1,
+                        borderColor: 'divider',
+                        opacity: 0.5,
+                      }}
+                    />
+                  ))}
+                  {/* Booking bars — one lane per overlapping group */}
+                  {bars.map(({ booking: b, lane, left, width }) => {
+                    const color = STATUS_COLORS[b.status] ?? '#bdbdbd';
+                    return (
+                      <Tooltip
+                        key={b.id}
+                        title={
+                          <Box>
+                            <Typography variant="caption" component="div">
+                              <strong>{b.project_name}</strong> · {b.status}
+                            </Typography>
+                            <Typography variant="caption" component="div">
+                              {new Date(b.start_date).toLocaleString()} →{' '}
+                              {new Date(b.end_date).toLocaleString()}
                             </Typography>
                           </Box>
-                        </Tooltip>
-                      );
-                    })}
-                  </Box>
+                        }
+                        arrow
+                      >
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: ROW_V_PAD + lane * (LANE_HEIGHT + LANE_GAP),
+                            height: LANE_HEIGHT,
+                            left,
+                            width,
+                            bgcolor: color,
+                            borderRadius: 0.5,
+                            display: 'flex',
+                            alignItems: 'center',
+                            px: 0.75,
+                            overflow: 'hidden',
+                            cursor: 'default',
+                            color: 'rgba(0,0,0,0.87)',
+                          }}
+                        >
+                          <Typography
+                            variant="caption"
+                            noWrap
+                            sx={{ fontWeight: 500, lineHeight: 1 }}
+                          >
+                            {b.project_name}
+                          </Typography>
+                        </Box>
+                      </Tooltip>
+                    );
+                  })}
                 </Box>
-              );
-            })}
+              </Box>
+            ))}
           </Stack>
 
           {/* Vertical overlays — proposed change + outage + now marker —
@@ -323,8 +357,8 @@ export default function BookingScheduleGantt({
               position: 'relative',
               pointerEvents: 'none',
               ml: `${LABEL_COL_WIDTH}px`,
-              mt: `-${HEADER_HEIGHT + envs.length * ROW_HEIGHT}px`,
-              height: HEADER_HEIGHT + envs.length * ROW_HEIGHT,
+              mt: `-${HEADER_HEIGHT + rowsTotalHeight}px`,
+              height: HEADER_HEIGHT + rowsTotalHeight,
             }}
           >
             {nowOverlay && (
