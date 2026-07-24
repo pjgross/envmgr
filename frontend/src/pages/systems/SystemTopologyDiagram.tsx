@@ -135,7 +135,6 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
       dependencies: data.dependencies,
       externalSubsystems: data.external_subsystems ?? [],
       externalDependencies: data.external_dependencies ?? [],
-      currentSystemId: systemId,
     });
 
     const subsystems = new Map<number, RenderSubsystem>();

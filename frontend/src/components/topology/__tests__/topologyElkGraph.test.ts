@@ -31,7 +31,6 @@ const input: ElkGraphInput = {
   dependencies: [dep(8, 5, 6)],
   externalSubsystems: [sub(1, 1), sub(19, 3)],
   externalDependencies: [dep(1, 1, 5), dep(9, 19, 5)],
-  currentSystemId: 2,
 };
 
 describe('buildElkGraph', () => {
@@ -149,5 +148,17 @@ describe('elkToReactFlow', () => {
       label: 'api_call',
     });
     expect(edges[0].markerStart).toBeUndefined(); // one_way
+  });
+
+  it('adds a start marker for a two-way dependency', () => {
+    const twoWayCtx: ElkRenderContext = {
+      ...ctx,
+      dependencies: new Map([
+        [1, { id: 1, from_subsystem_id: 1, to_subsystem_id: 5, dependency_type: 'api_call', direction: 'two_way', label: null }],
+      ]),
+    };
+    const { edges } = elkToReactFlow(laidOut, twoWayCtx);
+    expect(edges[0].markerStart).toBeDefined();
+    expect(edges[0].markerEnd).toBeDefined();
   });
 });
