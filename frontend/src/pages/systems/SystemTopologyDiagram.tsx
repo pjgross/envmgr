@@ -17,6 +17,7 @@ import type { AppDispatch, RootState } from '../../store';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
 import FloatingEdge from '../../components/topology/FloatingEdge';
 import { decideExternalSides } from '../../components/topology/externalSidePlacement';
+import { positionColumns, type GroupBox } from '../../components/topology/topologyColumnLayout';
 import DependencyDetailPane from '../../components/topology/DependencyDetailPane';
 import { fetchTopology, clearTopology } from '../../store/topologySlice';
 import type { SubSystemResponse } from '../../types/system';
@@ -187,13 +188,23 @@ function getLayoutedElements(
     ? [...leftExternals, currentSystemId, ...rightExternals]
     : [...leftExternals, ...rightExternals];
 
-  const groupOrigins = new Map<number, { x: number; y: number }>();
-  let cursorX = 0;
-  for (const sysId of sortedSysIds) {
-    const layout = groupLayouts.get(sysId)!;
-    groupOrigins.set(sysId, { x: cursorX, y: 0 });
-    cursorX += layout.contentWidth + GROUP_PADDING * 2 + GROUP_GAP;
-  }
+  // Same-side external systems stack vertically (a column) so that multiple
+  // systems linking to the same component fan into it instead of one system's
+  // link crossing another's box.
+  const boxOf = (sysId: number): GroupBox => {
+    const l = groupLayouts.get(sysId)!;
+    return {
+      id: sysId,
+      width: l.contentWidth + GROUP_PADDING * 2,
+      height: l.contentHeight + GROUP_PADDING * 2 + GROUP_LABEL_HEIGHT,
+    };
+  };
+  const groupOrigins = positionColumns(
+    leftExternals.map(boxOf),
+    groups.has(currentSystemId) ? boxOf(currentSystemId) : null,
+    rightExternals.map(boxOf),
+    GROUP_GAP
+  );
 
   // Group nodes (must appear before child nodes in array)
   const groupNodes: Node[] = sortedSysIds.map((sysId) => {
