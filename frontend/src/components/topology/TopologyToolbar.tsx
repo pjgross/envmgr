@@ -1,15 +1,20 @@
 import { useMemo, useState } from 'react';
 import {
   Box,
+  Button,
+  Checkbox,
   InputAdornment,
   List,
   ListItemButton,
   ListItemText,
+  Menu,
+  MenuItem,
   Paper,
   TextField,
   Typography,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import { matchComponents, type SearchableComponent } from './topologyFocus';
 
 const MAX_RESULTS = 20;
@@ -17,12 +22,22 @@ const MAX_RESULTS = 20;
 interface Props {
   components: SearchableComponent[];
   onSelect: (componentId: number) => void;
+  availableTypes: string[];
+  hiddenTypes: Set<string>;
+  onToggleType: (type: string) => void;
 }
 
-export default function TopologyToolbar({ components, onSelect }: Props) {
+export default function TopologyToolbar({
+  components,
+  onSelect,
+  availableTypes,
+  hiddenTypes,
+  onToggleType,
+}: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [typeAnchor, setTypeAnchor] = useState<null | HTMLElement>(null);
 
   const matches = useMemo(() => matchComponents(query, components), [query, components]);
   const visible = matches.slice(0, MAX_RESULTS);
@@ -55,10 +70,21 @@ export default function TopologyToolbar({ components, onSelect }: Props) {
   };
 
   return (
-    <Box sx={{ position: 'relative', p: 1, borderBottom: 1, borderColor: 'divider' }}>
+    <Box
+      sx={{
+        position: 'relative',
+        p: 1,
+        borderBottom: 1,
+        borderColor: 'divider',
+        display: 'flex',
+        gap: 1,
+        alignItems: 'flex-start',
+      }}
+    >
       <TextField
         size="small"
         fullWidth
+        sx={{ flex: 1 }}
         placeholder="Search component…"
         value={query}
         onChange={(e) => {
@@ -104,6 +130,45 @@ export default function TopologyToolbar({ components, onSelect }: Props) {
             </Typography>
           )}
         </Paper>
+      )}
+      {availableTypes.length > 0 && (
+        <>
+          <Button
+            id="topology-types-btn"
+            size="small"
+            variant="outlined"
+            startIcon={<FilterListIcon />}
+            onClick={(e) => setTypeAnchor(e.currentTarget)}
+            sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: 0.25 }}
+          >
+            {hiddenTypes.size > 0 ? `Types · ${hiddenTypes.size} hidden` : 'Types'}
+          </Button>
+          <Menu
+            anchorEl={typeAnchor}
+            open={Boolean(typeAnchor)}
+            onClose={() => setTypeAnchor(null)}
+            MenuListProps={{ 'aria-labelledby': 'topology-types-btn' }}
+          >
+            {availableTypes.map((t) => (
+              <MenuItem
+                key={t}
+                dense
+                role="menuitemcheckbox"
+                aria-checked={!hiddenTypes.has(t)}
+                onClick={() => onToggleType(t)}
+              >
+                <Checkbox
+                  edge="start"
+                  size="small"
+                  checked={!hiddenTypes.has(t)}
+                  tabIndex={-1}
+                  disableRipple
+                />
+                <ListItemText primary={t.replace(/_/g, ' ')} />
+              </MenuItem>
+            ))}
+          </Menu>
+        </>
       )}
     </Box>
   );

@@ -281,7 +281,13 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     >
       {/* Diagram column: search toolbar above, canvas below */}
       <Box sx={{ flex: 1, minWidth: '60%', display: 'flex', flexDirection: 'column' }}>
-        <TopologyToolbar components={searchable} onSelect={handleSearchSelect} />
+        <TopologyToolbar
+          components={searchable}
+          onSelect={handleSearchSelect}
+          availableTypes={[]}
+          hiddenTypes={new Set()}
+          onToggleType={() => {}}
+        />
         <Box sx={{ flex: 1, position: 'relative' }}>
           <ReactFlow
             nodes={nodes}
