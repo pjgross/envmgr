@@ -306,6 +306,9 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
             edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.2 }}
+            onlyRenderVisibleElements
+            minZoom={0.1}
+            maxZoom={2}
             nodesDraggable={false}
             nodesConnectable={false}
             elementsSelectable={false}
