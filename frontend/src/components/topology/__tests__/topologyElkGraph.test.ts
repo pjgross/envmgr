@@ -74,4 +74,16 @@ describe('elkToReactFlow', () => {
     expect(edges.map((e) => e.id).sort()).toEqual(['8', 'sys-1->5']);
     expect(edges.every((e) => e.type === 'floating')).toBe(true);
   });
+
+  it('makes the expanded group wrapper non-interactive so intra-group edges are clickable', () => {
+    // The group wrapper spans the whole group rectangle and sits above the edge
+    // layer; without pointer-events:none it swallows clicks on edges between two
+    // components in the same group. The collapse chevron re-enables pointer events
+    // on itself; the collapsed node must stay clickable to expand.
+    const { nodes } = elkToReactFlow(laidOut, model, ctx);
+    const group = nodes.find((n) => n.id === 'group-2')!;
+    expect(group.style?.pointerEvents).toBe('none');
+    const collapsed = nodes.find((n) => n.id === 'sys-1')!;
+    expect(collapsed.style?.pointerEvents).toBeUndefined();
+  });
 });

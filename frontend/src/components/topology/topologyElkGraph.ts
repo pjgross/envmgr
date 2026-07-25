@@ -98,7 +98,10 @@ export function elkToReactFlow(
       id: node.id,
       type: 'systemGroupNode',
       position: { x: node.x ?? 0, y: node.y ?? 0 },
-      style: { width: node.width ?? 0, height: node.height ?? 0 },
+      // pointerEvents:'none' on the wrapper so the group rectangle (which sits above
+      // the edge layer) doesn't swallow clicks on edges between components in the same
+      // group. The collapse chevron re-enables pointer events on itself.
+      style: { width: node.width ?? 0, height: node.height ?? 0, pointerEvents: 'none' },
       data: {
         label: g?.name ?? `Group ${groupId}`,
         isCurrent: g?.isCurrent ?? false,
