@@ -131,3 +131,111 @@ def build_topology_plan(
         add_dep(a, b, cross=False)
 
     return plan
+
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr",
+)
+
+
+async def _clear_previous(session: AsyncSession, tenant_id: int) -> None:
+    """Remove previously-seeded Perf System data for this tenant (idempotency)."""
+    result = await session.execute(
+        select(System).where(
+            System.tenant_id == tenant_id,
+            System.name.like(f"{SYSTEM_NAME_PREFIX}%"),
+        )
+    )
+    systems = result.scalars().all()
+    if not systems:
+        return
+    system_ids = [s.id for s in systems]
+
+    sub_result = await session.execute(
+        select(SubSystem.id).where(SubSystem.system_id.in_(system_ids))
+    )
+    sub_ids = [row[0] for row in sub_result.all()]
+    if sub_ids:
+        await session.execute(
+            delete(ComponentDependency).where(
+                ComponentDependency.from_subsystem_id.in_(sub_ids)
+            )
+        )
+        await session.execute(
+            delete(ComponentDependency).where(
+                ComponentDependency.to_subsystem_id.in_(sub_ids)
+            )
+        )
+        await session.execute(delete(SubSystem).where(SubSystem.id.in_(sub_ids)))
+    await session.execute(delete(System).where(System.id.in_(system_ids)))
+    print(f"✓ Cleared {len(system_ids)} previous Perf Systems")
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser(description="Seed a large synthetic topology")
+    parser.add_argument("--systems", type=int, default=7)
+    parser.add_argument("--components", type=int, default=300)
+    parser.add_argument("--deps", type=int, default=600)
+    parser.add_argument("--tenant", default="demo")
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    plan = build_topology_plan(args.systems, args.components, args.deps, seed=args.seed)
+
+    engine = create_async_engine(DATABASE_URL)
+    SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with SessionLocal() as session:
+        result = await session.execute(select(Tenant).where(Tenant.slug == args.tenant))
+        tenant = result.scalar_one_or_none()
+        if tenant is None:
+            raise SystemExit(f"Tenant '{args.tenant}' not found — seed it first")
+
+        await _clear_previous(session, tenant.id)
+
+        system_ids: dict[int, int] = {}
+        for ps in plan.systems:
+            suffix = " (hub)" if ps.is_hub else ""
+            sys = System(name=f"{ps.name}{suffix}", tenant_id=tenant.id)
+            session.add(sys)
+            await session.flush()
+            system_ids[ps.index] = sys.id
+
+        component_ids: dict[int, int] = {}
+        for pc in plan.components:
+            sub = SubSystem(
+                name=pc.name,
+                component_type=pc.component_type,
+                system_id=system_ids[pc.system_index],
+                tenant_id=tenant.id,
+            )
+            session.add(sub)
+            await session.flush()
+            component_ids[pc.index] = sub.id
+
+        for pd in plan.deps:
+            session.add(
+                ComponentDependency(
+                    from_subsystem_id=component_ids[pd.from_index],
+                    to_subsystem_id=component_ids[pd.to_index],
+                    dependency_type=pd.dependency_type,
+                    direction=DependencyDirection.ONE_WAY.value,
+                    source=DependencySource.MANUAL.value,
+                    tenant_id=tenant.id,
+                )
+            )
+
+        await session.commit()
+
+    await engine.dispose()
+    hub = next(s for s in plan.systems if s.is_hub)
+    print(
+        f"✓ Seeded {len(plan.systems)} systems, {len(plan.components)} components, "
+        f"{len(plan.deps)} deps into tenant '{args.tenant}'"
+    )
+    print(f"  Benchmark from the hub system: '{hub.name} (hub)' (id {system_ids[hub.index]})")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
