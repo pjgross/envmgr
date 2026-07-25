@@ -4,8 +4,6 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
-  Handle,
-  Position,
   type Node,
   type Edge,
   type ReactFlowInstance,
@@ -17,17 +15,17 @@ import {
 } from '../../components/topology/topologyElkGraph';
 import { computeCollapseModel } from '../../components/topology/topologyModel';
 import { layoutTopology } from '../../components/topology/topologyLayout';
+import SubsystemNode, { NODE_WIDTH, NODE_HEIGHT } from '../../components/topology/SubsystemNode';
 import CollapsedSystemNode from '../../components/topology/CollapsedSystemNode';
 import { computeFocusSet, type SearchableComponent } from '../../components/topology/topologyFocus';
 import { computeVisibleGraph, availableComponentTypes } from '../../components/topology/topologyVisibility';
 import TopologyToolbar from '../../components/topology/TopologyToolbar';
-import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
 import FloatingEdge from '../../components/topology/FloatingEdge';
 import DependencyDetailPane from '../../components/topology/DependencyDetailPane';
 import { fetchTopology, clearTopology } from '../../store/topologySlice';
-import type { SubSystemResponse } from '../../types/system';
 
 // Color mapping by component_type
 const COMPONENT_COLORS: Record<string, string> = {
@@ -40,58 +38,6 @@ const COMPONENT_COLORS: Record<string, string> = {
   frontend: '#303f9f', // indigo
   other: '#616161', // grey
 };
-
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 70;
-
-// Subsystem node component
-function SubsystemNode({
-  data,
-}: {
-  data: { label: SubSystemResponse; color: string; dimmed?: boolean };
-}) {
-  const s = data.label;
-  return (
-    <Box
-      sx={{
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
-        border: `2px solid ${data.color}`,
-        borderRadius: 1,
-        bgcolor: 'background.paper',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        px: 1,
-        cursor: 'pointer',
-        opacity: data.dimmed ? 0.25 : 1,
-        transition: 'opacity 0.2s',
-      }}
-    >
-      <Typography
-        variant="body2"
-        fontWeight="bold"
-        noWrap
-        sx={{ width: '100%', textAlign: 'center' }}
-      >
-        {s.name}
-      </Typography>
-      <Chip
-        label={s.component_type.replace(/_/g, ' ')}
-        size="small"
-        sx={{ bgcolor: data.color, color: '#fff', fontSize: '0.65rem', height: 18, mt: 0.5 }}
-      />
-      {s.technology && (
-        <Typography variant="caption" color="text.secondary" noWrap>
-          {s.technology}
-        </Typography>
-      )}
-      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
-      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
-    </Box>
-  );
-}
 
 const nodeTypes = { subsystemNode: SubsystemNode, systemGroupNode: SystemGroupNode, collapsedSystemNode: CollapsedSystemNode };
 const edgeTypes = { floating: FloatingEdge };
