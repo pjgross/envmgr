@@ -1,5 +1,8 @@
 """Tests for host data in the environment topology response (SP2)."""
+from datetime import datetime, timezone
+
 import pytest
+from httpx import AsyncClient
 
 from app.db.models.system import System, SubSystem
 from app.db.models.environment import EnvironmentSubSystem, EnvironmentSubSystemHost
@@ -35,7 +38,6 @@ async def _link(db, tenant, env, sub, is_mocked=False):
 async def _component(db, tenant, name, comp_type=InfrastructureComponentType.SERVER, deleted=False):
     comp = InfrastructureComponent(tenant_id=tenant.id, name=name, component_type=comp_type)
     if deleted:
-        from datetime import datetime, timezone
         comp.deleted_at = datetime.now(timezone.utc)
     db.add(comp)
     await db.flush()
@@ -50,14 +52,10 @@ async def _attach(db, tenant, link, comp, role=None, deleted=False):
         role=role,
     )
     if deleted:
-        from datetime import datetime, timezone
         host.deleted_at = datetime.now(timezone.utc)
     db.add(host)
     await db.flush()
     return host
-
-
-from httpx import AsyncClient
 
 
 def _node(result, sub_id):
@@ -155,3 +153,25 @@ async def test_topology_endpoint_serializes_hosts(
         "component_type": "server",
         "role": "primary",
     }]
+
+
+@pytest.mark.asyncio
+async def test_foreign_tenant_host_is_never_surfaced(
+    db_session, test_tenant, test_environment, second_tenant_factory
+):
+    """Defence-in-depth: even a malformed junction pointing at another tenant's
+    infrastructure component must not leak that component into the response."""
+    other_tenant, _ = await second_tenant_factory()
+    a = await _system_with_subsystem(db_session, test_tenant, "svc-a")
+    link_a = await _link(db_session, test_tenant, test_environment, a)
+    mine = await _component(db_session, test_tenant, "macmini")
+    foreign = await _component(db_session, other_tenant, "their-secret-host")
+    await _attach(db_session, test_tenant, link_a, mine, role="primary")
+    # Simulate bad data: a this-tenant junction row pointing at a foreign component.
+    await _attach(db_session, test_tenant, link_a, foreign)
+    await db_session.commit()
+
+    result = await get_environment_topology(db_session, test_environment.id, test_tenant.id)
+    ids = [h["infrastructure_component_id"] for h in _node(result, a.id)["hosts"]]
+    assert ids == [mine.id]
+    assert foreign.id not in ids

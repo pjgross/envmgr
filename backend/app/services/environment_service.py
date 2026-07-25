@@ -438,7 +438,9 @@ async def get_environment_topology(db: AsyncSession, env_id: int, tenant_id: int
             if host_row.deleted_at is not None:
                 continue
             comp = host_row.infrastructure_component
-            if comp is None or comp.deleted_at is not None:
+            # Defence-in-depth: never surface a host from another tenant even if a
+            # malformed junction row points at one (the write path already guards this).
+            if comp is None or comp.deleted_at is not None or comp.tenant_id != tenant_id:
                 continue
             hosts.append({
                 "infrastructure_component_id": comp.id,
