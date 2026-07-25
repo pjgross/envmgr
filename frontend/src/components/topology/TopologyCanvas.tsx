@@ -232,7 +232,7 @@ export default function TopologyCanvas({
       </Box>
     );
   if (error) return <Alert severity="error">{error}</Alert>;
-  if (!graph || graph.subsystems.length === 0) {
+  if (!graph || (graph.subsystems.length === 0 && graph.externalSubsystems.length === 0)) {
     return (
       <Box sx={{ textAlign: 'center', mt: 4, color: 'text.secondary' }}>
         <Typography>{emptyMessage}</Typography>
