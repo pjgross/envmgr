@@ -1,8 +1,8 @@
 import type { DependencyDirection } from '../../types/dependency';
 import type { VisibleSubsystem, VisibleDependency, VisibilityInput } from './topologyVisibility';
 
-export interface ModelSystem {
-  systemId: number;
+export interface ModelGroup {
+  groupId: string;
   name: string;
   isCurrent: boolean;
   collapsed: boolean;
@@ -12,7 +12,7 @@ export interface ModelSystem {
 
 export interface ModelEdge {
   id: string; // real dep id (String) when single; `agg:${source}->${target}` when aggregated
-  source: string; // component id (String) or `sys-${systemId}`
+  source: string; // component id (String) or `sys-${groupId}`
   target: string;
   label: string;
   aggregatedCount: number;
@@ -21,38 +21,57 @@ export interface ModelEdge {
 }
 
 export interface TopologyModel {
-  systems: ModelSystem[];
+  groups: ModelGroup[];
   edges: ModelEdge[];
 }
 
+/** Pluggable grouping: which group a subsystem belongs to, and that group's display metadata. */
+export interface Grouping {
+  keyOf(sub: VisibleSubsystem): string;
+  meta(key: string): { name: string; isCurrent: boolean };
+}
+
 export interface CollapseContext {
-  collapsedSystems: Set<number>;
-  systemNames: Record<string, string>;
-  currentSystemId: number;
+  collapsedGroups: Set<string>;
+  grouping: Grouping;
+}
+
+/** Grouping by owning system — the systems-diagram grouping. groupId === String(system_id). */
+export function bySystem(systemNames: Record<string, string>, currentSystemId: number): Grouping {
+  return {
+    keyOf: (s) => String(s.system_id),
+    meta: (key) => ({
+      name: systemNames[key] ?? `System ${key}`,
+      isCurrent: Number(key) === currentSystemId,
+    }),
+  };
 }
 
 export function computeCollapseModel(
   input: VisibilityInput,
   ctx: CollapseContext
 ): TopologyModel {
+  const { grouping, collapsedGroups } = ctx;
   const allSubs = [...input.subsystems, ...input.externalSubsystems];
   const allDeps = [...input.dependencies, ...input.externalDependencies];
 
-  const systemOf = new Map<number, number>();
-  for (const s of allSubs) systemOf.set(s.id, s.system_id);
+  const groupOf = new Map<number, string>();
+  for (const s of allSubs) groupOf.set(s.id, grouping.keyOf(s));
 
-  const bySystem = new Map<number, VisibleSubsystem[]>();
+  const byGroup = new Map<string, VisibleSubsystem[]>();
   for (const s of allSubs) {
-    if (!bySystem.has(s.system_id)) bySystem.set(s.system_id, []);
-    bySystem.get(s.system_id)!.push(s);
+    const key = grouping.keyOf(s);
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key)!.push(s);
   }
 
-  const systems: ModelSystem[] = [...bySystem.entries()].map(([systemId, comps]) => {
-    const collapsed = ctx.collapsedSystems.has(systemId);
+  const groups: ModelGroup[] = [...byGroup.entries()].map(([groupId, comps]) => {
+    const collapsed = collapsedGroups.has(groupId);
+    const meta = grouping.meta(groupId);
     return {
-      systemId,
-      name: ctx.systemNames[String(systemId)] ?? `System ${systemId}`,
-      isCurrent: systemId === ctx.currentSystemId,
+      groupId,
+      name: meta.name,
+      isCurrent: meta.isCurrent,
       collapsed,
       componentCount: comps.length,
       components: collapsed ? [] : comps,
@@ -60,17 +79,15 @@ export function computeCollapseModel(
   });
 
   const displayNode = (componentId: number): string => {
-    const sysId = systemOf.get(componentId);
-    return sysId !== undefined && ctx.collapsedSystems.has(sysId)
-      ? `sys-${sysId}`
-      : String(componentId);
+    const key = groupOf.get(componentId);
+    return key !== undefined && collapsedGroups.has(key) ? `sys-${key}` : String(componentId);
   };
 
   const buckets = new Map<string, VisibleDependency[]>();
   for (const d of allDeps) {
     const source = displayNode(d.from_subsystem_id);
     const target = displayNode(d.to_subsystem_id);
-    if (source === target) continue; // both endpoints in one collapsed system (or a self-loop) — nothing to draw
+    if (source === target) continue; // both endpoints in one collapsed group (or a self-loop) — nothing to draw
     const key = `${source}->${target}`;
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key)!.push(d);
@@ -103,5 +120,5 @@ export function computeCollapseModel(
     };
   });
 
-  return { systems, edges };
+  return { groups, edges };
 }

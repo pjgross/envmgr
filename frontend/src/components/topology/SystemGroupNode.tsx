@@ -8,8 +8,8 @@ interface SystemGroupNodeProps {
     label: string;
     isCurrent: boolean;
     dimmed?: boolean;
-    systemId?: number;
-    onCollapse?: (systemId: number) => void;
+    groupId?: string;
+    onCollapse?: (groupId: string) => void;
   };
 }
 
@@ -57,13 +57,13 @@ function SystemGroupNode({ data }: SystemGroupNodeProps) {
         >
           {data.label}
         </Typography>
-        {data.onCollapse && data.systemId !== undefined && (
+        {data.onCollapse && data.groupId !== undefined && (
           <IconButton
             size="small"
             aria-label={`Collapse ${data.label}`}
             onClick={(e) => {
               e.stopPropagation();
-              data.onCollapse!(data.systemId!);
+              data.onCollapse!(data.groupId!);
             }}
             sx={{ p: 0.25, ml: 0.5, pointerEvents: 'auto' }}
           >

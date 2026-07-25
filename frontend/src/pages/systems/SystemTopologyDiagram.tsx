@@ -13,7 +13,7 @@ import {
   type ElkRenderContext,
   type RenderSubsystem,
 } from '../../components/topology/topologyElkGraph';
-import { computeCollapseModel } from '../../components/topology/topologyModel';
+import { computeCollapseModel, bySystem } from '../../components/topology/topologyModel';
 import { layoutTopology } from '../../components/topology/topologyLayout';
 import SubsystemNode, { NODE_WIDTH, NODE_HEIGHT } from '../../components/topology/SubsystemNode';
 import CollapsedSystemNode from '../../components/topology/CollapsedSystemNode';
@@ -53,7 +53,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   const [selectedDepId, setSelectedDepId] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
-  const [collapsedSystems, setCollapsedSystems] = useState<Set<number>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
@@ -67,7 +67,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   useEffect(() => {
     setSelectedDepId(null);
     setFocusedId(null);
-    setCollapsedSystems(new Set());
+    setCollapsedGroups(new Set());
   }, [data]);
 
   const selectedDep = useMemo(() => {
@@ -89,9 +89,9 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   const renderedComponents = useMemo(() => {
     if (!visibleGraph) return [];
     return [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems].filter(
-      (s) => !collapsedSystems.has(s.system_id)
+      (s) => !collapsedGroups.has(String(s.system_id))
     );
-  }, [visibleGraph, collapsedSystems]);
+  }, [visibleGraph, collapsedGroups]);
 
   const visibleIds = useMemo(
     () => (visibleGraph ? new Set(renderedComponents.map((s) => String(s.id))) : null),
@@ -109,18 +109,13 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     let cancelled = false;
     setLayingOut(true);
 
-    const systemNames = source.getSystemNames();
-    const model = computeCollapseModel(visibleGraph, {
-      collapsedSystems,
-      systemNames,
-      currentSystemId: systemId,
-    });
+    const grouping = bySystem(source.getSystemNames(), systemId);
+    const model = computeCollapseModel(visibleGraph, { collapsedGroups, grouping });
 
     const subsystems = new Map<number, RenderSubsystem>();
     for (const s of [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems]) subsystems.set(s.id, s);
 
     const ctx: ElkRenderContext = {
-      systemNames,
       subsystems,
       colorFor: (t) => COMPONENT_COLORS[t] ?? COMPONENT_COLORS.other,
     };
@@ -139,7 +134,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [visibleGraph, systemId, source, collapsedSystems]);
+  }, [visibleGraph, systemId, source, collapsedGroups]);
 
   const focusSet = useMemo(() => {
     if (!focusedId || !visibleGraph) return null;
@@ -147,13 +142,13 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     return computeFocusSet(focusedId, deps);
   }, [focusedId, visibleGraph]);
 
-  const collapseSystem = useCallback((sid: number) => {
-    setCollapsedSystems((prev) => new Set(prev).add(sid));
+  const collapseGroup = useCallback((gid: string) => {
+    setCollapsedGroups((prev) => new Set(prev).add(gid));
   }, []);
-  const expandSystem = useCallback((sid: number) => {
-    setCollapsedSystems((prev) => {
+  const expandGroup = useCallback((gid: string) => {
+    setCollapsedGroups((prev) => {
       const next = new Set(prev);
-      next.delete(sid);
+      next.delete(gid);
       return next;
     });
   }, []);
@@ -172,14 +167,14 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
           : !focusSet.nodeIds.has(n.id)
         : undefined;
       if (n.type === 'systemGroupNode') {
-        return { ...n, data: { ...n.data, dimmed, onCollapse: collapseSystem } };
+        return { ...n, data: { ...n.data, dimmed, onCollapse: collapseGroup } };
       }
       if (n.type === 'collapsedSystemNode') {
-        return { ...n, data: { ...n.data, dimmed, onExpand: expandSystem } };
+        return { ...n, data: { ...n.data, dimmed, onExpand: expandGroup } };
       }
       return { ...n, data: { ...n.data, dimmed } };
     });
-  }, [layout.nodes, focusSet, collapseSystem, expandSystem]);
+  }, [layout.nodes, focusSet, collapseGroup, expandGroup]);
 
   const edges = useMemo(
     () =>

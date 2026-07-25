@@ -6,12 +6,12 @@ import { useRenderCount } from './topologyPerf';
 
 interface CollapsedSystemNodeProps {
   data: {
-    systemId: number;
+    groupId: string;
     name: string;
     componentCount: number;
     isCurrent: boolean;
     dimmed?: boolean;
-    onExpand?: (systemId: number) => void;
+    onExpand?: (groupId: string) => void;
   };
 }
 
@@ -23,14 +23,14 @@ function CollapsedSystemNode({ data }: CollapsedSystemNodeProps) {
   const borderColor = data.isCurrent ? '#1976d2' : '#757575';
   return (
     <Box
-      onClick={() => data.onExpand?.(data.systemId)}
+      onClick={() => data.onExpand?.(data.groupId)}
       role="button"
       tabIndex={0}
       aria-label={`Expand ${data.name}`}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          data.onExpand?.(data.systemId);
+          data.onExpand?.(data.groupId);
         }
       }}
       sx={{
