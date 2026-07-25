@@ -13,5 +13,8 @@ export const COMPONENT_COLORS: Record<string, string> = {
 /** Colour for a mocked subsystem, regardless of its component type. */
 export const MOCK_COLOR = '#9e9e9e';
 
+/** Faint background wash for a mocked subsystem node — the MOCK_COLOR tint (#9e9e9e = 158,158,158). */
+export const MOCK_BG = 'rgba(158,158,158,0.06)';
+
 export const colorForComponentType = (t: string): string =>
   COMPONENT_COLORS[t] ?? COMPONENT_COLORS.other;

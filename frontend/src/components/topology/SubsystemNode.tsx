@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Box, Chip, Typography } from '@mui/material';
 import { Handle, Position } from 'reactflow';
 import type { RenderSubsystem } from './topologyElkGraph';
-import { MOCK_COLOR } from './topologyColors';
+import { MOCK_COLOR, MOCK_BG } from './topologyColors';
 import { useRenderCount } from './topologyPerf';
 
 export const NODE_WIDTH = 180;
@@ -24,7 +24,7 @@ function SubsystemNode({ data }: SubsystemNodeProps) {
         height: NODE_HEIGHT,
         border: `2px ${mocked ? 'dashed' : 'solid'} ${color}`,
         borderRadius: 1,
-        bgcolor: mocked ? 'rgba(158,158,158,0.06)' : 'background.paper',
+        bgcolor: mocked ? MOCK_BG : 'background.paper',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
