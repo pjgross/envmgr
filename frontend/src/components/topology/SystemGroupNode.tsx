@@ -1,5 +1,7 @@
+import { memo } from 'react';
 import { Box, IconButton, Typography } from '@mui/material';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import { useRenderCount } from './topologyPerf';
 
 interface SystemGroupNodeProps {
   data: {
@@ -11,7 +13,8 @@ interface SystemGroupNodeProps {
   };
 }
 
-export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
+function SystemGroupNode({ data }: SystemGroupNodeProps) {
+  useRenderCount('SystemGroupNode');
   const borderColor = data.isCurrent ? '#1976d2' : '#9e9e9e';
   const bgColor = data.isCurrent ? 'rgba(25,118,210,0.03)' : 'rgba(158,158,158,0.03)';
   const labelColor = data.isCurrent ? '#1976d2' : '#757575';
@@ -71,3 +74,5 @@ export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
     </Box>
   );
 }
+
+export default memo(SystemGroupNode);

@@ -1,6 +1,8 @@
+import { memo } from 'react';
 import { Box, Typography } from '@mui/material';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import { Handle, Position } from 'reactflow';
+import { useRenderCount } from './topologyPerf';
 
 interface CollapsedSystemNodeProps {
   data: {
@@ -16,7 +18,8 @@ interface CollapsedSystemNodeProps {
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 70;
 
-export default function CollapsedSystemNode({ data }: CollapsedSystemNodeProps) {
+function CollapsedSystemNode({ data }: CollapsedSystemNodeProps) {
+  useRenderCount('CollapsedSystemNode');
   const borderColor = data.isCurrent ? '#1976d2' : '#757575';
   return (
     <Box
@@ -60,3 +63,5 @@ export default function CollapsedSystemNode({ data }: CollapsedSystemNodeProps) 
     </Box>
   );
 }
+
+export default memo(CollapsedSystemNode);
