@@ -31,13 +31,13 @@ export const CONTAINER_OPTIONS: Record<string, string> = {
 };
 
 export function buildElkGraph(model: TopologyModel): ElkNode {
-  const children: ElkNode[] = model.systems.map((s) =>
-    s.collapsed
-      ? { id: `sys-${s.systemId}`, width: COLLAPSED_WIDTH, height: COLLAPSED_HEIGHT }
+  const children: ElkNode[] = model.groups.map((g) =>
+    g.collapsed
+      ? { id: `sys-${g.groupId}`, width: COLLAPSED_WIDTH, height: COLLAPSED_HEIGHT }
       : {
-          id: `group-${s.systemId}`,
+          id: `group-${g.groupId}`,
           layoutOptions: CONTAINER_OPTIONS,
-          children: s.components.map((c) => ({
+          children: g.components.map((c) => ({
             id: String(c.id),
             width: NODE_WIDTH,
             height: NODE_HEIGHT,
@@ -61,9 +61,9 @@ export interface RenderSubsystem {
   system_id: number;
   component_type: string;
   technology: string | null;
+  is_mocked?: boolean;
 }
 export interface ElkRenderContext {
-  systemNames: Record<string, string>;
   subsystems: Map<number, RenderSubsystem>;
   colorFor: (componentType: string) => string;
 }
@@ -73,36 +73,36 @@ export function elkToReactFlow(
   model: TopologyModel,
   ctx: ElkRenderContext
 ): { nodes: Node[]; edges: Edge[] } {
-  const systemById = new Map(model.systems.map((s) => [s.systemId, s]));
+  const groupById = new Map(model.groups.map((g) => [g.groupId, g]));
   const topNodes: Node[] = [];
   const childNodes: Node[] = [];
 
   for (const node of result.children ?? []) {
     if (node.id.startsWith('sys-')) {
-      const sysId = Number(node.id.replace('sys-', ''));
-      const s = systemById.get(sysId);
-      if (!s) continue;
+      const groupId = node.id.replace('sys-', '');
+      const g = groupById.get(groupId);
+      if (!g) continue;
       topNodes.push({
         id: node.id,
         type: 'collapsedSystemNode',
         position: { x: node.x ?? 0, y: node.y ?? 0 },
-        data: { systemId: sysId, name: s.name, componentCount: s.componentCount, isCurrent: s.isCurrent },
+        data: { groupId, name: g.name, componentCount: g.componentCount, isCurrent: g.isCurrent },
         selectable: false,
         draggable: false,
       });
       continue;
     }
-    const sysId = Number(node.id.replace('group-', ''));
-    const s = systemById.get(sysId);
+    const groupId = node.id.replace('group-', '');
+    const g = groupById.get(groupId);
     topNodes.push({
       id: node.id,
       type: 'systemGroupNode',
       position: { x: node.x ?? 0, y: node.y ?? 0 },
       style: { width: node.width ?? 0, height: node.height ?? 0 },
       data: {
-        label: s?.name ?? ctx.systemNames[String(sysId)] ?? `System ${sysId}`,
-        isCurrent: s?.isCurrent ?? false,
-        systemId: sysId,
+        label: g?.name ?? `Group ${groupId}`,
+        isCurrent: g?.isCurrent ?? false,
+        groupId,
       },
       selectable: false,
       draggable: false,

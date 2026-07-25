@@ -4,15 +4,14 @@ import type { TopologyModel } from '../topologyModel';
 import type { ElkRenderContext } from '../topologyElkGraph';
 
 const model: TopologyModel = {
-  systems: [
-    { systemId: 2, name: 'Customer', isCurrent: true, collapsed: false, componentCount: 1,
+  groups: [
+    { groupId: '2', name: 'Customer', isCurrent: true, collapsed: false, componentCount: 1,
       components: [{ id: 5, name: 'api', system_id: 2, component_type: 'web_service', technology: null }] },
   ],
   edges: [],
 };
 
 const ctx: ElkRenderContext = {
-  systemNames: { '2': 'Customer' },
   subsystems: new Map([[5, { id: 5, name: 'api', system_id: 2, component_type: 'web_service', technology: null }]]),
   colorFor: () => '#000',
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeCollapseModel, type CollapseContext } from '../topologyModel';
+import { computeCollapseModel, bySystem, type CollapseContext } from '../topologyModel';
 import type { VisibilityInput } from '../topologyVisibility';
 
 const sub = (id: number, systemId: number, type = 'other') => ({
@@ -17,18 +17,17 @@ const input: VisibilityInput = {
   externalSubsystems: [sub(1, 1), sub(19, 3)],
   externalDependencies: [dep(10, 1, 5), dep(11, 19, 5)],
 };
-const ctx = (collapsed: number[]): CollapseContext => ({
-  collapsedSystems: new Set(collapsed),
-  systemNames: { '1': 'Mortgage', '2': 'Customer', '3': 'Env Manager' },
-  currentSystemId: 2,
+const ctx = (collapsed: string[]): CollapseContext => ({
+  collapsedGroups: new Set(collapsed),
+  grouping: bySystem({ '1': 'Mortgage', '2': 'Customer', '3': 'Env Manager' }, 2),
 });
 
 describe('computeCollapseModel', () => {
   it('with nothing collapsed: one expanded system per system, edges 1:1', () => {
     const m = computeCollapseModel(input, ctx([]));
-    expect(m.systems.map((s) => s.systemId).sort()).toEqual([1, 2, 3]);
-    expect(m.systems.every((s) => !s.collapsed)).toBe(true);
-    const customer = m.systems.find((s) => s.systemId === 2)!;
+    expect(m.groups.map((g) => g.groupId).sort()).toEqual(['1', '2', '3']);
+    expect(m.groups.every((g) => !g.collapsed)).toBe(true);
+    const customer = m.groups.find((g) => g.groupId === '2')!;
     expect(customer.components.map((c) => c.id).sort()).toEqual([5, 6]);
     expect(customer.isCurrent).toBe(true);
     expect(m.edges.map((e) => e.id).sort()).toEqual(['10', '11', '8']);
@@ -36,22 +35,22 @@ describe('computeCollapseModel', () => {
   });
 
   it('collapsing a system empties its components and sets the count', () => {
-    const m = computeCollapseModel(input, ctx([1]));
-    const mort = m.systems.find((s) => s.systemId === 1)!;
+    const m = computeCollapseModel(input, ctx(['1']));
+    const mort = m.groups.find((g) => g.groupId === '1')!;
     expect(mort.collapsed).toBe(true);
     expect(mort.components).toEqual([]);
     expect(mort.componentCount).toBe(1);
   });
 
   it('re-points a collapsed system\'s boundary edge to sys-<id>', () => {
-    const m = computeCollapseModel(input, ctx([1]));
+    const m = computeCollapseModel(input, ctx(['1']));
     const e = m.edges.find((x) => x.dependencyId === 10)!; // 1 -> 5
     expect(e.source).toBe('sys-1');
     expect(e.target).toBe('5');
   });
 
   it('drops an edge internal to a collapsed system', () => {
-    const m = computeCollapseModel(input, ctx([2]));
+    const m = computeCollapseModel(input, ctx(['2']));
     expect(m.edges.some((e) => e.dependencyId === 8)).toBe(false);
   });
 
@@ -62,7 +61,7 @@ describe('computeCollapseModel', () => {
       externalSubsystems: [sub(1, 1), sub(2, 1)],
       externalDependencies: [dep(20, 1, 5), dep(21, 2, 5)],
     };
-    const m = computeCollapseModel(agg, ctx([1]));
+    const m = computeCollapseModel(agg, ctx(['1']));
     const aggEdge = m.edges.find((e) => e.source === 'sys-1' && e.target === '5')!;
     expect(aggEdge.aggregatedCount).toBe(2);
     expect(aggEdge.dependencyId).toBeNull();

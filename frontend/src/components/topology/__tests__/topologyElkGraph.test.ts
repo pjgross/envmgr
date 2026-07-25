@@ -8,9 +8,9 @@ const comp = (id: number, systemId: number): RenderSubsystem => ({
 });
 
 const model: TopologyModel = {
-  systems: [
-    { systemId: 2, name: 'Customer', isCurrent: true, collapsed: false, componentCount: 2, components: [comp(5, 2), comp(6, 2)] },
-    { systemId: 1, name: 'Mortgage', isCurrent: false, collapsed: true, componentCount: 1, components: [] },
+  groups: [
+    { groupId: '2', name: 'Customer', isCurrent: true, collapsed: false, componentCount: 2, components: [comp(5, 2), comp(6, 2)] },
+    { groupId: '1', name: 'Mortgage', isCurrent: false, collapsed: true, componentCount: 1, components: [] },
   ],
   edges: [
     { id: '8', source: '5', target: '6', label: 'api_call', aggregatedCount: 1, dependencyId: 8, direction: 'one_way' },
@@ -47,7 +47,6 @@ const laidOut: ElkNode = {
   ],
 };
 const ctx: ElkRenderContext = {
-  systemNames: { '1': 'Mortgage', '2': 'Customer' },
   subsystems: new Map([[5, comp(5, 2)], [6, comp(6, 2)]]),
   colorFor: () => '#616161',
 };
@@ -57,14 +56,14 @@ describe('elkToReactFlow', () => {
     const { nodes } = elkToReactFlow(laidOut, model, ctx);
     const collapsed = nodes.find((n) => n.id === 'sys-1')!;
     expect(collapsed.type).toBe('collapsedSystemNode');
-    expect(collapsed.data).toMatchObject({ systemId: 1, name: 'Mortgage', componentCount: 1 });
+    expect(collapsed.data).toMatchObject({ groupId: '1', name: 'Mortgage', componentCount: 1 });
   });
 
   it('maps an expanded container to a group node with its children after it', () => {
     const { nodes } = elkToReactFlow(laidOut, model, ctx);
     const g = nodes.find((n) => n.id === 'group-2')!;
     expect(g.type).toBe('systemGroupNode');
-    expect(g.data).toMatchObject({ systemId: 2, isCurrent: true });
+    expect(g.data).toMatchObject({ groupId: '2', isCurrent: true });
     const child = nodes.find((n) => n.id === '5')!;
     expect(child.parentId).toBe('group-2');
     expect(nodes.indexOf(g)).toBeLessThan(nodes.indexOf(child));
