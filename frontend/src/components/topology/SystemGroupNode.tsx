@@ -1,7 +1,14 @@
-import { Box, Typography } from '@mui/material';
+import { Box, IconButton, Typography } from '@mui/material';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 
 interface SystemGroupNodeProps {
-  data: { label: string; isCurrent: boolean; dimmed?: boolean };
+  data: {
+    label: string;
+    isCurrent: boolean;
+    dimmed?: boolean;
+    systemId?: number;
+    onCollapse?: (systemId: number) => void;
+  };
 }
 
 export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
@@ -31,6 +38,8 @@ export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
           bgcolor: 'background.default',
           px: 0.75,
           lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
         }}
       >
         <Typography
@@ -45,6 +54,19 @@ export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
         >
           {data.label}
         </Typography>
+        {data.onCollapse && data.systemId !== undefined && (
+          <IconButton
+            size="small"
+            aria-label={`Collapse ${data.label}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onCollapse!(data.systemId!);
+            }}
+            sx={{ p: 0.25, ml: 0.5, pointerEvents: 'auto' }}
+          >
+            <UnfoldLessIcon sx={{ fontSize: 16, transform: 'rotate(90deg)' }} />
+          </IconButton>
+        )}
       </Box>
     </Box>
   );
