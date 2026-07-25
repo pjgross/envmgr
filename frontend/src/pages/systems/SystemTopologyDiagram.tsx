@@ -149,12 +149,17 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     );
   }, [data, hiddenTypes]);
 
-  const visibleIds = useMemo(() => {
-    if (!visibleGraph) return null;
-    return new Set(
-      [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems].map((s) => String(s.id))
+  const renderedComponents = useMemo(() => {
+    if (!visibleGraph) return [];
+    return [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems].filter(
+      (s) => !collapsedSystems.has(s.system_id)
     );
-  }, [visibleGraph]);
+  }, [visibleGraph, collapsedSystems]);
+
+  const visibleIds = useMemo(
+    () => (visibleGraph ? new Set(renderedComponents.map((s) => String(s.id))) : null),
+    [visibleGraph, renderedComponents]
+  );
 
   const [layout, setLayout] = useState<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] });
   const [layingOut, setLayingOut] = useState(false);
@@ -206,18 +211,39 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     return computeFocusSet(focusedId, deps);
   }, [focusedId, visibleGraph]);
 
+  const collapseSystem = useCallback((sid: number) => {
+    setCollapsedSystems((prev) => new Set(prev).add(sid));
+  }, []);
+  const expandSystem = useCallback((sid: number) => {
+    setCollapsedSystems((prev) => {
+      const next = new Set(prev);
+      next.delete(sid);
+      return next;
+    });
+  }, []);
+
   const nodes = useMemo(() => {
-    if (!focusSet) return layout.nodes;
     const brightGroups = new Set<string>();
-    for (const n of layout.nodes) {
-      if (n.parentId && focusSet.nodeIds.has(n.id)) brightGroups.add(n.parentId);
+    if (focusSet) {
+      for (const n of layout.nodes) {
+        if (n.parentId && focusSet.nodeIds.has(n.id)) brightGroups.add(n.parentId);
+      }
     }
-    return layout.nodes.map((n) =>
-      n.type === 'systemGroupNode'
-        ? { ...n, data: { ...n.data, dimmed: !brightGroups.has(n.id) } }
-        : { ...n, data: { ...n.data, dimmed: !focusSet.nodeIds.has(n.id) } }
-    );
-  }, [layout.nodes, focusSet]);
+    return layout.nodes.map((n) => {
+      const dimmed = focusSet
+        ? n.type === 'systemGroupNode' || n.type === 'collapsedSystemNode'
+          ? !brightGroups.has(n.id)
+          : !focusSet.nodeIds.has(n.id)
+        : undefined;
+      if (n.type === 'systemGroupNode') {
+        return { ...n, data: { ...n.data, dimmed, onCollapse: collapseSystem } };
+      }
+      if (n.type === 'collapsedSystemNode') {
+        return { ...n, data: { ...n.data, dimmed, onExpand: expandSystem } };
+      }
+      return { ...n, data: { ...n.data, dimmed } };
+    });
+  }, [layout.nodes, focusSet, collapseSystem, expandSystem]);
 
   const edges = useMemo(
     () =>
@@ -234,14 +260,14 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   );
 
   const searchable = useMemo<SearchableComponent[]>(() => {
-    if (!visibleGraph || !data) return [];
+    if (!data) return [];
     const names = data.system_names ?? {};
-    return [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems].map((s) => ({
+    return renderedComponents.map((s) => ({
       id: s.id,
       name: s.name,
       systemName: names[String(s.system_id)] ?? `System ${s.system_id}`,
     }));
-  }, [visibleGraph, data]);
+  }, [data, renderedComponents]);
 
   const availableTypes = useMemo(() => {
     if (!data) return [];
@@ -285,12 +311,13 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
 
   const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     const id = parseInt(edge.id, 10);
+    if (Number.isNaN(id)) return; // aggregated edge — no single dependency to show
     setSelectedDepId((prev) => (prev === id ? null : id));
   }, []);
 
   const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    // system-group node ids are prefixed "group-" (see topologyElkGraph.ts); only components are focusable
-    if (node.id.startsWith('group-')) return;
+    // system-group node ids are prefixed "group-", collapsed system nodes "sys-"; only components are focusable
+    if (node.id.startsWith('group-') || node.id.startsWith('sys-')) return;
     setFocusedId((cur) => (cur === node.id ? null : node.id));
   }, []);
 
