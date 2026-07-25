@@ -98,6 +98,14 @@ class EnvironmentSubsystemUpdate(BaseModel):
     custom_fields: Optional[dict] = None
 
 
+class EnvSubsystemHostRef(BaseModel):
+    """A host an environment subsystem is deployed on, for the topology diagram."""
+    infrastructure_component_id: int
+    name: str
+    component_type: str          # InfrastructureComponentType value (str-enum)
+    role: Optional[str] = None
+
+
 class EnvSubsystemNode(BaseModel):
     """Subsystem node for the environment topology response."""
     id: int
@@ -106,6 +114,7 @@ class EnvSubsystemNode(BaseModel):
     technology: Optional[str] = None
     system_id: int
     is_mocked: bool
+    hosts: list[EnvSubsystemHostRef] = []
 
 
 from app.api.v1.schemas.dependency import ComponentDependencyResponse  # noqa: E402

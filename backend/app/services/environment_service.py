@@ -7,7 +7,13 @@ from sqlalchemy import select, delete, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentSubSystem, EnvironmentStatus
+from app.db.models.environment import (
+    Environment,
+    EnvironmentSystem,
+    EnvironmentSubSystem,
+    EnvironmentSubSystemHost,
+    EnvironmentStatus,
+)
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.system import SubSystem, System
 from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
@@ -311,7 +317,12 @@ async def get_environment_topology(db: AsyncSession, env_id: int, tenant_id: int
             EnvironmentSubSystem.environment_id == env_id,
             EnvironmentSubSystem.tenant_id == tenant_id,
         )
-        .options(selectinload(EnvironmentSubSystem.subsystem))
+        .options(
+            selectinload(EnvironmentSubSystem.subsystem),
+            selectinload(EnvironmentSubSystem.hosts).selectinload(
+                EnvironmentSubSystemHost.infrastructure_component
+            ),
+        )
     )
     env_sub_rows = list(env_sub_result.scalars().all())
 
@@ -422,6 +433,19 @@ async def get_environment_topology(db: AsyncSession, env_id: int, tenant_id: int
         sub = row.subsystem
         if sub is None:
             continue
+        hosts = []
+        for host_row in row.hosts:
+            if host_row.deleted_at is not None:
+                continue
+            comp = host_row.infrastructure_component
+            if comp is None or comp.deleted_at is not None:
+                continue
+            hosts.append({
+                "infrastructure_component_id": comp.id,
+                "name": comp.name,
+                "component_type": comp.component_type,
+                "role": host_row.role,
+            })
         subsystem_nodes.append({
             "id": sub.id,
             "name": sub.name,
@@ -429,6 +453,7 @@ async def get_environment_topology(db: AsyncSession, env_id: int, tenant_id: int
             "technology": sub.technology,
             "system_id": sub.system_id,
             "is_mocked": row.is_mocked,
+            "hosts": hosts,
         })
 
     outside_sub_nodes = [
@@ -439,6 +464,7 @@ async def get_environment_topology(db: AsyncSession, env_id: int, tenant_id: int
             "technology": sub.technology,
             "system_id": sub.system_id,
             "is_mocked": False,
+            "hosts": [],
         }
         for sub in outside_subsystems
     ]
