@@ -19,6 +19,7 @@ import SubsystemNode, { NODE_WIDTH, NODE_HEIGHT } from '../../components/topolog
 import CollapsedSystemNode from '../../components/topology/CollapsedSystemNode';
 import { computeFocusSet, type SearchableComponent } from '../../components/topology/topologyFocus';
 import { computeVisibleGraph, availableComponentTypes } from '../../components/topology/topologyVisibility';
+import { fromTopologyResponse } from '../../components/topology/topologySource';
 import TopologyToolbar from '../../components/topology/TopologyToolbar';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
@@ -78,18 +79,12 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     );
   }, [selectedDepId, data]);
 
+  const source = useMemo(() => (data ? fromTopologyResponse(data) : null), [data]);
+
   const visibleGraph = useMemo(() => {
-    if (!data) return null;
-    return computeVisibleGraph(
-      {
-        subsystems: data.subsystems,
-        dependencies: data.dependencies,
-        externalSubsystems: data.external_subsystems ?? [],
-        externalDependencies: data.external_dependencies ?? [],
-      },
-      { hiddenTypes }
-    );
-  }, [data, hiddenTypes]);
+    if (!source) return null;
+    return computeVisibleGraph(source.getGraph(), { hiddenTypes });
+  }, [source, hiddenTypes]);
 
   const renderedComponents = useMemo(() => {
     if (!visibleGraph) return [];
