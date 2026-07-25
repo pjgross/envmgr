@@ -20,6 +20,7 @@ import {
   type RenderDependency,
 } from '../../components/topology/topologyElkGraph';
 import { computeFocusSet, type SearchableComponent } from '../../components/topology/topologyFocus';
+import { computeVisibleGraph, availableComponentTypes } from '../../components/topology/topologyVisibility';
 import TopologyToolbar from '../../components/topology/TopologyToolbar';
 import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
@@ -107,6 +108,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   const { data, loading, error } = useSelector((state: RootState) => state.topology);
   const [selectedDepId, setSelectedDepId] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
@@ -131,28 +133,43 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     );
   }, [selectedDepId, data]);
 
+  const visibleGraph = useMemo(() => {
+    if (!data) return null;
+    return computeVisibleGraph(
+      {
+        subsystems: data.subsystems,
+        dependencies: data.dependencies,
+        externalSubsystems: data.external_subsystems ?? [],
+        externalDependencies: data.external_dependencies ?? [],
+      },
+      { hiddenTypes }
+    );
+  }, [data, hiddenTypes]);
+
+  const visibleIds = useMemo(() => {
+    if (!visibleGraph) return null;
+    return new Set(
+      [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems].map((s) => String(s.id))
+    );
+  }, [visibleGraph]);
+
   const [layout, setLayout] = useState<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] });
   const [layingOut, setLayingOut] = useState(false);
 
   useEffect(() => {
-    if (!data) {
+    if (!visibleGraph || !data) {
       setLayout({ nodes: [], edges: [] });
       return;
     }
     let cancelled = false;
     setLayingOut(true);
 
-    const graph = buildElkGraph({
-      subsystems: data.subsystems,
-      dependencies: data.dependencies,
-      externalSubsystems: data.external_subsystems ?? [],
-      externalDependencies: data.external_dependencies ?? [],
-    });
+    const graph = buildElkGraph(visibleGraph);
 
     const subsystems = new Map<number, RenderSubsystem>();
-    for (const s of [...data.subsystems, ...(data.external_subsystems ?? [])]) subsystems.set(s.id, s);
+    for (const s of [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems]) subsystems.set(s.id, s);
     const dependencies = new Map<number, RenderDependency>();
-    for (const d of [...data.dependencies, ...(data.external_dependencies ?? [])]) dependencies.set(d.id, d);
+    for (const d of [...visibleGraph.dependencies, ...visibleGraph.externalDependencies]) dependencies.set(d.id, d);
 
     const ctx: ElkRenderContext = {
       currentSystemId: systemId,
@@ -178,13 +195,13 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [data, systemId]);
+  }, [visibleGraph, systemId, data]);
 
   const focusSet = useMemo(() => {
-    if (!focusedId || !data) return null;
-    const deps = [...data.dependencies, ...(data.external_dependencies ?? [])];
+    if (!focusedId || !visibleGraph) return null;
+    const deps = [...visibleGraph.dependencies, ...visibleGraph.externalDependencies];
     return computeFocusSet(focusedId, deps);
-  }, [focusedId, data]);
+  }, [focusedId, visibleGraph]);
 
   const nodes = useMemo(() => {
     if (!focusSet) return layout.nodes;
@@ -214,14 +231,37 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   );
 
   const searchable = useMemo<SearchableComponent[]>(() => {
-    if (!data) return [];
+    if (!visibleGraph || !data) return [];
     const names = data.system_names ?? {};
-    return [...data.subsystems, ...(data.external_subsystems ?? [])].map((s) => ({
+    return [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems].map((s) => ({
       id: s.id,
       name: s.name,
       systemName: names[String(s.system_id)] ?? `System ${s.system_id}`,
     }));
+  }, [visibleGraph, data]);
+
+  const availableTypes = useMemo(() => {
+    if (!data) return [];
+    return availableComponentTypes({
+      subsystems: data.subsystems,
+      dependencies: data.dependencies,
+      externalSubsystems: data.external_subsystems ?? [],
+      externalDependencies: data.external_dependencies ?? [],
+    });
   }, [data]);
+
+  const toggleType = useCallback((t: string) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (focusedId && visibleIds && !visibleIds.has(focusedId)) setFocusedId(null);
+  }, [focusedId, visibleIds]);
 
   const handleSearchSelect = useCallback(
     (id: number) => {
@@ -281,7 +321,13 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     >
       {/* Diagram column: search toolbar above, canvas below */}
       <Box sx={{ flex: 1, minWidth: '60%', display: 'flex', flexDirection: 'column' }}>
-        <TopologyToolbar components={searchable} onSelect={handleSearchSelect} />
+        <TopologyToolbar
+          components={searchable}
+          onSelect={handleSearchSelect}
+          availableTypes={availableTypes}
+          hiddenTypes={hiddenTypes}
+          onToggleType={toggleType}
+        />
         <Box sx={{ flex: 1, position: 'relative' }}>
           <ReactFlow
             nodes={nodes}
