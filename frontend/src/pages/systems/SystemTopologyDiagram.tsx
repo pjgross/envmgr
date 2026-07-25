@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import ReactFlow, {
   Background,
@@ -8,6 +8,7 @@ import ReactFlow, {
   Position,
   type Node,
   type Edge,
+  type ReactFlowInstance,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import ELK from 'elkjs/lib/elk.bundled.js';
@@ -18,7 +19,8 @@ import {
   type RenderSubsystem,
   type RenderDependency,
 } from '../../components/topology/topologyElkGraph';
-import { computeFocusSet } from '../../components/topology/topologyFocus';
+import { computeFocusSet, type SearchableComponent } from '../../components/topology/topologyFocus';
+import TopologyToolbar from '../../components/topology/TopologyToolbar';
 import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
@@ -105,6 +107,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   const { data, loading, error } = useSelector((state: RootState) => state.topology);
   const [selectedDepId, setSelectedDepId] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const rfRef = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
     dispatch(fetchTopology(systemId));
@@ -210,6 +213,33 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     [layout.edges, selectedDepId, focusSet]
   );
 
+  const searchable = useMemo<SearchableComponent[]>(() => {
+    if (!data) return [];
+    const names = data.system_names ?? {};
+    return [...data.subsystems, ...(data.external_subsystems ?? [])].map((s) => ({
+      id: s.id,
+      name: s.name,
+      systemName: names[String(s.system_id)] ?? `System ${s.system_id}`,
+    }));
+  }, [data]);
+
+  const handleSearchSelect = useCallback(
+    (id: number) => {
+      setFocusedId(String(id));
+      const node = layout.nodes.find((n) => n.id === String(id));
+      if (node?.parentId) {
+        const group = layout.nodes.find((n) => n.id === node.parentId);
+        const absX = (group?.position.x ?? 0) + node.position.x;
+        const absY = (group?.position.y ?? 0) + node.position.y;
+        rfRef.current?.setCenter(absX + NODE_WIDTH / 2, absY + NODE_HEIGHT / 2, {
+          zoom: 1.2,
+          duration: 400,
+        });
+      }
+    },
+    [layout.nodes]
+  );
+
   const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     const id = parseInt(edge.id, 10);
     setSelectedDepId((prev) => (prev === id ? null : id));
@@ -249,26 +279,32 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
         overflow: 'hidden',
       }}
     >
-      {/* Diagram */}
-      <Box sx={{ flex: 1, minWidth: '60%', position: 'relative' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          onEdgeClick={handleEdgeClick}
-          onNodeClick={handleNodeClick}
-          onPaneClick={handlePaneClick}
-        >
-          <Background />
-          <Controls />
-          <MiniMap />
-        </ReactFlow>
+      {/* Diagram column: search toolbar above, canvas below */}
+      <Box sx={{ flex: 1, minWidth: '60%', display: 'flex', flexDirection: 'column' }}>
+        <TopologyToolbar components={searchable} onSelect={handleSearchSelect} />
+        <Box sx={{ flex: 1, position: 'relative' }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            onEdgeClick={handleEdgeClick}
+            onNodeClick={handleNodeClick}
+            onPaneClick={handlePaneClick}
+            onInit={(inst) => {
+              rfRef.current = inst;
+            }}
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </Box>
       </Box>
 
       {/* Detail pane — only shown when an edge is selected */}
