@@ -7,6 +7,7 @@ export interface VisibleSubsystem {
   system_id: number;
   component_type: string;
   technology: string | null;
+  is_mocked?: boolean;
 }
 
 /** Minimal-but-render-sufficient dependency shape for visibility filtering. */

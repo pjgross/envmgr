@@ -61,6 +61,7 @@ export interface RenderSubsystem {
   system_id: number;
   component_type: string;
   technology: string | null;
+  is_mocked?: boolean;
 }
 export interface ElkRenderContext {
   subsystems: Map<number, RenderSubsystem>;
