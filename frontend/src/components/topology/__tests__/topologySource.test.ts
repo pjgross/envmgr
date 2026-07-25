@@ -24,4 +24,14 @@ describe('fromTopologyResponse', () => {
     expect(graph.externalSubsystems).toEqual([]);
     expect(graph.externalDependencies).toEqual([]);
   });
+
+  it('exposes system names through the seam so the pipeline never reads the raw response', () => {
+    expect(fromTopologyResponse(data).getSystemNames()).toEqual({ '1': 'Mortgage', '2': 'Customer' });
+  });
+
+  it('defaults missing system names to an empty map', () => {
+    expect(
+      fromTopologyResponse({ ...data, system_names: undefined } as unknown as TopologyResponse).getSystemNames(),
+    ).toEqual({});
+  });
 });

@@ -197,10 +197,10 @@ async def main() -> None:
         system_ids: dict[int, int] = {}
         for ps in plan.systems:
             suffix = " (hub)" if ps.is_hub else ""
-            sys = System(name=f"{ps.name}{suffix}", tenant_id=tenant.id)
-            session.add(sys)
+            system_row = System(name=f"{ps.name}{suffix}", tenant_id=tenant.id)
+            session.add(system_row)
             await session.flush()
-            system_ids[ps.index] = sys.id
+            system_ids[ps.index] = system_row.id
 
         component_ids: dict[int, int] = {}
         for pc in plan.components:

@@ -8,11 +8,14 @@ import type { VisibilityInput } from './topologyVisibility';
  * This seam exists so a future level-of-detail backend (for ~1000-component
  * graphs) can implement the SAME interface — e.g. returning collapsed-system
  * summaries and fetching component detail lazily on expand — WITHOUT touching
- * anything downstream (`computeVisibleGraph` onward). Nothing past `getGraph()`
- * may depend on the raw `TopologyResponse` shape.
+ * anything downstream (`computeVisibleGraph` / `computeCollapseModel` onward).
+ * Nothing in the render pipeline may depend on the raw `TopologyResponse` shape;
+ * everything it needs — the graph and the system-id→name lookup — comes through
+ * this contract.
  */
 export interface TopologySource {
   getGraph(): VisibilityInput;
+  getSystemNames(): Record<string, string>;
 }
 
 /** Full-graph source backed by the current unpaginated topology API response. */
@@ -24,5 +27,6 @@ export function fromTopologyResponse(data: TopologyResponse): TopologySource {
       externalSubsystems: data.external_subsystems ?? [],
       externalDependencies: data.external_dependencies ?? [],
     }),
+    getSystemNames: () => data.system_names ?? {},
   };
 }

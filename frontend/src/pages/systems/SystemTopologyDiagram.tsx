@@ -102,16 +102,17 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   const [layingOut, setLayingOut] = useState(false);
 
   useEffect(() => {
-    if (!visibleGraph || !data) {
+    if (!visibleGraph || !source) {
       setLayout({ nodes: [], edges: [] });
       return;
     }
     let cancelled = false;
     setLayingOut(true);
 
+    const systemNames = source.getSystemNames();
     const model = computeCollapseModel(visibleGraph, {
       collapsedSystems,
-      systemNames: data.system_names ?? {},
+      systemNames,
       currentSystemId: systemId,
     });
 
@@ -119,7 +120,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     for (const s of [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems]) subsystems.set(s.id, s);
 
     const ctx: ElkRenderContext = {
-      systemNames: data.system_names ?? {},
+      systemNames,
       subsystems,
       colorFor: (t) => COMPONENT_COLORS[t] ?? COMPONENT_COLORS.other,
     };
@@ -138,7 +139,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [visibleGraph, systemId, data, collapsedSystems]);
+  }, [visibleGraph, systemId, source, collapsedSystems]);
 
   const focusSet = useMemo(() => {
     if (!focusedId || !visibleGraph) return null;
