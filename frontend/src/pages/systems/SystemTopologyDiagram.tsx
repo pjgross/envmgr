@@ -17,8 +17,9 @@ import {
   elkToReactFlow,
   type ElkRenderContext,
   type RenderSubsystem,
-  type RenderDependency,
 } from '../../components/topology/topologyElkGraph';
+import { computeCollapseModel } from '../../components/topology/topologyModel';
+import CollapsedSystemNode from '../../components/topology/CollapsedSystemNode';
 import { computeFocusSet, type SearchableComponent } from '../../components/topology/topologyFocus';
 import { computeVisibleGraph, availableComponentTypes } from '../../components/topology/topologyVisibility';
 import TopologyToolbar from '../../components/topology/TopologyToolbar';
@@ -94,7 +95,7 @@ function SubsystemNode({
   );
 }
 
-const nodeTypes = { subsystemNode: SubsystemNode, systemGroupNode: SystemGroupNode };
+const nodeTypes = { subsystemNode: SubsystemNode, systemGroupNode: SystemGroupNode, collapsedSystemNode: CollapsedSystemNode };
 const edgeTypes = { floating: FloatingEdge };
 
 const elk = new ELK();
@@ -109,6 +110,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   const [selectedDepId, setSelectedDepId] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+  const [collapsedSystems, setCollapsedSystems] = useState<Set<number>>(new Set());
   const rfRef = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
@@ -122,6 +124,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
   useEffect(() => {
     setSelectedDepId(null);
     setFocusedId(null);
+    setCollapsedSystems(new Set());
   }, [data]);
 
   const selectedDep = useMemo(() => {
@@ -164,26 +167,26 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     let cancelled = false;
     setLayingOut(true);
 
-    const graph = buildElkGraph(visibleGraph);
+    const model = computeCollapseModel(visibleGraph, {
+      collapsedSystems,
+      systemNames: data.system_names ?? {},
+      currentSystemId: systemId,
+    });
 
     const subsystems = new Map<number, RenderSubsystem>();
     for (const s of [...visibleGraph.subsystems, ...visibleGraph.externalSubsystems]) subsystems.set(s.id, s);
-    const dependencies = new Map<number, RenderDependency>();
-    for (const d of [...visibleGraph.dependencies, ...visibleGraph.externalDependencies]) dependencies.set(d.id, d);
 
     const ctx: ElkRenderContext = {
-      currentSystemId: systemId,
       systemNames: data.system_names ?? {},
       subsystems,
-      dependencies,
       colorFor: (t) => COMPONENT_COLORS[t] ?? COMPONENT_COLORS.other,
     };
 
     elk
-      .layout(graph)
+      .layout(buildElkGraph(model))
       .then((res) => {
         if (cancelled) return;
-        setLayout(elkToReactFlow(res, ctx));
+        setLayout(elkToReactFlow(res, model, ctx));
       })
       .catch(() => {
         if (!cancelled) setLayout({ nodes: [], edges: [] });
@@ -195,7 +198,7 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [visibleGraph, systemId, data]);
+  }, [visibleGraph, systemId, data, collapsedSystems]);
 
   const focusSet = useMemo(() => {
     if (!focusedId || !visibleGraph) return null;

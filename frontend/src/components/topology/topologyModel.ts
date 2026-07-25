@@ -70,7 +70,7 @@ export function computeCollapseModel(
   for (const d of allDeps) {
     const source = displayNode(d.from_subsystem_id);
     const target = displayNode(d.to_subsystem_id);
-    if (source === target) continue; // internal to a collapsed system
+    if (source === target) continue; // both endpoints in one collapsed system (or a self-loop) — nothing to draw
     const key = `${source}->${target}`;
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key)!.push(d);
