@@ -25,7 +25,13 @@ export interface TopologyModel {
   edges: ModelEdge[];
 }
 
-/** Pluggable grouping: which group a subsystem belongs to, and that group's display metadata. */
+/**
+ * Pluggable grouping: which group a subsystem belongs to, and that group's display metadata.
+ *
+ * Contract the pipeline relies on:
+ * - `keyOf` must be deterministic for a given subsystem (it is called more than once per subsystem).
+ * - `meta(key)` must be defined for every key `keyOf` can return.
+ */
 export interface Grouping {
   keyOf(sub: VisibleSubsystem): string;
   meta(key: string): { name: string; isCurrent: boolean };
@@ -60,7 +66,7 @@ export function computeCollapseModel(
 
   const byGroup = new Map<string, VisibleSubsystem[]>();
   for (const s of allSubs) {
-    const key = grouping.keyOf(s);
+    const key = groupOf.get(s.id)!; // single source of truth — avoids calling keyOf twice
     if (!byGroup.has(key)) byGroup.set(key, []);
     byGroup.get(key)!.push(s);
   }
