@@ -22,6 +22,7 @@ import { computeCollapseModel } from '../../components/topology/topologyModel';
 import CollapsedSystemNode from '../../components/topology/CollapsedSystemNode';
 import { computeFocusSet, type SearchableComponent } from '../../components/topology/topologyFocus';
 import { computeVisibleGraph, availableComponentTypes } from '../../components/topology/topologyVisibility';
+import { logLayout } from '../../components/topology/topologyPerf';
 import TopologyToolbar from '../../components/topology/TopologyToolbar';
 import { Box, Chip, Typography, CircularProgress, Alert } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
@@ -187,11 +188,19 @@ export default function SystemTopologyDiagram({ systemId }: Props) {
       colorFor: (t) => COMPONENT_COLORS[t] ?? COMPONENT_COLORS.other,
     };
 
+    const started = performance.now();
     elk
       .layout(buildElkGraph(model))
       .then((res) => {
         if (cancelled) return;
-        setLayout(elkToReactFlow(res, model, ctx));
+        const rf = elkToReactFlow(res, model, ctx);
+        logLayout({
+          layoutMs: performance.now() - started,
+          nodeCount: rf.nodes.length,
+          edgeCount: rf.edges.length,
+          engine: 'bundled',
+        });
+        setLayout(rf);
       })
       .catch(() => {
         if (!cancelled) setLayout({ nodes: [], edges: [] });
