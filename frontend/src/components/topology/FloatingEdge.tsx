@@ -60,6 +60,7 @@ export default function FloatingEdge({
               lineHeight: 1.4,
               borderRadius: 2,
               pointerEvents: 'all',
+              opacity: style?.opacity,
             }}
             className="nodrag nopan"
           >

@@ -1,7 +1,7 @@
 import { Box, Typography } from '@mui/material';
 
 interface SystemGroupNodeProps {
-  data: { label: string; isCurrent: boolean };
+  data: { label: string; isCurrent: boolean; dimmed?: boolean };
 }
 
 export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
@@ -19,6 +19,8 @@ export default function SystemGroupNode({ data }: SystemGroupNodeProps) {
         bgcolor: bgColor,
         position: 'relative',
         pointerEvents: 'none',
+        opacity: data.dimmed ? 0.3 : 1,
+        transition: 'opacity 0.2s',
       }}
     >
       <Box
