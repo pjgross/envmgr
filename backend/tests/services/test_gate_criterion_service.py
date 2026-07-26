@@ -116,7 +116,7 @@ async def test_complete_criterion_autopasses_single(
     crit = await gate_criterion_service.create_criterion(
         db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="A"))
 
-    await gate_criterion_service.complete_criterion(db_session, crit.id, tenant.id, user.id)
+    await gate_criterion_service.complete_criterion(db_session, crit.id, tenant.id, user.id, user.role)
     await db_session.refresh(gate)
     assert gate.status == "passed"
     assert gate.decided_by == user.id
@@ -134,7 +134,7 @@ async def test_complete_not_last_does_not_autopass(
     _b = await gate_criterion_service.create_criterion(
         db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="B"))
 
-    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id)
+    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id, user.role)
     await db_session.refresh(gate)
     assert gate.status == "pending"
 
@@ -162,7 +162,7 @@ async def test_soft_deleted_criterion_ignored_by_autopass(
         db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="B"))
     await gate_criterion_service.delete_criterion(db_session, b.id, tenant.id)
 
-    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id)
+    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id, user.role)
     await db_session.refresh(gate)
     assert gate.status == "passed"
 
@@ -174,11 +174,11 @@ async def test_reopen_after_autopass_does_not_revert_gate(
     gate = await _make_gate(db_session, tenant, user, release_lifecycle_template)
     crit = await gate_criterion_service.create_criterion(
         db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="A"))
-    await gate_criterion_service.complete_criterion(db_session, crit.id, tenant.id, user.id)
+    await gate_criterion_service.complete_criterion(db_session, crit.id, tenant.id, user.id, user.role)
     await db_session.refresh(gate)
     assert gate.status == "passed"
 
-    await gate_criterion_service.reopen_criterion(db_session, crit.id, tenant.id)
+    await gate_criterion_service.reopen_criterion(db_session, crit.id, tenant.id, user.role)
     await db_session.refresh(gate)
     assert gate.status == "passed"  # one-way
     await db_session.refresh(crit)
@@ -198,14 +198,14 @@ async def test_complete_on_already_passed_gate_does_not_re_emit(
     b = await gate_criterion_service.create_criterion(
         db_session, gate.id, tenant.id, user.id, GateCriterionCreate(title="B"))
 
-    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id)
-    await gate_criterion_service.complete_criterion(db_session, b.id, tenant.id, user.id)
+    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id, user.role)
+    await gate_criterion_service.complete_criterion(db_session, b.id, tenant.id, user.id, user.role)
     await db_session.refresh(gate)
     decided_at_first = gate.decided_at
     assert gate.status == "passed"
 
     # Reopening and re-completing 'a' must NOT bump decided_at again
-    await gate_criterion_service.reopen_criterion(db_session, a.id, tenant.id)
-    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id)
+    await gate_criterion_service.reopen_criterion(db_session, a.id, tenant.id, user.role)
+    await gate_criterion_service.complete_criterion(db_session, a.id, tenant.id, user.id, user.role)
     await db_session.refresh(gate)
     assert gate.decided_at == decided_at_first

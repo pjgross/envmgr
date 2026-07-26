@@ -143,12 +143,20 @@ async def complete_criterion(
     criterion_id: int,
     tenant_id: int,
     user_id: int,
+    user_role: str,
 ) -> GateCriterion:
     """Mark a criterion done. If this makes the parent gate have all criteria
     done, auto-pass the gate (one-way)."""
     from app.services import release_gate_service  # lazy to avoid circular
 
     crit = await get_criterion(db, criterion_id, tenant_id)
+    from app.core.security import Role
+    if crit.assigned_role is not None:
+        if user_role != crit.assigned_role and user_role != Role.ADMIN:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Only a {crit.assigned_role} or Admin can complete this criterion",
+            )
     if crit.status == "done":
         return crit  # idempotent
 
@@ -172,10 +180,17 @@ async def complete_criterion(
 
 
 async def reopen_criterion(
-    db: AsyncSession, criterion_id: int, tenant_id: int
+    db: AsyncSession, criterion_id: int, tenant_id: int, user_role: str,
 ) -> GateCriterion:
     """Set a done criterion back to open. Does NOT flip the gate back to pending."""
     crit = await get_criterion(db, criterion_id, tenant_id)
+    from app.core.security import Role
+    if crit.assigned_role is not None:
+        if user_role != crit.assigned_role and user_role != Role.ADMIN:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Only a {crit.assigned_role} or Admin can reopen this criterion",
+            )
     if crit.status == "open":
         return crit  # idempotent
 

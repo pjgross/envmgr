@@ -134,6 +134,7 @@ async def list_gates(
         by_gate[c.gate_id].append({
             "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
             "assigned_to_user_id": c.assigned_to_user_id,
+            "assigned_role": c.assigned_role,
             "assigned_to_username": username_by_id.get(c.assigned_to_user_id) if c.assigned_to_user_id else None,
             "status": c.status,
             "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
