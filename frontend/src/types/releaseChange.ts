@@ -16,6 +16,7 @@ export interface ReleaseChangeResponse {
   source: string; // 'manual' | 'jira'
   move_count: number;
   time_in_current_status_seconds: number | null;
+  is_scope_creep?: boolean;
 }
 
 export interface ReleaseChangeMovePayload {

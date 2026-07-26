@@ -7,6 +7,7 @@ export interface GateCriterion {
   notes: string | null;
   assigned_to_user_id: number | null;
   assigned_to_username: string | null;
+  assigned_role: string | null;
   status: GateCriterionStatus;
   completed_at: string | null;
   completed_by_user_id: number | null;
@@ -23,10 +24,12 @@ export interface GateCriterionCreatePayload {
   title: string;
   notes?: string | null;
   assigned_to_user_id?: number | null;
+  assigned_role?: string | null;
 }
 
 export interface GateCriterionUpdatePayload {
   title?: string;
   notes?: string | null;
   assigned_to_user_id?: number | null;
+  assigned_role?: string | null;
 }

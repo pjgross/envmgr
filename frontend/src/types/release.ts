@@ -16,6 +16,8 @@ export interface ReleaseResponse {
   status: ReleaseStatus;
   target_date: string | null;
   actual_date: string | null;
+  scope_deadline: string | null;
+  scope_creep_count?: number;
   custom_fields: Record<string, unknown> | null;
   raised_by: number;
   created_at: string;
@@ -31,6 +33,7 @@ export interface ReleaseListItemResponse extends ReleaseResponse {
   scope_additions_count: number;
   scope_removals_count: number;
   scope_change_count: number;
+  scope_creep_count: number;
 }
 
 export interface TestPhaseResponse {
@@ -111,6 +114,7 @@ export interface ReleaseCreatePayload {
   template_id?: number | null;
   lifecycle_template_id?: number | null;
   target_date?: string | null;
+  scope_deadline?: string | null;
   custom_fields?: Record<string, unknown> | null;
 }
 
@@ -119,6 +123,7 @@ export interface ReleaseUpdatePayload {
   description?: string | null;
   release_type?: string;
   target_date?: string | null;
+  scope_deadline?: string | null;
   actual_date?: string | null;
   custom_fields?: Record<string, unknown> | null;
 }
