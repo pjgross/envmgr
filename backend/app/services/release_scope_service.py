@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
@@ -527,3 +527,60 @@ async def delete_change(
         release_status,
         change.change_kind,
     )
+
+
+# ── Scope-creep helpers ──────────────────────────────────────────────────────
+
+def _entered_time_expr():
+    """SQLAlchemy expression: the time a ReleaseChange entered ITS current
+    release. = earliest history moved_at into that release, else created_at."""
+    entered = (
+        select(func.min(ReleaseChangeReleaseHistory.moved_at))
+        .where(
+            ReleaseChangeReleaseHistory.change_id == ReleaseChange.id,
+            ReleaseChangeReleaseHistory.to_release_id == ReleaseChange.release_id,
+        )
+        .correlate(ReleaseChange)
+        .scalar_subquery()
+    )
+    return func.coalesce(entered, ReleaseChange.created_at)
+
+
+async def scope_creep_counts(
+    db: AsyncSession, release_ids: list[int], tenant_id: int
+) -> dict[int, int]:
+    """Map release_id -> count of scope items that entered after that release's
+    scope_deadline. Releases without a deadline contribute nothing."""
+    if not release_ids:
+        return {}
+    entered_time = _entered_time_expr()
+    stmt = (
+        select(ReleaseChange.release_id, func.count().label("cnt"))
+        .join(Release, Release.id == ReleaseChange.release_id)
+        .where(
+            ReleaseChange.release_id.in_(release_ids),
+            ReleaseChange.tenant_id == tenant_id,
+            ReleaseChange.deleted_at.is_(None),
+            Release.scope_deadline.is_not(None),
+            entered_time > Release.scope_deadline,
+        )
+        .group_by(ReleaseChange.release_id)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {row[0]: row[1] for row in rows}
+
+
+async def scope_creep_change_ids(
+    db: AsyncSession, release: Release, tenant_id: int
+) -> set[int]:
+    """Set of ReleaseChange ids on `release` that entered after its deadline."""
+    if release.scope_deadline is None:
+        return set()
+    entered_time = _entered_time_expr()
+    stmt = select(ReleaseChange.id).where(
+        ReleaseChange.release_id == release.id,
+        ReleaseChange.tenant_id == tenant_id,
+        ReleaseChange.deleted_at.is_(None),
+        entered_time > release.scope_deadline,
+    )
+    return set((await db.execute(stmt)).scalars().all())

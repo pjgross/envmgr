@@ -339,6 +339,7 @@ const releaseSlice = createSlice({
           scope_additions_count: 0,
           scope_removals_count: 0,
           scope_change_count: 0,
+          scope_creep_count: 0,
         });
       })
 

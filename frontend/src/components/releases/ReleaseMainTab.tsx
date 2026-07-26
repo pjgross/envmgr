@@ -15,6 +15,7 @@ import {
   Divider,
   Paper,
   Stack,
+  TextField,
   Typography,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
@@ -209,6 +210,22 @@ export default function ReleaseMainTab({ releaseId }: Props) {
               </Typography>
             )}
           </Stack>
+        )}
+
+        {/* Scope deadline — project releases only; rendered here (not via the
+            lifecycle panel) since it isn't a configurable standard field.
+            Styled to match the panel's read-only date fields. */}
+        {release.release_kind === 'project' && (
+          <TextField
+            label="scope deadline"
+            type="date"
+            fullWidth
+            size="small"
+            sx={{ mb: 1.5 }}
+            value={release.scope_deadline ? release.scope_deadline.slice(0, 10) : ''}
+            disabled
+            InputLabelProps={{ shrink: true }}
+          />
         )}
       </Paper>
 

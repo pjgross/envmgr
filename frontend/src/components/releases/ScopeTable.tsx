@@ -164,6 +164,17 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
         ),
       },
       {
+        field: 'is_scope_creep',
+        headerName: 'Scope',
+        width: 110,
+        renderCell: (params) =>
+          params.row.is_scope_creep ? (
+            <Chip label="Creep" color="warning" size="small" />
+          ) : (
+            <Typography variant="body2" color="text.secondary">—</Typography>
+          ),
+      },
+      {
         field: '_actions',
         headerName: '',
         width: 120,
@@ -226,6 +237,10 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
         <Typography variant="subtitle2">
           Scope Items ({filteredChanges.length})
+          {(() => {
+            const creep = filteredChanges.filter((c) => c.is_scope_creep).length;
+            return creep > 0 ? ` — ${creep} added after scope deadline` : '';
+          })()}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <TextField

@@ -55,6 +55,7 @@ class ReleaseChangeRead(BaseModel):
     # Computed KPIs — populated by service; defaults let list endpoints omit them.
     move_count: int = 0
     time_in_current_status_seconds: Optional[int] = None
+    is_scope_creep: bool = False
 
 
 class ReleaseChangeReleaseHistoryRead(BaseModel):

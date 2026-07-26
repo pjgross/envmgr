@@ -45,6 +45,7 @@ def _crit_to_dict(c) -> dict:
     return {
         "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
         "assigned_to_user_id": c.assigned_to_user_id,
+        "assigned_role": c.assigned_role,
         "assigned_to_username": None, "status": c.status,
         "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
         "created_at": c.created_at, "updated_at": c.updated_at,
@@ -152,7 +153,7 @@ async def complete_criterion(
 ):
     tenant_id = current_user.active_tenant_id
     crit = await gate_criterion_service.complete_criterion(
-        db, criterion_id, tenant_id, current_user.id,
+        db, criterion_id, tenant_id, current_user.id, current_user.role,
     )
     await db.refresh(crit)
     return await _attach_assignee_username(
@@ -167,7 +168,7 @@ async def reopen_criterion(
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
-    crit = await gate_criterion_service.reopen_criterion(db, criterion_id, tenant_id)
+    crit = await gate_criterion_service.reopen_criterion(db, criterion_id, tenant_id, current_user.role)
     await db.refresh(crit)
     return await _attach_assignee_username(
         db, GateCriterionRead.model_validate(_crit_to_dict(crit)), crit.assigned_to_user_id,

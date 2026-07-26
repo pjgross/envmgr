@@ -32,6 +32,7 @@ class Release(Base):
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     raised_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    scope_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     lifecycle_template = relationship("LifecycleTemplate")
 

@@ -100,6 +100,8 @@ async def _release_with_permissions(
             db, user=current_user, enterprise_id=release.id
         )
         resp.membership_summary = MembershipSummary(**summary_dict)
+    creep = await release_scope_service.scope_creep_counts(db, [release.id], release.tenant_id)
+    resp.scope_creep_count = creep.get(release.id, 0)
     return resp
 
 
@@ -253,6 +255,8 @@ async def list_releases(
     ).all()
     removals = {row[0]: row[1] for row in removal_rows}
 
+    creep_counts = await release_scope_service.scope_creep_counts(db, release_ids, tenant_id)
+
     result = []
     for r in releases:
         item = ReleaseListItemRead.model_validate(r)
@@ -265,6 +269,7 @@ async def list_releases(
         item.scope_additions_count = adds
         item.scope_removals_count = rems
         item.scope_change_count = adds + rems
+        item.scope_creep_count = creep_counts.get(r.id, 0)
         result.append(item)
     return result
 
@@ -862,8 +867,15 @@ async def list_changes(
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
-    await _require_release(db, release_id, tenant_id)
-    return await release_scope_service.list_changes(db, release_id, tenant_id)
+    release = await _require_release(db, release_id, tenant_id)
+    rows = await release_scope_service.list_changes(db, release_id, tenant_id)
+    creep_ids = await release_scope_service.scope_creep_change_ids(db, release, tenant_id)
+    out: list[ReleaseChangeRead] = []
+    for r in rows:
+        item = ReleaseChangeRead.model_validate(r)
+        item.is_scope_creep = r.id in creep_ids
+        out.append(item)
+    return out
 
 
 @router.post("/{release_id}/changes", response_model=ReleaseChangeRead, status_code=status.HTTP_201_CREATED)
