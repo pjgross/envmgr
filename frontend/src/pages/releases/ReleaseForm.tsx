@@ -64,6 +64,9 @@ function initialStandardValues(release?: ReleaseResponse | null): Record<string,
     actual_date: release?.actual_date
       ? new Date(release.actual_date).toISOString().slice(0, 10)
       : '',
+    scope_deadline: release?.scope_deadline
+      ? new Date(release.scope_deadline).toISOString().slice(0, 10)
+      : '',
   };
 }
 
@@ -217,6 +220,7 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           description: (standardValues.description as string) || null,
           target_date: toIsoDatetime(standardValues.target_date),
           actual_date: toIsoDatetime(standardValues.actual_date),
+          scope_deadline: toIsoDatetime(standardValues.scope_deadline),
           custom_fields: customFieldValues,
         };
         await dispatch(updateRelease({ id: release.id, data: payload })).unwrap();
@@ -232,6 +236,8 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           release_kind: kind,
           lifecycle_template_id: lifecycleTemplateId ?? undefined,
           target_date: toIsoDatetime(standardValues.target_date),
+          scope_deadline:
+            kind === 'project' ? toIsoDatetime(standardValues.scope_deadline) : undefined,
           custom_fields:
             Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
         };
@@ -299,6 +305,20 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
               <Chip label={`Kind: ${release?.release_kind ?? 'project'}`} />
               <Chip label={`State: ${currentState}`} color="primary" size="small" />
             </Stack>
+          )}
+
+          {kind === 'project' && (
+            <TextField
+              label="Scope deadline"
+              type="date"
+              fullWidth
+              value={(standardValues.scope_deadline as string) ?? ''}
+              onChange={(e) =>
+                setStandardValues((v) => ({ ...v, scope_deadline: e.target.value }))
+              }
+              InputLabelProps={{ shrink: true }}
+              helperText="Baseline for scope creep. Setting this adds a Scope Sign-off gate for the Release Manager."
+            />
           )}
 
           {/* Lifecycle-driven fields */}
