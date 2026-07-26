@@ -100,6 +100,8 @@ async def _release_with_permissions(
             db, user=current_user, enterprise_id=release.id
         )
         resp.membership_summary = MembershipSummary(**summary_dict)
+    creep = await release_scope_service.scope_creep_counts(db, [release.id], release.tenant_id)
+    resp.scope_creep_count = creep.get(release.id, 0)
     return resp
 
 

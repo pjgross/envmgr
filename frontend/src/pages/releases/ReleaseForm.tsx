@@ -220,7 +220,8 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           description: (standardValues.description as string) || null,
           target_date: toIsoDatetime(standardValues.target_date),
           actual_date: toIsoDatetime(standardValues.actual_date),
-          scope_deadline: toIsoDatetime(standardValues.scope_deadline),
+          scope_deadline:
+            kind === 'project' ? toIsoDatetime(standardValues.scope_deadline) : undefined,
           custom_fields: customFieldValues,
         };
         await dispatch(updateRelease({ id: release.id, data: payload })).unwrap();

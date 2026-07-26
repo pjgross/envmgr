@@ -51,3 +51,13 @@ async def test_developer_cannot_complete_role_criterion(db_session, tenant, rele
             db_session, crit.id, tenant.id, user_id=1, user_role=Role.DEVELOPER,
         )
     assert ei.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_developer_cannot_reopen_role_criterion(db_session, tenant, release_lifecycle_template):
+    crit = await _gate_with_role_criterion(db_session, tenant.id, release_lifecycle_template.id)
+    with pytest.raises(HTTPException) as ei:
+        await gate_criterion_service.reopen_criterion(
+            db_session, crit.id, tenant.id, Role.DEVELOPER,
+        )
+    assert ei.value.status_code == 403
