@@ -7,6 +7,8 @@ import type {
   GateCriterion, GateCriterionCreatePayload, GateCriterionUpdatePayload,
 } from '../../types/gateCriterion';
 
+const ASSIGNABLE_ROLES = ['Release Manager', 'Test Manager', 'Admin', 'Developer', 'Viewer'];
+
 interface User { id: number; username: string }
 
 interface Props {
@@ -21,18 +23,22 @@ export default function CriterionDialog({ open, initial, users, onClose, onSubmi
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [assignee, setAssignee] = useState<number | ''>('');
+  const [assignedRole, setAssignedRole] = useState<string>('');
 
   useEffect(() => {
     setTitle(initial?.title ?? '');
     setNotes(initial?.notes ?? '');
     setAssignee(initial?.assigned_to_user_id ?? '');
+    setAssignedRole(initial?.assigned_role ?? '');
   }, [initial, open]);
 
   const handleSubmit = () => {
+    const role = assignedRole || null;
     onSubmit({
       title: title.trim(),
       notes: notes.trim() || null,
-      assigned_to_user_id: assignee === '' ? null : Number(assignee),
+      assigned_role: role,
+      assigned_to_user_id: role ? null : (assignee === '' ? null : Number(assignee)),
     });
   };
 
@@ -51,12 +57,32 @@ export default function CriterionDialog({ open, initial, users, onClose, onSubmi
           />
           <TextField
             label="Assignee" select value={assignee}
-            onChange={(e) => setAssignee(e.target.value === '' ? '' : Number(e.target.value))}
+            disabled={!!assignedRole}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val !== '') setAssignedRole('');
+              setAssignee(val === '' ? '' : Number(val));
+            }}
             fullWidth
           >
             <MenuItem value="">(unassigned)</MenuItem>
             {users.map((u) => (
               <MenuItem key={u.id} value={u.id}>{u.username}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Assign to role" select value={assignedRole}
+            disabled={!!assignee}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val !== '') setAssignee('');
+              setAssignedRole(val);
+            }}
+            fullWidth
+          >
+            <MenuItem value="">(no role)</MenuItem>
+            {ASSIGNABLE_ROLES.map((r) => (
+              <MenuItem key={r} value={r}>{r}</MenuItem>
             ))}
           </TextField>
         </Stack>

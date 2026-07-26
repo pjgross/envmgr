@@ -28,8 +28,12 @@ export default function CriterionRow({ criterion, onToggle, onEdit, onDelete }: 
       >
         {criterion.title}
       </Typography>
-      {criterion.assigned_to_username && (
-        <Chip size="small" label={criterion.assigned_to_username} variant="outlined" />
+      {criterion.assigned_role ? (
+        <Chip size="small" label={`${criterion.assigned_role} (role)`} variant="outlined" color="info" />
+      ) : (
+        criterion.assigned_to_username && (
+          <Chip size="small" label={criterion.assigned_to_username} variant="outlined" />
+        )
       )}
       <Stack direction="row">
         <IconButton size="small" onClick={() => onEdit(criterion)} aria-label="edit">
