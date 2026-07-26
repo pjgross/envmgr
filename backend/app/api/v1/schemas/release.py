@@ -15,6 +15,7 @@ class ReleaseCreate(BaseModel):
     template_id: Optional[int] = None
     lifecycle_template_id: Optional[int] = None  # service falls back to tenant default
     target_date: Optional[datetime] = None
+    scope_deadline: Optional[datetime] = None
     custom_fields: Optional[dict[str, Any]] = None
 
 
@@ -23,6 +24,7 @@ class ReleaseUpdate(BaseModel):
     description: Optional[str] = None
     release_type: Optional[str] = Field(None, max_length=50)
     target_date: Optional[datetime] = None
+    scope_deadline: Optional[datetime] = None
     actual_date: Optional[datetime] = None
     custom_fields: Optional[dict[str, Any]] = None
 
@@ -42,6 +44,8 @@ class ReleaseRead(BaseModel):
     status: str
     target_date: Optional[datetime]
     actual_date: Optional[datetime]
+    scope_deadline: Optional[datetime] = None
+    scope_creep_count: int = 0
     custom_fields: Optional[dict[str, Any]] = None
     raised_by: int
     created_at: datetime
