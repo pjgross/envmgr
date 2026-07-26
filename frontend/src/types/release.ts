@@ -24,6 +24,12 @@ export interface ReleaseResponse {
   updated_at: string;
 }
 
+export interface ReleaseSystemBrief {
+  id: number;
+  name: string;
+  role: string;
+}
+
 /** List endpoint response — includes denormalised summary counts */
 export interface ReleaseListItemResponse extends ReleaseResponse {
   phase_count: number;
@@ -34,6 +40,9 @@ export interface ReleaseListItemResponse extends ReleaseResponse {
   scope_removals_count: number;
   scope_change_count: number;
   scope_creep_count: number;
+  window_status: 'open' | 'closing_soon' | 'closed' | 'shipped' | 'no_cutoff';
+  days_to_cutoff: number | null;
+  systems: ReleaseSystemBrief[];
 }
 
 export interface TestPhaseResponse {
@@ -139,6 +148,7 @@ export interface ReleaseListFilters {
   release_kind?: ReleaseKind;
   from_date?: string;
   to_date?: string;
+  system_id?: number;
 }
 
 export interface TestPhaseCreatePayload {
