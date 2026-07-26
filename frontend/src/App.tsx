@@ -24,6 +24,7 @@ import ReleaseList from './pages/releases/ReleaseList';
 import ReleaseDetail from './pages/releases/ReleaseDetail';
 import ReleaseCalendar from './pages/releases/ReleaseCalendar';
 import ReleaseTimeline from './pages/releases/ReleaseTimeline';
+import ScopeWindows from './pages/releases/ScopeWindows';
 import ReleaseTemplateLibrary from './pages/admin/release-templates/ReleaseTemplateLibrary';
 import ReleaseTemplateForm from './pages/admin/release-templates/ReleaseTemplateForm';
 import InfrastructureComponentList from './pages/infrastructure/InfrastructureComponentList';
@@ -144,6 +145,7 @@ function App() {
           <Route path="/releases/new" element={<ReleaseList />} />
           <Route path="/releases/calendar" element={<ReleaseCalendar />} />
           <Route path="/releases/timeline" element={<ReleaseTimeline />} />
+          <Route path="/releases/scope-windows" element={<ScopeWindows />} />
           <Route path="/releases/:id" element={<ReleaseDetail />} />
           <Route
             path="/admin/release-templates"

@@ -68,6 +68,7 @@ import type {
   SubSystemUpdate,
 } from '../../types/system';
 import SystemTopologyDiagram from './SystemTopologyDiagram';
+import ScopeWindowsTable from '../../components/releases/ScopeWindowsTable';
 import type {
   DependencyType,
   DependencyDirection,
@@ -775,6 +776,7 @@ export default function SystemDetail() {
         <Tab label="Dependencies" />
         <Tab label="Component Deps" />
         <Tab label="Topology" />
+        <Tab label="Scope Windows" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -1125,6 +1127,12 @@ export default function SystemDetail() {
       )}
 
       {tab === 4 && currentSystem && <SystemTopologyDiagram systemId={currentSystem.id} />}
+
+      {tab === 5 && (
+        <Paper sx={{ p: 3 }}>
+          <ScopeWindowsTable systemId={Number(id)} />
+        </Paper>
+      )}
 
       {/* SubSystem Create / Edit Dialog */}
       <Dialog
