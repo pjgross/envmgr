@@ -210,6 +210,17 @@ export default function ReleaseMainTab({ releaseId }: Props) {
             )}
           </Stack>
         )}
+
+        {/* Scope deadline — project releases only; shown regardless of the
+            lifecycle field-permissions config since it isn't a standard field. */}
+        {release.release_kind === 'project' && (
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            <strong>Scope Deadline:</strong>{' '}
+            {release.scope_deadline
+              ? new Date(release.scope_deadline).toLocaleDateString()
+              : 'Not set'}
+          </Typography>
+        )}
       </Paper>
 
       <ReleaseForm open={editOpen} onClose={() => setEditOpen(false)} release={release} />
