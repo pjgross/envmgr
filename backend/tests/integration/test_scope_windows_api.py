@@ -69,6 +69,47 @@ async def test_system_filter_and_window_fields(authed_client, tenant, db_session
 
 
 @pytest.mark.asyncio
+async def test_shipped_wins_over_past_deadline_via_api(authed_client, tenant, db_session, release_lifecycle_template):
+    from sqlalchemy import select
+    from app.db.models.release import Release
+
+    past = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    r = await authed_client.post("/api/v1/releases", json={
+        "name": "Shipped", "release_type": "Test Major", "release_kind": "project",
+        "lifecycle_template_id": release_lifecycle_template.id, "scope_deadline": past,
+    })
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+
+    # Stamp actual_date directly (simulates a deployed release)
+    rel = (await db_session.execute(select(Release).where(Release.id == rid))).scalar_one()
+    rel.actual_date = datetime.now(timezone.utc)
+    await db_session.flush()
+
+    resp = await authed_client.get("/api/v1/releases")
+    assert resp.status_code == 200
+    row = next(x for x in resp.json() if x["id"] == rid)
+    assert row["window_status"] == "shipped"
+    assert row["days_to_cutoff"] is None
+
+
+@pytest.mark.asyncio
+async def test_enterprise_release_reports_no_cutoff_via_api(authed_client, release_lifecycle_template):
+    r = await authed_client.post("/api/v1/releases", json={
+        "name": "Ent", "release_type": "Test Major", "release_kind": "enterprise",
+        "lifecycle_template_id": release_lifecycle_template.id,
+    })
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+
+    resp = await authed_client.get("/api/v1/releases")
+    assert resp.status_code == 200
+    row = next(x for x in resp.json() if x["id"] == rid)
+    assert row["window_status"] == "no_cutoff"
+    assert row["days_to_cutoff"] is None
+
+
+@pytest.mark.asyncio
 async def test_system_filter_is_tenant_scoped(
     authed_client, tenant, db_session, second_tenant_factory
 ):

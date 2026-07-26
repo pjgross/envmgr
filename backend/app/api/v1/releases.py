@@ -40,6 +40,7 @@ from app.api.v1.schemas.release import (
     ReleaseListItemRead,
     ReleaseTransition,
     ReleaseStatusHistoryRead,
+    ReleaseSystemBrief,
 )
 from app.api.v1.schemas.test_phase import TestPhaseCreate, TestPhaseUpdate, TestPhaseRead
 from app.api.v1.schemas.release_gate import (
@@ -263,7 +264,6 @@ async def list_releases(
     # Systems linked to each release (for the Scope Windows view)
     from app.db.models.release_system import ReleaseSystem
     from app.db.models.system import System
-    from app.api.v1.schemas.release import ReleaseSystemBrief
     sys_rows = (
         await db.execute(
             select(ReleaseSystem.release_id, System.id, System.name, ReleaseSystem.role)

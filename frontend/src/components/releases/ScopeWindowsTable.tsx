@@ -42,6 +42,7 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
   const [systems, setSystems] = useState<SystemResponse[]>([]);
   const [selectedSystem, setSelectedSystem] = useState<number | ''>('');
   const [windowFilter, setWindowFilter] = useState<'actionable' | 'all'>('actionable');
+  const [kindFilter, setKindFilter] = useState<'project' | 'enterprise' | 'all'>('project');
 
   const effectiveSystemId = systemId ?? (selectedSystem === '' ? undefined : Number(selectedSystem));
 
@@ -54,11 +55,14 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
   useEffect(() => {
     setLoading(true);
     releaseService
-      .list({ release_kind: 'project', system_id: effectiveSystemId })
+      .list({
+        release_kind: kindFilter === 'all' ? undefined : kindFilter,
+        system_id: effectiveSystemId,
+      })
       .then(setRows)
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [effectiveSystemId]);
+  }, [effectiveSystemId, kindFilter]);
 
   const visibleRows = useMemo(() => {
     const filtered =
@@ -173,6 +177,17 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
             ))}
           </TextField>
         )}
+        <ToggleButtonGroup
+          value={kindFilter}
+          exclusive
+          size="small"
+          onChange={(_, v) => v && setKindFilter(v)}
+          aria-label="Release kind filter"
+        >
+          <ToggleButton value="project">Project</ToggleButton>
+          <ToggleButton value="enterprise">Enterprise</ToggleButton>
+          <ToggleButton value="all">All</ToggleButton>
+        </ToggleButtonGroup>
         <ToggleButtonGroup
           value={windowFilter}
           exclusive
