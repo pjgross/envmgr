@@ -20,7 +20,10 @@ def compute_scope_window(
 
     window_status is one of: shipped, no_cutoff, closed, closing_soon, open.
     days_to_cutoff is a signed day count (negative once past), or None when
-    there is no meaningful cutoff (shipped / no_cutoff). Checked in order:
+    there is no meaningful cutoff (shipped / no_cutoff). It uses
+    timedelta.days, which truncates fractional days — so days_to_cutoff == 0
+    spans "under 24h remaining" (closing_soon) through "just passed" (closed).
+    Checked in order:
 
     1. actual_date set        -> shipped   (release deployed; scope closed)
     2. scope_deadline is None -> no_cutoff (nothing to measure against)

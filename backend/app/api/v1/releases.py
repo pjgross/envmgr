@@ -32,6 +32,7 @@ from app.services import (
     release_scope_service,
     release_booking_service,
 )
+from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
     ReleaseCreate,
     ReleaseUpdate,
@@ -131,6 +132,7 @@ async def list_releases(
     owner_id: Optional[int] = Query(None),
     search: Optional[str] = Query(None),
     release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
+    system_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -147,6 +149,7 @@ async def list_releases(
         owner_id=owner_id,
         search=search,
         release_kind=release_kind,
+        system_id=system_id,
         limit=limit,
         offset=offset,
     )
@@ -257,6 +260,27 @@ async def list_releases(
 
     creep_counts = await release_scope_service.scope_creep_counts(db, release_ids, tenant_id)
 
+    # Systems linked to each release (for the Scope Windows view)
+    from app.db.models.release_system import ReleaseSystem
+    from app.db.models.system import System
+    from app.api.v1.schemas.release import ReleaseSystemBrief
+    sys_rows = (
+        await db.execute(
+            select(ReleaseSystem.release_id, System.id, System.name, ReleaseSystem.role)
+            .join(System, System.id == ReleaseSystem.system_id)
+            .where(
+                ReleaseSystem.release_id.in_(release_ids),
+                ReleaseSystem.tenant_id == tenant_id,
+                System.deleted_at.is_(None),
+            )
+        )
+    ).all()
+    systems_by_release: dict[int, list[ReleaseSystemBrief]] = {}
+    for rid, sid, sname, role in sys_rows:
+        systems_by_release.setdefault(rid, []).append(
+            ReleaseSystemBrief(id=sid, name=sname, role=role)
+        )
+
     result = []
     for r in releases:
         item = ReleaseListItemRead.model_validate(r)
@@ -270,6 +294,10 @@ async def list_releases(
         item.scope_removals_count = rems
         item.scope_change_count = adds + rems
         item.scope_creep_count = creep_counts.get(r.id, 0)
+        window_status, days_to_cutoff = compute_scope_window(r.scope_deadline, r.actual_date, now)
+        item.window_status = window_status
+        item.days_to_cutoff = days_to_cutoff
+        item.systems = systems_by_release.get(r.id, [])
         result.append(item)
     return result
 
