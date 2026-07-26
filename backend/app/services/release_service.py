@@ -25,6 +25,9 @@ from app.services.custom_field_service import get_active_field_keys
 # ── Terminal states that indicate the release was deployed ───────────────────
 _DEPLOYED_TERMINAL_STATES = {"completed", "completed_with_issues"}
 
+SCOPE_SIGNOFF_GATE_NAME = "Scope Sign-off"
+_SCOPE_SIGNOFF_CRITERION_TITLE = "Scope signed off"
+
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -111,6 +114,62 @@ async def _get_release(db: AsyncSession, release_id: int, tenant_id: int) -> Rel
     return release
 
 
+async def _find_scope_signoff_gate(db: AsyncSession, release_id: int, tenant_id: int):
+    from app.db.models.release_gate import ReleaseGate
+    return (
+        await db.execute(
+            select(ReleaseGate).where(
+                ReleaseGate.release_id == release_id,
+                ReleaseGate.tenant_id == tenant_id,
+                ReleaseGate.name == SCOPE_SIGNOFF_GATE_NAME,
+                ReleaseGate.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _ensure_scope_signoff_gate(
+    db: AsyncSession, release: Release, tenant_id: int, user_id: int
+) -> None:
+    """Idempotently create the Scope Sign-off gate + its role-assigned criterion.
+    No-op if a gate with that name already exists on the release."""
+    from app.core.security import Role
+    from app.services import release_gate_service, gate_criterion_service
+    from app.api.v1.schemas.release_gate import ReleaseGateCreate
+    from app.api.v1.schemas.gate_criterion import GateCriterionCreate
+
+    if release.scope_deadline is None:
+        return
+    if await _find_scope_signoff_gate(db, release.id, tenant_id) is not None:
+        return
+
+    gate = await release_gate_service.create_gate(
+        db, release.id,
+        ReleaseGateCreate(name=SCOPE_SIGNOFF_GATE_NAME, due_date=release.scope_deadline),
+        tenant_id,
+    )
+    await gate_criterion_service.create_criterion(
+        db, gate_id=gate.id, tenant_id=tenant_id, user_id=user_id,
+        data=GateCriterionCreate(
+            title=_SCOPE_SIGNOFF_CRITERION_TITLE,
+            assigned_role=Role.RELEASE_MANAGER,
+        ),
+    )
+
+
+async def _sync_scope_signoff_due_date(
+    db: AsyncSession, release: Release, tenant_id: int
+) -> None:
+    """If a pending Scope Sign-off gate exists, re-sync its due_date to the
+    current scope_deadline. Decided gates are left untouched."""
+    if release.scope_deadline is None:
+        return
+    gate = await _find_scope_signoff_gate(db, release.id, tenant_id)
+    if gate is not None and gate.status == "pending":
+        gate.due_date = release.scope_deadline
+        await db.flush()
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def create_release(
@@ -120,6 +179,12 @@ async def create_release(
     user_id: int,
 ) -> Release:
     tpl = await _resolve_lifecycle_template(db, data.lifecycle_template_id, tenant_id, data.release_kind)
+
+    if data.scope_deadline is not None and data.release_kind == "enterprise":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "scope_deadline is only valid on project releases",
+        )
 
     release = Release(
         tenant_id=tenant_id,
@@ -131,6 +196,7 @@ async def create_release(
         lifecycle_template_id=tpl.id,
         status="draft",
         target_date=data.target_date,
+        scope_deadline=data.scope_deadline,
         custom_fields=data.custom_fields,
         raised_by=user_id,
     )
@@ -164,6 +230,8 @@ async def create_release(
         },
         tenant_id=tenant_id,
     )
+
+    await _ensure_scope_signoff_gate(db, release, tenant_id, user_id)
 
     return release
 
@@ -241,8 +309,20 @@ async def update_release(
         and release.status != "draft"
     )
     old_target_date = release.target_date
+    old_scope_deadline = release.scope_deadline
 
     update_data = data.model_dump(exclude_unset=True)
+
+    if (
+        "scope_deadline" in update_data
+        and update_data["scope_deadline"] is not None
+        and release.release_kind == "enterprise"
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "scope_deadline is only valid on project releases",
+        )
+
     for field, value in update_data.items():
         setattr(release, field, value)
 
@@ -259,6 +339,18 @@ async def update_release(
             event_type_name="Reschedule Reason",
             description=f"target_date: {old_target_date} → {release.target_date}",
         )
+
+    if "scope_deadline" in update_data:
+        new_deadline = release.scope_deadline
+        if old_scope_deadline is None and new_deadline is not None:
+            await _ensure_scope_signoff_gate(db, release, tenant_id, user_id)
+        elif (
+            old_scope_deadline is not None
+            and new_deadline is not None
+            and old_scope_deadline != new_deadline
+        ):
+            await _sync_scope_signoff_due_date(db, release, tenant_id)
+        # cleared (set -> None): keep the gate, do nothing
 
     return release
 

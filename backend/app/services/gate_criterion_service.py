@@ -101,6 +101,7 @@ async def create_criterion(
         title=data.title,
         notes=data.notes,
         assigned_to_user_id=data.assigned_to_user_id,
+        assigned_role=data.assigned_role,
         status="open",
     )
     db.add(crit)
