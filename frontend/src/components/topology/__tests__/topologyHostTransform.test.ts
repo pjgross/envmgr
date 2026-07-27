@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildHostGraph } from '../topologyHostTransform';
 import type { VisibilityInput, VisibleSubsystem } from '../topologyVisibility';
 import type { EnvSubsystemHostRef } from '../../../types/environment';
+import { byHost } from '../environmentTopologySource';
+import { computeCollapseModel } from '../topologyModel';
 
 const host = (id: number, name: string): EnvSubsystemHostRef => ({
   infrastructure_component_id: id,
@@ -127,5 +129,35 @@ describe('buildHostGraph', () => {
     const { graph, edgeDepResolver } = buildHostGraph(nm);
     expect(graph.dependencies).toHaveLength(4);
     expect(graph.dependencies.every((e) => edgeDepResolver.get(e.id) === 50)).toBe(true);
+  });
+});
+
+describe('byHost grouping', () => {
+  it('keys synthetic nodes to their host group and resolves meta', () => {
+    const { graph, hostKeyById, hostMeta } = buildHostGraph(input);
+    const grouping = byHost(hostKeyById, hostMeta);
+    const bNode = graph.subsystems.find((s) => s.name === 'n2')!; // B on web-01 (id 10)
+    expect(grouping.keyOf(bNode)).toBe('10');
+    expect(grouping.meta('10')).toEqual({ name: 'web-01', isCurrent: true });
+    expect(grouping.meta('unassigned')).toEqual({ name: 'Unassigned', isCurrent: false });
+  });
+
+  it('falls back to unassigned / raw key for unknown nodes', () => {
+    const grouping = byHost(new Map(), new Map());
+    const orphan = { id: 999, name: 'x', system_id: 1, component_type: 'service', technology: null };
+    expect(grouping.keyOf(orphan)).toBe('unassigned');
+    expect(grouping.meta('zzz')).toEqual({ name: 'zzz', isCurrent: false });
+  });
+
+  it('feeds computeCollapseModel: groups by host and aggregates a collapsed host group', () => {
+    const { graph, hostKeyById, hostMeta } = buildHostGraph(input);
+    const grouping = byHost(hostKeyById, hostMeta);
+    const model = computeCollapseModel(graph, { collapsedGroups: new Set(['10']), grouping });
+    const groupIds = model.groups.map((g) => g.groupId).sort();
+    expect(groupIds).toEqual(['10', '11', 'external', 'unassigned']);
+    const web01 = model.groups.find((g) => g.groupId === '10')!;
+    expect(web01.collapsed).toBe(true);
+    // edges into the collapsed web-01 group re-point to sys-10.
+    expect(model.edges.some((e) => e.source === 'sys-10' || e.target === 'sys-10')).toBe(true);
   });
 });
