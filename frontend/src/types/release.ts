@@ -231,6 +231,33 @@ export interface ReleaseBookingCreatePayload {
   notes?: string | null;
 }
 
+export interface ReleaseBulkBookingPayload {
+  environment_ids: number[];
+  phase_id?: number | null;
+  start: string;
+  end: string;
+  booking_type_id: number;
+  project_name?: string | null;
+  notes?: string | null;
+  exclusive_use?: boolean;
+}
+
+export interface BulkBookCreatedItem {
+  environment_id: number;
+  booking_id: number;
+  warnings: number[];
+}
+
+export interface BulkBookSkippedItem {
+  environment_id: number;
+  conflicts: number[];
+}
+
+export interface BulkBookResultResponse {
+  created: BulkBookCreatedItem[];
+  skipped: BulkBookSkippedItem[];
+}
+
 export interface CoverageSystemResponse {
   system_id: number;
   system_name: string;

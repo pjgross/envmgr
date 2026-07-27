@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Alert, Box, Button, Checkbox, Chip, Table, TableBody, TableCell, TableHead, TableRow, Typography,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { releaseService } from '../../services/releaseService';
@@ -19,6 +19,7 @@ import {
 interface Props {
   releaseId: number;
   onBook: (environmentId: number) => void;
+  onBookMany: (environmentIds: number[]) => void;
 }
 
 /** Greedy set-cover: fewest environments covering all coverable system ids. */
@@ -45,8 +46,16 @@ function greedyCover(
   return chosen;
 }
 
-export default function ReleaseEnvironmentCoverage({ releaseId, onBook }: Props) {
+export default function ReleaseEnvironmentCoverage({ releaseId, onBook, onBookMany }: Props) {
   const [data, setData] = useState<ReleaseEnvironmentCoverageResponse | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const toggleEnv = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   useEffect(() => {
     releaseService.getEnvironmentCoverage(releaseId).then(setData).catch(() => setData(null));
@@ -58,14 +67,15 @@ export default function ReleaseEnvironmentCoverage({ releaseId, onBook }: Props)
     return m;
   }, [data]);
 
-  const suggestion = useMemo(() => {
+  const suggestedEnvs = useMemo(() => {
     if (!data) return [];
     const uncovered = new Set(data.uncovered_system_ids);
     const coverable = new Set(
       data.needed_systems.map((s) => s.system_id).filter((id) => !uncovered.has(id)),
     );
-    return greedyCover(data.environments, coverable).map((e) => e.name);
+    return greedyCover(data.environments, coverable);
   }, [data]);
+  const suggestion = useMemo(() => suggestedEnvs.map((e) => e.name), [suggestedEnvs]);
 
   if (!data) return null;
 
@@ -84,6 +94,30 @@ export default function ReleaseEnvironmentCoverage({ releaseId, onBook }: Props)
       <Typography variant="subtitle1" fontWeight="medium" sx={{ mb: 1 }}>
         Test Environment Coverage
       </Typography>
+
+      <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+        <Button
+          size="small"
+          variant="contained"
+          disabled={selected.size === 0}
+          onClick={() => onBookMany(Array.from(selected))}
+        >
+          Book selected ({selected.size})
+        </Button>
+        {suggestion.length > 0 && (
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              const ids = suggestedEnvs.map((e) => e.environment_id);
+              setSelected(new Set(ids));
+              onBookMany(ids);
+            }}
+          >
+            Book suggested set
+          </Button>
+        )}
+      </Box>
 
       {data.uncovered_system_ids.length > 0 && (
         <Alert severity="warning" sx={{ mb: 1 }}>
@@ -105,6 +139,12 @@ export default function ReleaseEnvironmentCoverage({ releaseId, onBook }: Props)
             {data.environments.map((e) => (
               <TableCell key={e.environment_id} align="center">
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                  <Checkbox
+                    size="small"
+                    checked={selected.has(e.environment_id)}
+                    onChange={() => toggleEnv(e.environment_id)}
+                    inputProps={{ 'aria-label': `Select ${e.name}` }}
+                  />
                   <span>{e.name} ({e.covered_system_ids.length}/{data.needed_systems.length})</span>
                   <Button size="small" variant="outlined" onClick={() => onBook(e.environment_id)}>
                     Book

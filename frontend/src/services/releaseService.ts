@@ -23,6 +23,8 @@ import type {
   ReleaseTimelineEntry,
   ReleaseBookingCreatePayload,
   ReleaseEnvironmentCoverageResponse,
+  ReleaseBulkBookingPayload,
+  BulkBookResultResponse,
 } from '../types/release';
 import type {
   GateCriterion,
@@ -203,6 +205,9 @@ export const releaseService = {
 
   bookForPhase: (releaseId: number, data: ReleaseBookingCreatePayload): Promise<BookingResponse> =>
     api.post(`/releases/${releaseId}/bookings`, data).then((r) => r.data),
+
+  bulkBookEnvironments: (releaseId: number, payload: ReleaseBulkBookingPayload): Promise<BulkBookResultResponse> =>
+    api.post(`/releases/${releaseId}/bookings/bulk`, payload).then((r) => r.data),
 
   // --- Linked Change Requests ---
   listLinkedChangeRequests: (releaseId: number): Promise<ChangeRequestResponse[]> =>

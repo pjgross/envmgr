@@ -12,6 +12,7 @@ import EnvironmentResourceGantt from './EnvironmentResourceGantt';
 import ReleaseBookingsTable from './ReleaseBookingsTable';
 import AddPhaseBookingDialog from './AddPhaseBookingDialog';
 import ReleaseEnvironmentCoverage from './ReleaseEnvironmentCoverage';
+import BulkBookEnvironmentsDialog from './BulkBookEnvironmentsDialog';
 import type { BookingResponse } from '../../types/booking';
 
 interface Props {
@@ -26,6 +27,8 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [bookEnvId, setBookEnvId] = useState<number | undefined>(undefined);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkEnvIds, setBulkEnvIds] = useState<number[]>([]);
 
   const loadBookings = useCallback(async () => {
     setLoading(true);
@@ -51,6 +54,10 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
         onBook={(environmentId) => {
           setBookEnvId(environmentId);
           setAddOpen(true);
+        }}
+        onBookMany={(environmentIds) => {
+          setBulkEnvIds(environmentIds);
+          setBulkOpen(true);
         }}
       />
 
@@ -91,6 +98,14 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
         phases={phases}
         onCreated={loadBookings}
         initialEnvironmentId={bookEnvId}
+      />
+      <BulkBookEnvironmentsDialog
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        releaseId={releaseId}
+        environmentIds={bulkEnvIds}
+        phases={phases}
+        onCreated={loadBookings}
       />
     </Box>
   );
