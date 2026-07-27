@@ -719,17 +719,26 @@ async def list_release_systems(
     current_user=Depends(get_current_user),
 ):
     from app.db.models.release_system import ReleaseSystem
+    from app.db.models.system import System
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     rows = (
         await db.execute(
-            select(ReleaseSystem).where(
+            select(ReleaseSystem, System.name)
+            .join(System, System.id == ReleaseSystem.system_id)
+            .where(
                 ReleaseSystem.release_id == release_id,
                 ReleaseSystem.tenant_id == tenant_id,
-            ).order_by(ReleaseSystem.id)
+            )
+            .order_by(ReleaseSystem.id)
         )
-    ).scalars().all()
-    return list(rows)
+    ).all()
+    out: list[ReleaseSystemRead] = []
+    for rs, name in rows:
+        item = ReleaseSystemRead.model_validate(rs)
+        item.system_name = name
+        out.append(item)
+    return out
 
 
 @router.post("/{release_id}/systems", response_model=ReleaseSystemRead, status_code=status.HTTP_201_CREATED)
@@ -745,18 +754,16 @@ async def add_release_system(
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
 
-    # Tenant isolation: the system must belong to this tenant. Prevents
-    # linking another tenant's system to this release.
-    system_ok = (
+    system_row = (
         await db.execute(
-            select(System.id).where(
+            select(System.id, System.name).where(
                 System.id == data.system_id,
                 System.tenant_id == tenant_id,
                 System.deleted_at.is_(None),
             )
         )
-    ).scalar_one_or_none()
-    if system_ok is None:
+    ).one_or_none()
+    if system_row is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "system_id must refer to an active system in this tenant",
@@ -777,7 +784,9 @@ async def add_release_system(
             status.HTTP_409_CONFLICT,
             "System already linked to this release",
         )
-    return rs
+    item = ReleaseSystemRead.model_validate(rs)
+    item.system_name = system_row.name
+    return item
 
 
 @release_systems_router.delete("/{rs_id}", status_code=status.HTTP_204_NO_CONTENT)
