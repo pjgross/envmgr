@@ -33,6 +33,7 @@ export interface TopologyCanvasProps {
   findDependency: (id: number) => ComponentDependencyResponse | null;
   height?: number;
   emptyMessage?: string;
+  headerControls?: React.ReactNode; // rendered inline beside the toolbar; default none
 }
 
 export default function TopologyCanvas({
@@ -45,6 +46,7 @@ export default function TopologyCanvas({
   findDependency,
   height = 500,
   emptyMessage = 'No components yet.',
+  headerControls,
 }: TopologyCanvasProps) {
   const [selectedDepId, setSelectedDepId] = useState<number | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -252,13 +254,18 @@ export default function TopologyCanvas({
       }}
     >
       <Box sx={{ flex: 1, minWidth: '60%', display: 'flex', flexDirection: 'column' }}>
-        <TopologyToolbar
-          components={searchable}
-          onSelect={handleSearchSelect}
-          availableTypes={availableTypes}
-          hiddenTypes={hiddenTypes}
-          onToggleType={toggleType}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <TopologyToolbar
+              components={searchable}
+              onSelect={handleSearchSelect}
+              availableTypes={availableTypes}
+              hiddenTypes={hiddenTypes}
+              onToggleType={toggleType}
+            />
+          </Box>
+          {headerControls}
+        </Box>
         <Box sx={{ flex: 1, position: 'relative' }}>
           <ReactFlow
             nodes={nodes}
