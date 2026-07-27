@@ -24,6 +24,9 @@ import type { ReleaseListItemResponse } from '../../types/release';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 import ReleaseForm from './ReleaseForm';
 import MoveScopeItemDialog from '../../components/releases/MoveScopeItemDialog';
+import { systemService } from '../../services/systemService';
+import type { SystemResponse } from '../../types/system';
+import { RELEASE_SYSTEM_ROLE_LABELS } from '../../utils/releaseSystemRoles';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   draft: 'default',
@@ -55,6 +58,8 @@ export default function ReleaseList() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [kindFilter, setKindFilter] = useState<'all' | 'project' | 'enterprise'>('all');
+  const [systemFilter, setSystemFilter] = useState<string>('all');
+  const [systems, setSystems] = useState<SystemResponse[]>([]);
   const [formOpen, setFormOpen] = useState(false);
 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -63,6 +68,10 @@ export default function ReleaseList() {
   useEffect(() => {
     dispatch(fetchReleases({}));
   }, [dispatch]);
+
+  useEffect(() => {
+    systemService.listSystems().then(setSystems).catch(() => setSystems([]));
+  }, []);
 
   useEffect(() => {
     if (tab === 1) {
@@ -76,9 +85,10 @@ export default function ReleaseList() {
         if (statusFilter !== 'all' && r.status !== statusFilter) return false;
         if (typeFilter !== 'all' && r.release_type !== typeFilter) return false;
         if (kindFilter !== 'all' && r.release_kind !== kindFilter) return false;
+        if (systemFilter !== 'all' && !r.systems.some((s) => s.id === Number(systemFilter))) return false;
         return true;
       }),
-    [list, statusFilter, typeFilter, kindFilter]
+    [list, statusFilter, typeFilter, kindFilter, systemFilter]
   );
 
   const releaseColumns = useMemo<GridColDef<ReleaseListItemResponse>[]>(
@@ -171,6 +181,24 @@ export default function ReleaseList() {
             </Tooltip>
           );
         },
+      },
+      {
+        field: 'systems',
+        headerName: 'Systems',
+        width: 200,
+        sortable: false,
+        renderCell: (params) =>
+          params.row.systems.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">—</Typography>
+          ) : (
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+              {params.row.systems.map((s) => (
+                <Tooltip key={s.id} title={RELEASE_SYSTEM_ROLE_LABELS[s.role]}>
+                  <Chip label={s.name} size="small" variant="outlined" />
+                </Tooltip>
+              ))}
+            </Box>
+          ),
       },
       {
         field: 'blocker_count',
@@ -342,6 +370,20 @@ export default function ReleaseList() {
               <ToggleButton value="project">Projects</ToggleButton>
               <ToggleButton value="enterprise">Enterprise</ToggleButton>
             </ToggleButtonGroup>
+            <TextField
+              select
+              label="System"
+              size="small"
+              value={systemFilter}
+              onChange={(e) => setSystemFilter(e.target.value)}
+              sx={{ minWidth: 180 }}
+              disabled={systems.length === 0}
+            >
+              <MenuItem value="all">All systems</MenuItem>
+              {systems.map((s) => (
+                <MenuItem key={s.id} value={String(s.id)}>{s.name}</MenuItem>
+              ))}
+            </TextField>
           </Box>
 
           <Box sx={{ height: 600, width: '100%' }}>

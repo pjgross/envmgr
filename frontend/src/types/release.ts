@@ -27,7 +27,7 @@ export interface ReleaseResponse {
 export interface ReleaseSystemBrief {
   id: number;
   name: string;
-  role: string;
+  role: 'changing' | 'regression' | 'config_only';
 }
 
 /** List endpoint response — includes denormalised summary counts */
@@ -82,6 +82,7 @@ export interface ReleaseSystemResponse {
   tenant_id: number;
   release_id: number;
   system_id: number;
+  system_name: string | null;
   role: 'changing' | 'regression' | 'config_only';
   deployment_date: string | null;
 }
@@ -183,7 +184,7 @@ export interface ReleaseGateDecisionPayload {
 
 export interface ReleaseSystemCreatePayload {
   system_id: number;
-  role: string;
+  role: 'changing' | 'regression' | 'config_only';
   deployment_date?: string | null;
 }
 
