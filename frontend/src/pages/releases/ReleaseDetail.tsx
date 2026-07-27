@@ -1,11 +1,14 @@
 /**
- * ReleaseDetail — full-page view for an existing release with 5 tabs:
+ * ReleaseDetail — full-page view for an existing release with tabs:
  *   0: Main (lifecycle, fields, transitions)
  *   1: Gates & Test Phases
  *   2: Environments
- *   3: Linked Requests
- *   4: Scope
- *   5: Enterprise (membership)
+ *   3: Systems
+ *   4: Linked Requests
+ *   5: Scope
+ *   6: RAID
+ *   7: Enterprise (membership)
+ *   8: Deployments
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -35,6 +38,7 @@ import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedReq
 import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
 import RaidTab from '../../components/releases/raid/RaidTab';
 import ReleaseDeploymentsTab from '../../components/releases/ReleaseDeploymentsTab';
+import ReleaseSystemsTab from '../../components/releases/ReleaseSystemsTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
 import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
@@ -147,6 +151,7 @@ export default function ReleaseDetail() {
           <Tab label="Main" />
           <Tab label="Gates & Test Phases" />
           <Tab label="Environments" />
+          <Tab label="Systems" />
           <Tab label="Linked Requests" />
           <Tab label="Scope" />
           <Tab label="RAID" />
@@ -159,11 +164,12 @@ export default function ReleaseDetail() {
       {activeTab === 0 && <ReleaseMainTab releaseId={releaseId} />}
       {activeTab === 1 && <ReleasePlanTab releaseId={releaseId} />}
       {activeTab === 2 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
-      {activeTab === 3 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
-      {activeTab === 4 && <ReleaseScopeTab releaseId={releaseId} />}
-      {activeTab === 5 && <RaidTab releaseId={releaseId} />}
-      {activeTab === 6 && <EnterpriseMembershipTab releaseId={releaseId} />}
-      {activeTab === 7 && <ReleaseDeploymentsTab releaseId={releaseId} />}
+      {activeTab === 3 && <ReleaseSystemsTab releaseId={releaseId} />}
+      {activeTab === 4 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
+      {activeTab === 5 && <ReleaseScopeTab releaseId={releaseId} />}
+      {activeTab === 6 && <RaidTab releaseId={releaseId} />}
+      {activeTab === 7 && <EnterpriseMembershipTab releaseId={releaseId} />}
+      {activeTab === 8 && <ReleaseDeploymentsTab releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}
