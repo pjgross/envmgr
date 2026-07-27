@@ -11,6 +11,7 @@ import { releaseService } from '../../services/releaseService';
 import EnvironmentResourceGantt from './EnvironmentResourceGantt';
 import ReleaseBookingsTable from './ReleaseBookingsTable';
 import AddPhaseBookingDialog from './AddPhaseBookingDialog';
+import ReleaseEnvironmentCoverage from './ReleaseEnvironmentCoverage';
 import type { BookingResponse } from '../../types/booking';
 
 interface Props {
@@ -24,6 +25,7 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [bookEnvId, setBookEnvId] = useState<number | undefined>(undefined);
 
   const loadBookings = useCallback(async () => {
     setLoading(true);
@@ -44,6 +46,16 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <ReleaseEnvironmentCoverage
+        releaseId={releaseId}
+        onBook={(environmentId) => {
+          setBookEnvId(environmentId);
+          setAddOpen(true);
+        }}
+      />
+
+      <Divider />
+
       <Box>
         <Typography variant="subtitle1" fontWeight="medium" sx={{ mb: 1 }}>
           Environment Timeline
@@ -61,7 +73,10 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
           <Button
             size="small"
             startIcon={<AddIcon />}
-            onClick={() => setAddOpen(true)}
+            onClick={() => {
+              setBookEnvId(undefined);
+              setAddOpen(true);
+            }}
           >
             Add Booking
           </Button>
@@ -75,6 +90,7 @@ export default function ReleaseEnvironmentsTab({ releaseId }: Props) {
         releaseId={releaseId}
         phases={phases}
         onCreated={loadBookings}
+        initialEnvironmentId={bookEnvId}
       />
     </Box>
   );

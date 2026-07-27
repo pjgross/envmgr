@@ -27,6 +27,7 @@ interface Props {
   releaseId: number;
   phases: TestPhaseResponse[];
   onCreated: () => void;
+  initialEnvironmentId?: number;
 }
 
 export default function AddPhaseBookingDialog({
@@ -35,6 +36,7 @@ export default function AddPhaseBookingDialog({
   releaseId,
   phases,
   onCreated,
+  initialEnvironmentId,
 }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
@@ -56,6 +58,12 @@ export default function AddPhaseBookingDialog({
       .then(setBookingTypes)
       .catch(() => setBookingTypes([]));
   }, [dispatch]);
+
+  useEffect(() => {
+    if (open && initialEnvironmentId != null) {
+      setEnvId(initialEnvironmentId);
+    }
+  }, [open, initialEnvironmentId]);
 
   const resetForm = () => {
     setEnvId('');
