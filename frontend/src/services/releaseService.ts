@@ -25,6 +25,7 @@ import type {
   ReleaseEnvironmentCoverageResponse,
   ReleaseBulkBookingPayload,
   BulkBookResultResponse,
+  ScopeChurnAnalyticsResponse,
 } from '../types/release';
 import type {
   GateCriterion,
@@ -202,6 +203,11 @@ export const releaseService = {
 
   getEnvironmentCoverage: (releaseId: number): Promise<ReleaseEnvironmentCoverageResponse> =>
     api.get(`/releases/${releaseId}/environment-coverage`).then((r) => r.data),
+
+  getScopeChurnAnalytics: (
+    params: { date_from?: string; date_to?: string } = {}
+  ): Promise<ScopeChurnAnalyticsResponse> =>
+    api.get('/releases/scope-churn-analytics', { params }).then((r) => r.data),
 
   bookForPhase: (releaseId: number, data: ReleaseBookingCreatePayload): Promise<BookingResponse> =>
     api.post(`/releases/${releaseId}/bookings`, data).then((r) => r.data),
