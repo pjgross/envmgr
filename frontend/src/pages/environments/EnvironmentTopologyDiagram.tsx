@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ToggleButton, ToggleButtonGroup } from '@mui/material';
 import SubsystemNode from '../../components/topology/SubsystemNode';
 import SystemGroupNode from '../../components/topology/SystemGroupNode';
 import CollapsedSystemNode from '../../components/topology/CollapsedSystemNode';
@@ -7,7 +8,9 @@ import { colorForComponentType } from '../../components/topology/topologyColors'
 import {
   fromEnvironmentTopologyResponse,
   byEnvSystem,
+  byHost,
 } from '../../components/topology/environmentTopologySource';
+import { buildHostGraph } from '../../components/topology/topologyHostTransform';
 import { environmentService } from '../../services/environmentService';
 import type { EnvironmentTopologyData } from '../../types/environment';
 
@@ -41,21 +44,55 @@ export default function EnvironmentTopologyDiagram({ envId }: Props) {
   }, [envId]);
 
   const source = useMemo(() => (data ? fromEnvironmentTopologyResponse(data) : null), [data]);
-  const graph = useMemo(() => source?.getGraph() ?? null, [source]);
   const envSystemIds = useMemo(
     () => new Set((data?.subsystems ?? []).map((s) => s.system_id)),
     [data],
   );
-  const grouping = useMemo(
-    () => byEnvSystem(source?.getSystemNames() ?? {}, envSystemIds),
-    [source, envSystemIds],
+
+  const [groupBy, setGroupBy] = useState<'system' | 'host'>('system');
+
+  const hostGraph = useMemo(
+    () => (source && groupBy === 'host' ? buildHostGraph(source.getGraph()) : null),
+    [source, groupBy],
   );
+
+  const graph = useMemo(
+    () => (groupBy === 'host' ? hostGraph?.graph ?? null : source?.getGraph() ?? null),
+    [groupBy, hostGraph, source],
+  );
+
+  const grouping = useMemo(
+    () =>
+      groupBy === 'host'
+        ? byHost(hostGraph?.hostKeyById ?? new Map(), hostGraph?.hostMeta ?? new Map())
+        : byEnvSystem(source?.getSystemNames() ?? {}, envSystemIds),
+    [groupBy, hostGraph, source, envSystemIds],
+  );
+
   const findDependency = useCallback(
-    (id: number) =>
-      [...(data?.dependencies ?? []), ...(data?.outside_dependencies ?? [])].find(
-        (d) => d.id === id,
-      ) ?? null,
-    [data],
+    (id: number) => {
+      const realId = groupBy === 'host' ? hostGraph?.edgeDepResolver.get(id) ?? null : id;
+      if (realId === null) return null;
+      return (
+        [...(data?.dependencies ?? []), ...(data?.outside_dependencies ?? [])].find(
+          (d) => d.id === realId,
+        ) ?? null
+      );
+    },
+    [groupBy, hostGraph, data],
+  );
+
+  const headerControls = (
+    <ToggleButtonGroup
+      size="small"
+      exclusive
+      value={groupBy}
+      onChange={(_e, value: 'system' | 'host' | null) => value && setGroupBy(value)}
+      aria-label="Group topology by"
+    >
+      <ToggleButton value="system">System</ToggleButton>
+      <ToggleButton value="host">Host</ToggleButton>
+    </ToggleButtonGroup>
   );
 
   return (
@@ -67,6 +104,7 @@ export default function EnvironmentTopologyDiagram({ envId }: Props) {
       colorFor={colorForComponentType}
       nodeTypes={nodeTypes}
       findDependency={findDependency}
+      headerControls={headerControls}
       emptyMessage="No subsystems configured. Add systems with subsystems to see the topology."
     />
   );
