@@ -248,6 +248,7 @@ async def list_releases(
     owner_id: Optional[int] = None,
     search: Optional[str] = None,
     release_kind: Optional[str] = None,
+    system_id: Optional[int] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[Release], int]:
@@ -262,6 +263,16 @@ async def list_releases(
         base_where.append(Release.status == status)
     if release_kind is not None:
         base_where.append(Release.release_kind == release_kind)
+    if system_id is not None:
+        from app.db.models.release_system import ReleaseSystem
+        base_where.append(
+            Release.id.in_(
+                select(ReleaseSystem.release_id).where(
+                    ReleaseSystem.system_id == system_id,
+                    ReleaseSystem.tenant_id == tenant_id,
+                )
+            )
+        )
     if date_from is not None:
         base_where.append(Release.target_date >= date_from)
     if date_to is not None:

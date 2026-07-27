@@ -72,6 +72,12 @@ class ReleaseStatusHistoryRead(BaseModel):
     notes: Optional[str]
 
 
+class ReleaseSystemBrief(BaseModel):
+    id: int
+    name: str
+    role: str
+
+
 class ReleaseListItemRead(ReleaseRead):
     """Extended read schema for list endpoints — includes summary counts."""
     phase_count: int = 0
@@ -83,3 +89,6 @@ class ReleaseListItemRead(ReleaseRead):
     scope_additions_count: int = 0
     scope_removals_count: int = 0
     scope_change_count: int = 0
+    window_status: str = "no_cutoff"
+    days_to_cutoff: Optional[int] = None
+    systems: list[ReleaseSystemBrief] = []

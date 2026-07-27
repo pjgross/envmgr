@@ -340,6 +340,9 @@ const releaseSlice = createSlice({
           scope_removals_count: 0,
           scope_change_count: 0,
           scope_creep_count: 0,
+          window_status: 'no_cutoff',
+          days_to_cutoff: null,
+          systems: [],
         });
       })
 

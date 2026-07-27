@@ -18,6 +18,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import TuneIcon from '@mui/icons-material/Tune';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -74,6 +75,7 @@ export const navGroups: NavItem[] = [
       { label: 'Releases — List', path: '/releases', icon: <ListIcon /> },
       { label: 'Releases — Calendar', path: '/releases/calendar', icon: <CalendarMonthIcon /> },
       { label: 'Releases — Timeline', path: '/releases/timeline', icon: <TimelineIcon /> },
+      { label: 'Releases — Scope Windows', path: '/releases/scope-windows', icon: <ScheduleIcon /> },
       {
         label: 'Release Templates',
         path: '/admin/release-templates',
