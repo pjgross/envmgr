@@ -27,7 +27,7 @@ export interface ReleaseResponse {
 export interface ReleaseSystemBrief {
   id: number;
   name: string;
-  role: string;
+  role: 'changing' | 'regression' | 'config_only';
 }
 
 /** List endpoint response — includes denormalised summary counts */

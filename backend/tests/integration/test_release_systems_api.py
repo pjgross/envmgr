@@ -80,3 +80,25 @@ async def test_foreign_system_rejected(authed_client, tenant, db_session, releas
     foreign_sid = await _make_system(db_session, other_tenant.id, "Foreign")
     resp = await authed_client.post(f"/api/v1/releases/{rid}/systems", json={"system_id": foreign_sid, "role": "changing"})
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_systems_cross_tenant_is_404(authed_client, tenant, db_session, release_lifecycle_template, second_tenant_factory):
+    # Release owned by the fixture tenant, with a linked system.
+    rid = await _make_release(authed_client, release_lifecycle_template)
+    sid = await _make_system(db_session, tenant.id)
+    add = await authed_client.post(f"/api/v1/releases/{rid}/systems", json={"system_id": sid, "role": "changing"})
+    assert add.status_code == 201
+
+    # A user from a different tenant logs in and tries to read this release's systems.
+    other_tenant, other_user = await second_tenant_factory()
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as other_client:
+        login = await other_client.post("/api/v1/auth/login", json={
+            "username": other_user.username, "password": "password123", "tenant_slug": other_tenant.slug,
+        })
+        assert login.status_code == 200, login.text
+        other_client.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+        resp = await other_client.get(f"/api/v1/releases/{rid}/systems")
+    assert resp.status_code == 404

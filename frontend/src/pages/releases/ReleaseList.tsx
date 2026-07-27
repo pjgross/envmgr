@@ -193,7 +193,7 @@ export default function ReleaseList() {
           ) : (
             <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
               {params.row.systems.map((s) => (
-                <Tooltip key={s.id} title={(RELEASE_SYSTEM_ROLE_LABELS as Record<string, string>)[s.role] ?? s.role}>
+                <Tooltip key={s.id} title={RELEASE_SYSTEM_ROLE_LABELS[s.role]}>
                   <Chip label={s.name} size="small" variant="outlined" />
                 </Tooltip>
               ))}

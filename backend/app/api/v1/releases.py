@@ -729,6 +729,7 @@ async def list_release_systems(
             .where(
                 ReleaseSystem.release_id == release_id,
                 ReleaseSystem.tenant_id == tenant_id,
+                System.deleted_at.is_(None),
             )
             .order_by(ReleaseSystem.id)
         )
