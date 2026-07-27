@@ -68,6 +68,11 @@ from app.api.v1.schemas.release_change import (
     ReleaseChangeStatusHistoryRead,
     ScopeImportResult,
 )
+from app.api.v1.schemas.release_env_coverage import (
+    ReleaseEnvironmentCoverageRead,
+    CoverageSystem,
+    CoverageEnvironment,
+)
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -740,6 +745,89 @@ async def list_release_systems(
         item.system_name = name
         out.append(item)
     return out
+
+
+@router.get("/{release_id}/environment-coverage", response_model=ReleaseEnvironmentCoverageRead)
+async def get_environment_coverage(
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Which environments host the systems this release must test (Changing +
+    Regression), plus the systems no active environment hosts."""
+    from app.db.models.release_system import ReleaseSystem
+    from app.db.models.system import System
+    from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus
+
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+
+    needed_rows = (
+        await db.execute(
+            select(ReleaseSystem.system_id, System.name, ReleaseSystem.role)
+            .join(System, System.id == ReleaseSystem.system_id)
+            .where(
+                ReleaseSystem.release_id == release_id,
+                ReleaseSystem.tenant_id == tenant_id,
+                ReleaseSystem.role.in_(["changing", "regression"]),
+                System.deleted_at.is_(None),
+            )
+            .order_by(System.name)
+        )
+    ).all()
+    needed_systems = [
+        CoverageSystem(system_id=sid, system_name=name, role=role)
+        for sid, name, role in needed_rows
+    ]
+    needed_ids = [s.system_id for s in needed_systems]
+    if not needed_ids:
+        return ReleaseEnvironmentCoverageRead(
+            needed_systems=[], environments=[], uncovered_system_ids=[]
+        )
+
+    es_rows = (
+        await db.execute(
+            select(
+                EnvironmentSystem.environment_id,
+                EnvironmentSystem.system_id,
+                Environment.name,
+                Environment.environment_type,
+                Environment.status,
+            )
+            .join(Environment, Environment.id == EnvironmentSystem.environment_id)
+            .where(
+                EnvironmentSystem.system_id.in_(needed_ids),
+                EnvironmentSystem.tenant_id == tenant_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+                Environment.status != EnvironmentStatus.DECOMMISSIONED,
+            )
+            .order_by(Environment.name)
+        )
+    ).all()
+
+    env_map: dict[int, CoverageEnvironment] = {}
+    covered: set[int] = set()
+    for env_id, sys_id, name, etype, estatus in es_rows:
+        ce = env_map.get(env_id)
+        if ce is None:
+            ce = CoverageEnvironment(
+                environment_id=env_id,
+                name=name,
+                environment_type=etype,
+                status=getattr(estatus, "value", str(estatus)),
+                covered_system_ids=[],
+            )
+            env_map[env_id] = ce
+        ce.covered_system_ids.append(sys_id)
+        covered.add(sys_id)
+
+    uncovered = [sid for sid in needed_ids if sid not in covered]
+    return ReleaseEnvironmentCoverageRead(
+        needed_systems=needed_systems,
+        environments=list(env_map.values()),
+        uncovered_system_ids=uncovered,
+    )
 
 
 @router.post("/{release_id}/systems", response_model=ReleaseSystemRead, status_code=status.HTTP_201_CREATED)

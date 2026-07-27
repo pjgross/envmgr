@@ -230,3 +230,23 @@ export interface ReleaseBookingCreatePayload {
   exclusive_use?: boolean;
   notes?: string | null;
 }
+
+export interface CoverageSystemResponse {
+  system_id: number;
+  system_name: string;
+  role: 'changing' | 'regression';
+}
+
+export interface CoverageEnvironmentResponse {
+  environment_id: number;
+  name: string;
+  environment_type: string;
+  status: string;
+  covered_system_ids: number[];
+}
+
+export interface ReleaseEnvironmentCoverageResponse {
+  needed_systems: CoverageSystemResponse[];
+  environments: CoverageEnvironmentResponse[];
+  uncovered_system_ids: number[];
+}

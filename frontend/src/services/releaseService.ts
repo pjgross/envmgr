@@ -22,6 +22,7 @@ import type {
   ReleaseCalendarEntry,
   ReleaseTimelineEntry,
   ReleaseBookingCreatePayload,
+  ReleaseEnvironmentCoverageResponse,
 } from '../types/release';
 import type {
   GateCriterion,
@@ -196,6 +197,9 @@ export const releaseService = {
   // --- Bookings ---
   listBookings: (releaseId: number): Promise<BookingResponse[]> =>
     api.get(`/releases/${releaseId}/bookings`).then((r) => r.data),
+
+  getEnvironmentCoverage: (releaseId: number): Promise<ReleaseEnvironmentCoverageResponse> =>
+    api.get(`/releases/${releaseId}/environment-coverage`).then((r) => r.data),
 
   bookForPhase: (releaseId: number, data: ReleaseBookingCreatePayload): Promise<BookingResponse> =>
     api.post(`/releases/${releaseId}/bookings`, data).then((r) => r.data),
