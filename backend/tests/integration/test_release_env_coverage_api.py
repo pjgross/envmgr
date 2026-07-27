@@ -104,6 +104,25 @@ async def test_coverage_empty_when_no_testable_systems(authed_client, tenant, db
 
 
 @pytest.mark.asyncio
+async def test_coverage_excludes_foreign_tenant_environment(authed_client, tenant, db_session, release_lifecycle_template, second_tenant_factory):
+    rid = await _make_release(authed_client, release_lifecycle_template)
+    sid = await _make_system(db_session, tenant.id, "Payments")
+    await _link(authed_client, rid, sid, "changing")
+
+    # An environment in ANOTHER tenant, linked (via a cross-tenant EnvironmentSystem row)
+    # to this tenant's system, must NOT be returned as coverage.
+    other_tenant, _ = await second_tenant_factory()
+    foreign_env = await _make_env(db_session, other_tenant.id, "FOREIGN")
+    await _host(db_session, other_tenant.id, foreign_env, sid)
+
+    resp = await authed_client.get(f"/api/v1/releases/{rid}/environment-coverage")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["environments"] == []            # foreign env excluded
+    assert body["uncovered_system_ids"] == [sid] # system hosted only by a foreign env → uncovered
+
+
+@pytest.mark.asyncio
 async def test_coverage_missing_release_404(authed_client):
     resp = await authed_client.get("/api/v1/releases/999999/environment-coverage")
     assert resp.status_code == 404

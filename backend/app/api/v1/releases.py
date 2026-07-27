@@ -798,6 +798,7 @@ async def get_environment_coverage(
             .where(
                 EnvironmentSystem.system_id.in_(needed_ids),
                 EnvironmentSystem.tenant_id == tenant_id,
+                Environment.tenant_id == tenant_id,
                 Environment.deleted_at.is_(None),
                 Environment.status != EnvironmentStatus.DECOMMISSIONED,
             )
