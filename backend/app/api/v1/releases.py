@@ -77,6 +77,7 @@ from app.api.v1.schemas.release_bulk_booking import (
     ReleaseBulkBookingRequest,
     BulkBookResult,
 )
+from app.api.v1.schemas.scope_churn_analytics import ScopeChurnAnalyticsRead
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -456,6 +457,20 @@ async def get_releases_timeline(
             }
         )
     return result
+
+
+@router.get("/scope-churn-analytics", response_model=ScopeChurnAnalyticsRead)
+async def get_scope_churn_analytics(
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Correlate scope change with delays/issues across shipped project releases."""
+    from app.services import scope_churn_service
+    return await scope_churn_service.compute_scope_churn(
+        db, current_user.active_tenant_id, date_from, date_to
+    )
 
 
 @router.get("/{release_id}", response_model=ReleaseRead)

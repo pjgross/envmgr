@@ -277,3 +277,28 @@ export interface ReleaseEnvironmentCoverageResponse {
   environments: CoverageEnvironmentResponse[];
   uncovered_system_ids: number[];
 }
+
+export interface ChurnCohortResponse {
+  count: number;
+  delayed_count: number;
+  delayed_pct: number;
+  issue_count: number;
+  issue_pct: number;
+}
+
+export interface ChurnReleaseRowResponse {
+  release_id: number;
+  name: string;
+  shipped_at: string;
+  scope_changed: boolean;
+  delayed: boolean;
+  had_issue: boolean;
+}
+
+export interface ScopeChurnAnalyticsResponse {
+  date_from: string | null;
+  date_to: string | null;
+  scope_changed: ChurnCohortResponse;
+  stable: ChurnCohortResponse;
+  releases: ChurnReleaseRowResponse[];
+}
