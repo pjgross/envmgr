@@ -83,3 +83,55 @@ async def book_environment_for_phase(
     await derive_and_set_context_tag(db, booking.id, tenant_id)
 
     return booking
+
+
+async def bulk_book_environments(
+    db: AsyncSession,
+    release_id: int,
+    environment_ids: list[int],
+    phase_id: Optional[int],
+    start: datetime,
+    end: datetime,
+    booking_type_id: int,
+    tenant_id: int,
+    user_id: int,
+    project_name: Optional[str] = None,
+    notes: Optional[str] = None,
+    exclusive_use: bool = False,
+) -> dict:
+    """Book each environment for a release in one pass. Environments with a
+    hard (exclusive) conflict for the window are skipped and reported; the rest
+    are booked via book_environment_for_phase (which sets release/phase and
+    derives context_tag). Returns {"created": [...], "skipped": [...]}."""
+    from app.services.booking_service import check_overlap
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+    for env_id in environment_ids:
+        overlap = await check_overlap(db, env_id, start, end, tenant_id, exclusive_use)
+        if overlap.blocked:
+            skipped.append({"environment_id": env_id, "conflicts": overlap.conflicts})
+            continue
+        try:
+            booking = await book_environment_for_phase(
+                db,
+                release_id=release_id,
+                phase_id=phase_id,
+                environment_id=env_id,
+                start=start,
+                end=end,
+                booking_type_id=booking_type_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                project_name=project_name,
+                notes=notes,
+                exclusive_use=exclusive_use,
+            )
+        except HTTPException as e:
+            if e.status_code == status.HTTP_409_CONFLICT:
+                skipped.append({"environment_id": env_id, "conflicts": []})
+                continue
+            raise
+        created.append({"environment_id": env_id, "booking_id": booking.id, "warnings": overlap.warnings})
+
+    return {"created": created, "skipped": skipped}

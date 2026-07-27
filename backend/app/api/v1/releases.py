@@ -73,6 +73,10 @@ from app.api.v1.schemas.release_env_coverage import (
     CoverageSystem,
     CoverageEnvironment,
 )
+from app.api.v1.schemas.release_bulk_booking import (
+    ReleaseBulkBookingRequest,
+    BulkBookResult,
+)
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -1236,6 +1240,33 @@ async def create_release_booking(
         "release_id": booking.release_id,
         "test_phase_id": booking.test_phase_id,
     }
+
+
+@router.post("/{release_id}/bookings/bulk", response_model=BulkBookResult)
+async def bulk_book_release_environments(
+    release_id: int,
+    data: ReleaseBulkBookingRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Book several environments for a release in one flow; environments with an
+    exclusive conflict for the window are skipped and reported."""
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    return await release_booking_service.bulk_book_environments(
+        db,
+        release_id=release_id,
+        environment_ids=data.environment_ids,
+        phase_id=data.phase_id,
+        start=data.start,
+        end=data.end,
+        booking_type_id=data.booking_type_id,
+        tenant_id=tenant_id,
+        user_id=current_user.id,
+        project_name=data.project_name,
+        notes=data.notes,
+        exclusive_use=data.exclusive_use,
+    )
 
 
 # ── Linked CRs ────────────────────────────────────────────────────────────────
