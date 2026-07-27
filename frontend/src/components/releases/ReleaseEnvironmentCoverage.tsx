@@ -67,14 +67,15 @@ export default function ReleaseEnvironmentCoverage({ releaseId, onBook, onBookMa
     return m;
   }, [data]);
 
-  const suggestion = useMemo(() => {
+  const suggestedEnvs = useMemo(() => {
     if (!data) return [];
     const uncovered = new Set(data.uncovered_system_ids);
     const coverable = new Set(
       data.needed_systems.map((s) => s.system_id).filter((id) => !uncovered.has(id)),
     );
-    return greedyCover(data.environments, coverable).map((e) => e.name);
+    return greedyCover(data.environments, coverable);
   }, [data]);
+  const suggestion = useMemo(() => suggestedEnvs.map((e) => e.name), [suggestedEnvs]);
 
   if (!data) return null;
 
@@ -108,9 +109,7 @@ export default function ReleaseEnvironmentCoverage({ releaseId, onBook, onBookMa
             size="small"
             variant="outlined"
             onClick={() => {
-              const ids = data.environments
-                .filter((e) => suggestion.includes(e.name))
-                .map((e) => e.environment_id);
+              const ids = suggestedEnvs.map((e) => e.environment_id);
               setSelected(new Set(ids));
               onBookMany(ids);
             }}

@@ -129,7 +129,8 @@ async def bulk_book_environments(
             )
         except HTTPException as e:
             if e.status_code == status.HTTP_409_CONFLICT:
-                skipped.append({"environment_id": env_id, "conflicts": []})
+                detail = e.detail if isinstance(e.detail, dict) else {}
+                skipped.append({"environment_id": env_id, "conflicts": detail.get("conflicts", [])})
                 continue
             raise
         created.append({"environment_id": env_id, "booking_id": booking.id, "warnings": overlap.warnings})

@@ -199,3 +199,22 @@ async def test_bulk_dedupes_duplicate_env_ids(authed_client, tenant, db_session,
     body = resp.json()
     assert [x["environment_id"] for x in body["created"]] == [a]  # booked once, not thrice
     assert body["skipped"] == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_sets_release_and_phase_on_bookings(authed_client, tenant, db_session, release_lifecycle_template):
+    rid = await _make_release(authed_client, release_lifecycle_template)
+    bt = await _booking_type(db_session, tenant.id)
+    env = await _make_env(db_session, tenant.id, "A")
+    ph = await authed_client.post(f"/api/v1/releases/{rid}/phases", json={"name": "Smoke"})
+    assert ph.status_code == 201, ph.text
+    phase_id = ph.json()["id"]
+
+    resp = await authed_client.post(
+        f"/api/v1/releases/{rid}/bookings/bulk", json=_payload([env], bt, phase_id=phase_id)
+    )
+    assert resp.status_code == 200, resp.text
+    booking_id = resp.json()["created"][0]["booking_id"]
+    booking = (await db_session.execute(select(Booking).where(Booking.id == booking_id))).scalar_one()
+    assert booking.release_id == rid
+    assert booking.test_phase_id == phase_id

@@ -53,6 +53,11 @@ export default function BulkBookEnvironmentsDialog({
     if (open) {
       setConflicts(null);
       setResult(null);
+      setProjectName('');
+      setStartDate('');
+      setEndDate('');
+      setBookingTypeId('');
+      setPhaseId('');
     }
   }, [open, environmentIds]);
 
@@ -93,9 +98,24 @@ export default function BulkBookEnvironmentsDialog({
       });
       setResult(res);
       onCreated();
-      snackbar.success(`Booked ${res.created.length} environment(s)`);
+      if (res.created.length === 0) {
+        snackbar.error(`No environments booked — ${res.skipped.length} skipped with a conflict`);
+      } else if (res.skipped.length > 0) {
+        snackbar.success(`Booked ${res.created.length}; skipped ${res.skipped.length} with a conflict`);
+      } else {
+        snackbar.success(`Booked ${res.created.length} environment(s)`);
+      }
     } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to book environments');
+      const axiosErr = err as { response?: { data?: { detail?: unknown } } };
+      const detail = axiosErr?.response?.data?.detail;
+      const msg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? `${(detail[0] as { loc?: unknown[] }).loc?.join?.('.') ?? 'field'}: ${
+              (detail[0] as { msg: string }).msg
+            }`
+          : err instanceof Error ? err.message : 'Failed to book environments';
+      snackbar.error(msg);
     } finally {
       setSubmitting(false);
     }
