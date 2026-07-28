@@ -5,9 +5,10 @@ from app.db.models.deployment import Deployment
 from app.db.models.release import Release, ReleaseStatusHistory
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.incident import Incident
-from app.db.models.user import User
+from app.db.models.user import User, Tenant
 from app.core.security import get_password_hash
 from app.services import dora_service
+from app.services.dora_service import _percentile
 
 UTC = timezone.utc
 
@@ -187,3 +188,204 @@ async def test_summary_bundles_all_four(db_session, tenant):
     t0 = datetime(2026, 6, 1, tzinfo=UTC)
     res = await dora_service.dora_summary(db_session, tenant.id, t0, t0 + timedelta(days=1))
     assert set(res) == {"deployment_frequency", "lead_time", "change_failure_rate", "mttr"}
+
+
+# ---------------------------------------------------------------------------
+# Task 5: Week & month bucketing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_deployment_frequency_week_bucketing(db_session, tenant):
+    """Two deployments in week-1, one in week-2 → two distinct weekly buckets."""
+    # 2026-06-01 is a Monday; 2026-06-08 is the next Monday.
+    week1_mon = datetime(2026, 6, 1, tzinfo=UTC)
+    week1_wed = datetime(2026, 6, 3, tzinfo=UTC)
+    week2_tue = datetime(2026, 6, 9, tzinfo=UTC)
+    b = await _build(db_session, tenant.id, week1_mon - timedelta(days=1))
+    await _deploy(db_session, tenant.id, b.id, 1, week1_mon, "success")
+    await _deploy(db_session, tenant.id, b.id, 1, week1_wed, "success")
+    await _deploy(db_session, tenant.id, b.id, 1, week2_tue, "success")
+    res = await dora_service.deployment_frequency(
+        db_session, tenant.id, week1_mon, week2_tue, granularity="week"
+    )
+    assert res["total"] == 3
+    assert len(res["series"]) == 2
+    # week-1 bucket: 2026-06-01
+    assert res["series"][0] == {"period": "2026-06-01", "count": 2}
+    # week-2 bucket: 2026-06-08
+    assert res["series"][1] == {"period": "2026-06-08", "count": 1}
+
+
+@pytest.mark.asyncio
+async def test_deployment_frequency_month_bucketing(db_session, tenant):
+    """Two deployments in June, one in July → two distinct monthly buckets."""
+    june_start = datetime(2026, 6, 1, tzinfo=UTC)
+    june_mid = datetime(2026, 6, 15, tzinfo=UTC)
+    july_start = datetime(2026, 7, 1, tzinfo=UTC)
+    b = await _build(db_session, tenant.id, june_start - timedelta(days=1))
+    await _deploy(db_session, tenant.id, b.id, 1, june_start, "success")
+    await _deploy(db_session, tenant.id, b.id, 1, june_mid, "success")
+    await _deploy(db_session, tenant.id, b.id, 1, july_start, "success")
+    res = await dora_service.deployment_frequency(
+        db_session, tenant.id, june_start, july_start, granularity="month"
+    )
+    assert res["total"] == 3
+    assert len(res["series"]) == 2
+    assert res["series"][0] == {"period": "2026-06-01", "count": 2}
+    assert res["series"][1] == {"period": "2026-07-01", "count": 1}
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Lead-time p90
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_lead_time_p90(db_session, tenant):
+    """p90 over lead times of 1h,2h,3h,4h,5h matches _percentile formula."""
+    t0 = datetime(2026, 6, 10, 12, 0, 0, tzinfo=UTC)
+    lead_hours = [1, 2, 3, 4, 5]
+    for h in lead_hours:
+        b = await _build(db_session, tenant.id, t0 - timedelta(hours=h))
+        await _deploy(db_session, tenant.id, b.id, 1, t0, "success")
+    res = await dora_service.lead_time(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=1)
+    )
+    assert res["count"] == 5
+    expected_p90 = _percentile(sorted(h * 3600 for h in lead_hours), 0.9)
+    assert abs(res["p90_seconds"] - expected_p90) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# Task 7: CFR actual_date fallback (no ReleaseStatusHistory row)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cfr_actual_date_fallback_counts_in_shipped(db_session, tenant):
+    """
+    Release reaches terminal 'completed' state but has NO ReleaseStatusHistory row.
+    actual_date falls inside the window → it is counted in shipped_count.
+    Because 'completed' is not is_failed and no incident → failed_count unaffected.
+    """
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    u = await _user(db_session, tenant.id)
+    r = Release(tenant_id=tenant.id, name="R-fallback", release_type="Major",
+                release_kind="project", lifecycle_template_id=tpl.id,
+                status="completed", raised_by=u.id,
+                actual_date=t0 + timedelta(days=1))
+    db_session.add(r)
+    await db_session.flush()
+    # No ReleaseStatusHistory row — fallback to actual_date
+    b = await _build(db_session, tenant.id, t0)
+    await _deploy(db_session, tenant.id, b.id, 1, t0, "success", release_id=r.id)
+    await db_session.flush()
+    res = await dora_service.change_failure_rate(
+        db_session, tenant.id, t0, t0 + timedelta(days=7)
+    )
+    assert res["shipped_count"] == 1
+    assert res["failed_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 8: CFR non-terminal exclusion
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cfr_non_terminal_release_excluded(db_session, tenant):
+    """
+    Release whose current status is non-terminal ('draft') is excluded from
+    shipped_count even when it has a deployment in the window.
+    """
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    u = await _user(db_session, tenant.id)
+    r = Release(tenant_id=tenant.id, name="R-draft", release_type="Major",
+                release_kind="project", lifecycle_template_id=tpl.id,
+                status="draft", raised_by=u.id)
+    db_session.add(r)
+    await db_session.flush()
+    b = await _build(db_session, tenant.id, t0 - timedelta(days=1))
+    await _deploy(db_session, tenant.id, b.id, 1, t0, "success", release_id=r.id)
+    await db_session.flush()
+    res = await dora_service.change_failure_rate(
+        db_session, tenant.id, t0, t0 + timedelta(days=7)
+    )
+    assert res["shipped_count"] == 0
+    assert res["failed_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 9: MTTR series + median
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_mttr_series_and_median_across_two_weeks(db_session, tenant):
+    """
+    Incidents resolved in two different weeks produce two series buckets,
+    and median_seconds is correct across all incidents.
+    """
+    # 2026-06-01 (Mon) week, 2026-06-08 (Mon) week
+    w1 = datetime(2026, 6, 2, tzinfo=UTC)   # Tuesday in week 1
+    w2 = datetime(2026, 6, 9, tzinfo=UTC)   # Tuesday in week 2
+    # Week-1: one incident, 2h resolution
+    db_session.add(Incident(
+        tenant_id=tenant.id, title="i1", severity="P1", status="resolved",
+        detected_at=w1 - timedelta(hours=2), resolved_at=w1, source="manual",
+    ))
+    # Week-2: two incidents, 4h and 6h resolution
+    db_session.add(Incident(
+        tenant_id=tenant.id, title="i2", severity="P2", status="resolved",
+        detected_at=w2 - timedelta(hours=4), resolved_at=w2, source="manual",
+    ))
+    db_session.add(Incident(
+        tenant_id=tenant.id, title="i3", severity="P2", status="resolved",
+        detected_at=w2 - timedelta(hours=6), resolved_at=w2 + timedelta(hours=1), source="manual",
+    ))
+    await db_session.flush()
+    res = await dora_service.mttr(
+        db_session, tenant.id,
+        datetime(2026, 6, 1, tzinfo=UTC),
+        datetime(2026, 6, 16, tzinfo=UTC),
+        granularity="week",
+    )
+    assert res["count"] == 3
+    assert len(res["series"]) == 2
+    # week-1 bucket key = 2026-06-01 (Monday)
+    assert res["series"][0]["period"] == "2026-06-01"
+    assert abs(res["series"][0]["mean_seconds"] - 2 * 3600) < 1
+    # week-2 bucket key = 2026-06-08 (Monday)
+    assert res["series"][1]["period"] == "2026-06-08"
+    # sorted vals: [2h, 4h, 7h] in seconds → median = 4h
+    from statistics import median as _median
+    expected_median = _median(sorted([2 * 3600, 4 * 3600, 7 * 3600]))
+    assert abs(res["median_seconds"] - expected_median) < 1
+
+
+# ---------------------------------------------------------------------------
+# Task 10: Service-level tenant isolation for deployment_frequency
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_deployment_frequency_tenant_isolation(db_session, tenant):
+    """
+    A success deployment belonging to a SECOND tenant must NOT appear in
+    deployment_frequency results for the first tenant.
+    """
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    # Deployment for the primary tenant
+    b1 = await _build(db_session, tenant.id, t0 - timedelta(days=1))
+    await _deploy(db_session, tenant.id, b1.id, 1, t0, "success")
+
+    # Create a second tenant inline
+    t2 = Tenant(name="Isolated Org", slug="isolated-org")
+    db_session.add(t2)
+    await db_session.flush()
+
+    # Deployment for the second tenant (same date range)
+    b2 = await _build(db_session, t2.id, t0 - timedelta(days=1), subsystem_id=2)
+    await _deploy(db_session, t2.id, b2.id, 1, t0, "success")
+
+    res = await dora_service.deployment_frequency(
+        db_session, tenant.id, t0, t0 + timedelta(days=7), granularity="week"
+    )
+    assert res["total"] == 1

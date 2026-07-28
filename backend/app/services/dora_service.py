@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from statistics import median
 from typing import Optional
 
@@ -49,7 +49,8 @@ async def deployment_frequency(
     rows = (await db.execute(select(Deployment.deployed_at).where(*conds))).scalars().all()
     buckets: dict[str, int] = {}
     for dep_at in rows:
-        buckets[_bucket_start(dep_at, granularity)] = buckets.get(_bucket_start(dep_at, granularity), 0) + 1
+        key = _bucket_start(dep_at, granularity)
+        buckets[key] = buckets.get(key, 0) + 1
     series = [{"period": k, "count": v} for k, v in sorted(buckets.items())]
     return {"total": len(rows), "series": series}
 
@@ -106,7 +107,13 @@ async def change_failure_rate(
 
     async def _definition(tid: int) -> dict:
         if tid not in tpl_cache:
-            tpl = (await db.execute(select(LifecycleTemplate).where(LifecycleTemplate.id == tid))).scalar_one_or_none()
+            tpl = (await db.execute(
+                select(LifecycleTemplate).where(
+                    LifecycleTemplate.id == tid,
+                    LifecycleTemplate.tenant_id == tenant_id,
+                    LifecycleTemplate.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
             tpl_cache[tid] = tpl.definition if tpl else {"states": []}
         return tpl_cache[tid]
 
@@ -122,7 +129,7 @@ async def change_failure_rate(
         if r.id not in shipped_ids:
             continue
         definition = await _definition(r.lifecycle_template_id)
-        state = next((s for s in definition.get("states", []) if s["key"] == r.status), None)
+        state = next((s for s in definition.get("states", []) if s.get("key") == r.status), None)
         if state is None or not state.get("is_terminal"):
             continue  # not closed
         # close date = latest history changed_at into the current status; fallback actual_date
@@ -134,8 +141,7 @@ async def change_failure_rate(
         )).scalars().first() or r.actual_date
         # SQLite returns naive datetimes; normalise to UTC for comparison.
         if close_at is not None and close_at.tzinfo is None:
-            from datetime import timezone as _tz
-            close_at = close_at.replace(tzinfo=_tz.utc)
+            close_at = close_at.replace(tzinfo=timezone.utc)
         if close_at is None or not (date_from <= close_at <= date_to):
             continue
         shipped += 1
@@ -175,11 +181,9 @@ async def mttr(
     for detected_at, resolved_at in rows:
         # SQLite returns naive datetimes; normalise to UTC for comparison.
         if detected_at is not None and detected_at.tzinfo is None:
-            from datetime import timezone as _tz
-            detected_at = detected_at.replace(tzinfo=_tz.utc)
+            detected_at = detected_at.replace(tzinfo=timezone.utc)
         if resolved_at is not None and resolved_at.tzinfo is None:
-            from datetime import timezone as _tz
-            resolved_at = resolved_at.replace(tzinfo=_tz.utc)
+            resolved_at = resolved_at.replace(tzinfo=timezone.utc)
         secs = max(0.0, (resolved_at - detected_at).total_seconds())
         vals.append(secs)
         per_bucket.setdefault(_bucket_start(resolved_at, granularity), []).append(secs)
