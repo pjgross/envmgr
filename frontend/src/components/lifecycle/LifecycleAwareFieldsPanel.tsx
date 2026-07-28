@@ -23,7 +23,7 @@ export interface FieldPermissionsMap {
 }
 
 interface Props {
-  entityType: 'release' | 'booking' | 'change_request';
+  entityType: 'release' | 'booking' | 'change_request' | 'incident';
   entitySubtype?: string;
   currentState: string;
   userRole: string;

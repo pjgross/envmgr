@@ -19,6 +19,7 @@ const ENTITY_LABELS: Record<string, string> = {
   'release-change': 'Release scope item',
   build: 'Builds',
   deployment: 'Deployments',
+  incident: 'Incidents',
 };
 
 // URL-style entity slug (dash) → internal EntityType (underscore) where they differ.
@@ -32,10 +33,11 @@ const ENTITY_SLUG_TO_TYPE: Record<string, EntityType> = {
   'release-change': 'release_change',
   build: 'build',
   deployment: 'deployment',
+  incident: 'incident',
 };
 
 // Entities whose Lifecycle tab is fully supported.
-const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request', 'release'];
+const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request', 'release', 'incident'];
 
 // Entities that have event types config.
 const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];

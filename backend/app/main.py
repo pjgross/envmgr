@@ -139,3 +139,7 @@ from app.api.v1 import deployments as deployments_router
 
 app.include_router(deployments_router.router, prefix="/api/v1/deployments", tags=["deployments"])
 app.include_router(deployments_router.env_sub_router, prefix="/api/v1/environments", tags=["deployments"])
+
+from app.api.v1 import incidents as incidents_router
+
+app.include_router(incidents_router.router, prefix="/api/v1")

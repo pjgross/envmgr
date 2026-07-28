@@ -57,6 +57,7 @@ from app.db.models.raid import (
     RaidItemRelation,
     RaidItemHistory,
 )
+from app.db.models.incident import Incident, IncidentStatusHistory  # noqa: F401
 
 # This will be expanded as we add more models
 __all__ = [
@@ -112,4 +113,6 @@ __all__ = [
     "RaidItemScopeLink",
     "RaidItemRelation",
     "RaidItemHistory",
+    "Incident",
+    "IncidentStatusHistory",
 ]
