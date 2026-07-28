@@ -21,6 +21,7 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InsightsIcon from '@mui/icons-material/Insights';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -49,6 +50,7 @@ export const navGroups: NavItem[] = [
     children: [
       { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
       { label: 'DORA Metrics', path: '/insights/dora', icon: <QueryStatsIcon /> },
+      { label: 'Environment Health', path: '/insights/health', icon: <HealthAndSafetyIcon /> },
     ],
   },
   {
