@@ -181,3 +181,110 @@ async def test_alert_truth_table(db_session, tenant, user):
     await svc.record_sample(db_session, tenant.id, e5.id, "down", "x", recorded_at=now)
     await _booking(db_session, tenant.id, user.id, e5.id, *win, status="draft")
     assert (await overview_for(e5))["alert"] is False
+
+
+@pytest.mark.asyncio
+async def test_issue_status_triggers_alert(db_session, tenant, user):
+    """An env with 'issue' sample + active booking + no outage => alert is True."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    win = (now - timedelta(hours=1), now + timedelta(hours=1))
+    env = await _env(db_session, tenant.id, "issue-env")
+    await svc.record_sample(db_session, tenant.id, env.id, "issue", "x", recorded_at=now)
+    await _booking(db_session, tenant.id, user.id, env.id, *win)
+    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    assert ov["alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_scheduled_window_fallback_suppresses_alert(db_session, tenant, user):
+    """CR with has_outage=True but outage_start/end=None; scheduled window covers now => planned outage => no alert."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    win = (now - timedelta(hours=1), now + timedelta(hours=1))
+    env = await _env(db_session, tenant.id, "fallback-env")
+    await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now)
+    await _booking(db_session, tenant.id, user.id, env.id, *win)
+    # CR with no outage window but scheduled window covers now
+    cr_tpl = await _ensure_cr_lifecycle(db_session, tenant.id)
+    cr = ChangeRequest(
+        tenant_id=tenant.id, title="Scheduled Outage CR", change_type="infrastructure",
+        status="approved", lifecycle_id=cr_tpl.id, has_outage=True,
+        outage_start=None, outage_end=None,
+        scheduled_start=win[0], scheduled_end=win[1],
+        raised_by=user.id,
+    )
+    db_session.add(cr)
+    await db_session.flush()
+    db_session.add(ChangeRequestEnvironment(
+        tenant_id=tenant.id, change_request_id=cr.id, environment_id=env.id,
+    ))
+    await db_session.flush()
+    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    assert ov["alert"] is False
+
+
+@pytest.mark.asyncio
+async def test_cancelled_cr_does_not_suppress_alert(db_session, tenant, user):
+    """A cancelled CR with has_outage=True does not count as planned outage => alert is True."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    win = (now - timedelta(hours=1), now + timedelta(hours=1))
+    env = await _env(db_session, tenant.id, "cancelled-cr-env")
+    await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now)
+    await _booking(db_session, tenant.id, user.id, env.id, *win)
+    await _cr_outage(db_session, tenant.id, user.id, env.id, *win, status="cancelled")
+    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    assert ov["alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_stale_sample_with_active_booking_no_alert(db_session, tenant, user):
+    """A down sample older than 15 min becomes 'unknown' => alert is False even with active booking."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    win = (now - timedelta(hours=1), now + timedelta(hours=1))
+    env = await _env(db_session, tenant.id, "stale-env")
+    # Record sample 20 minutes before now => stale
+    await svc.record_sample(db_session, tenant.id, env.id, "down", "x",
+                             recorded_at=now - timedelta(minutes=20))
+    await _booking(db_session, tenant.id, user.id, env.id, *win)
+    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    assert ov["current_status"] == "unknown"
+    assert ov["alert"] is False
+
+
+@pytest.mark.asyncio
+async def test_orphan_booking_still_counts_as_active(db_session, tenant, user):
+    """I-1 regression: booking whose request is soft-deleted still counts as active booking.
+    The outer join keeps the booking row; req is None so label falls back to 'Booking'."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    win = (now - timedelta(hours=1), now + timedelta(hours=1))
+    env = await _env(db_session, tenant.id, "orphan-env")
+    await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now)
+    booking = await _booking(db_session, tenant.id, user.id, env.id, *win)
+    # Soft-delete the booking request so the ON-clause filter excludes it (simulating orphan)
+    req = (await db_session.execute(
+        _sel(BookingRequest).where(BookingRequest.id == booking.booking_request_id)
+    )).scalar_one()
+    req.deleted_at = now
+    await db_session.flush()
+    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    # Booking still counted; fallback label used
+    assert ov["active_booking"] is True
+    assert ov["active_booking_summary"]["project_name"] == "Booking"
+    assert ov["alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_tenant_isolation_in_overview(db_session, tenant, user, second_tenant_factory):
+    """health_overview for tenant_A must not include environments from tenant_B."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    # tenant A env
+    env_a = await _env(db_session, tenant.id, "tenant-a-env")
+    await svc.record_sample(db_session, tenant.id, env_a.id, "down", "x", recorded_at=now)
+    # tenant B env
+    tenant_b, user_b = await second_tenant_factory("Isolation Org", "isolation-org")
+    env_b = await _env(db_session, tenant_b.id, "tenant-b-env")
+    await svc.record_sample(db_session, tenant_b.id, env_b.id, "down", "x", recorded_at=now)
+    # tenant A overview must not include env_b
+    ov_a = await svc.health_overview(db_session, tenant.id, now=now)
+    ids_in_a = {r["environment_id"] for r in ov_a}
+    assert env_a.id in ids_in_a
+    assert env_b.id not in ids_in_a

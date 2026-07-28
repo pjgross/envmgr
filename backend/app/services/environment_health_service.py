@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import HTTPException, status as http_status
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.booking import Booking
@@ -95,7 +95,11 @@ async def _active_booking(db, tenant_id, environment_id, now):
     Joins BookingRequest to retrieve the project_name."""
     rows = (await db.execute(
         select(Booking, BookingRequest)
-        .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
+        .outerjoin(BookingRequest, and_(
+            BookingRequest.id == Booking.booking_request_id,
+            BookingRequest.tenant_id == tenant_id,
+            BookingRequest.deleted_at.is_(None),
+        ))
         .where(
             Booking.tenant_id == tenant_id,
             Booking.environment_id == environment_id,
@@ -124,6 +128,7 @@ async def _planned_outage(db, tenant_id, environment_id, now):
         .where(
             ChangeRequest.tenant_id == tenant_id,
             ChangeRequestEnvironment.environment_id == environment_id,
+            ChangeRequestEnvironment.tenant_id == tenant_id,
             ChangeRequest.deleted_at.is_(None),
             ChangeRequest.has_outage.is_(True),
         )
