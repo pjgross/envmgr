@@ -30,7 +30,7 @@
 **Backend — create:**
 - `app/db/models/incident.py` — `Incident`, `IncidentStatusHistory`
 - `app/services/incident_defaults.py` — default `incident` lifecycle template + seed
-- `app/schemas/incident.py` — request/response schemas
+- `app/api/v1/schemas/incident.py` — request/response schemas
 - `app/services/incident_service.py` — business logic
 - `app/api/v1/incidents.py` — endpoints
 - `alembic/versions/<rev>_incident_tables.py` — migration
@@ -366,11 +366,11 @@ git commit -m "feat(incidents): default incident lifecycle template + tenant see
 ## Task 3: Pydantic schemas
 
 **Files:**
-- Create: `backend/app/schemas/incident.py`
+- Create: `backend/app/api/v1/schemas/incident.py`
 
 - [ ] **Step 1: Write the schemas**
 
-`backend/app/schemas/incident.py` (mirror the style of a sibling schema file such as `app/schemas/release.py` — `from_attributes = True` on response configs):
+`backend/app/api/v1/schemas/incident.py` (mirror the style of a sibling schema file such as `app/api/v1/schemas/release.py` — `from_attributes = True` on response configs):
 
 ```python
 from datetime import datetime
@@ -505,13 +505,13 @@ class IncidentDetail(BaseModel):
 
 - [ ] **Step 2: Verify it imports**
 
-Run: `python -c "import app.schemas.incident; print('ok')"`
+Run: `python -c "import app.api.v1.schemas.incident; print('ok')"`
 Expected: `ok`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add backend/app/schemas/incident.py
+git add backend/app/api/v1/schemas/incident.py
 git commit -m "feat(incidents): pydantic schemas (Phase 5 SP1)"
 ```
 
@@ -530,7 +530,7 @@ import pytest
 from datetime import datetime, timezone
 from app.services import incident_service
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
-from app.schemas.incident import IncidentCreate, IncidentUpdate
+from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
 
 
 @pytest.mark.asyncio
@@ -608,7 +608,7 @@ from app.db.models.environment import Environment
 from app.db.models.deployment import Deployment
 from app.db.models.release import Release
 from app.db.models.system import System, SubSystem
-from app.schemas.incident import IncidentCreate, IncidentUpdate
+from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
 from app.services import custom_field_service
 
 _FK_MODELS = {
@@ -771,7 +771,7 @@ git commit -m "feat(incidents): incident_service CRUD (Phase 5 SP1)"
 import pytest
 from app.services import incident_service
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
-from app.schemas.incident import IncidentCreate
+from app.api.v1.schemas.incident import IncidentCreate
 from fastapi import HTTPException
 
 
@@ -1028,7 +1028,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.services import incident_service
-from app.schemas.incident import (
+from app.api.v1.schemas.incident import (
     IncidentCreate, IncidentUpdate, IncidentTransition, IncidentDetail, IncidentListRow,
 )
 
