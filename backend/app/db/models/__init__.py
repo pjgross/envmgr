@@ -58,6 +58,7 @@ from app.db.models.raid import (
     RaidItemHistory,
 )
 from app.db.models.incident import Incident, IncidentStatusHistory  # noqa: F401
+from app.db.models.environment_health import EnvironmentHealthStatus  # noqa: F401
 
 # This will be expanded as we add more models
 __all__ = [
@@ -115,4 +116,5 @@ __all__ = [
     "RaidItemHistory",
     "Incident",
     "IncidentStatusHistory",
+    "EnvironmentHealthStatus",
 ]
