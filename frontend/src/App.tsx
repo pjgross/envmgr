@@ -41,6 +41,7 @@ import DeploymentList from './pages/deployments/DeploymentList';
 import DeploymentDetail from './pages/deployments/DeploymentDetail';
 import IncidentList from './pages/incidents/IncidentList';
 import IncidentForm from './pages/incidents/IncidentForm';
+import IncidentDetail from './pages/incidents/IncidentDetail';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
@@ -173,6 +174,7 @@ function App() {
           <Route path="/deployments/:id" element={<DeploymentDetail />} />
           <Route path="/incidents" element={<IncidentList />} />
           <Route path="/incidents/new" element={<IncidentForm />} />
+          <Route path="/incidents/:id" element={<IncidentDetail />} />
           <Route path="/incidents/:id/edit" element={<IncidentForm />} />
           <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
           <Route path="/import" element={<ImportPage />} />
