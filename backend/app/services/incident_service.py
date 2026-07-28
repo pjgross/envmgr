@@ -180,11 +180,13 @@ async def transition(db: AsyncSession, incident_id: int, to_state: str,
     return inc
 
 
-async def _name(db: AsyncSession, model, row_id: Optional[int]) -> Optional[str]:
-    """Fetch the .name attribute of any model row by id; returns None if missing."""
+async def _name(db: AsyncSession, model, row_id: Optional[int], tenant_id: int) -> Optional[str]:
+    """Fetch the .name attribute of any model row by id scoped to tenant; returns None if missing."""
     if row_id is None:
         return None
-    row = (await db.execute(select(model).where(model.id == row_id))).scalar_one_or_none()
+    row = (await db.execute(
+        select(model).where(model.id == row_id, model.tenant_id == tenant_id)
+    )).scalar_one_or_none()
     return getattr(row, "name", None) if row else None
 
 
@@ -217,6 +219,7 @@ async def get_incident_detail(
             select(ReleaseChange).where(
                 ReleaseChange.release_id == inc.fix_release_id,
                 ReleaseChange.tenant_id == tenant_id,
+                ReleaseChange.deleted_at.is_(None),
             ).order_by(ReleaseChange.id.asc())
         )).scalars().all()
         for rc in rows:
@@ -234,7 +237,7 @@ async def get_incident_detail(
         "source": inc.source,
         "external_ref": inc.external_ref,
         "environment_id": inc.environment_id,
-        "environment_name": await _name(db, Environment, inc.environment_id),
+        "environment_name": await _name(db, Environment, inc.environment_id, tenant_id),
         "deployment_id": inc.deployment_id,
         "release_id": inc.release_id,
         "release": await _release_summary(db, inc.release_id, tenant_id),
@@ -242,9 +245,9 @@ async def get_incident_detail(
         "fix_release": await _release_summary(db, inc.fix_release_id, tenant_id),
         "fix_release_changes_by_epic": changes_by_epic,
         "system_id": inc.system_id,
-        "system_name": await _name(db, System, inc.system_id),
+        "system_name": await _name(db, System, inc.system_id, tenant_id),
         "subsystem_id": inc.subsystem_id,
-        "subsystem_name": await _name(db, SubSystem, inc.subsystem_id),
+        "subsystem_name": await _name(db, SubSystem, inc.subsystem_id, tenant_id),
         "custom_fields": inc.custom_fields,
         "allowed_transitions": [{"to_state": t["to_state"], "label": t["label"]} for t in transitions],
         "status_history": await get_status_history(db, inc.id, tenant_id),
