@@ -43,6 +43,7 @@ import IncidentList from './pages/incidents/IncidentList';
 import IncidentForm from './pages/incidents/IncidentForm';
 import IncidentDetail from './pages/incidents/IncidentDetail';
 import DoraDashboard from './pages/insights/DoraDashboard';
+import HealthDashboard from './pages/insights/HealthDashboard';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
@@ -105,6 +106,7 @@ function App() {
         <Route element={isAuthenticated ? <AppLayout /> : <Navigate to="/login" />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/insights/dora" element={<DoraDashboard />} />
+          <Route path="/insights/health" element={<HealthDashboard />} />
           <Route
             path="/admin/tenants"
             element={

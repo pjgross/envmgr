@@ -81,6 +81,12 @@ app.include_router(admin_router.router, prefix="/api/v1/admin", tags=["Master Ad
 app.include_router(tenant_admin_router.router, prefix="/api/v1/tenant", tags=["Tenant Admin"])
 app.include_router(tenant_admin_fields_router.router, prefix="/api/v1/tenant", tags=["Tenant Admin"])
 app.include_router(systems_router.router, prefix="/api/v1/systems", tags=["Systems"])
+
+# Health router must be mounted BEFORE environments_router to prevent
+# /environments/{env_id} from shadowing /environments/health (literal vs int param).
+from app.api.v1 import environment_health as environment_health_router
+app.include_router(environment_health_router.router, prefix="/api/v1")
+
 app.include_router(environments_router.router, prefix="/api/v1/environments", tags=["Environments"])
 app.include_router(dependencies_router.router, prefix="/api/v1", tags=["Dependencies"])
 app.include_router(bookings_router.router, prefix="/api/v1/bookings", tags=["Bookings"])
