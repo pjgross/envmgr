@@ -24,10 +24,16 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 _UTC = timezone.utc
 
 
-def _as_dt(d: date | datetime) -> datetime:
-    """Convert a date or datetime to a UTC-aware datetime."""
+def _as_dt(d: date | datetime, *, end_of_day: bool = False) -> datetime:
+    """Convert a date or datetime to a UTC-aware datetime.
+
+    A plain `date` used as the inclusive upper bound (`end_of_day=True`) expands to the
+    last microsecond of that day, so the whole day's events fall within `<= date_to`.
+    """
     if isinstance(d, datetime):
         return d if d.tzinfo else d.replace(tzinfo=_UTC)
+    if end_of_day:
+        return datetime(d.year, d.month, d.day, 23, 59, 59, 999999, tzinfo=_UTC)
     return datetime(d.year, d.month, d.day, tzinfo=_UTC)
 
 
@@ -43,7 +49,7 @@ async def get_dora(
 ):
     return await dora_service.dora_summary(
         db, current_user.active_tenant_id,
-        _as_dt(date_from), _as_dt(date_to),
+        _as_dt(date_from), _as_dt(date_to, end_of_day=True),
         environment_id, release_id, granularity,
     )
 
@@ -60,7 +66,7 @@ async def export_dora(
 ):
     summary = await dora_service.dora_summary(
         db, current_user.active_tenant_id,
-        _as_dt(date_from), _as_dt(date_to),
+        _as_dt(date_from), _as_dt(date_to, end_of_day=True),
         environment_id, release_id, granularity,
     )
     buf = io.StringIO()
