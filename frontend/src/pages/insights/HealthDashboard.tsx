@@ -105,8 +105,7 @@ export default function HealthDashboard() {
         flex: 1,
         minWidth: 160,
         valueGetter: (params) => {
-          const summary = (params as { row: EnvironmentHealthOverviewRow }).row.active_booking_summary;
-          return summary?.project_name ?? '—';
+          return params.row.active_booking_summary?.project_name ?? '—';
         },
         renderCell: (params) => <span>{params.value as string}</span>,
       },
