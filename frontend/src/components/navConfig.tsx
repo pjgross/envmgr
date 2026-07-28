@@ -20,6 +20,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InsightsIcon from '@mui/icons-material/Insights';
+import BugReportIcon from '@mui/icons-material/BugReport';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -86,6 +87,7 @@ export const navGroups: NavItem[] = [
       },
       { label: 'Builds', path: '/builds', icon: <BuildIcon /> },
       { label: 'Deployments', path: '/deployments', icon: <RocketLaunchIcon /> },
+      { label: 'Incidents', path: '/incidents', icon: <BugReportIcon /> },
     ],
   },
   {

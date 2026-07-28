@@ -39,6 +39,7 @@ import BuildList from './pages/builds/BuildList';
 import BuildDetail from './pages/builds/BuildDetail';
 import DeploymentList from './pages/deployments/DeploymentList';
 import DeploymentDetail from './pages/deployments/DeploymentDetail';
+import IncidentList from './pages/incidents/IncidentList';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
@@ -169,6 +170,7 @@ function App() {
           <Route path="/builds/:id" element={<BuildDetail />} />
           <Route path="/deployments" element={<DeploymentList />} />
           <Route path="/deployments/:id" element={<DeploymentDetail />} />
+          <Route path="/incidents" element={<IncidentList />} />
           <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
           <Route path="/import" element={<ImportPage />} />
           <Route
