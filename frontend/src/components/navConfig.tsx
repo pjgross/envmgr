@@ -48,7 +48,7 @@ export const navGroups: NavItem[] = [
     defaultOpen: true,
     children: [
       { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-      { label: 'DORA Metrics', path: '/insights/dora', icon: <QueryStatsIcon />, comingSoon: true },
+      { label: 'DORA Metrics', path: '/insights/dora', icon: <QueryStatsIcon /> },
     ],
   },
   {
