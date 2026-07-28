@@ -151,3 +151,55 @@ async def change_failure_rate(
             failed += 1
     rate = (failed / shipped) if shipped else 0.0
     return {"rate": rate, "failed_count": failed, "shipped_count": shipped}
+
+
+async def mttr(
+    db: AsyncSession, tenant_id: int, date_from: datetime, date_to: datetime,
+    environment_id: Optional[int] = None, release_id: Optional[int] = None,
+    granularity: str = "week",
+) -> dict:
+    # NOTE: environment_id is accepted for signature symmetry with the other calculators
+    # but is intentionally ignored — incidents are not environment-filtered in this sub-project.
+    conds = [
+        Incident.tenant_id == tenant_id, Incident.deleted_at.is_(None),
+        Incident.resolved_at.isnot(None),
+        Incident.resolved_at >= date_from, Incident.resolved_at <= date_to,
+    ]
+    if release_id is not None:
+        conds.append(Incident.release_id == release_id)
+    rows = (await db.execute(
+        select(Incident.detected_at, Incident.resolved_at).where(*conds)
+    )).all()
+    per_bucket: dict[str, list[float]] = {}
+    vals: list[float] = []
+    for detected_at, resolved_at in rows:
+        # SQLite returns naive datetimes; normalise to UTC for comparison.
+        if detected_at is not None and detected_at.tzinfo is None:
+            from datetime import timezone as _tz
+            detected_at = detected_at.replace(tzinfo=_tz.utc)
+        if resolved_at is not None and resolved_at.tzinfo is None:
+            from datetime import timezone as _tz
+            resolved_at = resolved_at.replace(tzinfo=_tz.utc)
+        secs = max(0.0, (resolved_at - detected_at).total_seconds())
+        vals.append(secs)
+        per_bucket.setdefault(_bucket_start(resolved_at, granularity), []).append(secs)
+    series = [{"period": k, "mean_seconds": sum(v) / len(v)} for k, v in sorted(per_bucket.items())]
+    return {
+        "mean_seconds": (sum(vals) / len(vals)) if vals else 0,
+        "median_seconds": median(sorted(vals)) if vals else 0,
+        "count": len(vals),
+        "series": series,
+    }
+
+
+async def dora_summary(
+    db: AsyncSession, tenant_id: int, date_from: datetime, date_to: datetime,
+    environment_id: Optional[int] = None, release_id: Optional[int] = None,
+    granularity: str = "week",
+) -> dict:
+    return {
+        "deployment_frequency": await deployment_frequency(db, tenant_id, date_from, date_to, environment_id, release_id, granularity),
+        "lead_time": await lead_time(db, tenant_id, date_from, date_to, environment_id, release_id, granularity),
+        "change_failure_rate": await change_failure_rate(db, tenant_id, date_from, date_to, environment_id, release_id),
+        "mttr": await mttr(db, tenant_id, date_from, date_to, environment_id, release_id, granularity),
+    }

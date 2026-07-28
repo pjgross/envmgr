@@ -161,3 +161,29 @@ async def test_cfr_zero_when_no_shipped(db_session, tenant):
     t0 = datetime(2026, 6, 1, tzinfo=UTC)
     res = await dora_service.change_failure_rate(db_session, tenant.id, t0, t0 + timedelta(days=1))
     assert res == {"rate": 0.0, "failed_count": 0, "shipped_count": 0}
+
+
+# ---------------------------------------------------------------------------
+# Task 4: MTTR + dora_summary tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_mttr_mean_over_resolved_in_window(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    db_session.add(Incident(tenant_id=tenant.id, title="a", severity="P1", status="resolved",
+                            detected_at=t0, resolved_at=t0 + timedelta(hours=2), source="manual"))
+    db_session.add(Incident(tenant_id=tenant.id, title="b", severity="P2", status="resolved",
+                            detected_at=t0, resolved_at=t0 + timedelta(hours=4), source="manual"))
+    db_session.add(Incident(tenant_id=tenant.id, title="c", severity="P3", status="new",
+                            detected_at=t0, resolved_at=None, source="manual"))  # unresolved -> excluded
+    await db_session.flush()
+    res = await dora_service.mttr(db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=1))
+    assert res["count"] == 2
+    assert res["mean_seconds"] == 3 * 3600
+
+
+@pytest.mark.asyncio
+async def test_summary_bundles_all_four(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    res = await dora_service.dora_summary(db_session, tenant.id, t0, t0 + timedelta(days=1))
+    assert set(res) == {"deployment_frequency", "lead_time", "change_failure_rate", "mttr"}
