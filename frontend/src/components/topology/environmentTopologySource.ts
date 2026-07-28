@@ -2,6 +2,7 @@ import type { EnvironmentTopologyData } from '../../types/environment';
 import type { VisibilityInput } from './topologyVisibility';
 import type { Grouping } from './topologyModel';
 import type { TopologySource } from './topologySource';
+import type { HostGroupMeta } from './topologyHostTransform';
 
 /** Full-graph source backed by the environment topology API response. */
 export function fromEnvironmentTopologyResponse(data: EnvironmentTopologyData): TopologySource {
@@ -32,5 +33,20 @@ export function byEnvSystem(
       const name = systemNames[key] ?? `System ${key}`;
       return { name: inEnv ? name : `${name} — not in environment`, isCurrent: inEnv };
     },
+  };
+}
+
+/**
+ * Environment grouping by deployment host. Keys come from `buildHostGraph`'s
+ * `hostKeyById` (synthetic node id -> host key); labels/current-ness from `hostMeta`.
+ * Unknown nodes fall back to the "unassigned" bucket.
+ */
+export function byHost(
+  hostKeyById: Map<number, string>,
+  hostMeta: Map<string, HostGroupMeta>,
+): Grouping {
+  return {
+    keyOf: (s) => hostKeyById.get(s.id) ?? 'unassigned',
+    meta: (key) => hostMeta.get(key) ?? { name: key, isCurrent: false },
   };
 }

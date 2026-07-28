@@ -89,6 +89,13 @@ export interface EnvironmentSubsystemUpdate {
   custom_fields?: Record<string, unknown> | null;
 }
 
+export interface EnvSubsystemHostRef {
+  infrastructure_component_id: number;
+  name: string;
+  component_type: string;
+  role: string | null;
+}
+
 export interface EnvSubsystemNode {
   id: number;
   name: string;
@@ -96,6 +103,7 @@ export interface EnvSubsystemNode {
   technology: string | null;
   system_id: number;
   is_mocked: boolean;
+  hosts: EnvSubsystemHostRef[]; // [] for outside subsystems
 }
 
 import type { ComponentDependencyResponse } from './dependency';

@@ -1,4 +1,5 @@
 import type { DependencyDirection } from '../../types/dependency';
+import type { EnvSubsystemHostRef } from '../../types/environment';
 
 /** Minimal-but-render-sufficient subsystem shape for visibility filtering. */
 export interface VisibleSubsystem {
@@ -8,6 +9,7 @@ export interface VisibleSubsystem {
   component_type: string;
   technology: string | null;
   is_mocked?: boolean;
+  hosts?: EnvSubsystemHostRef[]; // present only for environment subsystems
 }
 
 /** Minimal-but-render-sufficient dependency shape for visibility filtering. */
