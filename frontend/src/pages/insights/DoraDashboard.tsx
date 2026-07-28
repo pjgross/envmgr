@@ -4,6 +4,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -13,6 +14,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Snackbar,
   TextField,
   Typography,
 } from '@mui/material';
@@ -100,6 +102,8 @@ export default function DoraDashboard() {
   const [granularity, setGranularity] = useState<'day' | 'week' | 'month'>('week');
 
   const [data, setData] = useState<DoraSummary | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState(false);
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
   const [releases, setReleases] = useState<ReleaseListItemResponse[]>([]);
 
@@ -112,24 +116,29 @@ export default function DoraDashboard() {
   // Fetch DORA summary whenever filters change
   useEffect(() => {
     const params: DoraParams = {
-      date_from: new Date(`${from}T00:00:00Z`).toISOString(),
-      date_to: new Date(`${to}T23:59:59Z`).toISOString(),
+      date_from: from,
+      date_to: to,
       granularity,
     };
     if (environmentId !== undefined) params.environment_id = environmentId;
     if (releaseOption) params.release_id = releaseOption.id;
 
+    setFetchError(null);
     doraService
       .getSummary(params)
-      .then(setData)
-      .catch(() => setData(null));
+      .then((d) => { setData(d); setFetchError(null); })
+      .catch((err: unknown) => {
+        setData(null);
+        const msg = err instanceof Error ? err.message : 'Failed to load DORA metrics';
+        setFetchError(msg);
+      });
   }, [from, to, environmentId, releaseOption, granularity]);
 
   // Build current params for export
   const currentParams = useMemo((): DoraParams => {
     const p: DoraParams = {
-      date_from: new Date(`${from}T00:00:00Z`).toISOString(),
-      date_to: new Date(`${to}T23:59:59Z`).toISOString(),
+      date_from: from,
+      date_to: to,
       granularity,
     };
     if (environmentId !== undefined) p.environment_id = environmentId;
@@ -151,7 +160,7 @@ export default function DoraDashboard() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      // silently ignore export errors; the table data is still available
+      setExportError(true);
     }
   };
 
@@ -319,6 +328,23 @@ export default function DoraDashboard() {
           Export CSV
         </Button>
       </Box>
+
+      {fetchError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {fetchError}
+        </Alert>
+      )}
+
+      <Snackbar
+        open={exportError}
+        autoHideDuration={4000}
+        onClose={() => setExportError(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setExportError(false)}>
+          CSV export failed. Please try again.
+        </Alert>
+      </Snackbar>
 
       {data && (
         <>

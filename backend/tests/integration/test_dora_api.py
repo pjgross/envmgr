@@ -83,6 +83,40 @@ async def test_dora_export_csv(authed_client):
 
 
 @pytest.mark.asyncio
+async def test_plain_date_params_and_end_of_day_inclusive(authed_client, db_session, tenant):
+    """Regression: UI sends plain YYYY-MM-DD strings; date_to is inclusive of the full day.
+
+    A deployment at 23:00 on date_to must be counted (end_of_day=True in _as_dt).
+    This documents the UI→API contract fixed in Phase 5 SP2.
+    """
+    UTC = timezone.utc
+    commit_dt = datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC)
+    # deployed_at is intentionally late on the last day of the window
+    deploy_dt = datetime(2026, 6, 15, 23, 0, 0, tzinfo=UTC)
+
+    b = await _build(db_session, tenant.id, commit_dt, subsystem_id=1)
+    await _deploy(db_session, tenant.id, b.id, 1, deploy_dt, "success")
+    await db_session.flush()
+
+    r = await authed_client.get(
+        "/api/v1/metrics/dora",
+        params={"date_from": "2026-06-01", "date_to": "2026-06-15"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["deployment_frequency"]["total"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_granularity_returns_422(authed_client):
+    """Granularity must be one of day/week/month; bad values should 422."""
+    r = await authed_client.get(
+        "/api/v1/metrics/dora",
+        params={"date_from": "2026-06-01", "date_to": "2026-06-15", "granularity": "year"},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_dora_is_tenant_scoped(authed_client, db_session, tenant):
     """
     A success deployment belonging to a second tenant must not appear in

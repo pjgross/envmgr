@@ -10,6 +10,7 @@ before being forwarded to the service layer.
 import csv
 import io
 from datetime import date, datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -43,7 +44,7 @@ async def get_dora(
     date_to: date = Query(...),
     environment_id: int | None = None,
     release_id: int | None = None,
-    granularity: str = "week",
+    granularity: Literal["day", "week", "month"] = "week",
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -60,7 +61,7 @@ async def export_dora(
     date_to: date = Query(...),
     environment_id: int | None = None,
     release_id: int | None = None,
-    granularity: str = "week",
+    granularity: Literal["day", "week", "month"] = "week",
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
