@@ -10,6 +10,7 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
 from app.db.models.deployment import Deployment
 from app.db.models.release import Release
+from app.db.models.release_change import ReleaseChange
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
 from app.services import custom_field_service, lifecycle_service
@@ -177,3 +178,74 @@ async def transition(db: AsyncSession, incident_id: int, to_state: str,
     ))
     await db.flush()
     return inc
+
+
+async def _name(db: AsyncSession, model, row_id: Optional[int]) -> Optional[str]:
+    """Fetch the .name attribute of any model row by id; returns None if missing."""
+    if row_id is None:
+        return None
+    row = (await db.execute(select(model).where(model.id == row_id))).scalar_one_or_none()
+    return getattr(row, "name", None) if row else None
+
+
+async def _release_summary(db: AsyncSession, release_id: Optional[int], tenant_id: int) -> Optional[dict]:
+    """Return a lightweight release dict for the schemas.ReleaseSummary shape."""
+    if release_id is None:
+        return None
+    r = (await db.execute(
+        select(Release).where(Release.id == release_id, Release.tenant_id == tenant_id)
+    )).scalar_one_or_none()
+    if r is None:
+        return None
+    return {"id": r.id, "name": r.name, "target_date": r.target_date, "status": r.status}
+
+
+async def get_incident_detail(
+    db: AsyncSession, incident_id: int, tenant_id: int, user_role: str
+) -> Optional[dict]:
+    """Return a fully-hydrated detail dict matching the IncidentDetail schema."""
+    inc = await get_incident(db, incident_id, tenant_id)
+    if inc is None:
+        return None
+    tpl = await _resolve_template(db, inc.lifecycle_template_id, tenant_id)
+    transitions = lifecycle_service.get_allowed_transitions(tpl.definition, inc.status, user_role)
+
+    # Group fix-release changes by epic_id (stringified), ungrouped when None
+    changes_by_epic: dict[str, list] = {}
+    if inc.fix_release_id is not None:
+        rows = (await db.execute(
+            select(ReleaseChange).where(
+                ReleaseChange.release_id == inc.fix_release_id,
+                ReleaseChange.tenant_id == tenant_id,
+            ).order_by(ReleaseChange.id.asc())
+        )).scalars().all()
+        for rc in rows:
+            key = str(rc.epic_id) if rc.epic_id is not None else "ungrouped"
+            changes_by_epic.setdefault(key, []).append(rc)
+
+    return {
+        "id": inc.id,
+        "title": inc.title,
+        "description": inc.description,
+        "severity": inc.severity,
+        "status": inc.status,
+        "detected_at": inc.detected_at,
+        "resolved_at": inc.resolved_at,
+        "source": inc.source,
+        "external_ref": inc.external_ref,
+        "environment_id": inc.environment_id,
+        "environment_name": await _name(db, Environment, inc.environment_id),
+        "deployment_id": inc.deployment_id,
+        "release_id": inc.release_id,
+        "release": await _release_summary(db, inc.release_id, tenant_id),
+        "fix_release_id": inc.fix_release_id,
+        "fix_release": await _release_summary(db, inc.fix_release_id, tenant_id),
+        "fix_release_changes_by_epic": changes_by_epic,
+        "system_id": inc.system_id,
+        "system_name": await _name(db, System, inc.system_id),
+        "subsystem_id": inc.subsystem_id,
+        "subsystem_name": await _name(db, SubSystem, inc.subsystem_id),
+        "custom_fields": inc.custom_fields,
+        "allowed_transitions": [{"to_state": t["to_state"], "label": t["label"]} for t in transitions],
+        "status_history": await get_status_history(db, inc.id, tenant_id),
+    }
