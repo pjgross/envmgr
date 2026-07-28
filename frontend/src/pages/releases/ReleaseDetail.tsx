@@ -2,8 +2,8 @@
  * ReleaseDetail — full-page view for an existing release with tabs:
  *   0: Main (lifecycle, fields, transitions)
  *   1: Gates & Test Phases
- *   2: Environments
- *   3: Systems
+ *   2: Systems
+ *   3: Environments
  *   4: Linked Requests
  *   5: Scope
  *   6: RAID
@@ -150,8 +150,8 @@ export default function ReleaseDetail() {
         >
           <Tab label="Main" />
           <Tab label="Gates & Test Phases" />
-          <Tab label="Environments" />
           <Tab label="Systems" />
+          <Tab label="Environments" />
           <Tab label="Linked Requests" />
           <Tab label="Scope" />
           <Tab label="RAID" />
@@ -163,8 +163,8 @@ export default function ReleaseDetail() {
       {/* Tab content */}
       {activeTab === 0 && <ReleaseMainTab releaseId={releaseId} />}
       {activeTab === 1 && <ReleasePlanTab releaseId={releaseId} />}
-      {activeTab === 2 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
-      {activeTab === 3 && <ReleaseSystemsTab releaseId={releaseId} />}
+      {activeTab === 2 && <ReleaseSystemsTab releaseId={releaseId} />}
+      {activeTab === 3 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
       {activeTab === 4 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
       {activeTab === 5 && <ReleaseScopeTab releaseId={releaseId} />}
       {activeTab === 6 && <RaidTab releaseId={releaseId} />}
