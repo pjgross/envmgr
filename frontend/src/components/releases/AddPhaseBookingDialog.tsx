@@ -17,6 +17,7 @@ import { AppDispatch, RootState } from '../../store';
 import { fetchEnvironments } from '../../store/environmentSlice';
 import { releaseService } from '../../services/releaseService';
 import { bookingLifecycleService } from '../../services/bookingLifecycleService';
+import { phaseBookingDefaults } from './phaseBookingDefaults';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import type { TestPhaseResponse } from '../../types/release';
 import type { BookingTypeRecord } from '../../types/bookingLifecycle';
@@ -41,6 +42,7 @@ export default function AddPhaseBookingDialog({
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const environments = useSelector((s: RootState) => s.environment.environments);
+  const releaseName = useSelector((s: RootState) => s.release.detail?.name ?? '');
 
   const [bookingTypes, setBookingTypes] = useState<BookingTypeRecord[]>([]);
   const [envId, setEnvId] = useState<number | ''>('');
@@ -78,6 +80,19 @@ export default function AddPhaseBookingDialog({
     if (submitting) return;
     resetForm();
     onClose();
+  };
+
+  // Choosing a phase defaults the project name and dates from that phase.
+  const handlePhaseChange = (value: string) => {
+    const id = value === '' ? '' : Number(value);
+    setPhaseId(id);
+    if (id === '') return;
+    const phase = phases.find((p) => p.id === id);
+    if (!phase) return;
+    const defaults = phaseBookingDefaults(phase, releaseName);
+    setProjectName(defaults.projectName);
+    if (defaults.startDate) setStartDate(defaults.startDate);
+    if (defaults.endDate) setEndDate(defaults.endDate);
   };
 
   const handleSubmit = async () => {
@@ -140,9 +155,7 @@ export default function AddPhaseBookingDialog({
             label="Test Phase (optional)"
             fullWidth
             value={phaseId}
-            onChange={(e) =>
-              setPhaseId(e.target.value === '' ? '' : Number(e.target.value))
-            }
+            onChange={(e) => handlePhaseChange(e.target.value)}
           >
             <MenuItem value="">None</MenuItem>
             {phases.map((p) => (

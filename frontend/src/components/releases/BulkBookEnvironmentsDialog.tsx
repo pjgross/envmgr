@@ -13,6 +13,7 @@ import { fetchEnvironments } from '../../store/environmentSlice';
 import { releaseService } from '../../services/releaseService';
 import { bookingRequestService } from '../../services/bookingRequestService';
 import { bookingLifecycleService } from '../../services/bookingLifecycleService';
+import { phaseBookingDefaults } from './phaseBookingDefaults';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import type { TestPhaseResponse, BulkBookResultResponse } from '../../types/release';
 import type { BookingTypeRecord } from '../../types/bookingLifecycle';
@@ -33,6 +34,7 @@ export default function BulkBookEnvironmentsDialog({
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const environments = useSelector((s: RootState) => s.environment.environments);
+  const releaseName = useSelector((s: RootState) => s.release.detail?.name ?? '');
 
   const [bookingTypes, setBookingTypes] = useState<BookingTypeRecord[]>([]);
   const [phaseId, setPhaseId] = useState<number | ''>('');
@@ -66,6 +68,19 @@ export default function BulkBookEnvironmentsDialog({
     environments.forEach((e) => m.set(e.id, e.name));
     return (id: number) => m.get(id) ?? `#${id}`;
   }, [environments]);
+
+  // Choosing a phase defaults the project name and dates from that phase.
+  const handlePhaseChange = (value: string) => {
+    const id = value === '' ? '' : Number(value);
+    setPhaseId(id);
+    if (id === '') return;
+    const phase = phases.find((p) => p.id === id);
+    if (!phase) return;
+    const defaults = phaseBookingDefaults(phase, releaseName);
+    setProjectName(defaults.projectName);
+    if (defaults.startDate) setStartDate(defaults.startDate);
+    if (defaults.endDate) setEndDate(defaults.endDate);
+  };
 
   const canPreview = !!startDate && !!endDate && environmentIds.length > 0;
   const canSubmit = canPreview && !!bookingTypeId && !!projectName.trim();
@@ -133,7 +148,7 @@ export default function BulkBookEnvironmentsDialog({
           </Box>
 
           <TextField select label="Test Phase (optional)" fullWidth value={phaseId}
-            onChange={(e) => setPhaseId(e.target.value === '' ? '' : Number(e.target.value))}>
+            onChange={(e) => handlePhaseChange(e.target.value)}>
             <MenuItem value="">None</MenuItem>
             {phases.map((p) => (<MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>))}
           </TextField>
