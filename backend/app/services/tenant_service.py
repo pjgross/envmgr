@@ -6,6 +6,7 @@ from app.db.models.user import Tenant
 from app.api.v1.schemas import TenantCreate, TenantUpdate
 from app.services import change_request_service, scope_change_rule_service, raid_config_service
 from app.services.release_defaults import seed_release_defaults_for_tenant
+from app.services.incident_defaults import seed_incident_defaults_for_tenant
 
 
 async def list_tenants(db: AsyncSession) -> list[Tenant]:
@@ -38,6 +39,8 @@ async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
     await scope_change_rule_service.seed_default_rules(db, tenant.id)
     # Seed default RAID probability/impact scales and RAG bands.
     await raid_config_service.seed_default_config(db, tenant.id)
+    # Seed default incident lifecycle template.
+    await seed_incident_defaults_for_tenant(db, tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return tenant
