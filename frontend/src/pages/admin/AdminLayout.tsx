@@ -19,6 +19,7 @@ import CategoryIcon from '@mui/icons-material/Category';
 import BuildIcon from '@mui/icons-material/Build';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import BugReportIcon from '@mui/icons-material/BugReport';
 
 const DRAWER_WIDTH = 220;
 
@@ -67,6 +68,11 @@ const entityNavItems = [
     label: 'Deployments',
     path: '/admin/config/deployment',
     icon: <BuildIcon fontSize="small" />,
+  },
+  {
+    label: 'Incidents',
+    path: '/admin/config/incident',
+    icon: <BugReportIcon fontSize="small" />,
   },
   {
     label: 'Scope change rules',

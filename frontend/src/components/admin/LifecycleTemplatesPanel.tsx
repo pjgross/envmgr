@@ -82,6 +82,13 @@ const STANDARD_FIELDS_BY_ENTITY: Partial<Record<EntityType, StandardField[]>> = 
     { key: 'target_date', label: 'Target Date', mandatory: false },
     { key: 'actual_date', label: 'Actual Date', mandatory: false },
   ],
+  incident: [
+    { key: 'title', label: 'Title', mandatory: true },
+    { key: 'severity', label: 'Severity', mandatory: true },
+    { key: 'detected_at', label: 'Detected At', mandatory: true },
+    { key: 'description', label: 'Description', mandatory: false },
+    { key: 'resolved_at', label: 'Resolved At', mandatory: false },
+  ],
 };
 
 interface StateRow {
