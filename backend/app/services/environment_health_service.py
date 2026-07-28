@@ -5,6 +5,9 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.booking import Booking
+from app.db.models.booking_request import BookingRequest
+from app.db.models.change_request import ChangeRequest, ChangeRequestEnvironment
 from app.db.models.environment import Environment
 from app.db.models.environment_health import EnvironmentHealthStatus
 
@@ -86,9 +89,50 @@ async def health_overview(db: AsyncSession, tenant_id: int, now: Optional[dateti
     return rows
 
 
-async def _active_booking(db, tenant_id, environment_id, now):  # replaced in Task 4
+async def _active_booking(db, tenant_id, environment_id, now):
+    """Return a booking-summary dict if there is an active (non-draft/cancelled/rejected)
+    booking whose window covers `now`, otherwise None.
+    Joins BookingRequest to retrieve the project_name."""
+    rows = (await db.execute(
+        select(Booking, BookingRequest)
+        .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.environment_id == environment_id,
+            Booking.deleted_at.is_(None),
+        )
+    )).all()
+    for booking, req in rows:
+        if booking.status in INACTIVE_BOOKING_STATUSES:
+            continue
+        start, end = _utc(booking.start_date), _utc(booking.end_date)
+        if start and end and start <= now <= end:
+            return {
+                "project_name": req.project_name if req else "Booking",
+                "start_date": start,
+                "end_date": end,
+            }
     return None
 
 
-async def _planned_outage(db, tenant_id, environment_id, now):  # replaced in Task 4
+async def _planned_outage(db, tenant_id, environment_id, now):
+    """Return True if there is a non-cancelled/rejected ChangeRequest with has_outage=True
+    linked to environment_id whose outage window (falling back to scheduled window) covers `now`."""
+    rows = (await db.execute(
+        select(ChangeRequest)
+        .join(ChangeRequestEnvironment, ChangeRequestEnvironment.change_request_id == ChangeRequest.id)
+        .where(
+            ChangeRequest.tenant_id == tenant_id,
+            ChangeRequestEnvironment.environment_id == environment_id,
+            ChangeRequest.deleted_at.is_(None),
+            ChangeRequest.has_outage.is_(True),
+        )
+    )).scalars().all()
+    for cr in rows:
+        if cr.status in INACTIVE_CR_STATUSES:
+            continue
+        start = _utc(cr.outage_start) or _utc(cr.scheduled_start)
+        end = _utc(cr.outage_end) or _utc(cr.scheduled_end)
+        if start and end and start <= now <= end:
+            return True
     return False
