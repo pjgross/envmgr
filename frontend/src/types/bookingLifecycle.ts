@@ -4,6 +4,8 @@ export interface LifecycleState {
   is_initial: boolean;
   is_terminal: boolean;
   is_admission_lockdown?: boolean;
+  /** When true, reaching this terminal state counts as a release failure for CFR. */
+  is_failed?: boolean;
 }
 
 export interface LifecycleTransition {

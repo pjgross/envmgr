@@ -143,3 +143,7 @@ app.include_router(deployments_router.env_sub_router, prefix="/api/v1/environmen
 from app.api.v1 import incidents as incidents_router
 
 app.include_router(incidents_router.router, prefix="/api/v1")
+
+from app.api.v1 import metrics as metrics_router
+
+app.include_router(metrics_router.router, prefix="/api/v1")

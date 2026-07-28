@@ -97,6 +97,7 @@ interface StateRow {
   is_initial: boolean;
   is_terminal: boolean;
   is_admission_lockdown: boolean;
+  is_failed?: boolean;
 }
 
 interface TransitionRow {
@@ -117,6 +118,7 @@ const emptyState = (): StateRow => ({
   is_initial: false,
   is_terminal: false,
   is_admission_lockdown: false,
+  is_failed: false,
 });
 const emptyTransition = (): TransitionRow => ({
   from_state: '',
@@ -246,6 +248,7 @@ export default function LifecycleTemplatesPanel({
         is_initial: s.is_initial,
         is_terminal: s.is_terminal,
         is_admission_lockdown: s.is_admission_lockdown ?? false,
+        is_failed: s.is_failed ?? false,
       }))
     );
     setTransitions(
@@ -326,6 +329,7 @@ export default function LifecycleTemplatesPanel({
         is_initial: s.is_initial,
         is_terminal: s.is_terminal,
         ...(isEnterprise ? { is_admission_lockdown: s.is_admission_lockdown } : {}),
+        ...(s.is_terminal && s.is_failed ? { is_failed: true } : {}),
       })),
       transitions: transitions.map((t) => ({
         from_state: t.from_state,
@@ -700,6 +704,18 @@ export default function LifecycleTemplatesPanel({
                   }
                   label="Terminal"
                 />
+                {s.is_terminal && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={s.is_failed ?? false}
+                        onChange={(e) => updateState(i, { is_failed: e.target.checked })}
+                      />
+                    }
+                    label="Counts as failure"
+                  />
+                )}
                 <IconButton size="small" onClick={() => removeState(i)}>
                   <DeleteIcon fontSize="small" />
                 </IconButton>
