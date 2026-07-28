@@ -110,6 +110,9 @@ async def test_create_tenant_calls_db_add_and_commit():
     ), patch(
         "app.services.raid_config_service.seed_default_config",
         new=AsyncMock(),
+    ), patch(
+        "app.services.tenant_service.seed_incident_defaults_for_tenant",
+        new=AsyncMock(),
     ):
         await create_tenant(db, data)
 
@@ -149,6 +152,9 @@ async def test_create_tenant_uses_correct_fields():
         new=AsyncMock(),
     ), patch(
         "app.services.raid_config_service.seed_default_config",
+        new=AsyncMock(),
+    ), patch(
+        "app.services.tenant_service.seed_incident_defaults_for_tenant",
         new=AsyncMock(),
     ):
         await create_tenant(db, data)
