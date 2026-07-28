@@ -61,6 +61,7 @@ import ComponentTypeAssignDialog from '../../components/environments/ComponentTy
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import EnvironmentSchedule from './EnvironmentSchedule';
 import EnvironmentDeploymentsTab from './EnvironmentDeploymentsTab';
+import EnvironmentHealthTab from '../../components/environments/EnvironmentHealthTab';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -614,6 +615,7 @@ export default function EnvironmentDetail() {
         <Tab label="Topology" />
         <Tab label="Schedule" />
         <Tab label="Deployments" />
+        <Tab label="Health" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -965,6 +967,9 @@ export default function EnvironmentDetail() {
 
       {/* Deployments Tab */}
       {tab === 5 && <EnvironmentDeploymentsTab envId={envId} />}
+
+      {/* Health Tab */}
+      {tab === 6 && <EnvironmentHealthTab envId={envId} />}
 
       {/* Edit Version Dialog */}
       <Dialog
