@@ -12,7 +12,7 @@ from app.db.models.deployment import Deployment
 from app.db.models.release import Release
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
-from app.services import custom_field_service
+from app.services import custom_field_service, lifecycle_service
 
 _FK_MODELS = {
     "environment_id": Environment,
@@ -146,3 +146,34 @@ async def get_status_history(db: AsyncSession, incident_id: int, tenant_id: int)
             IncidentStatusHistory.tenant_id == tenant_id,
         ).order_by(IncidentStatusHistory.changed_at.asc())
     )).scalars().all())
+
+
+async def transition(db: AsyncSession, incident_id: int, to_state: str,
+                     tenant_id: int, user_id: int, user_role: str) -> Incident:
+    inc = await get_incident(db, incident_id, tenant_id)
+    if inc is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    tpl = await _resolve_template(db, inc.lifecycle_template_id, tenant_id)
+    record_values = {
+        "title": inc.title, "description": inc.description, "severity": inc.severity,
+        "custom_fields": inc.custom_fields or {},
+    }
+    ok, reason = lifecycle_service.validate_transition(
+        tpl.definition, inc.status, to_state, user_role, record_values
+    )
+    if not ok:
+        raise HTTPException(status_code=422, detail=reason)
+    from_state = inc.status
+    inc.status = to_state
+    resolved_keys = {s["key"] for s in tpl.definition["states"] if s.get("is_resolved")}
+    now = datetime.now(timezone.utc)
+    if to_state in resolved_keys:
+        inc.resolved_at = now
+    elif from_state in resolved_keys:
+        inc.resolved_at = None
+    db.add(IncidentStatusHistory(
+        tenant_id=tenant_id, incident_id=inc.id, from_state=from_state, to_state=to_state,
+        changed_by=user_id, changed_at=now,
+    ))
+    await db.flush()
+    return inc
