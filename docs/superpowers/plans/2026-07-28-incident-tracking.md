@@ -901,10 +901,12 @@ Expected: FAIL — no attribute `get_incident_detail`.
 - [ ] **Step 3: Implement `get_incident_detail`** — append to `incident_service.py` (add imports: `from app.db.models.release_change import ReleaseChange`):
 
 ```python
-async def _name(db, model, row_id):
+async def _name(db, model, row_id, tenant_id):
     if row_id is None:
         return None
-    row = (await db.execute(select(model).where(model.id == row_id))).scalar_one_or_none()
+    row = (await db.execute(
+        select(model).where(model.id == row_id, model.tenant_id == tenant_id)
+    )).scalar_one_or_none()
     return getattr(row, "name", None) if row else None
 
 
@@ -929,6 +931,7 @@ async def get_incident_detail(db: AsyncSession, incident_id: int, tenant_id: int
         rows = (await db.execute(select(ReleaseChange).where(
             ReleaseChange.release_id == inc.fix_release_id,
             ReleaseChange.tenant_id == tenant_id,
+            ReleaseChange.deleted_at.is_(None),
         ).order_by(ReleaseChange.id.asc()))).scalars().all()
         for rc in rows:
             changes_by_epic.setdefault(str(rc.epic_id) if rc.epic_id is not None else "ungrouped", []).append(rc)
@@ -937,13 +940,13 @@ async def get_incident_detail(db: AsyncSession, incident_id: int, tenant_id: int
         "id": inc.id, "title": inc.title, "description": inc.description, "severity": inc.severity,
         "status": inc.status, "detected_at": inc.detected_at, "resolved_at": inc.resolved_at,
         "source": inc.source, "external_ref": inc.external_ref,
-        "environment_id": inc.environment_id, "environment_name": await _name(db, Environment, inc.environment_id),
+        "environment_id": inc.environment_id, "environment_name": await _name(db, Environment, inc.environment_id, tenant_id),
         "deployment_id": inc.deployment_id,
         "release_id": inc.release_id, "release": await _release_summary(db, inc.release_id, tenant_id),
         "fix_release_id": inc.fix_release_id, "fix_release": await _release_summary(db, inc.fix_release_id, tenant_id),
         "fix_release_changes_by_epic": changes_by_epic,
-        "system_id": inc.system_id, "system_name": await _name(db, System, inc.system_id),
-        "subsystem_id": inc.subsystem_id, "subsystem_name": await _name(db, SubSystem, inc.subsystem_id),
+        "system_id": inc.system_id, "system_name": await _name(db, System, inc.system_id, tenant_id),
+        "subsystem_id": inc.subsystem_id, "subsystem_name": await _name(db, SubSystem, inc.subsystem_id, tenant_id),
         "custom_fields": inc.custom_fields,
         "allowed_transitions": [{"to_state": t["to_state"], "label": t["label"]} for t in transitions],
         "status_history": await get_status_history(db, inc.id, tenant_id),
@@ -1044,9 +1047,9 @@ async def _row(db, inc, tenant_id):
     return IncidentListRow(
         id=inc.id, title=inc.title, severity=inc.severity, status=inc.status,
         detected_at=inc.detected_at, resolved_at=inc.resolved_at,
-        system_id=inc.system_id, system_name=await _name(db, System, inc.system_id),
-        environment_id=inc.environment_id, environment_name=await _name(db, Environment, inc.environment_id),
-        release_id=inc.release_id, release_name=await _name(db, Release, inc.release_id),
+        system_id=inc.system_id, system_name=await _name(db, System, inc.system_id, tenant_id),
+        environment_id=inc.environment_id, environment_name=await _name(db, Environment, inc.environment_id, tenant_id),
+        release_id=inc.release_id, release_name=await _name(db, Release, inc.release_id, tenant_id),
         fix_release=await _release_summary(db, inc.fix_release_id, tenant_id),
     )
 
