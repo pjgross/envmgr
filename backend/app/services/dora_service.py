@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.build import Build
 from app.db.models.deployment import Deployment
+from app.db.models.release import Release, ReleaseStatusHistory
+from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.incident import Incident
 
 
 def _bucket_start(dt: datetime, granularity: str) -> str:
@@ -86,3 +89,65 @@ async def lead_time(
         "count": len(all_vals),
         "series": series,
     }
+
+
+async def change_failure_rate(
+    db: AsyncSession, tenant_id: int, date_from: datetime, date_to: datetime,
+    environment_id: Optional[int] = None, release_id: Optional[int] = None,
+) -> dict:
+    # Terminal-close date per release: latest history row whose to_state == release.status.
+    rel_conds = [Release.tenant_id == tenant_id, Release.deleted_at.is_(None)]
+    if release_id is not None:
+        rel_conds.append(Release.id == release_id)
+    releases = (await db.execute(select(Release).where(*rel_conds))).scalars().all()
+
+    # Memoize template definitions by id.
+    tpl_cache: dict[int, dict] = {}
+
+    async def _definition(tid: int) -> dict:
+        if tid not in tpl_cache:
+            tpl = (await db.execute(select(LifecycleTemplate).where(LifecycleTemplate.id == tid))).scalar_one_or_none()
+            tpl_cache[tid] = tpl.definition if tpl else {"states": []}
+        return tpl_cache[tid]
+
+    # Releases with >=1 deployment (shipped), optionally env-filtered.
+    dep_conds = [Deployment.tenant_id == tenant_id, Deployment.deleted_at.is_(None), Deployment.release_id.isnot(None)]
+    if environment_id is not None:
+        dep_conds.append(Deployment.environment_id == environment_id)
+    shipped_ids = set((await db.execute(select(Deployment.release_id).where(*dep_conds))).scalars().all())
+
+    shipped = 0
+    failed = 0
+    for r in releases:
+        if r.id not in shipped_ids:
+            continue
+        definition = await _definition(r.lifecycle_template_id)
+        state = next((s for s in definition.get("states", []) if s["key"] == r.status), None)
+        if state is None or not state.get("is_terminal"):
+            continue  # not closed
+        # close date = latest history changed_at into the current status; fallback actual_date
+        close_at = (await db.execute(
+            select(ReleaseStatusHistory.changed_at).where(
+                ReleaseStatusHistory.release_id == r.id,
+                ReleaseStatusHistory.to_state == r.status,
+            ).order_by(ReleaseStatusHistory.changed_at.desc()).limit(1)
+        )).scalars().first() or r.actual_date
+        # SQLite returns naive datetimes; normalise to UTC for comparison.
+        if close_at is not None and close_at.tzinfo is None:
+            from datetime import timezone as _tz
+            close_at = close_at.replace(tzinfo=_tz.utc)
+        if close_at is None or not (date_from <= close_at <= date_to):
+            continue
+        shipped += 1
+        is_failed_state = bool(state.get("is_failed"))
+        has_causal_incident = (await db.execute(
+            select(Incident.id).where(
+                Incident.tenant_id == tenant_id, Incident.deleted_at.is_(None),
+                Incident.release_id == r.id,
+                Incident.detected_at >= date_from, Incident.detected_at <= date_to,
+            ).limit(1)
+        )).scalars().first() is not None
+        if is_failed_state or has_causal_incident:
+            failed += 1
+    rate = (failed / shipped) if shipped else 0.0
+    return {"rate": rate, "failed_count": failed, "shipped_count": shipped}
