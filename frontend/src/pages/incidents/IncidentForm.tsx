@@ -232,8 +232,12 @@ export default function IncidentForm() {
           system_id: systemId,
           subsystem_id: subsystemId,
           external_ref: externalRef.trim() || null,
-          custom_fields: Object.keys(customFieldValues).length > 0 ? customFieldValues : null,
         };
+        // Only include custom_fields when there are values to send; omitting it
+        // means the backend's exclude_unset=True will leave existing fields intact.
+        if (Object.keys(customFieldValues).length > 0) {
+          payload.custom_fields = customFieldValues;
+        }
         await dispatch(updateIncident({ id: incidentId, data: payload })).unwrap();
         snackbar.success('Incident updated');
         navigate(`/incidents/${incidentId}`);

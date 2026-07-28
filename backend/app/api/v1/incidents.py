@@ -1,4 +1,5 @@
 """Incidents API — CRUD, lifecycle transitions, and detail hydration (Phase 5 SP1)."""
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +44,8 @@ async def list_incidents(
     environment_id: int | None = None,
     release_id: int | None = None,
     source: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -53,6 +56,8 @@ async def list_incidents(
         "environment_id": environment_id,
         "release_id": release_id,
         "source": source,
+        "date_from": date_from,
+        "date_to": date_to,
     }
     rows = await incident_service.list_incidents(db, current_user.active_tenant_id, filters)
     return [await _row(db, r, current_user.active_tenant_id) for r in rows]

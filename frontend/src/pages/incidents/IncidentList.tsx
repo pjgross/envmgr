@@ -13,33 +13,49 @@ import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../../components/DataTable';
 import { AppDispatch, RootState } from '../../store';
 import { fetchIncidents } from '../../store/incidentSlice';
+import {
+  fetchLifecycleTemplates,
+  selectTemplatesForEntity,
+} from '../../store/bookingLifecycleSlice';
 import type { IncidentListRow } from '../../types/incident';
 import { SEVERITY_COLOR, SEVERITIES } from '../../utils/incidentSeverity';
 import { systemService } from '../../services/systemService';
 import type { SystemResponse } from '../../types/system';
-
-const INCIDENT_STATUSES = [
-  'open',
-  'investigating',
-  'identified',
-  'mitigated',
-  'resolved',
-  'closed',
-];
 
 export default function IncidentList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { list, loading } = useSelector((s: RootState) => s.incident);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
+  const incidentTemplates = useSelector(selectTemplatesForEntity('incident'));
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [systemFilter, setSystemFilter] = useState<string>('all');
   const [systems, setSystems] = useState<SystemResponse[]>([]);
 
+  // Derive status options from the default lifecycle template; fallback to
+  // distinct values from the loaded list so the control is never empty/wrong.
+  const statusOptions = useMemo(() => {
+    const defaultTpl = incidentTemplates.find((t) => t.is_default) ?? incidentTemplates[0] ?? null;
+    if (defaultTpl?.definition?.states?.length) {
+      return defaultTpl.definition.states.map((s) => ({ key: s.key, label: s.label }));
+    }
+    // Fallback: distinct statuses from the already-loaded list
+    const seen = new Set<string>();
+    const fallback: { key: string; label: string }[] = [];
+    for (const row of list) {
+      if (!seen.has(row.status)) {
+        seen.add(row.status);
+        fallback.push({ key: row.status, label: row.status });
+      }
+    }
+    return fallback;
+  }, [incidentTemplates, list]);
+
   useEffect(() => {
     dispatch(fetchIncidents({}));
+    dispatch(fetchLifecycleTemplates('incident'));
   }, [dispatch]);
 
   useEffect(() => {
@@ -188,9 +204,9 @@ export default function IncidentList() {
           sx={{ minWidth: 160 }}
         >
           <MenuItem value="all">All</MenuItem>
-          {INCIDENT_STATUSES.map((s) => (
-            <MenuItem key={s} value={s}>
-              {s}
+          {statusOptions.map((s) => (
+            <MenuItem key={s.key} value={s.key}>
+              {s.label}
             </MenuItem>
           ))}
         </TextField>
