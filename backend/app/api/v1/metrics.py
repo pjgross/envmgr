@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.services import dora_service, release_metrics_service, environment_utilization_service
+from app.api.v1.schemas.environment_operating_hours import UtilizationOverview
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -118,7 +119,7 @@ async def get_booking_conflicts(
     )
 
 
-@router.get("/environments/utilization")
+@router.get("/environments/utilization", response_model=UtilizationOverview)
 async def get_environments_utilization(
     date_from: date = Query(...),
     date_to: date = Query(...),
