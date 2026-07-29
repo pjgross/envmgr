@@ -62,6 +62,7 @@ import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import EnvironmentSchedule from './EnvironmentSchedule';
 import EnvironmentDeploymentsTab from './EnvironmentDeploymentsTab';
 import EnvironmentHealthTab from '../../components/environments/EnvironmentHealthTab';
+import EnvironmentOperatingHoursTab from '../../components/environments/EnvironmentOperatingHoursTab';
 import type {
   EnvironmentUpdate,
   EnvironmentStatus,
@@ -616,6 +617,7 @@ export default function EnvironmentDetail() {
         <Tab label="Schedule" />
         <Tab label="Deployments" />
         <Tab label="Health" />
+        <Tab label="Operating Hours" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -970,6 +972,9 @@ export default function EnvironmentDetail() {
 
       {/* Health Tab */}
       {tab === 6 && <EnvironmentHealthTab envId={envId} />}
+
+      {/* Operating Hours Tab */}
+      {tab === 7 && <EnvironmentOperatingHoursTab envId={envId} />}
 
       {/* Edit Version Dialog */}
       <Dialog
