@@ -26,13 +26,17 @@ Runs fully containerised on **OrbStack** (macOS). `docker-compose up -d` starts 
 # 1. Start infrastructure (PostgreSQL, Neo4j, Redis, NATS)
 docker-compose up -d
 
-# 2. Run migrations
+# 2. Backend env (once) — DEBUG=true is what permits the repo's placeholder
+#    SECRET_KEY; with DEBUG=false the app refuses to start without a real one
+cd backend && cp .env.example .env
+
+# 3. Run migrations
 cd backend && alembic upgrade head
 
-# 3. Backend (separate terminal)
+# 4. Backend (separate terminal)
 cd backend && uvicorn app.main:app --reload
 
-# 4. Frontend (separate terminal)
+# 5. Frontend (separate terminal)
 cd frontend && npm run dev
 ```
 
@@ -111,7 +115,8 @@ Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20c
 - **`db.commit()` in services** — `get_db()` auto-commits on success; calling `db.commit()` inside a service will break the outbox pattern (event rows must commit atomically with the business write). Use `db.flush()` if you need the DB to assign an ID mid-transaction
 - **Native enums** — always set `native_enum=False` on enum columns; PostgreSQL native ENUMs break SQLite-based tests and are hard to alter later
 - **`--autogenerate` migrations** — `init_db()` calls `create_all`, so Alembic autogenerate sees tables as already existing and generates empty migrations. Always use `alembic revision -m "..."` and write the DDL manually
-- **Secrets in code** — use environment variables and `.env` files
+- **Secrets in code** — use environment variables and `.env` files. `SECRET_KEY` must be set for any `DEBUG=false` deployment; the app refuses to start with the repo's placeholder
+- **Self-service user creation** — there is no `/auth/register`; create users via `POST /api/v1/tenant/users`, which is admin-gated and forces the caller's tenant
 
 ---
 

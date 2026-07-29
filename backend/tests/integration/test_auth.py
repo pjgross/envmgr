@@ -24,103 +24,37 @@ async def test_health_check(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/v1/auth/register
+# Self-service registration (removed)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_register_success(client: AsyncClient, test_tenant):
+async def test_self_service_registration_is_not_exposed(client: AsyncClient, test_tenant):
+    """An unauthenticated caller must not be able to create a user at all.
+
+    The endpoint used to accept a caller-supplied tenant_id and role, so anyone
+    who could reach the API could mint an Admin in any tenant. User creation
+    belongs to POST /api/v1/tenant/users, which is admin-gated and forces the
+    caller's own tenant.
+    """
     response = await client.post("/api/v1/auth/register", json={
-        "username": "newuser",
-        "email": "newuser@test.com",
+        "username": "intruder",
+        "email": "intruder@test.com",
         "password": "password123",
         "tenant_id": test_tenant.id,
-        "role": "Viewer",
-    })
-    assert response.status_code == 201
-    data = response.json()
-    assert data["username"] == "newuser"
-    assert data["email"] == "newuser@test.com"
-    assert data["role"] == "Viewer"
-    assert data["tenant_id"] == test_tenant.id
-    assert data["is_active"] is True
-    assert "password" not in data
-    assert "password_hash" not in data
-
-
-@pytest.mark.asyncio
-async def test_register_invalid_tenant(client: AsyncClient):
-    response = await client.post("/api/v1/auth/register", json={
-        "username": "ghost",
-        "email": "ghost@test.com",
-        "password": "password123",
-        "tenant_id": 999999,
+        "role": "Admin",
     })
     assert response.status_code == 404
-    assert "Tenant not found" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_register_duplicate_username(client: AsyncClient, test_tenant, test_user):
-    response = await client.post("/api/v1/auth/register", json={
-        "username": test_user.username,
-        "email": "different@test.com",
+async def test_creating_a_user_requires_authentication(client: AsyncClient):
+    response = await client.post("/api/v1/tenant/users", json={
+        "username": "intruder",
+        "email": "intruder@test.com",
         "password": "password123",
-        "tenant_id": test_tenant.id,
+        "role": "Admin",
     })
-    assert response.status_code == 400
-    assert "Username already exists" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_register_duplicate_email(client: AsyncClient, test_tenant, test_user):
-    response = await client.post("/api/v1/auth/register", json={
-        "username": "differentname",
-        "email": test_user.email,
-        "password": "password123",
-        "tenant_id": test_tenant.id,
-    })
-    assert response.status_code == 400
-    assert "Email already exists" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_register_default_role_is_viewer(client: AsyncClient, test_tenant):
-    response = await client.post("/api/v1/auth/register", json={
-        "username": "viewer",
-        "email": "viewer@test.com",
-        "password": "password123",
-        "tenant_id": test_tenant.id,
-    })
-    assert response.status_code == 201
-    assert response.json()["role"] == "Viewer"
-
-
-@pytest.mark.asyncio
-async def test_register_same_username_different_tenants(client: AsyncClient, db_session):
-    """Same username is allowed in different tenants."""
-    from app.db.models.user import Tenant
-    tenant2 = Tenant(name="Second Org", slug="second-org")
-    db_session.add(tenant2)
-    await db_session.commit()
-    await db_session.refresh(tenant2)
-
-    r1 = await client.post("/api/v1/auth/register", json={
-        "username": "shared", "email": "u@t1.com",
-        "password": "password123", "tenant_id": tenant2.id,
-    })
-    # Create first tenant user inline
-    from app.db.models.user import Tenant as TenantModel
-    tenant1 = Tenant(name="First Org", slug="first-org")
-    db_session.add(tenant1)
-    await db_session.commit()
-    await db_session.refresh(tenant1)
-
-    r2 = await client.post("/api/v1/auth/register", json={
-        "username": "shared", "email": "u@t2.com",
-        "password": "password123", "tenant_id": tenant1.id,
-    })
-    assert r1.status_code == 201
-    assert r2.status_code == 201
+    assert response.status_code in (401, 403)
 
 
 # ---------------------------------------------------------------------------

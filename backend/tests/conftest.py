@@ -4,6 +4,12 @@ Shared test fixtures.
 Uses an in-memory SQLite database so no running PostgreSQL is required.
 The app's get_db dependency is overridden to inject the test session.
 """
+import os
+
+# Settings rejects the repo's sentinel SECRET_KEY outside DEBUG, and app.main
+# builds Settings at import time — so this must precede any app import.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-deployment")
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
