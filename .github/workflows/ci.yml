@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest on PostgreSQL)
+    runs-on: ubuntu-latest
+
+    # The suite itself runs on in-memory SQLite, but tests/test_migration_schema_drift.py
+    # needs a real PostgreSQL server: it builds a throwaway database with
+    # `alembic upgrade head` and diffs the result against Base.metadata. Without a
+    # server that test silently skips, which is how six tables shipped without
+    # their created_at/updated_at columns.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: envmgr
+          POSTGRES_PASSWORD: envmgr_dev_password
+          POSTGRES_DB: envmgr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Settings refuses to construct outside DEBUG while holding the repo's
+      # placeholder key — see app/core/config.py.
+      SECRET_KEY: ci-secret-key-not-for-deployment
+      MIGRATION_TEST_ADMIN_URL: postgresql+psycopg2://envmgr:envmgr_dev_password@localhost:5432/postgres
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Assert the migration drift guard is actually running
+        # The guard skips when no PostgreSQL is reachable. A silent skip here
+        # would defeat the point of this job, so fail loudly instead.
+        run: |
+          uv run pytest tests/test_migration_schema_drift.py -q --no-header -rs \
+            | tee /tmp/drift.txt
+          if grep -q "SKIPPED" /tmp/drift.txt; then
+            echo "::error::migration drift guard skipped — PostgreSQL was not reachable"
+            exit 1
+          fi
+
+      - name: Run test suite
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend (lint, test, build)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test -- --run
+
+      - name: Build
+        run: npm run build

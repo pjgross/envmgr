@@ -2,17 +2,23 @@ import api from './api';
 import type {
   SystemRollupRow,
   ScopeRollupItem,
+  TimelinePhase,
   TimelineRollup,
   MemberRollupRow,
+  ApiSystemRollupRow,
+  ApiScopeRollupItem,
+  ApiTimelinePhase,
+  ApiTimelineRollup,
+  ApiMemberRollupRow,
 } from '../types/enterpriseReport';
 
-const toRollupSystem = (r: any): SystemRollupRow => ({
+const toRollupSystem = (r: ApiSystemRollupRow): SystemRollupRow => ({
   systemId: r.system_id,
   systemName: r.system_name,
   rolesByProject: r.roles_by_project,
 });
 
-const toRollupScope = (r: any): ScopeRollupItem => ({
+const toRollupScope = (r: ApiScopeRollupItem): ScopeRollupItem => ({
   releaseChangeId: r.release_change_id,
   projectReleaseId: r.project_release_id,
   projectReleaseName: r.project_release_name,
@@ -24,7 +30,7 @@ const toRollupScope = (r: any): ScopeRollupItem => ({
   systemName: r.system_name,
 });
 
-const toMember = (r: any): MemberRollupRow => ({
+const toMember = (r: ApiMemberRollupRow): MemberRollupRow => ({
   projectReleaseId: r.project_release_id,
   projectReleaseName: r.project_release_name,
   status: r.status,
@@ -35,7 +41,7 @@ const toMember = (r: any): MemberRollupRow => ({
 export const enterpriseRollupService = {
   async systems(enterpriseId: number) {
     const { data } = await api.get(`/releases/${enterpriseId}/rollup/systems`);
-    return (data as any[]).map(toRollupSystem);
+    return (data as ApiSystemRollupRow[]).map(toRollupSystem);
   },
   async scope(enterpriseId: number, filters: Record<string, string | number | undefined> = {}) {
     const cleanedParams: Record<string, string | number> = {};
@@ -45,11 +51,12 @@ export const enterpriseRollupService = {
     const { data } = await api.get(`/releases/${enterpriseId}/rollup/scope`, {
       params: cleanedParams,
     });
-    return (data as any[]).map(toRollupScope);
+    return (data as ApiScopeRollupItem[]).map(toRollupScope);
   },
   async timeline(enterpriseId: number): Promise<TimelineRollup> {
     const { data } = await api.get(`/releases/${enterpriseId}/rollup/timeline`);
-    const mapPhase = (p: any) => ({
+    const payload = data as ApiTimelineRollup;
+    const mapPhase = (p: ApiTimelinePhase): TimelinePhase => ({
       releaseId: p.release_id,
       releaseName: p.release_name,
       releaseKind: p.release_kind,
@@ -60,13 +67,13 @@ export const enterpriseRollupService = {
       status: p.status,
     });
     return {
-      enterprisePhases: data.enterprise_phases.map(mapPhase),
+      enterprisePhases: payload.enterprise_phases.map(mapPhase),
       childPhasesByRelease: Object.fromEntries(
-        Object.entries(data.child_phases_by_release as Record<string, any[]>).map(
+        Object.entries(payload.child_phases_by_release).map(
           ([k, v]) => [Number(k), v.map(mapPhase)]
         )
       ),
-      dependencies: data.dependencies.map((d: any) => ({
+      dependencies: payload.dependencies.map((d) => ({
         fromReleaseId: d.from_release_id,
         toReleaseId: d.to_release_id,
         fromReleaseName: d.from_release_name,
@@ -77,6 +84,6 @@ export const enterpriseRollupService = {
   },
   async members(enterpriseId: number) {
     const { data } = await api.get(`/releases/${enterpriseId}/rollup/members`);
-    return (data as any[]).map(toMember);
+    return (data as ApiMemberRollupRow[]).map(toMember);
   },
 };
