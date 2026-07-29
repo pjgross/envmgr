@@ -36,9 +36,10 @@ async def booking_conflicts(
 ) -> list[dict]:
     """Per-environment, per-month count of overlapping active-booking pairs.
 
-    A "conflict" is an overlapping pair of active bookings (status not draft/
-    cancelled/rejected) on the same environment. Each pair is counted once, in
-    the calendar month of its overlap start (max of the two start dates).
+    A "conflict" is an overlapping pair of active bookings (status not in
+    _INACTIVE_BOOKING_STATES = draft/rejected/closed) on the same environment. Each
+    pair is counted once, in the calendar month of its overlap start (max of the two
+    start dates); so N mutually-overlapping bookings contribute N-choose-2 conflicts.
     """
     rows = (await db.execute(
         select(

@@ -128,7 +128,7 @@ export default function ReleaseAnalytics() {
     () => [
       { field: 'environment_name', headerName: 'Environment', flex: 1, minWidth: 180 },
       { field: 'month', headerName: 'Month', width: 120 },
-      { field: 'conflict_count', headerName: 'Conflicts', width: 120, type: 'number' },
+      { field: 'conflict_count', headerName: 'Conflicting pairs', width: 150, type: 'number' },
     ],
     []
   );
