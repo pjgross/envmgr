@@ -2,6 +2,8 @@
 
 GET /api/v1/metrics/dora        — summary (all four DORA metrics)
 GET /api/v1/metrics/dora/export — CSV download of the per-bucket series
+GET /api/v1/metrics/releases            — release success-rate / emergency% / avg cycle time
+GET /api/v1/metrics/bookings/conflicts  — per-environment/per-month booking-conflict counts
 
 date_from/date_to accept either a plain date ("2026-01-01") or a full ISO-8601
 datetime string ("2026-01-01T00:00:00Z"). Both are normalised to UTC datetimes
@@ -18,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import dora_service
+from app.services import dora_service, release_metrics_service
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -87,4 +89,30 @@ async def export_dora(
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=dora-metrics.csv"},
+    )
+
+
+@router.get("/releases")
+async def get_release_metrics(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await release_metrics_service.release_metrics(
+        db, current_user.active_tenant_id,
+        _as_dt(date_from), _as_dt(date_to, end_of_day=True),
+    )
+
+
+@router.get("/bookings/conflicts")
+async def get_booking_conflicts(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await release_metrics_service.booking_conflicts(
+        db, current_user.active_tenant_id,
+        _as_dt(date_from), _as_dt(date_to, end_of_day=True),
     )
