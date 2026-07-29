@@ -184,6 +184,21 @@ async def test_alert_truth_table(db_session, tenant, user):
 
 
 @pytest.mark.asyncio
+async def test_closed_booking_is_not_active_no_alert(db_session, tenant, user):
+    """A 'closed' (terminal) booking is a completed claim, not a live one: down + a
+    closed booking covering now + no outage must NOT alert, and active_booking is False.
+    Regression for the inactive-status set missing the terminal 'closed' state."""
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    win = (now - timedelta(hours=1), now + timedelta(hours=1))
+    env = await _env(db_session, tenant.id, "closed-booking-env")
+    await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now)
+    await _booking(db_session, tenant.id, user.id, env.id, *win, status="closed")
+    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    assert ov["active_booking"] is False
+    assert ov["alert"] is False
+
+
+@pytest.mark.asyncio
 async def test_issue_status_triggers_alert(db_session, tenant, user):
     """An env with 'issue' sample + active booking + no outage => alert is True."""
     now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)

@@ -12,7 +12,10 @@ from app.db.models.environment import Environment
 from app.db.models.environment_health import EnvironmentHealthStatus
 
 STALE_AFTER = timedelta(minutes=15)
-INACTIVE_BOOKING_STATUSES = {"draft", "cancelled", "rejected"}
+# Booking statuses that are NOT a live claim on an environment: draft (uncommitted) plus
+# the two terminal states (rejected, closed). The booking lifecycle has no "cancelled" state;
+# this mirrors conflict_service.TERMINAL_STATES ({rejected, closed}) plus draft.
+INACTIVE_BOOKING_STATUSES = {"draft", "rejected", "closed"}
 INACTIVE_CR_STATUSES = {"cancelled", "rejected"}
 
 
@@ -90,8 +93,9 @@ async def health_overview(db: AsyncSession, tenant_id: int, now: Optional[dateti
 
 
 async def _active_booking(db, tenant_id, environment_id, now):
-    """Return a booking-summary dict if there is an active (non-draft/cancelled/rejected)
-    booking whose window covers `now`, otherwise None.
+    """Return a booking-summary dict if there is an active (status not in
+    INACTIVE_BOOKING_STATUSES = draft/rejected/closed) booking whose window covers `now`,
+    otherwise None.
     Joins BookingRequest to retrieve the project_name."""
     rows = (await db.execute(
         select(Booking, BookingRequest)
