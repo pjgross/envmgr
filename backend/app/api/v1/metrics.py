@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import dora_service, release_metrics_service
+from app.services import dora_service, release_metrics_service, environment_utilization_service
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -113,6 +113,19 @@ async def get_booking_conflicts(
     current_user=Depends(get_current_user),
 ):
     return await release_metrics_service.booking_conflicts(
+        db, current_user.active_tenant_id,
+        _as_dt(date_from), _as_dt(date_to, end_of_day=True),
+    )
+
+
+@router.get("/environments/utilization")
+async def get_environments_utilization(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_utilization_service.utilization_overview(
         db, current_user.active_tenant_id,
         _as_dt(date_from), _as_dt(date_to, end_of_day=True),
     )

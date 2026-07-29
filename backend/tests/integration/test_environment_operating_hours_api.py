@@ -100,3 +100,22 @@ async def test_put_open_after_close_422(authed_client, db_session, tenant):
     r = await authed_client.put(f"/api/v1/environments/{env.id}/operating-hours",
                                 json={"timezone": "UTC", "week": bad})
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_metrics_environments_utilization_overview(authed_client, db_session, tenant):
+    env = await _env(db_session, tenant.id, name="OverviewEnv")
+    await authed_client.put(f"/api/v1/environments/{env.id}/operating-hours",
+                            json={"timezone": "UTC", "week": _FULL})
+    r = await authed_client.get("/api/v1/metrics/environments/utilization",
+                                params={"date_from": "2026-06-01", "date_to": "2026-06-07"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"rows", "unconfigured_count"}
+    assert any(row["environment_name"] == "OverviewEnv" for row in body["rows"])
+
+
+@pytest.mark.asyncio
+async def test_metrics_environments_utilization_requires_dates(authed_client):
+    r = await authed_client.get("/api/v1/metrics/environments/utilization")
+    assert r.status_code == 422
