@@ -156,7 +156,7 @@ export default function ReleasePirTab({ releaseId }: Props) {
         </Typography>
         <Chip
           label={isComplete ? 'Complete' : 'Draft'}
-          color={isComplete ? 'success' : 'default'}
+          color={isComplete ? 'success' : 'warning'}
           size="small"
         />
         {isComplete && pir.completed_at && (
