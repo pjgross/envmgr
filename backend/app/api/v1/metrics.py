@@ -2,6 +2,8 @@
 
 GET /api/v1/metrics/dora        — summary (all four DORA metrics)
 GET /api/v1/metrics/dora/export — CSV download of the per-bucket series
+GET /api/v1/metrics/releases            — release success-rate / emergency% / avg cycle time
+GET /api/v1/metrics/bookings/conflicts  — per-environment/per-month booking-conflict counts
 
 date_from/date_to accept either a plain date ("2026-01-01") or a full ISO-8601
 datetime string ("2026-01-01T00:00:00Z"). Both are normalised to UTC datetimes

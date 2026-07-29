@@ -85,10 +85,29 @@ async def test_booking_conflicts_requires_dates(authed_client):
 
 
 @pytest.mark.asyncio
-async def test_release_metrics_is_tenant_scoped(authed_client, db_session, tenant):
-    # Second tenant with an overlapping booking pair — must not leak into this tenant.
+async def test_booking_conflicts_is_tenant_scoped(authed_client, db_session):
+    # Second tenant WITH its own overlapping booking pair — must not leak into the authed tenant.
+    from app.db.models.user import User
+    from app.core.security import get_password_hash
     t2 = Tenant(name="Other Org3", slug="other-org-rm-api")
     db_session.add(t2); await db_session.flush()
+    u2 = User(tenant_id=t2.id, username="rmapiuser2", email="rmapiuser2@test.com",
+              password_hash=get_password_hash("x"), role="Viewer", is_active=True)
+    db_session.add(u2); await db_session.flush()
+    env2 = Environment(tenant_id=t2.id, name="SIT2", environment_type="test")
+    db_session.add(env2); await db_session.flush()
+    req2 = BookingRequest(
+        tenant_id=t2.id, project_name="Proj2", booked_by=u2.id, booking_type_id=1,
+        start_date=datetime(2026, 6, 1, tzinfo=UTC), end_date=datetime(2026, 6, 30, tzinfo=UTC),
+    )
+    db_session.add(req2); await db_session.flush()
+    t0 = datetime(2026, 6, 10, tzinfo=UTC)
+    db_session.add(Booking(tenant_id=t2.id, environment_id=env2.id, booking_request_id=req2.id,
+                           start_date=t0, end_date=t0 + timedelta(days=3), status="approved"))
+    db_session.add(Booking(tenant_id=t2.id, environment_id=env2.id, booking_request_id=req2.id,
+                           start_date=t0 + timedelta(days=1), end_date=t0 + timedelta(days=4), status="approved"))
+    await db_session.flush()
+    # The authed client is scoped to the first tenant, which has no bookings → empty.
     r = await authed_client.get("/api/v1/metrics/bookings/conflicts",
                                 params={"date_from": "2026-01-01", "date_to": "2026-12-31"})
     assert r.status_code == 200
