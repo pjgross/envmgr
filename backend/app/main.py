@@ -86,6 +86,8 @@ app.include_router(systems_router.router, prefix="/api/v1/systems", tags=["Syste
 # /environments/{env_id} from shadowing /environments/health (literal vs int param).
 from app.api.v1 import environment_health as environment_health_router
 app.include_router(environment_health_router.router, prefix="/api/v1")
+from app.api.v1 import environment_operating_hours as environment_operating_hours_router
+app.include_router(environment_operating_hours_router.router, prefix="/api/v1")
 
 app.include_router(environments_router.router, prefix="/api/v1/environments", tags=["Environments"])
 app.include_router(dependencies_router.router, prefix="/api/v1", tags=["Dependencies"])

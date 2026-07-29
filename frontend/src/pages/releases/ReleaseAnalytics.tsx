@@ -9,6 +9,8 @@ import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../../components/DataTable';
 import { releaseService } from '../../services/releaseService';
 import { releaseMetricsService } from '../../services/releaseMetricsService';
+import { environmentOperatingHoursService } from '../../services/environmentOperatingHoursService';
+import type { EnvironmentUtilization } from '../../types/environmentOperatingHours';
 import type { ReleaseMetrics, BookingConflictRow } from '../../types/releaseMetrics';
 import type {
   ScopeChurnAnalyticsResponse,
@@ -30,6 +32,11 @@ function formatDuration(seconds: number): string {
   if (hours > 0) parts.push(`${hours}h`);
   if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
   return parts.join(' ');
+}
+
+function formatHours(seconds: number): string {
+  const h = seconds / 3600;
+  return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`;
 }
 
 function MetricCard({ title, primary, secondary }: { title: string; primary: string; secondary: string }) {
@@ -71,6 +78,8 @@ export default function ReleaseAnalytics() {
   const [data, setData] = useState<ScopeChurnAnalyticsResponse | null>(null);
   const [metrics, setMetrics] = useState<ReleaseMetrics | null>(null);
   const [conflicts, setConflicts] = useState<BookingConflictRow[]>([]);
+  const [utilization, setUtilization] = useState<EnvironmentUtilization[]>([]);
+  const [unconfiguredEnvs, setUnconfiguredEnvs] = useState(0);
 
   useEffect(() => {
     releaseService
@@ -87,6 +96,9 @@ export default function ReleaseAnalytics() {
     const params = { date_from: from, date_to: to };
     releaseMetricsService.releases(params).then(setMetrics).catch(() => setMetrics(null));
     releaseMetricsService.conflicts(params).then(setConflicts).catch(() => setConflicts([]));
+    environmentOperatingHoursService.overview(params)
+      .then((o) => { setUtilization(o.rows); setUnconfiguredEnvs(o.unconfigured_count); })
+      .catch(() => { setUtilization([]); setUnconfiguredEnvs(0); });
   }, [from, to]);
 
   const columns = useMemo<GridColDef<ChurnReleaseRowResponse>[]>(
@@ -129,6 +141,25 @@ export default function ReleaseAnalytics() {
       { field: 'environment_name', headerName: 'Environment', flex: 1, minWidth: 180 },
       { field: 'month', headerName: 'Month', width: 120 },
       { field: 'conflict_count', headerName: 'Conflicting pairs', width: 150, type: 'number' },
+    ],
+    []
+  );
+
+  const utilizationColumns = useMemo<GridColDef<EnvironmentUtilization>[]>(
+    () => [
+      { field: 'environment_name', headerName: 'Environment', flex: 1, minWidth: 180 },
+      {
+        field: 'utilization_ratio', headerName: 'Utilization', width: 130, type: 'number',
+        valueFormatter: (p) => `${Math.round((p.value as number) * 100)}%`,
+      },
+      {
+        field: 'booked_operating_seconds', headerName: 'Booked', width: 120, type: 'number',
+        valueFormatter: (p) => formatHours(p.value as number),
+      },
+      {
+        field: 'total_operating_seconds', headerName: 'Operating', width: 120, type: 'number',
+        valueFormatter: (p) => formatHours(p.value as number),
+      },
     ],
     []
   );
@@ -182,6 +213,22 @@ export default function ReleaseAnalytics() {
           columns={conflictColumns}
           emptyMessage="No booking conflicts in range"
           getRowId={(row) => `${row.environment_id}-${row.month}`}
+        />
+      </Box>
+
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>Environment Utilization (operating hours)</Typography>
+      {unconfiguredEnvs > 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          {unconfiguredEnvs} environment{unconfiguredEnvs !== 1 ? 's have' : ' has'} no operating hours configured.
+        </Typography>
+      )}
+      <Box sx={{ height: 300, width: '100%', mb: 3 }}>
+        <DataTable<EnvironmentUtilization>
+          storageKey="release-analytics-utilization"
+          rows={utilization}
+          columns={utilizationColumns}
+          emptyMessage="No environments with operating hours configured"
+          getRowId={(row) => row.environment_id}
         />
       </Box>
 
