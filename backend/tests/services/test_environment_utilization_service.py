@@ -214,3 +214,19 @@ async def test_utilization_tenant_isolation(db_session, tenant):
         datetime(2026, 6, 7, 23, 59, 59, tzinfo=UTC))
     assert res["rows"] == []
     assert res["unconfigured_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_environment_utilization_excludes_rejected_and_closed(db_session, tenant):
+    env = await _mk_env(db_session, tenant.id)
+    u = await _mk_user(db_session, tenant.id)
+    await ops_service.upsert_config(db_session, tenant.id, env.id, "UTC", _MONFRI)
+    # rejected + closed bookings fully inside operating hours → both excluded → 0 booked
+    await _mk_booking(db_session, tenant.id, env.id, u.id,
+                      datetime(2026, 6, 2, 9, tzinfo=UTC), datetime(2026, 6, 2, 12, tzinfo=UTC), status="rejected")
+    await _mk_booking(db_session, tenant.id, env.id, u.id,
+                      datetime(2026, 6, 3, 9, tzinfo=UTC), datetime(2026, 6, 3, 12, tzinfo=UTC), status="closed")
+    res = await util.environment_utilization(
+        db_session, tenant.id, env.id, datetime(2026, 6, 1, tzinfo=UTC),
+        datetime(2026, 6, 7, 23, 59, 59, tzinfo=UTC))
+    assert res["booked_operating_seconds"] == 0.0

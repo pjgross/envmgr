@@ -8,6 +8,7 @@ Booked = active bookings (status not in {draft,rejected,closed}). Pure, tenant-s
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException, status
 from sqlalchemy import select, not_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,8 +88,7 @@ async def environment_utilization(db: AsyncSession, tenant_id: int, environment_
         Environment.deleted_at.is_(None),
     ))).scalar_one_or_none()
     if env is None:
-        from fastapi import HTTPException, status as _s
-        raise HTTPException(status_code=_s.HTTP_404_NOT_FOUND, detail="Environment not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found")
 
     config = await ops_service.get_config(db, tenant_id, environment_id)
     if config is None:
