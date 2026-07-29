@@ -64,6 +64,19 @@ Run once to seed: `cd backend && DATABASE_URL=postgresql+asyncpg://envmgr:envmgr
 
 Production runs on **macmini** (Tailscale network). EnvManager's containers are deployed via docker-compose. Several infrastructure services are shared from the macmini host rather than duplicated.
 
+```bash
+SECRET_KEY=$(openssl rand -hex 32) POSTGRES_PASSWORD=... \
+  NEO4J_USER=... NEO4J_PASSWORD=... \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+    --profile app up -d --build
+```
+
+- `backend` and `frontend` live under the compose **`app` profile** so the dev flow above (`docker-compose up -d` for infra, uvicorn + vite on the host) doesn't fight them for ports 8000/5173.
+- `SECRET_KEY` and `POSTGRES_PASSWORD` are **required** — compose fails fast without them, and the backend refuses to start with `DEBUG=false` and the repo's placeholder key.
+- The backend image's entrypoint runs `alembic upgrade head` **before** uvicorn. That order matters: `init_db()` calls `create_all`, so if the app started first it would build the schema itself and leave `alembic_version` empty, after which migrations fail on "relation already exists". Set `RUN_MIGRATIONS=0` to skip.
+- The frontend image is nginx serving the built bundle and proxying `/api` to `BACKEND_ORIGIN` (`src/services/api.ts` uses a relative `/api/v1` baseURL, so whatever serves the bundle must also proxy the API).
+- Port lists in `docker-compose.prod.yml` use `!override`; without it compose **appends** to the base list and republishes the base port too.
+
 | Service | Source | Prod connection |
 |---------|--------|-----------------|
 | PostgreSQL | EnvManager docker-compose | `localhost:5435` (own container) |

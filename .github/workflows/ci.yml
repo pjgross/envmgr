@@ -105,3 +105,63 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  images:
+    name: Docker images build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          load: true
+          tags: envmgr-backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          load: true
+          tags: envmgr-frontend:ci
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Compose files are valid and ports do not double-bind
+        # `docker compose` APPENDS sequences across override files, so a missing
+        # !override on a ports list silently republishes the base port too.
+        env:
+          SECRET_KEY: ci-secret-key-not-for-deployment
+          POSTGRES_PASSWORD: ci-password
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: ci-password
+        run: |
+          docker compose -f docker-compose.yml --profile app config >/dev/null
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            --profile app config > /tmp/prod-config.yml
+          python3 - <<'PY'
+          import sys, yaml
+          services = yaml.safe_load(open('/tmp/prod-config.yml'))['services']
+          failures = []
+          for name, svc in services.items():
+              if (svc.get('deploy') or {}).get('replicas') == 0:
+                  continue
+              published = [p.get('published') for p in svc.get('ports') or []]
+              if len(published) != len(set(published)):
+                  failures.append(f"{name}: duplicate published ports {published}")
+              targets = [p.get('target') for p in svc.get('ports') or []]
+              if len(targets) != len(set(targets)):
+                  failures.append(f"{name}: container port published twice {published} -> {targets}")
+          if failures:
+              print("\n".join(f"::error::{f}" for f in failures))
+              sys.exit(1)
+          print("compose port mappings OK")
+          PY
