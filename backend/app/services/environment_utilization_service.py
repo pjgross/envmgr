@@ -56,6 +56,7 @@ def _operating_segments(config, date_from: datetime, date_to: datetime):
     Iterates each calendar date in the window IN THE CONFIG'S TIMEZONE, localizes that
     day's wall-clock open/close, converts to UTC, and clips to [date_from, date_to].
     """
+    date_from, date_to = _utc(date_from), _utc(date_to)
     tz = ZoneInfo(config.timezone)
     week = config.week
     segments: list[tuple[datetime, datetime]] = []

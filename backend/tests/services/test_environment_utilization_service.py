@@ -67,3 +67,25 @@ def test_operating_segments_clips_to_window():
     end = datetime(2026, 6, 1, 12, tzinfo=UTC)
     segments, total = util._operating_segments(cfg, start, end)
     assert total == 2 * 3600
+
+
+def test_operating_segments_spanning_spring_forward_real_elapsed():
+    # Only Sunday open 00:00-06:00. 2026-03-29 (Sun) is the UK spring-forward date:
+    # clocks jump 01:00->02:00, so 00:00-06:00 local is only 5 real UTC hours.
+    week = [{"closed": True} for _ in range(6)] + [{"closed": False, "open": "00:00", "close": "06:00"}]
+    cfg = _cfg("Europe/London", week)
+    start = datetime(2026, 3, 28, tzinfo=UTC)
+    end = datetime(2026, 3, 30, tzinfo=UTC)
+    segments, total = util._operating_segments(cfg, start, end)
+    assert total == 5 * 3600
+
+
+def test_operating_segments_spanning_fall_back_real_elapsed():
+    # 2026-10-25 (Sun) is the UK fall-back date: clocks go 02:00->01:00,
+    # so 00:00-06:00 local is 7 real UTC hours.
+    week = [{"closed": True} for _ in range(6)] + [{"closed": False, "open": "00:00", "close": "06:00"}]
+    cfg = _cfg("Europe/London", week)
+    start = datetime(2026, 10, 24, tzinfo=UTC)
+    end = datetime(2026, 10, 26, tzinfo=UTC)
+    segments, total = util._operating_segments(cfg, start, end)
+    assert total == 7 * 3600
