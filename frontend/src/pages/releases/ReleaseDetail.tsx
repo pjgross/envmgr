@@ -9,6 +9,7 @@
  *   6: RAID
  *   7: Enterprise (membership)
  *   8: Deployments
+ *   9: PIR (Post-Implementation Review)
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -38,6 +39,7 @@ import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedReq
 import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
 import RaidTab from '../../components/releases/raid/RaidTab';
 import ReleaseDeploymentsTab from '../../components/releases/ReleaseDeploymentsTab';
+import ReleasePirTab from '../../components/releases/ReleasePirTab';
 import ReleaseSystemsTab from '../../components/releases/ReleaseSystemsTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
@@ -157,6 +159,7 @@ export default function ReleaseDetail() {
           <Tab label="RAID" />
           <Tab label="Enterprise" />
           <Tab label="Deployments" />
+          <Tab label="PIR" />
         </Tabs>
       </Paper>
 
@@ -170,6 +173,7 @@ export default function ReleaseDetail() {
       {activeTab === 6 && <RaidTab releaseId={releaseId} />}
       {activeTab === 7 && <EnterpriseMembershipTab releaseId={releaseId} />}
       {activeTab === 8 && <ReleaseDeploymentsTab releaseId={releaseId} />}
+      {activeTab === 9 && <ReleasePirTab releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}

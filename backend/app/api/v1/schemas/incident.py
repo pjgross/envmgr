@@ -83,6 +83,15 @@ class StatusHistoryRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class IncidentPirRef(BaseModel):
+    release_id: int
+    status: str
+    root_cause: Optional[str] = None
+    action_plan: Optional[str] = None
+    summary: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class IncidentListRow(BaseModel):
     id: int
     title: str
@@ -97,6 +106,7 @@ class IncidentListRow(BaseModel):
     release_id: Optional[int]
     release_name: Optional[str] = None
     fix_release: Optional[ReleaseSummary] = None
+    pir_status: str = "none"
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -125,4 +135,5 @@ class IncidentDetail(BaseModel):
     custom_fields: Optional[dict]
     allowed_transitions: list[TransitionOption] = []
     status_history: list[StatusHistoryRow] = []
+    pir: Optional[IncidentPirRef] = None
     model_config = ConfigDict(from_attributes=True)

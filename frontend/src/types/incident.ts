@@ -12,6 +12,7 @@ export interface IncidentListRow {
   environment_id: number | null; environment_name: string | null;
   release_id: number | null; release_name: string | null;
   fix_release: ReleaseSummary | null;
+  pir_status: 'complete' | 'draft' | 'none';
 }
 
 export interface IncidentDetail {
@@ -26,6 +27,7 @@ export interface IncidentDetail {
   custom_fields: Record<string, unknown> | null;
   allowed_transitions: TransitionOption[];
   status_history: StatusHistoryRow[];
+  pir: { release_id: number; status: string; root_cause: string | null; action_plan: string | null; summary: string | null } | null;
 }
 
 export interface IncidentCreate {

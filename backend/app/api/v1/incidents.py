@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import incident_service
+from app.services import incident_service, pir_service
 from app.api.v1.schemas.incident import (
     IncidentCreate, IncidentUpdate, IncidentTransition, IncidentDetail, IncidentListRow,
 )
@@ -13,7 +13,7 @@ from app.api.v1.schemas.incident import (
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
-async def _row(db: AsyncSession, inc, tenant_id: int) -> IncidentListRow:
+async def _row(db: AsyncSession, inc, tenant_id: int, pir_status: str = "none") -> IncidentListRow:
     """Build an IncidentListRow with hydrated names and fix-release summary."""
     from app.services.incident_service import _name, _release_summary
     from app.db.models.system import System
@@ -33,6 +33,7 @@ async def _row(db: AsyncSession, inc, tenant_id: int) -> IncidentListRow:
         release_id=inc.release_id,
         release_name=await _name(db, Release, inc.release_id, tenant_id),
         fix_release=await _release_summary(db, inc.fix_release_id, tenant_id),
+        pir_status=pir_status,
     )
 
 
@@ -60,7 +61,11 @@ async def list_incidents(
         "date_to": date_to,
     }
     rows = await incident_service.list_incidents(db, current_user.active_tenant_id, filters)
-    return [await _row(db, r, current_user.active_tenant_id) for r in rows]
+    # Bulk-fetch PIR statuses for all incidents in one query
+    status_map = await pir_service.pir_status_for_incidents(
+        db, current_user.active_tenant_id, [r.id for r in rows]
+    )
+    return [await _row(db, r, current_user.active_tenant_id, status_map.get(r.id, "none")) for r in rows]
 
 
 @router.post("", response_model=IncidentDetail, status_code=status.HTTP_201_CREATED)

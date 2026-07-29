@@ -103,6 +103,10 @@ app.include_router(
     tags=["Infrastructure"],
 )
 
+# PIR router (registered before releases wildcard routes to avoid path shadowing)
+from app.api.v1 import pir as pir_router
+app.include_router(pir_router.router, prefix="/api/v1")
+
 # Enterprise rollup + report (registered before releases wildcard routes to avoid shadowing)
 app.include_router(
     enterprise_rollup_router.router, prefix="/api/v1", tags=["enterprise-rollup"]
