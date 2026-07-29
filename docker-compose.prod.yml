@@ -1,6 +1,14 @@
 # Production override for macmini deployment (Tailscale network)
 #
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Usage:
+#   SECRET_KEY=... POSTGRES_PASSWORD=... \
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#       --profile app up -d --build
+#
+# Note the `!override` tags on every ports list: compose APPENDS sequences
+# across override files, so a plain `ports:` here would keep the base mapping
+# alongside the remapped one and re-create the very port conflicts this file
+# exists to avoid.
 #
 # This override:
 #   - Removes neo4j and nats (shared from macmini)
@@ -37,13 +45,15 @@ services:
 
   # Remap postgres to prod port
   postgres:
-    ports:
+    ports: !override
       - "5435:5432"
 
   # Backend with prod environment variables
   backend:
     environment:
-      DATABASE_URL: postgresql://envmgr:${POSTGRES_PASSWORD}@postgres:5432/envmgr
+      # +asyncpg is required — the app builds an async engine and rejects a
+      # bare postgresql:// URL at startup.
+      DATABASE_URL: postgresql+asyncpg://envmgr:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/envmgr
       NEO4J_URI: bolt://macmini:7687
       NEO4J_USER: ${NEO4J_USER}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
@@ -53,5 +63,12 @@ services:
       # placeholder key. Generate with `openssl rand -hex 32`.
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set for production}
       DEBUG: "false"
-    ports:
+    ports: !override
       - "8100:8000"
+
+  # Frontend served by nginx; proxies /api to the backend container.
+  frontend:
+    environment:
+      BACKEND_ORIGIN: http://backend:8000
+    ports: !override
+      - "5173:8080"
