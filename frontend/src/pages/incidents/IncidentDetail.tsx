@@ -7,10 +7,11 @@
  *   - Header: title, severity chip, status chip, transition buttons
  *   - Details: description, detected/resolved timestamps, source/ext-ref, env, causal release, system/subsystem
  *   - Fix Release panel: fix release summary + changes grouped by epic
+ *   - PIR panel: post-implementation review (status, root cause, action plan, summary, release link)
  *   - Custom Fields panel: read-only key/value display
  *   - Status History timeline
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams, Link as RouterLink } from 'react-router-dom';
 import {
@@ -35,6 +36,7 @@ import { fetchIncident, transitionIncident, deleteIncident, clearDetail } from '
 import { SEVERITY_COLOR } from '../../utils/incidentSeverity';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
+import { pirService } from '../../services/pirService';
 
 export default function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +45,7 @@ export default function IncidentDetail() {
   const navigate = useNavigate();
   const snackbar = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const [pirCreating, setPirCreating] = useState(false);
 
   const detail = useSelector((s: RootState) => s.incident.detail);
   const loading = useSelector((s: RootState) => s.incident.loading);
@@ -79,6 +82,20 @@ export default function IncidentDetail() {
       navigate('/incidents');
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to delete incident');
+    }
+  };
+
+  const handleCreatePir = async () => {
+    if (!detail?.fix_release_id) return;
+    setPirCreating(true);
+    try {
+      await pirService.create(detail.fix_release_id, { incident_id: detail.id });
+      dispatch(fetchIncident(incidentId));
+      snackbar.success('PIR created');
+    } catch (err) {
+      snackbar.error(err instanceof Error ? err.message : 'Failed to create PIR');
+    } finally {
+      setPirCreating(false);
     }
   };
 
@@ -320,6 +337,96 @@ export default function IncidentDetail() {
           )}
         </Paper>
       )}
+
+      {/* ── PIR panel ──────────────────────────────────────────────────── */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+        <Typography variant="h6" sx={{ mb: 1 }}>
+          Post-Implementation Review
+        </Typography>
+        <Divider sx={{ mb: 1.5 }} />
+
+        {detail.pir ? (
+          <Stack spacing={0.75}>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+                Status
+              </Typography>
+              <Chip
+                label={detail.pir.status === 'complete' ? 'Complete' : 'Draft'}
+                color={detail.pir.status === 'complete' ? 'success' : 'warning'}
+                size="small"
+              />
+            </Stack>
+
+            {detail.pir.summary && (
+              <Stack direction="row" spacing={2}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+                  Summary
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {detail.pir.summary}
+                </Typography>
+              </Stack>
+            )}
+
+            {detail.pir.root_cause && (
+              <Stack direction="row" spacing={2}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+                  Root Cause
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {detail.pir.root_cause}
+                </Typography>
+              </Stack>
+            )}
+
+            {detail.pir.action_plan && (
+              <Stack direction="row" spacing={2}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+                  Action Plan
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {detail.pir.action_plan}
+                </Typography>
+              </Stack>
+            )}
+
+            <Stack direction="row" spacing={2}>
+              <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+                Release
+              </Typography>
+              <Typography
+                variant="body2"
+                component={RouterLink}
+                to={`/releases/${detail.pir.release_id}`}
+                sx={{ color: 'primary.main', textDecoration: 'none' }}
+              >
+                {detail.fix_release_id === detail.pir.release_id && detail.fix_release
+                  ? detail.fix_release.name
+                  : 'View release'}
+              </Typography>
+            </Stack>
+          </Stack>
+        ) : (
+          <Stack spacing={1}>
+            <Box>
+              <Button
+                variant="outlined"
+                size="small"
+                disabled={!detail.fix_release_id || pirCreating}
+                onClick={handleCreatePir}
+              >
+                {pirCreating ? 'Creating…' : 'Create PIR'}
+              </Button>
+            </Box>
+            {!detail.fix_release_id && (
+              <Typography variant="caption" color="text.secondary">
+                Link a fix release to create a PIR.
+              </Typography>
+            )}
+          </Stack>
+        )}
+      </Paper>
 
       {/* ── Custom Fields panel ────────────────────────────────────────── */}
       {customFieldEntries.length > 0 && (
