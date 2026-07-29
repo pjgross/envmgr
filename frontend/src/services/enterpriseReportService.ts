@@ -1,9 +1,9 @@
 import api from './api';
-import type { EnterpriseReport } from '../types/enterpriseReport';
+import type { ApiEnterpriseReport, EnterpriseReport } from '../types/enterpriseReport';
 
 export const enterpriseReportService = {
   async generate(enterpriseId: number): Promise<EnterpriseReport> {
-    const { data } = await api.get(`/releases/${enterpriseId}/report`);
+    const data = (await api.get(`/releases/${enterpriseId}/report`)).data as ApiEnterpriseReport;
     return {
       enterpriseId: data.enterprise_id,
       name: data.name,
@@ -11,21 +11,21 @@ export const enterpriseReportService = {
       targetDate: data.target_date,
       actualDate: data.actual_date,
       description: data.description,
-      members: data.members.map((m: any) => ({
+      members: data.members.map((m) => ({
         projectReleaseId: m.project_release_id,
         projectReleaseName: m.project_release_name,
         status: m.status,
         admittedAt: m.admitted_at,
         lateScope: m.late_scope,
       })),
-      systems: data.systems.map((s: any) => ({
+      systems: data.systems.map((s) => ({
         systemId: s.system_id,
         systemName: s.system_name,
         rolesByProject: s.roles_by_project,
       })),
       scopeByProject: Object.fromEntries(
-        Object.entries(data.scope_by_project as Record<string, any[]>).map(
-          ([k, v]) => [k, v.map((it: any) => ({
+        Object.entries(data.scope_by_project).map(
+          ([k, v]) => [k, v.map((it) => ({
             releaseChangeId: it.release_change_id,
             projectReleaseId: it.project_release_id,
             projectReleaseName: it.project_release_name,
@@ -38,14 +38,14 @@ export const enterpriseReportService = {
           }))]
         )
       ),
-      events: data.events.map((e: any) => ({
+      events: data.events.map((e) => ({
         releaseId: e.release_id,
         releaseName: e.release_name,
         occurredAt: e.occurred_at,
         eventType: e.event_type,
         description: e.description,
       })),
-      dependencies: data.dependencies.map((d: any) => ({
+      dependencies: data.dependencies.map((d) => ({
         fromReleaseId: d.from_release_id,
         toReleaseId: d.to_release_id,
         fromReleaseName: d.from_release_name,

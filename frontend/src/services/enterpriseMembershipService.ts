@@ -4,9 +4,11 @@ import type {
   MembershipCreatePayload,
   MembershipRejectPayload,
   MembershipRemovePayload,
+  ApiReleaseMembership,
+  ApiProjectMembership,
 } from '../types/enterpriseMembership';
 
-const toCamel = (m: any): ReleaseMembership => ({
+const toCamel = (m: ApiReleaseMembership): ReleaseMembership => ({
   id: m.id,
   tenantId: m.tenant_id,
   enterpriseReleaseId: m.enterprise_release_id,
@@ -40,7 +42,7 @@ export const enterpriseMembershipService = {
     const { data } = await api.get(`/releases/${enterpriseId}/memberships`, {
       params: states ? { states: states.join(',') } : undefined,
     });
-    return (data as any[]).map(toCamel);
+    return (data as ApiReleaseMembership[]).map(toCamel);
   },
   async accept(enterpriseId: number, membershipId: number) {
     const { data } = await api.post(
@@ -67,7 +69,8 @@ export const enterpriseMembershipService = {
     return toCamel(data);
   },
   async getProjectMembership(projectReleaseId: number) {
-    const { data } = await api.get(`/releases/${projectReleaseId}/membership`);
+    const data = (await api.get(`/releases/${projectReleaseId}/membership`))
+      .data as ApiProjectMembership;
     return {
       current: data.current ? toCamel(data.current) : null,
       history: (data.history ?? []).map(toCamel),

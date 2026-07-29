@@ -43,3 +43,34 @@ export interface MembershipCreatePayload {
 
 export interface MembershipRejectPayload { notes: string; }
 export interface MembershipRemovePayload { reason: string; }
+
+// ── Wire shapes ───────────────────────────────────────────────────────────
+// Raw snake_case payloads, so the service mappers take a typed input.
+
+export interface ApiReleaseMembership {
+  id: number;
+  tenant_id: number;
+  enterprise_release_id: number;
+  project_release_id: number;
+  project_release_name?: string | null;
+  project_release_status?: string | null;
+  enterprise_release_name?: string | null;
+  state: MembershipState;
+  requested_by: number;
+  requested_by_username?: string | null;
+  requested_at: string;
+  decided_by?: number | null;
+  decided_by_username?: string | null;
+  decided_at?: string | null;
+  removed_by?: number | null;
+  removed_by_username?: string | null;
+  removed_at?: string | null;
+  removal_reason?: string | null;
+  late_scope: boolean;
+  notes?: string | null;
+}
+
+export interface ApiProjectMembership {
+  current: ApiReleaseMembership | null;
+  history?: ApiReleaseMembership[] | null;
+}

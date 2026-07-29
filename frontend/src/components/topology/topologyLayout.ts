@@ -1,12 +1,12 @@
-import ELK from 'elkjs/lib/elk-api';
+import ELK, { type ElkNode } from 'elkjs/lib/elk-api';
 import ELKBundled from 'elkjs/lib/elk.bundled.js';
 import type { Node, Edge } from 'reactflow';
 import { buildElkGraph, elkToReactFlow, type ElkRenderContext } from './topologyElkGraph';
 import type { TopologyModel } from './topologyModel';
 import { logLayout, PERF_PREFIX } from './topologyPerf';
 
-interface ElkLike {
-  layout: (graph: any) => Promise<any>;
+export interface ElkLike {
+  layout: (graph: ElkNode) => Promise<ElkNode>;
 }
 
 /** Real worker-backed ELK (Vite resolves the worker asset via import.meta.url). */
@@ -36,8 +36,15 @@ export function createLayoutEngine(
   ): Promise<{ nodes: Node[]; edges: Edge[] }> {
     const started = performance.now();
     let engine: 'worker' | 'bundled' = workerFailed ? 'bundled' : 'worker';
-    let result: any;
-    if (!workerFailed) {
+    const layoutOnMainThread = () => {
+      bundled ??= makeBundled();
+      return bundled.layout(buildElkGraph(model));
+    };
+
+    let result: ElkNode;
+    if (workerFailed) {
+      result = await layoutOnMainThread();
+    } else {
       try {
         worker ??= makeWorker();
         result = await worker.layout(buildElkGraph(model));
@@ -48,15 +55,12 @@ export function createLayoutEngine(
         worker = null;
         engine = 'bundled';
         if (import.meta.env.DEV) {
-          // eslint-disable-next-line no-console
           console.debug(`${PERF_PREFIX} worker unavailable — using main-thread ELK`);
         }
+        result = await layoutOnMainThread();
       }
     }
-    if (engine === 'bundled') {
-      bundled ??= makeBundled();
-      result = await bundled.layout(buildElkGraph(model));
-    }
+
     const rf = elkToReactFlow(result, model, ctx);
     logLayout({
       layoutMs: performance.now() - started,
