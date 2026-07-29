@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import EnvironmentOperatingHoursTab from '../EnvironmentOperatingHoursTab';
+import { environmentOperatingHoursService } from '../../../services/environmentOperatingHoursService';
 
 vi.mock('../../../services/environmentOperatingHoursService', () => ({
   environmentOperatingHoursService: {
@@ -35,5 +36,23 @@ describe('EnvironmentOperatingHoursTab', () => {
   it('shows the utilization card percentage', async () => {
     render(<EnvironmentOperatingHoursTab envId={1} />);
     expect(await screen.findByText('25%')).toBeInTheDocument();
+  });
+
+  it('saves and shows a success snackbar', async () => {
+    vi.mocked(environmentOperatingHoursService.putConfig).mockResolvedValueOnce({
+      configured: true, timezone: 'UTC', week: [],
+    });
+    render(<EnvironmentOperatingHoursTab envId={1} />);
+    await screen.findByDisplayValue('Europe/London'); // wait for config load
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByText('Operating hours saved')).toBeInTheDocument();
+  });
+
+  it('shows an error alert when save fails', async () => {
+    vi.mocked(environmentOperatingHoursService.putConfig).mockRejectedValueOnce(new Error('boom'));
+    render(<EnvironmentOperatingHoursTab envId={1} />);
+    await screen.findByDisplayValue('Europe/London');
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(await screen.findByText('boom')).toBeInTheDocument();
   });
 });

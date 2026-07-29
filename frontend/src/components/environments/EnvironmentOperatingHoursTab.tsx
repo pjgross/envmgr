@@ -2,7 +2,7 @@
  * EnvironmentOperatingHoursTab — weekly operating-hours editor + a utilization card.
  * Local-state + direct-service; mirrors the DoraDashboard/HealthDashboard pattern.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Checkbox, FormControlLabel,
   Snackbar, TextField, Typography,
@@ -48,7 +48,6 @@ export default function EnvironmentOperatingHoursTab({ envId }: { envId: number 
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const zones = useMemo(tzOptions, []);
-  const loadedRef = useRef(false);
 
   // last-90-day window for the utilization card
   const params = useMemo(() => ({
@@ -62,16 +61,15 @@ export default function EnvironmentOperatingHoursTab({ envId }: { envId: number 
         setTimezone(cfg.timezone);
         setWeek(cfg.week.map((d) => ({ closed: d.closed, open: d.open ?? '09:00', close: d.close ?? '17:00' })));
       }
-      loadedRef.current = true;
-    }).catch(() => { loadedRef.current = true; });
+    }).catch(() => {});
   }, [envId]);
 
-  const refreshUtil = () => {
+  const refreshUtil = useCallback(() => {
     environmentOperatingHoursService.utilization(envId, params)
       .then((u) => setUtil({ ratio: u.utilization_ratio, booked: u.booked_operating_seconds, total: u.total_operating_seconds, configured: u.configured }))
       .catch(() => setUtil(null));
-  };
-  useEffect(refreshUtil, [envId, params]);
+  }, [envId, params]);
+  useEffect(() => { refreshUtil(); }, [refreshUtil]);
 
   const setDay = (i: number, patch: Partial<OperatingHoursDay>) => {
     setWeek((w) => w.map((d, idx) => (idx === i ? { ...d, ...patch } : d)));
