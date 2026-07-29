@@ -78,7 +78,8 @@ All functions take a window (`date_from`, `date_to`), tenant-scoped, non-deleted
     reuse. Prefer this. Compute `emergency_pct` and `avg_cycle_time` here.
 - `booking_conflicts(db, tenant_id, date_from, date_to) -> list[dict]`:
   - Over active bookings (window overlaps `[date_from, date_to]`; status not in
-    `{draft, cancelled, rejected}`), detect overlapping pairs per environment (reuse
+    `{draft, rejected, closed}` — draft plus the two terminal booking states; the lifecycle
+    has no `cancelled` state), detect overlapping pairs per environment (reuse
     `conflict_service`'s overlap logic; if its signature doesn't fit a bulk/window query,
     load the window's bookings per env and count overlapping pairs in Python).
   - Return rows `{environment_id, environment_name, month (YYYY-MM), conflict_count}` — a

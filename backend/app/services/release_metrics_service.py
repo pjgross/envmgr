@@ -17,8 +17,11 @@ from app.db.models.release import Release, ReleaseStatusHistory
 from app.db.models.lifecycle import LifecycleTemplate
 from app.services import dora_service
 
-# Booking statuses that do NOT represent a live claim on an environment.
-_INACTIVE_BOOKING_STATES = {"draft", "cancelled", "rejected"}
+# Booking statuses that do NOT represent a live claim on an environment:
+# draft (uncommitted) + the two terminal states (rejected, closed). Note this is a
+# superset of conflict_service.TERMINAL_STATES ({rejected, closed}) — the metric also
+# drops draft. Booking lifecycle has no "cancelled" state.
+_INACTIVE_BOOKING_STATES = {"draft", "rejected", "closed"}
 
 
 def _utc(dt: datetime | None) -> datetime | None:

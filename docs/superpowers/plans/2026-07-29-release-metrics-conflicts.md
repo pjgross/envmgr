@@ -23,7 +23,7 @@ You have zero context for this codebase. Read these before starting — they are
 - **Frontend page pattern:** `frontend/src/pages/releases/ReleaseAnalytics.tsx` — local `useState` for `from`/`to`, `useEffect` fetch, `DataTable`, MUI `Card`. `formatDuration(seconds)` helper lives in `frontend/src/pages/insights/DoraDashboard.tsx` (NOT exported — you will add a local copy).
 - **Frontend render-test pattern:** `frontend/src/pages/insights/__tests__/HealthDashboard.test.tsx` — `vi.mock('../../../services/…')` with a self-contained factory, render inside `<MemoryRouter>`, assert with `findByText`.
 
-**Booking status semantics:** active/counted bookings are those whose `status` is NOT in `{"draft", "cancelled", "rejected"}` (matches the SP3 health-service definition). Overlap is half-open: two windows overlap iff `a.start < b.end AND a.end > b.start`.
+**Booking status semantics:** active/counted bookings are those whose `status` is NOT in `{"draft", "rejected", "closed"}` — i.e. draft (uncommitted) plus the two terminal states. The booking lifecycle states are `draft, submitted, approved, rejected, extension_requested, closed` (there is NO `cancelled` state). This is a superset of `conflict_service.TERMINAL_STATES` (`{rejected, closed}`); the metric additionally drops `draft`. Overlap is half-open: two windows overlap iff `a.start < b.end AND a.end > b.start`.
 
 ---
 
@@ -85,7 +85,8 @@ async def _user(db, tenant_id):
 
 
 async def _env(db, tenant_id, name):
-    e = Environment(tenant_id=tenant_id, name=name)
+    # environment_type is nullable=False with no default — must be supplied.
+    e = Environment(tenant_id=tenant_id, name=name, environment_type="test")
     db.add(e); await db.flush(); return e
 
 
@@ -141,14 +142,14 @@ async def test_conflicts_non_overlapping_is_zero(db_session, tenant):
 
 
 @pytest.mark.asyncio
-async def test_conflicts_excludes_draft_and_cancelled(db_session, tenant):
+async def test_conflicts_excludes_draft_and_closed(db_session, tenant):
     u = await _user(db_session, tenant.id)
     env = await _env(db_session, tenant.id, "SIT")
     req = await _booking_request(db_session, tenant.id, u.id)
     t0 = datetime(2026, 6, 10, tzinfo=UTC)
-    # Overlapping window, but one booking is draft and one is cancelled → no counted pair
+    # Overlapping window, but one booking is draft and one is closed (terminal) → no counted pair
     await _booking(db_session, tenant.id, env.id, req.id, t0, t0 + timedelta(days=3), status="draft")
-    await _booking(db_session, tenant.id, env.id, req.id, t0 + timedelta(days=1), t0 + timedelta(days=4), status="cancelled")
+    await _booking(db_session, tenant.id, env.id, req.id, t0 + timedelta(days=1), t0 + timedelta(days=4), status="closed")
     await db_session.flush()
     rows = await release_metrics_service.booking_conflicts(
         db_session, tenant.id, datetime(2026, 6, 1, tzinfo=UTC), datetime(2026, 6, 30, tzinfo=UTC))
@@ -227,8 +228,10 @@ from app.db.models.release import Release, ReleaseStatusHistory
 from app.db.models.lifecycle import LifecycleTemplate
 from app.services import dora_service
 
-# Booking statuses that do NOT represent a live claim on an environment.
-_INACTIVE_BOOKING_STATES = {"draft", "cancelled", "rejected"}
+# Booking statuses that do NOT represent a live claim on an environment:
+# draft (uncommitted) + the two terminal states (rejected, closed). Superset of
+# conflict_service.TERMINAL_STATES ({rejected, closed}). Booking lifecycle has no "cancelled".
+_INACTIVE_BOOKING_STATES = {"draft", "rejected", "closed"}
 
 
 def _utc(dt: datetime | None) -> datetime | None:
@@ -673,7 +676,7 @@ async def test_release_metrics_requires_dates(authed_client):
 
 @pytest.mark.asyncio
 async def test_booking_conflicts_shape(authed_client, db_session, tenant, user):
-    env = Environment(tenant_id=tenant.id, name="SIT")
+    env = Environment(tenant_id=tenant.id, name="SIT", environment_type="test")
     db_session.add(env); await db_session.flush()
     req = BookingRequest(
         tenant_id=tenant.id, project_name="Proj", booked_by=user.id, booking_type_id=1,

@@ -79,14 +79,14 @@ async def test_conflicts_non_overlapping_is_zero(db_session, tenant):
 
 
 @pytest.mark.asyncio
-async def test_conflicts_excludes_draft_and_cancelled(db_session, tenant):
+async def test_conflicts_excludes_draft_and_closed(db_session, tenant):
     u = await _user(db_session, tenant.id)
     env = await _env(db_session, tenant.id, "SIT")
     req = await _booking_request(db_session, tenant.id, u.id)
     t0 = datetime(2026, 6, 10, tzinfo=UTC)
-    # Overlapping window, but one booking is draft and one is cancelled → no counted pair
+    # Overlapping window, but one booking is draft and one is closed → no counted pair
     await _booking(db_session, tenant.id, env.id, req.id, t0, t0 + timedelta(days=3), status="draft")
-    await _booking(db_session, tenant.id, env.id, req.id, t0 + timedelta(days=1), t0 + timedelta(days=4), status="cancelled")
+    await _booking(db_session, tenant.id, env.id, req.id, t0 + timedelta(days=1), t0 + timedelta(days=4), status="closed")
     await db_session.flush()
     rows = await release_metrics_service.booking_conflicts(
         db_session, tenant.id, datetime(2026, 6, 1, tzinfo=UTC), datetime(2026, 6, 30, tzinfo=UTC))
