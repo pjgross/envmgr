@@ -5,7 +5,7 @@ each {"closed": bool, "open": "HH:MM", "close": "HH:MM"}. Overnight windows (clo
 are out of scope and rejected. Tenant-scoped; IDOR-guarded on the environment FK.
 """
 import re
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -20,7 +20,7 @@ _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 def _validate_timezone(tz: str) -> None:
     try:
         ZoneInfo(tz)
-    except Exception:
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                             detail=f"Invalid timezone: {tz!r}")
 

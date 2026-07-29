@@ -92,3 +92,19 @@ async def test_upsert_wrong_tenant_env_404(db_session, tenant):
 async def test_get_config_none_when_unset(db_session, tenant):
     env = await _env(db_session, tenant.id)
     assert await svc.get_config(db_session, tenant.id, env.id) is None
+
+
+@pytest.mark.asyncio
+async def test_upsert_revives_soft_deleted_row(db_session, tenant):
+    from datetime import datetime, timezone as _tz
+    env = await _env(db_session, tenant.id)
+    r1 = await svc.upsert_config(db_session, tenant.id, env.id, "UTC", _FULL_WEEK)
+    # soft-delete the config row
+    r1.deleted_at = datetime.now(_tz.utc)
+    await db_session.flush()
+    assert await svc.get_config(db_session, tenant.id, env.id) is None  # hidden while deleted
+    # re-upsert must revive the SAME row (not insert a second — UniqueConstraint), clearing deleted_at
+    r2 = await svc.upsert_config(db_session, tenant.id, env.id, "Europe/London", _FULL_WEEK)
+    assert r2.id == r1.id
+    assert r2.deleted_at is None
+    assert await svc.get_config(db_session, tenant.id, env.id) is not None
