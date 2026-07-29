@@ -74,7 +74,7 @@ async def test_env_utilization_endpoint(authed_client, db_session, tenant):
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body) == {"environment_id", "environment_name", "configured", "timezone",
-                         "total_operating_seconds", "booked_operating_seconds", "utilization_pct"}
+                         "total_operating_seconds", "booked_operating_seconds", "utilization_ratio"}
     assert body["total_operating_seconds"] == 40 * 3600
 
 
@@ -82,4 +82,21 @@ async def test_env_utilization_endpoint(authed_client, db_session, tenant):
 async def test_env_utilization_requires_dates(authed_client, db_session, tenant):
     env = await _env(db_session, tenant.id)
     r = await authed_client.get(f"/api/v1/environments/{env.id}/utilization")
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_put_wrong_length_week_422(authed_client, db_session, tenant):
+    env = await _env(db_session, tenant.id)
+    r = await authed_client.put(f"/api/v1/environments/{env.id}/operating-hours",
+                                json={"timezone": "UTC", "week": _FULL[:3]})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_put_open_after_close_422(authed_client, db_session, tenant):
+    env = await _env(db_session, tenant.id)
+    bad = [{"closed": False, "open": "17:00", "close": "09:00"}] + [{"closed": True} for _ in range(6)]
+    r = await authed_client.put(f"/api/v1/environments/{env.id}/operating-hours",
+                                json={"timezone": "UTC", "week": bad})
     assert r.status_code == 422

@@ -26,7 +26,7 @@ class EnvironmentUtilization(BaseModel):
     timezone: Optional[str] = None
     total_operating_seconds: float
     booked_operating_seconds: float
-    utilization_pct: float
+    utilization_ratio: float
 
 
 class UtilizationOverview(BaseModel):

@@ -96,7 +96,7 @@ async def environment_utilization(db: AsyncSession, tenant_id: int, environment_
             "environment_id": environment_id, "environment_name": env.name,
             "configured": False, "timezone": None,
             "total_operating_seconds": 0.0, "booked_operating_seconds": 0.0,
-            "utilization_pct": 0.0,
+            "utilization_ratio": 0.0,
         }
 
     segments, total = _operating_segments(config, date_from, date_to)
@@ -112,12 +112,12 @@ async def environment_utilization(db: AsyncSession, tenant_id: int, environment_
     )).all()
     intervals = _merge_intervals([(_utc(s), _utc(e)) for s, e in rows])
     booked = sum(_intersect(seg, intervals) for seg in segments)
-    util_pct = (booked / total) if total else 0.0
+    util_ratio = (booked / total) if total else 0.0
     return {
         "environment_id": environment_id, "environment_name": env.name,
         "configured": True, "timezone": config.timezone,
         "total_operating_seconds": total, "booked_operating_seconds": booked,
-        "utilization_pct": util_pct,
+        "utilization_ratio": util_ratio,
     }
 
 

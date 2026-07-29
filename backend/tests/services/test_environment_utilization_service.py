@@ -142,7 +142,7 @@ async def test_environment_utilization_single_booking(db_session, tenant):
     assert res["configured"] is True
     assert res["total_operating_seconds"] == 40 * 3600
     assert res["booked_operating_seconds"] == 3 * 3600
-    assert abs(res["utilization_pct"] - (3 / 40)) < 1e-9
+    assert abs(res["utilization_ratio"] - (3 / 40)) < 1e-9
 
 
 @pytest.mark.asyncio
@@ -187,7 +187,7 @@ async def test_environment_utilization_unconfigured(db_session, tenant):
         datetime(2026, 6, 7, 23, 59, 59, tzinfo=UTC))
     assert res["configured"] is False
     assert res["total_operating_seconds"] == 0.0
-    assert res["utilization_pct"] == 0.0
+    assert res["utilization_ratio"] == 0.0
     assert res["environment_name"] == env.name
 
 
