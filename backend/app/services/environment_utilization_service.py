@@ -77,3 +77,63 @@ def _operating_segments(config, date_from: datetime, date_to: datetime):
                 total += (eu - su).total_seconds()
         d += timedelta(days=1)
     return segments, total
+
+
+async def environment_utilization(db: AsyncSession, tenant_id: int, environment_id: int,
+                                  date_from: datetime, date_to: datetime) -> dict:
+    env = (await db.execute(select(Environment).where(
+        Environment.id == environment_id,
+        Environment.tenant_id == tenant_id,
+        Environment.deleted_at.is_(None),
+    ))).scalar_one_or_none()
+    if env is None:
+        from fastapi import HTTPException, status as _s
+        raise HTTPException(status_code=_s.HTTP_404_NOT_FOUND, detail="Environment not found")
+
+    config = await ops_service.get_config(db, tenant_id, environment_id)
+    if config is None:
+        return {
+            "environment_id": environment_id, "environment_name": env.name,
+            "configured": False, "timezone": None,
+            "total_operating_seconds": 0.0, "booked_operating_seconds": 0.0,
+            "utilization_pct": 0.0,
+        }
+
+    segments, total = _operating_segments(config, date_from, date_to)
+    rows = (await db.execute(
+        select(Booking.start_date, Booking.end_date).where(
+            Booking.tenant_id == tenant_id,
+            Booking.environment_id == environment_id,
+            Booking.deleted_at.is_(None),
+            not_(Booking.status.in_(_INACTIVE_BOOKING_STATES)),
+            Booking.start_date < date_to,
+            Booking.end_date > date_from,
+        )
+    )).all()
+    intervals = _merge_intervals([(_utc(s), _utc(e)) for s, e in rows])
+    booked = sum(_intersect(seg, intervals) for seg in segments)
+    util_pct = (booked / total) if total else 0.0
+    return {
+        "environment_id": environment_id, "environment_name": env.name,
+        "configured": True, "timezone": config.timezone,
+        "total_operating_seconds": total, "booked_operating_seconds": booked,
+        "utilization_pct": util_pct,
+    }
+
+
+async def utilization_overview(db: AsyncSession, tenant_id: int,
+                               date_from: datetime, date_to: datetime) -> dict:
+    envs = (await db.execute(select(Environment).where(
+        Environment.tenant_id == tenant_id,
+        Environment.deleted_at.is_(None),
+    ))).scalars().all()
+    rows = []
+    unconfigured = 0
+    for env in envs:
+        r = await environment_utilization(db, tenant_id, env.id, date_from, date_to)
+        if r["configured"]:
+            rows.append(r)
+        else:
+            unconfigured += 1
+    rows.sort(key=lambda r: r["environment_name"])
+    return {"rows": rows, "unconfigured_count": unconfigured}
