@@ -132,3 +132,174 @@ async def test_conflicts_tenant_isolation(db_session, tenant):
     rows = await release_metrics_service.booking_conflicts(
         db_session, tenant.id, datetime(2026, 6, 1, tzinfo=UTC), datetime(2026, 6, 30, tzinfo=UTC))
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# release_metrics
+# ---------------------------------------------------------------------------
+
+from app.db.models.release import Release, ReleaseStatusHistory  # noqa: E402
+from app.db.models.lifecycle import LifecycleTemplate  # noqa: E402
+from app.db.models.deployment import Deployment  # noqa: E402
+from app.db.models.build import Build  # noqa: E402
+from app.db.models.incident import Incident  # noqa: E402
+
+_build_counter = 0
+_deploy_counter = 0
+
+
+async def _build(db, tenant_id, commit_dt, subsystem_id=1):
+    global _build_counter
+    _build_counter += 1
+    sha = f"rm{_build_counter:038d}"
+    b = Build(tenant_id=tenant_id, subsystem_id=subsystem_id, git_sha=sha,
+              build_number=str(_build_counter), commit_timestamp=commit_dt)
+    db.add(b); await db.flush(); return b
+
+
+async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, release_id):
+    global _deploy_counter
+    _deploy_counter += 1
+    d = Deployment(tenant_id=tenant_id, build_id=build_id, environment_id=env_id,
+                   release_id=release_id, change_request_id=1,
+                   event_id=f"rm-e{deployed_dt.timestamp()}-{_deploy_counter}",
+                   deployed_at=deployed_dt, status="success", custom_fields={})
+    db.add(d); await db.flush(); return d
+
+
+async def _release_template(db, tenant_id):
+    tpl = LifecycleTemplate(
+        tenant_id=tenant_id, entity_type="release", name="RT",
+        description="", is_default=True, is_system=True,
+        definition={"states": [
+            {"key": "completed", "label": "Completed", "is_initial": False, "is_terminal": True},
+            {"key": "backed_out", "label": "Backed Out", "is_initial": False, "is_terminal": True, "is_failed": True},
+            {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        ], "transitions": [], "field_permissions": {}},
+    )
+    db.add(tpl); await db.flush(); return tpl
+
+
+async def _release(db, tenant_id, tpl_id, status, close_dt, *, release_type="Major",
+                   created_at=None, actual_date=None, with_deploy=True):
+    u = await _user(db, tenant_id)
+    r = Release(tenant_id=tenant_id, name="R", release_type=release_type, release_kind="project",
+                lifecycle_template_id=tpl_id, status=status, raised_by=u.id,
+                actual_date=actual_date)
+    if created_at is not None:
+        r.created_at = created_at  # override server_default so cycle-time is deterministic
+    db.add(r); await db.flush()
+    db.add(ReleaseStatusHistory(release_id=r.id, to_state=status, changed_at=close_dt, changed_by=u.id))
+    if with_deploy:
+        b = await _build(db, tenant_id, close_dt - timedelta(days=1))
+        await _deploy(db, tenant_id, b.id, 1, close_dt, r.id)
+    await db.flush(); return r
+
+
+@pytest.mark.asyncio
+async def test_success_rate_half_when_one_of_two_failed(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    await _release(db_session, tenant.id, tpl.id, "completed", t0)                     # clean
+    await _release(db_session, tenant.id, tpl.id, "backed_out", t0 + timedelta(days=1))  # failed
+    await db_session.flush()
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    assert res["shipped_count"] == 2
+    assert res["failed_count"] == 1
+    assert abs(res["success_rate"] - 0.5) < 1e-9
+
+
+@pytest.mark.asyncio
+async def test_causal_incident_counts_as_failed(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    r = await _release(db_session, tenant.id, tpl.id, "completed", t0)
+    db_session.add(Incident(tenant_id=tenant.id, title="x", severity="P1", status="new",
+                            detected_at=t0, release_id=r.id, source="manual"))
+    await db_session.flush()
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    assert res["shipped_count"] == 1
+    assert res["failed_count"] == 1
+    assert res["success_rate"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_empty_window_zeroes(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0, t0 + timedelta(days=1))
+    assert res["shipped_count"] == 0
+    assert res["success_rate"] == 0.0
+    assert res["emergency_pct"] == 0.0
+    assert res["closed_count"] == 0
+    assert res["avg_cycle_time_seconds"] == 0.0
+    assert res["cycle_time_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_emergency_pct(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    # 1 Emergency + 3 non-Emergency closed releases → 25%
+    await _release(db_session, tenant.id, tpl.id, "completed", t0, release_type="Emergency")
+    await _release(db_session, tenant.id, tpl.id, "completed", t0 + timedelta(days=1), release_type="Major")
+    await _release(db_session, tenant.id, tpl.id, "completed", t0 + timedelta(days=2), release_type="Minor")
+    await _release(db_session, tenant.id, tpl.id, "completed", t0 + timedelta(days=3), release_type="Major")
+    await db_session.flush()
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    assert res["closed_count"] == 4
+    assert res["emergency_count"] == 1
+    assert abs(res["emergency_pct"] - 0.25) < 1e-9
+
+
+@pytest.mark.asyncio
+async def test_avg_cycle_time_over_shipped(db_session, tenant):
+    t0 = datetime(2026, 6, 10, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    # created 2 days before ship → 2-day cycle; created 4 days before → 4-day cycle. mean = 3 days.
+    await _release(db_session, tenant.id, tpl.id, "completed", t0,
+                   created_at=t0 - timedelta(days=2), actual_date=t0)
+    await _release(db_session, tenant.id, tpl.id, "completed", t0 + timedelta(days=1),
+                   created_at=(t0 + timedelta(days=1)) - timedelta(days=4),
+                   actual_date=t0 + timedelta(days=1))
+    await db_session.flush()
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    assert res["cycle_time_count"] == 2
+    assert abs(res["avg_cycle_time_seconds"] - 3 * 86400) < 1
+
+
+@pytest.mark.asyncio
+async def test_avg_cycle_time_excludes_null_actual_date_and_clamps_negative(db_session, tenant):
+    t0 = datetime(2026, 6, 10, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    # shipped, actual_date present, but created AFTER actual_date → clamp to 0
+    await _release(db_session, tenant.id, tpl.id, "completed", t0,
+                   created_at=t0 + timedelta(days=1), actual_date=t0)
+    # shipped but NO actual_date → excluded from the cycle-time average
+    await _release(db_session, tenant.id, tpl.id, "completed", t0 + timedelta(days=1),
+                   created_at=t0 - timedelta(days=2), actual_date=None)
+    await db_session.flush()
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    # only the first (clamped to 0) contributes
+    assert res["cycle_time_count"] == 1
+    assert res["avg_cycle_time_seconds"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_release_metrics_tenant_isolation(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    t2 = Tenant(name="Other Org2", slug="other-org-rm2")
+    db_session.add(t2); await db_session.flush()
+    tpl2 = await _release_template(db_session, t2.id)
+    await _release(db_session, t2.id, tpl2.id, "completed", t0, release_type="Emergency")
+    await db_session.flush()
+    # Query the first tenant → nothing counted
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    assert res["closed_count"] == 0
+    assert res["shipped_count"] == 0

@@ -82,3 +82,97 @@ async def booking_conflicts(
     ]
     result.sort(key=lambda r: (r["environment_name"], r["month"]))
     return result
+
+
+async def _closed_releases_in_window(
+    db: AsyncSession, tenant_id: int, date_from: datetime, date_to: datetime
+) -> tuple[list[Release], set[int]]:
+    """Releases in a terminal lifecycle state whose close date is in the window,
+    plus the set of release ids that have >=1 deployment ("shipped").
+
+    Close-date resolution replicates dora_service.change_failure_rate (latest
+    ReleaseStatusHistory into the current status, fallback actual_date) so the
+    "closed in window" set is consistent with the DORA CFR denominator.
+    """
+    releases = (await db.execute(
+        select(Release).where(Release.tenant_id == tenant_id, Release.deleted_at.is_(None))
+    )).scalars().all()
+
+    shipped_ids = set((await db.execute(
+        select(Deployment.release_id).where(
+            Deployment.tenant_id == tenant_id,
+            Deployment.deleted_at.is_(None),
+            Deployment.release_id.isnot(None),
+        )
+    )).scalars().all())
+
+    tpl_cache: dict[int, dict] = {}
+
+    async def _definition(tid: int) -> dict:
+        if tid not in tpl_cache:
+            tpl = (await db.execute(
+                select(LifecycleTemplate).where(
+                    LifecycleTemplate.id == tid,
+                    LifecycleTemplate.tenant_id == tenant_id,
+                    LifecycleTemplate.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            tpl_cache[tid] = tpl.definition if tpl else {"states": []}
+        return tpl_cache[tid]
+
+    closed: list[Release] = []
+    for r in releases:
+        definition = await _definition(r.lifecycle_template_id)
+        state = next((s for s in definition.get("states", []) if s.get("key") == r.status), None)
+        if state is None or not state.get("is_terminal"):
+            continue
+        close_at = (await db.execute(
+            select(ReleaseStatusHistory.changed_at).where(
+                ReleaseStatusHistory.release_id == r.id,
+                ReleaseStatusHistory.to_state == r.status,
+            ).order_by(ReleaseStatusHistory.changed_at.desc()).limit(1)
+        )).scalars().first() or r.actual_date
+        close_at = _utc(close_at)
+        if close_at is None or not (date_from <= close_at <= date_to):
+            continue
+        closed.append(r)
+    return closed, shipped_ids
+
+
+async def release_metrics(
+    db: AsyncSession, tenant_id: int, date_from: datetime, date_to: datetime
+) -> dict:
+    """Release-level success rate, emergency %, and average cycle time over the window.
+
+    success_rate is derived from dora_service.change_failure_rate (exact complement
+    of the DORA CFR). emergency_pct and avg_cycle_time are computed from the
+    closed-in-window release set.
+    """
+    cfr = await dora_service.change_failure_rate(db, tenant_id, date_from, date_to)
+    shipped_count = cfr["shipped_count"]
+    failed_count = cfr["failed_count"]
+    success_rate = (1.0 - cfr["rate"]) if shipped_count else 0.0
+
+    closed, shipped_ids = await _closed_releases_in_window(db, tenant_id, date_from, date_to)
+    closed_count = len(closed)
+    emergency_count = sum(1 for r in closed if r.release_type == "Emergency")
+    emergency_pct = (emergency_count / closed_count) if closed_count else 0.0
+
+    cycle_secs: list[float] = []
+    for r in closed:
+        if r.id in shipped_ids and r.actual_date is not None:
+            created = _utc(r.created_at)
+            actual = _utc(r.actual_date)
+            cycle_secs.append(max(0.0, (actual - created).total_seconds()))
+    avg_cycle = (sum(cycle_secs) / len(cycle_secs)) if cycle_secs else 0.0
+
+    return {
+        "success_rate": success_rate,
+        "shipped_count": shipped_count,
+        "failed_count": failed_count,
+        "emergency_pct": emergency_pct,
+        "emergency_count": emergency_count,
+        "closed_count": closed_count,
+        "avg_cycle_time_seconds": avg_cycle,
+        "cycle_time_count": len(cycle_secs),
+    }
