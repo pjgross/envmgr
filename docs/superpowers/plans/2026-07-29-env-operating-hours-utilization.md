@@ -626,7 +626,7 @@ async def test_environment_utilization_single_booking(db_session, tenant):
     assert res["configured"] is True
     assert res["total_operating_seconds"] == 40 * 3600
     assert res["booked_operating_seconds"] == 3 * 3600
-    assert abs(res["utilization_pct"] - (3 / 40)) < 1e-9
+    assert abs(res["utilization_ratio"] - (3 / 40)) < 1e-9
 
 
 @pytest.mark.asyncio
@@ -671,7 +671,7 @@ async def test_environment_utilization_unconfigured(db_session, tenant):
         datetime(2026, 6, 7, 23, 59, 59, tzinfo=UTC))
     assert res["configured"] is False
     assert res["total_operating_seconds"] == 0.0
-    assert res["utilization_pct"] == 0.0
+    assert res["utilization_ratio"] == 0.0
     assert res["environment_name"] == env.name
 
 
@@ -727,7 +727,7 @@ async def environment_utilization(db: AsyncSession, tenant_id: int, environment_
             "environment_id": environment_id, "environment_name": env.name,
             "configured": False, "timezone": None,
             "total_operating_seconds": 0.0, "booked_operating_seconds": 0.0,
-            "utilization_pct": 0.0,
+            "utilization_ratio": 0.0,
         }
 
     segments, total = _operating_segments(config, date_from, date_to)
@@ -748,7 +748,7 @@ async def environment_utilization(db: AsyncSession, tenant_id: int, environment_
         "environment_id": environment_id, "environment_name": env.name,
         "configured": True, "timezone": config.timezone,
         "total_operating_seconds": total, "booked_operating_seconds": booked,
-        "utilization_pct": util_pct,
+        "utilization_ratio": util_pct,
     }
 
 
@@ -873,7 +873,7 @@ async def test_env_utilization_endpoint(authed_client, db_session, tenant):
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body) == {"environment_id", "environment_name", "configured", "timezone",
-                         "total_operating_seconds", "booked_operating_seconds", "utilization_pct"}
+                         "total_operating_seconds", "booked_operating_seconds", "utilization_ratio"}
     assert body["total_operating_seconds"] == 40 * 3600
 
 
@@ -922,7 +922,7 @@ class EnvironmentUtilization(BaseModel):
     timezone: Optional[str] = None
     total_operating_seconds: float
     booked_operating_seconds: float
-    utilization_pct: float
+    utilization_ratio: float
 
 
 class UtilizationOverview(BaseModel):
@@ -1128,7 +1128,7 @@ export interface EnvironmentUtilization {
   timezone?: string | null;
   total_operating_seconds: number;
   booked_operating_seconds: number;
-  utilization_pct: number; // 0..1
+  utilization_ratio: number; // 0..1
 }
 
 export interface UtilizationOverview {
@@ -1216,7 +1216,7 @@ vi.mock('../../../services/environmentOperatingHoursService', () => ({
     putConfig: vi.fn(),
     utilization: vi.fn().mockResolvedValue({
       environment_id: 1, environment_name: 'SIT', configured: true, timezone: 'Europe/London',
-      total_operating_seconds: 40 * 3600, booked_operating_seconds: 10 * 3600, utilization_pct: 0.25,
+      total_operating_seconds: 40 * 3600, booked_operating_seconds: 10 * 3600, utilization_ratio: 0.25,
     }),
     overview: vi.fn(),
   },
@@ -1315,7 +1315,7 @@ export default function EnvironmentOperatingHoursTab({ envId }: { envId: number 
 
   const refreshUtil = () => {
     environmentOperatingHoursService.utilization(envId, params)
-      .then((u) => setUtil({ pct: u.utilization_pct, booked: u.booked_operating_seconds, total: u.total_operating_seconds, configured: u.configured }))
+      .then((u) => setUtil({ pct: u.utilization_ratio, booked: u.booked_operating_seconds, total: u.total_operating_seconds, configured: u.configured }))
       .catch(() => setUtil(null));
   };
   useEffect(refreshUtil, [envId, params]);
@@ -1482,7 +1482,7 @@ vi.mock('../../../services/environmentOperatingHoursService', () => ({
     overview: vi.fn().mockResolvedValue({
       rows: [{
         environment_id: 1, environment_name: 'Mortgage SIT', configured: true, timezone: 'UTC',
-        total_operating_seconds: 100 * 3600, booked_operating_seconds: 60 * 3600, utilization_pct: 0.6,
+        total_operating_seconds: 100 * 3600, booked_operating_seconds: 60 * 3600, utilization_ratio: 0.6,
       }],
       unconfigured_count: 2,
     }),
@@ -1544,7 +1544,7 @@ function formatHours(seconds: number): string {
     () => [
       { field: 'environment_name', headerName: 'Environment', flex: 1, minWidth: 180 },
       {
-        field: 'utilization_pct', headerName: 'Utilization', width: 130, type: 'number',
+        field: 'utilization_ratio', headerName: 'Utilization', width: 130, type: 'number',
         valueFormatter: (p) => `${Math.round((p.value as number) * 100)}%`,
       },
       {
@@ -1636,7 +1636,7 @@ Expected: clean working tree (all changes committed across Tasks 1–9).
 - Tests: validation, union, DST, outside-hours/inactive exclusion, unconfigured, tenant isolation, API shapes + 422, render tests → Tasks 2–9. ✅
 - Non-goals respected: no holidays/split-shifts/tenant-default/versioning/charts/CSV. ✅
 
-**Type consistency:** the utilization dict keys returned by `environment_utilization` (Task 4) match the `EnvironmentUtilization` Pydantic model (Task 5), the TS `EnvironmentUtilization` interface (Task 7), the API shape assertion (Task 5), and the Analytics columns (Task 9): `environment_id, environment_name, configured, timezone, total_operating_seconds, booked_operating_seconds, utilization_pct`. `utilization_overview` → `{rows, unconfigured_count}` matches `UtilizationOverview` (Task 5) + TS (Task 7) + the overview endpoint test (Task 6) + the page consumption (Task 9). `OperatingHoursConfigResponse` `{configured, timezone, week}` matches the GET/PUT tests (Task 5) and the TS `OperatingHoursConfig`. `week` weekday order (0=Mon..6=Sun) is consistent across model, service (`d.weekday()`), tests, and the editor's `DAY_LABELS`.
+**Type consistency:** the utilization dict keys returned by `environment_utilization` (Task 4) match the `EnvironmentUtilization` Pydantic model (Task 5), the TS `EnvironmentUtilization` interface (Task 7), the API shape assertion (Task 5), and the Analytics columns (Task 9): `environment_id, environment_name, configured, timezone, total_operating_seconds, booked_operating_seconds, utilization_ratio`. `utilization_overview` → `{rows, unconfigured_count}` matches `UtilizationOverview` (Task 5) + TS (Task 7) + the overview endpoint test (Task 6) + the page consumption (Task 9). `OperatingHoursConfigResponse` `{configured, timezone, week}` matches the GET/PUT tests (Task 5) and the TS `OperatingHoursConfig`. `week` weekday order (0=Mon..6=Sun) is consistent across model, service (`d.weekday()`), tests, and the editor's `DAY_LABELS`.
 
 **Placeholder scan:** no TBD/TODO/"add validation"/"similar to Task N"; every code step shows full code. Content-anchored edit locations are flagged as such, not placeholders.
 
