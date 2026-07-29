@@ -6,76 +6,16 @@ from app.db.base import get_db
 from app.db.models.user import User, Tenant
 from app.core.security import (
     verify_password,
-    get_password_hash,
     create_access_token,
     get_current_user,
 )
-from app.api.v1.schemas import UserCreate, UserLogin, UserResponse, TokenResponse
+from app.api.v1.schemas import UserLogin, UserResponse, TokenResponse
+
+# NOTE: there is deliberately no self-service registration endpoint. Users are
+# created through POST /api/v1/tenant/users, which requires a tenant admin and
+# forces the caller's own tenant — see app/api/v1/tenant_admin.py.
 
 router = APIRouter()
-
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register_user(
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_db),
-):
-    """Register a new user."""
-    
-    # Check if tenant exists
-    result = await db.execute(
-        select(Tenant).where(Tenant.id == user_data.tenant_id)
-    )
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found",
-        )
-    
-    # Check if username already exists in this tenant
-    result = await db.execute(
-        select(User).where(
-            User.tenant_id == user_data.tenant_id,
-            User.username == user_data.username,
-        )
-    )
-    existing_user = result.scalar_one_or_none()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists",
-        )
-    
-    # Check if email already exists in this tenant
-    result = await db.execute(
-        select(User).where(
-            User.tenant_id == user_data.tenant_id,
-            User.email == user_data.email,
-        )
-    )
-    existing_email = result.scalar_one_or_none()
-    if existing_email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already exists",
-        )
-    
-    # Create new user
-    new_user = User(
-        tenant_id=user_data.tenant_id,
-        username=user_data.username,
-        email=user_data.email,
-        password_hash=get_password_hash(user_data.password),
-        role=user_data.role,
-        notification_preferences=user_data.notification_preferences,
-    )
-    
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    
-    return new_user
 
 
 @router.post("/login", response_model=TokenResponse)
