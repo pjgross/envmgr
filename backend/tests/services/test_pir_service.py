@@ -153,3 +153,101 @@ async def test_pir_status_for_incidents_bulk(db_session, tenant, user, rel_facto
     )
     m = await pir_service.pir_status_for_incidents(db_session, tenant.id, [inc.id, 999999])
     assert m.get(inc.id) == "complete" and 999999 not in m
+
+
+# ---------------------------------------------------------------------------
+# Review-recommended coverage tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_cross_tenant_incident_id_422(db_session, tenant, user, rel_factory):
+    """create_for_release with an incident_id belonging to a different tenant → 422."""
+    from app.db.models.user import Tenant as TenantModel
+    # Create a second tenant and an incident under it
+    t2 = TenantModel(name="Other Org", slug="other-org")
+    db_session.add(t2)
+    await db_session.flush()
+    t2_inc = Incident(
+        tenant_id=t2.id,
+        title="Cross-tenant incident",
+        severity="P2",
+        status="new",
+        detected_at=datetime.now(UTC),
+        source="manual",
+    )
+    db_session.add(t2_inc)
+    await db_session.flush()
+
+    rel = await rel_factory()
+    with pytest.raises(HTTPException) as exc:
+        await pir_service.create_for_release(
+            db_session, tenant.id, rel.id,
+            PIRCreate(incident_id=t2_inc.id), user.id
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_cross_tenant_incident_id_422(db_session, tenant, user, rel_factory):
+    """update with an incident_id belonging to a different tenant → 422."""
+    from app.db.models.user import Tenant as TenantModel
+    # Create a second tenant and an incident under it
+    t2 = TenantModel(name="Other Org 2", slug="other-org-2")
+    db_session.add(t2)
+    await db_session.flush()
+    t2_inc = Incident(
+        tenant_id=t2.id,
+        title="Cross-tenant incident for update",
+        severity="P3",
+        status="new",
+        detected_at=datetime.now(UTC),
+        source="manual",
+    )
+    db_session.add(t2_inc)
+    await db_session.flush()
+
+    rel = await rel_factory()
+    await pir_service.create_for_release(db_session, tenant.id, rel.id, PIRCreate(), user.id)
+    with pytest.raises(HTTPException) as exc:
+        await pir_service.update(
+            db_session, tenant.id, rel.id, PIRUpdate(incident_id=t2_inc.id)
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_for_release_tenant_isolation(db_session, tenant, user, rel_factory):
+    """A PIR created under tenant A is NOT returned when queried with a different tenant_id."""
+    rel = await rel_factory()
+    await pir_service.create_for_release(db_session, tenant.id, rel.id, PIRCreate(), user.id)
+    # Query with a different (non-existent) tenant_id — must return None
+    result = await pir_service.get_for_release(db_session, tenant.id + 9999, rel.id)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_pir_status_for_incidents_draft_value(db_session, tenant, user, rel_factory, incident_factory):
+    """A DRAFT PIR linked to an incident → pir_status_for_incidents returns 'draft' for that id."""
+    inc = await incident_factory()
+    rel = await rel_factory()
+    await pir_service.create_for_release(
+        db_session, tenant.id, rel.id,
+        PIRCreate(incident_id=inc.id), user.id  # status defaults to "draft"
+    )
+    m = await pir_service.pir_status_for_incidents(db_session, tenant.id, [inc.id])
+    assert m.get(inc.id) == "draft"
+
+
+@pytest.mark.asyncio
+async def test_update_can_clear_incident_link(db_session, tenant, user, rel_factory, incident_factory):
+    """update with incident_id=None clears the incident link on the PIR."""
+    inc = await incident_factory()
+    rel = await rel_factory()
+    await pir_service.create_for_release(
+        db_session, tenant.id, rel.id,
+        PIRCreate(incident_id=inc.id), user.id
+    )
+    updated = await pir_service.update(
+        db_session, tenant.id, rel.id, PIRUpdate(incident_id=None)
+    )
+    assert updated.incident_id is None
