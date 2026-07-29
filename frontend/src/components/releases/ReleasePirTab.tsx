@@ -6,7 +6,7 @@
  *   what_went_well, what_went_wrong, action_plan) with Save and status
  *   toggle (Draft ⇄ Complete).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -43,6 +43,9 @@ export default function ReleasePirTab({ releaseId }: Props) {
   const [whatWentWrong, setWhatWentWrong] = useState('');
   const [actionPlan, setActionPlan] = useState('');
 
+  const snackbarRef = useRef(snackbar);
+  snackbarRef.current = snackbar;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -56,11 +59,11 @@ export default function ReleasePirTab({ releaseId }: Props) {
         setActionPlan(result.action_plan ?? '');
       }
     } catch {
-      snackbar.error('Failed to load PIR');
+      snackbarRef.current.error('Failed to load PIR');
     } finally {
       setLoading(false);
     }
-  }, [releaseId, snackbar]);
+  }, [releaseId]); // snackbar intentionally excluded — it's a new object each render and would cause an infinite fetch loop
 
   useEffect(() => {
     load();
