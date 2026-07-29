@@ -147,6 +147,10 @@ async def release_metrics(
     success_rate is derived from dora_service.change_failure_rate (exact complement
     of the DORA CFR). emergency_pct and avg_cycle_time are computed from the
     closed-in-window release set.
+
+    Note: emergency_pct/closed_count are over ALL closed-in-window releases, whereas
+    success_rate/shipped_count/failed_count are over the shipped subset (closed releases
+    with >=1 deployment) — a deliberate denominator difference.
     """
     cfr = await dora_service.change_failure_rate(db, tenant_id, date_from, date_to)
     shipped_count = cfr["shipped_count"]

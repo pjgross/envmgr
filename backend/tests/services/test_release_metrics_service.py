@@ -303,3 +303,19 @@ async def test_release_metrics_tenant_isolation(db_session, tenant):
         db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
     assert res["closed_count"] == 0
     assert res["shipped_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_emergency_pct_over_all_closed_including_unshipped(db_session, tenant):
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    tpl = await _release_template(db_session, tenant.id)
+    # closed Emergency release with NO deployment → counts toward closed/emergency but NOT shipped
+    await _release(db_session, tenant.id, tpl.id, "completed", t0,
+                   release_type="Emergency", with_deploy=False)
+    await db_session.flush()
+    res = await release_metrics_service.release_metrics(
+        db_session, tenant.id, t0 - timedelta(days=1), t0 + timedelta(days=7))
+    assert res["closed_count"] == 1
+    assert res["emergency_count"] == 1
+    assert res["emergency_pct"] == 1.0
+    assert res["shipped_count"] == 0
