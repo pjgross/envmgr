@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
+from app.db.models.booking import Booking
 from app.services import booking_service, booking_request_service, conflict_service
 from app.api.v1.schemas.booking import (
     BookingCreate,
@@ -19,6 +20,14 @@ from app.api.v1.schemas.booking import (
 )
 
 router = APIRouter()
+
+# today's default ordering is `start_date ASC, id` — sorting() must preserve
+# that when no sort_by/sort_dir is requested at all (plain default_dir="asc").
+BOOKING_SORTS = {
+    "start_date": Booking.start_date,
+    "end_date": Booking.end_date,
+    "status": Booking.status,
+}
 
 
 def _to_response(booking) -> BookingResponse:
@@ -53,6 +62,7 @@ async def list_bookings(
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
     page: Page = Depends(pagination()),
+    sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -64,6 +74,7 @@ async def list_bookings(
         end=end,
         booking_status=booking_status,
         page=page,
+        sort=sort,
     )
     set_total_count(response, total)
     responses: list[BookingResponse] = []

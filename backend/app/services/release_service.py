@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
 from app.services import lifecycle_service
@@ -252,6 +252,7 @@ async def list_releases(
     system_id: Optional[int] = None,
     limit: int = 50,
     offset: int = 0,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[Release], int]:
     base_where = [
         Release.tenant_id == tenant_id,
@@ -287,8 +288,7 @@ async def list_releases(
     total = (await db.execute(count_stmt)).scalar_one()
 
     stmt = (
-        select(Release)
-        .where(*base_where)
+        apply_sort(select(Release).where(*base_where), sort)
         .order_by(Release.created_at.desc(), Release.id)
         .limit(limit)
         .offset(offset)

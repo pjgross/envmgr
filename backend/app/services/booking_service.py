@@ -17,7 +17,7 @@ from app.db.models.booking_lifecycle import (
 from app.db.models.lifecycle import LifecycleTemplate
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
 from app.services import lifecycle_service
 from app.services.lifecycle_service import (
@@ -276,6 +276,7 @@ async def list_bookings(
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
     page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[Booking], int]:
     query = (
         select(Booking)
@@ -294,7 +295,7 @@ async def list_bookings(
         query = query.where(Booking.start_date < end, Booking.end_date > start)
     if booking_status is not None:
         query = query.where(Booking.status == booking_status)
-    query = query.order_by(Booking.start_date.asc(), Booking.id)
+    query = apply_sort(query, sort).order_by(Booking.start_date.asc(), Booking.id)
     return await fetch_page(db, query, page)
 
 

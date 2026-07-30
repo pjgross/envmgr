@@ -893,3 +893,208 @@ async def test_get_project_release_omits_membership_summary(
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data.get("membership_summary") is None
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting (sub-project C1 task 4)
+# ---------------------------------------------------------------------------
+
+
+def _t(offset_days: float):
+    return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=offset_days)
+
+
+async def _direct_release(
+    db_session: AsyncSession,
+    tenant_id: int,
+    lifecycle_id: int,
+    raised_by: int,
+    *,
+    name: str,
+    release_type: str = "major",
+    release_kind: str = "project",
+    status: str = "draft",
+    target_date=None,
+    created_at=None,
+) -> Release:
+    """Insert a Release directly, bypassing POST /releases, so tests can seed
+    exact name/type/kind/status/target_date/created_at combinations that
+    deliberately disagree with insertion order. `created_at` must be set
+    before the first flush to override the column's server_default."""
+    r = Release(
+        tenant_id=tenant_id,
+        name=name,
+        release_type=release_type,
+        release_kind=release_kind,
+        lifecycle_template_id=lifecycle_id,
+        status=status,
+        raised_by=raised_by,
+        target_date=target_date,
+    )
+    if created_at is not None:
+        r.created_at = created_at
+    db_session.add(r)
+    await db_session.flush()
+    return r
+
+
+@pytest.mark.asyncio
+async def test_list_releases_default_order_unchanged(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    """No sort_by: order must stay `created_at DESC, id` — today's ordering,
+    byte for byte.
+
+    Insertion order (a, b, c) deliberately disagrees with both id-ascending
+    and created_at-ascending order, so a response that happened to preserve
+    insertion order — or that silently flipped direction the moment this
+    endpoint gained the sorting() dependency — would not accidentally satisfy
+    this assertion. This is the arbiter for /releases: its default limit is
+    50 and unchanged by this task, so today's default page must stay
+    byte-identical.
+    """
+    a = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="A", created_at=_t(2))
+    b = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="B", created_at=_t(0))
+    c = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="C", created_at=_t(1))
+
+    resp = await client.get("/api/v1/releases", headers=auth_headers)
+    assert resp.status_code == 200
+    ids = [row["id"] for row in resp.json()]
+    assert ids == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_sort_by_name_both_directions(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    charlie = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                     name="Charlie", created_at=_t(0))
+    alpha = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                   name="Alpha", created_at=_t(1))
+    bravo = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                   name="Bravo", created_at=_t(2))
+
+    asc = await client.get("/api/v1/releases?sort_by=name&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, bravo.id, charlie.id]
+
+    desc = await client.get("/api/v1/releases?sort_by=name&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [charlie.id, bravo.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_sort_by_release_type_both_directions(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    minor = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                   name="i1", release_type="minor", created_at=_t(0))
+    emergency = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                       name="i2", release_type="emergency", created_at=_t(1))
+    major = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                   name="i3", release_type="major", created_at=_t(2))
+
+    asc = await client.get("/api/v1/releases?sort_by=release_type&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [emergency.id, major.id, minor.id]
+
+    desc = await client.get("/api/v1/releases?sort_by=release_type&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [minor.id, major.id, emergency.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_sort_by_release_kind_both_directions(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    """release_kind is a plain String(20) column with no DB-level CHECK
+    constraint restricting it to project/enterprise (only the API's create
+    path validates that), so three distinct values are used here purely to
+    give the sort something to discriminate on."""
+    mu = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                name="i1", release_kind="mu", created_at=_t(0))
+    alpha = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                   name="i2", release_kind="alpha", created_at=_t(1))
+    zeta = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                  name="i3", release_kind="zeta", created_at=_t(2))
+
+    asc = await client.get("/api/v1/releases?sort_by=release_kind&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, mu.id, zeta.id]
+
+    desc = await client.get("/api/v1/releases?sort_by=release_kind&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [zeta.id, mu.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_sort_by_status_both_directions(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    mu = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                name="i1", status="mu", created_at=_t(0))
+    alpha = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                   name="i2", status="alpha", created_at=_t(1))
+    zeta = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                                  name="i3", status="zeta", created_at=_t(2))
+
+    asc = await client.get("/api/v1/releases?sort_by=status&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, mu.id, zeta.id]
+
+    desc = await client.get("/api/v1/releases?sort_by=status&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [zeta.id, mu.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_sort_by_target_date_both_directions(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    """All rows get a non-null target_date — Postgres defaults NULLs LAST on
+    ASC and NULLS FIRST on DESC while SQLite treats NULL as the smallest
+    value, so a row with a null target_date here would make the two engines
+    disagree on the expected sequence."""
+    a = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="A", created_at=_t(0), target_date=_t(2))
+    b = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="B", created_at=_t(0), target_date=_t(0))
+    c = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="C", created_at=_t(0), target_date=_t(1))
+
+    asc = await client.get("/api/v1/releases?sort_by=target_date&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [b.id, c.id, a.id]
+
+    desc = await client.get("/api/v1/releases?sort_by=target_date&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_sort_by_created_at_both_directions(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    a = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="A", created_at=_t(2))
+    b = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="B", created_at=_t(0))
+    c = await _direct_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                               name="C", created_at=_t(1))
+
+    asc = await client.get("/api/v1/releases?sort_by=created_at&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [b.id, c.id, a.id]
+
+    desc = await client.get("/api/v1/releases?sort_by=created_at&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_releases_unknown_sort_by_is_422(client: AsyncClient, auth_headers):
+    resp = await client.get("/api/v1/releases?sort_by=nonexistent", headers=auth_headers)
+    assert resp.status_code == 422

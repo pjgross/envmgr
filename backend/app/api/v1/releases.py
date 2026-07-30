@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, st
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.lifecycle import LifecycleTemplate
@@ -82,6 +82,22 @@ from app.api.v1.schemas.release_bulk_booking import (
 from app.api.v1.schemas.scope_churn_analytics import ScopeChurnAnalyticsRead
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
+
+# today's default ordering is `created_at DESC, id` (newest first) — sorting()
+# must preserve that when no sort_by/sort_dir is requested at all, see
+# default_dir on the dependency below. All six columns are plain
+# String/DateTime columns on Release (no SQLAlchemy Enum), so there is no
+# name/value storage divergence to worry about. Per-row enrichment fields
+# computed after the query (phase_count, scope_count, blocker_count, etc.) are
+# deliberately not sortable here — they aren't backed by a single column.
+RELEASE_SORTS = {
+    "name": Release.name,
+    "release_type": Release.release_type,
+    "release_kind": Release.release_kind,
+    "status": Release.status,
+    "target_date": Release.target_date,
+    "created_at": Release.created_at,
+}
 
 # ── Additional sub-resource routers mounted at /phases, /gates etc. ──────────
 phases_router = APIRouter(prefix="/phases", tags=["Releases"])
@@ -148,6 +164,7 @@ async def list_releases(
     release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
     system_id: Optional[int] = Query(None),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
+    sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -165,6 +182,7 @@ async def list_releases(
         system_id=system_id,
         limit=page.limit,
         offset=page.offset,
+        sort=sort,
     )
     set_total_count(response, total)
     if not releases:
