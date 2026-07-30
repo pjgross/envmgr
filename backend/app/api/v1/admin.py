@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
+from datetime import timedelta
+
 from app.core.security import require_master_admin, create_access_token
+from app.services import auth_session_service
 from app.services import tenant_service, user_admin_service
 from pydantic import BaseModel, Field
 from app.api.v1.schemas import (
@@ -136,6 +139,12 @@ async def reset_user_password(
     from app.core.security import get_password_hash
     user = await user_admin_service.get_user(db, user_id, tenant_id)
     user.password_hash = get_password_hash(data.new_password)
+    # A reset is how a compromised account gets recovered, so the sessions opened
+    # with the old password have to die with it — otherwise the reset achieves
+    # nothing against whoever already had one.
+    await auth_session_service.revoke_all_for_user(
+        db, user.id, reason="password_reset"
+    )
     await db.commit()
     await db.refresh(user)
     return user
@@ -148,9 +157,14 @@ async def sign_in_as_tenant(
     current_user=Depends(require_master_admin()),
 ):
     tenant = await tenant_service.get_tenant(db, tenant_id)
-    token = create_access_token(data={
-        "sub": str(current_user.id),
-        "tenant_id": current_user.tenant_id,
-        "impersonating_tenant_id": tenant_id,
-    })
+    # Explicit lifetime: falling through to the default would give the most
+    # privileged token in the system the longest life of any of them.
+    token = create_access_token(
+        data={
+            "sub": str(current_user.id),
+            "tenant_id": current_user.tenant_id,
+            "impersonating_tenant_id": tenant_id,
+        },
+        expires_delta=timedelta(minutes=auth_session_service.IMPERSONATION_TOKEN_MINUTES),
+    )
     return ImpersonationToken(access_token=token, target_tenant=tenant)

@@ -62,6 +62,7 @@ from app.db.models.environment_health import EnvironmentHealthStatus  # noqa: F4
 from app.db.models.environment_operating_hours import EnvironmentOperatingHours  # noqa: F401
 from app.db.models.pir import PIR  # noqa: F401
 from app.db.models.release_membership import ReleaseMembership  # noqa: F401
+from app.db.models.refresh_token import LoginAttempt, RefreshToken  # noqa: F401
 
 # This will be expanded as we add more models
 __all__ = [

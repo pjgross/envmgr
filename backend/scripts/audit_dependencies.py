@@ -22,15 +22,12 @@ OSV_BATCH = "https://api.osv.dev/v1/querybatch"
 OSV_VULN = "https://api.osv.dev/v1/vulns/"
 
 # advisory id (or alias) -> why we are shipping with it
-ACCEPTED: dict[str, str] = {
-    "CVE-2024-23342": (
-        "ecdsa: Minerva timing attack. Upstream declined to fix (out of scope for a "
-        "pure-Python implementation). Arrives via python-jose; unreachable here because "
-        "app.core.security signs and verifies with HS256 (HMAC) only and passes an "
-        "explicit algorithms= allowlist, so no ECDSA code path is exercised. Removing it "
-        "for good means migrating off python-jose to PyJWT."
-    ),
-}
+#
+# Empty is the goal. CVE-2024-23342 (ecdsa, Minerva timing attack) used to live
+# here: unfixable upstream, reachable only through python-jose. Migrating to PyJWT
+# removed the dependency, so the entry went too — a stale acceptance would
+# silently cover the advisory again if something reintroduced ecdsa.
+ACCEPTED: dict[str, str] = {}
 
 
 def installed_packages() -> list[dict[str, str]]:

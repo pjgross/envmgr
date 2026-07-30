@@ -116,6 +116,14 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    # Added with short-lived access tokens: clients exchange the refresh token at
+    # /auth/refresh before expires_in elapses.
+    refresh_token: str
+    expires_in: int
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 # System schemas

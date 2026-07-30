@@ -58,19 +58,17 @@ allow a vulnerable resolution.
 An advisory is only acceptable with a **reachability argument**. "No fixed version exists" is
 not sufficient on its own.
 
-### `ecdsa` — CVE-2024-23342 (Minerva timing attack)
+### ~~`ecdsa` — CVE-2024-23342~~ — retired 2026-07-30
 
-Upstream **declined to fix**: constant-time operations are considered out of scope for a
-pure-Python implementation. It reaches us as a hard dependency of `python-jose`.
+Was accepted as unreachable (unfixable upstream, reached only via `python-jose`, and
+`security.py` is HS256-only). **Now moot**: `python-jose` was replaced with `PyJWT`, which has
+no `ecdsa` dependency, so the package is gone along with `rsa` and `pyasn1`. The allowlist
+entry was removed rather than left behind — a stale acceptance would silently re-cover the
+advisory if something pulled `ecdsa` back in.
 
-Unreachable: `app/core/security.py` signs and verifies exclusively with **HS256** (HMAC) and
-passes an explicit `algorithms=[settings.ALGORITHM]` allowlist to `jwt.decode`, so no ECDSA
-code path is ever exercised. Two tests in `tests/unit/test_security.py` pin that confinement —
-a token signed with another algorithm, and a hand-crafted `alg=none` token, must both be
-rejected.
-
-**To retire it properly:** migrate from `python-jose` to `PyJWT`, which has no `ecdsa`
-dependency and is actively maintained. `python-jose` itself is close to dormant.
+The two tests in `tests/unit/test_security.py` that pin algorithm confinement (a token signed
+with another algorithm, and a hand-crafted `alg=none` token, must both be rejected) are kept:
+the defence that matters is the explicit `algorithms=` allowlist, not the library behind it.
 
 ### `react-router` — GHSA-qwww-vcr4-c8h2 (RSC-mode CSRF bypass)
 
@@ -90,9 +88,8 @@ unreachable RSC issue. Revisit once a release above 8.2.0 ships.
 
 ## Known-stale, no advisory
 
-- **`passlib` 1.7.4** — last released 2020, effectively unmaintained. It breaks against
-  `bcrypt>=4`, which is what the `bcrypt<4` pin exists for. No advisories, so the audit is
-  quiet, but it is a dead dependency holding back another. Replacing it means calling `bcrypt`
-  directly; stored hashes are compatible, so the migration is mechanical.
+- ~~**`passlib` 1.7.4**~~ — **removed** 2026-07-30 in favour of calling `bcrypt` (now 5.0.0)
+  directly, which also retired the `bcrypt<4` pin passlib forced. Stored `$2b$` hashes are
+  unchanged and still verify; a test pins a passlib-era hash to prove it.
 - ~~**`neo4j` 5.16.0 and `pika` 1.3.2**~~ — both **removed** 2026-07-30; neither was imported by
   any backend module. See [decisions/2026-07-30-drop-neo4j.md](decisions/2026-07-30-drop-neo4j.md).
