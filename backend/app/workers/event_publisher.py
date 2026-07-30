@@ -122,3 +122,35 @@ async def run_event_publisher() -> None:
             continue
 
         await asyncio.sleep(_POLL_INTERVAL)
+
+
+_SUPERVISOR_BACKOFF = [1, 5, 15, 30, 60]  # seconds between restarts
+
+
+async def supervise_event_publisher() -> None:
+    """Keep run_event_publisher running for the life of the process.
+
+    run_event_publisher handles NATS and database failures itself, but it was
+    launched with a bare asyncio.create_task: anything it *didn't* catch killed
+    the task silently, and the outbox then stopped draining forever with no
+    signal beyond events quietly never arriving. A dead publisher is invisible
+    precisely because its job is to happen in the background.
+
+    Restarts with backoff and logs each restart at ERROR so it shows up in
+    alerting. Cancellation (shutdown) is propagated, not restarted.
+    """
+    failures = 0
+    while True:
+        try:
+            await run_event_publisher()
+            # A clean return is not expected — the worker loops forever.
+            logger.error("Event publisher returned unexpectedly; restarting.")
+        except asyncio.CancelledError:
+            logger.info("Event publisher cancelled; shutting down.")
+            raise
+        except Exception:
+            logger.exception("Event publisher crashed; restarting.")
+
+        backoff = _SUPERVISOR_BACKOFF[min(failures, len(_SUPERVISOR_BACKOFF) - 1)]
+        failures += 1
+        await asyncio.sleep(backoff)

@@ -1,18 +1,51 @@
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.observability import configure_logging, install_observability
 from app.db.base import init_db
-from app.workers.event_publisher import run_event_publisher
+from app.workers.event_publisher import supervise_event_publisher
+
+configure_logging()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup and shutdown.
+
+    Replaces the deprecated @app.on_event hooks, and — unlike the previous bare
+    create_task — holds a reference to the background task and cancels it on
+    shutdown so it cannot outlive the app or be garbage-collected mid-flight.
+    """
+    await init_db()
+    publisher = asyncio.create_task(
+        supervise_event_publisher(), name="event-publisher"
+    )
+    logger.info("%s %s started", settings.APP_NAME, settings.APP_VERSION)
+    try:
+        yield
+    finally:
+        publisher.cancel()
+        try:
+            await publisher
+        except asyncio.CancelledError:
+            pass
+        logger.info("%s shut down", settings.APP_NAME)
 
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="Test Environment Management Platform",
+    lifespan=lifespan,
 )
+
+install_observability(app)
 
 # Configure CORS
 app.add_middleware(
@@ -22,13 +55,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup and launch background workers."""
-    await init_db()
-    asyncio.create_task(run_event_publisher())
 
 
 @app.get("/")
