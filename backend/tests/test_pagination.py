@@ -423,3 +423,63 @@ async def test_release_subresource_conformance(
     # 3. asking past the cap is a 422, not a silent clamp
     over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
     assert over.status_code == 422
+
+
+# ── conflicts and rollup/scope ────────────────────────────────────────────────
+#
+# Both are nested under a parent id (booking_id, enterprise_id) rather than flat
+# tenant-scoped lists, so they get their own targeted tests instead of a row in
+# BOUNDED_ENDPOINTS or RELEASE_SUBRESOURCES.
+
+
+@pytest.mark.asyncio
+async def test_conflicts_advertises_its_total(
+    client, auth_headers, test_booking, test_conflicting_booking
+):
+    booking_id = test_booking.id
+    response = await client.get(
+        f"/api/v1/bookings/{booking_id}/conflicts", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert TOTAL_COUNT_HEADER in response.headers
+    # test_conflicting_booking overlaps test_booking's window on the same
+    # environment, so this exercises the real windowed query, not just the
+    # terminal-state early return.
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == len(body) == 1
+
+    over = await client.get(
+        f"/api/v1/bookings/{booking_id}/conflicts?limit={MAX_LIMIT + 1}",
+        headers=auth_headers,
+    )
+    assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_scope_rollup_advertises_its_total(client, auth_headers, release_id):
+    """`release_id` is a plain project-kind release with no enterprise memberships,
+    so `scope_rollup` takes its `_accepted_child_ids` early return (`[], 0`). This
+    test only proves that early return carries the tuple/header shape correctly —
+    it does NOT exercise the windowed query path (fetch_page_rows / ORDER BY
+    ReleaseChange.id), which needs an accepted enterprise membership to reach.
+    See tests/integration/test_enterprise_rollup_service.py for coverage of the
+    real query.
+    """
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/rollup/scope", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert body == []
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 0
+
+    over = await client.get(
+        f"/api/v1/releases/{release_id}/rollup/scope?limit={MAX_LIMIT + 1}",
+        headers=auth_headers,
+    )
+    assert over.status_code == 422

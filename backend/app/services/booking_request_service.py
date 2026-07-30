@@ -96,7 +96,7 @@ async def create_request(
 
     detected: dict[int, list[conflict_service.ConflictingBooking]] = {}
     for c in children:
-        others = await conflict_service.list_conflicts(db, c.id, tenant_id)
+        others, _ = await conflict_service.list_conflicts(db, c.id, tenant_id)
         if others:
             detected[c.id] = others
 

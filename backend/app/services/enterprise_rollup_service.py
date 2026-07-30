@@ -7,6 +7,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page_rows
 from app.api.v1.schemas.enterprise_rollup import (
     MemberRollupRow,
     MemberStateCount,
@@ -75,14 +76,15 @@ async def scope_rollup(
     project_release_id: Optional[int] = None,
     system_id: Optional[int] = None,
     search: Optional[str] = None,
-) -> list[ScopeRollupItem]:
+    page: Optional[Page] = None,
+) -> tuple[list[ScopeRollupItem], int]:
     tenant_id = user.active_tenant_id
     child_ids = await _accepted_child_ids(db, tenant_id, enterprise_id)
     if not child_ids:
-        return []
+        return [], 0
     if project_release_id is not None:
         if project_release_id not in child_ids:
-            return []
+            return [], 0
         child_ids = [project_release_id]
 
     stmt = (
@@ -107,8 +109,11 @@ async def scope_rollup(
             (ReleaseChange.title.ilike(like)) | (ReleaseChange.external_key.ilike(like))
         )
 
+    stmt = stmt.order_by(ReleaseChange.id)
+    rows, total = await fetch_page_rows(db, stmt, page)
+
     items: list[ScopeRollupItem] = []
-    for rc, rel, sys in (await db.execute(stmt)).all():
+    for rc, rel, sys in rows:
         items.append(ScopeRollupItem(
             release_change_id=rc.id,
             project_release_id=rel.id,
@@ -120,7 +125,7 @@ async def scope_rollup(
             system_id=rc.system_id,
             system_name=sys.name if sys else None,
         ))
-    return items
+    return items, total
 
 
 async def timeline_rollup(

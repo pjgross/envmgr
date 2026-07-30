@@ -7,6 +7,7 @@ from sqlalchemy import select, and_, or_, not_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.pagination import Page, fetch_page_rows
 from app.db.models.booking import Booking
 from app.db.models.booking_conflict_ack import BookingConflictAck
 from app.db.models.booking_request import BookingRequest
@@ -25,8 +26,8 @@ class ConflictingBooking:
 
 
 async def list_conflicts(
-    db: AsyncSession, booking_id: int, tenant_id: int
-) -> list[ConflictingBooking]:
+    db: AsyncSession, booking_id: int, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[ConflictingBooking], int]:
     """Return other bookings conflicting with booking_id — same env, overlapping window,
     neither in a lifecycle-defined terminal state. The result is enriched with the
     parent-request project name and environment name so UIs can show a human-readable
@@ -36,7 +37,7 @@ async def list_conflicts(
         select(Booking).where(Booking.id == booking_id, Booking.tenant_id == tenant_id)
     )).scalar_one_or_none()
     if me is None or me.status in TERMINAL_STATES:
-        return []
+        return [], 0
 
     stmt = (
         select(Booking, BookingRequest.project_name, Environment.name)
@@ -52,9 +53,9 @@ async def list_conflicts(
             Booking.start_date < me.end_date,
             Booking.end_date > me.start_date,
         )
-        .order_by(Booking.start_date)
+        .order_by(Booking.start_date, Booking.id)
     )
-    rows = (await db.execute(stmt)).all()
+    rows, total = await fetch_page_rows(db, stmt, page)
     return [
         ConflictingBooking(
             booking=b,
@@ -62,7 +63,7 @@ async def list_conflicts(
             environment_name=env_name,
         )
         for b, project_name, env_name in rows
-    ]
+    ], total
 
 
 async def _authorize_ack(db: AsyncSession, booking_id: int, tenant_id: int, user: User) -> None:
@@ -143,7 +144,7 @@ async def get_ack(
 async def has_unacknowledged_conflicts(
     db: AsyncSession, booking_id: int, tenant_id: int
 ) -> bool:
-    conflicts = await list_conflicts(db, booking_id, tenant_id)
+    conflicts, _ = await list_conflicts(db, booking_id, tenant_id)
     if not conflicts:
         return False
     for c in conflicts:

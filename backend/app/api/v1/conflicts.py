@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.services import conflict_service
@@ -20,12 +21,15 @@ router = APIRouter(prefix="/bookings", tags=["conflicts"])
 @router.get("/{booking_id}/conflicts", response_model=list[ConflictItem])
 async def list_conflicts(
     booking_id: int,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user),
+    page: Page = Depends(pagination()),
 ):
-    others = await conflict_service.list_conflicts(
-        db, booking_id, current_user.active_tenant_id
+    others, total = await conflict_service.list_conflicts(
+        db, booking_id, current_user.active_tenant_id, page=page
     )
+    set_total_count(response, total)
     items: list[ConflictItem] = []
     for c in others:
         ack = await conflict_service.get_ack(
