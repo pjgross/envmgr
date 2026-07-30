@@ -8,6 +8,7 @@ from app.db.models.booking import Booking
 from app.db.models.booking_conflict_ack import BookingConflictAck
 from app.db.models.booking_request import BookingRequest
 from app.db.models.environment import Environment
+from tests.factories import ensure_booking_type
 
 
 async def _make_env(db_session, test_tenant, name: str = "env1") -> Environment:
@@ -22,7 +23,7 @@ async def _make_booking(db_session, test_tenant, test_user, env, start, end, sta
     req = BookingRequest(
         tenant_id=test_tenant.id,
         project_name="p",
-        booking_type_id=1,  # dummy — not traversed for overlap
+        booking_type_id=(await ensure_booking_type(db_session, test_tenant.id)).id,
         start_date=start,
         end_date=end,
         booked_by=test_user.id,
@@ -85,7 +86,7 @@ async def _make_request_with_owner(db_session, test_tenant, test_user, delegates
     req = BookingRequest(
         tenant_id=test_tenant.id,
         project_name="p",
-        booking_type_id=1,
+        booking_type_id=(await ensure_booking_type(db_session, test_tenant.id)).id,
         start_date=datetime(2026, 5, 1, tzinfo=timezone.utc),
         end_date=datetime(2026, 5, 5, tzinfo=timezone.utc),
         booked_by=test_user.id,

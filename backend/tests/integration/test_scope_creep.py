@@ -6,13 +6,15 @@ from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
 from app.services import release_scope_service
 from app.api.v1.schemas.release_change import ReleaseChangeCreate
+from tests.factories import ensure_user
 
 
 async def _release(db, tenant_id, template_id, deadline):
     r = Release(
         tenant_id=tenant_id, name="Creep R", release_type="Test Major",
         release_kind="project", lifecycle_template_id=template_id,
-        status="draft", raised_by=1, scope_deadline=deadline,
+        status="draft", raised_by=(await ensure_user(db, tenant_id)).id,
+        scope_deadline=deadline,
     )
     db.add(r)
     await db.flush()

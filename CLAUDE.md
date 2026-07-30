@@ -125,6 +125,8 @@ Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20c
 - **`db.commit()` in services** — `get_db()` auto-commits on success; calling `db.commit()` inside a service will break the outbox pattern (event rows must commit atomically with the business write). Use `db.flush()` if you need the DB to assign an ID mid-transaction
 - **Native enums** — always set `native_enum=False` on enum columns; PostgreSQL native ENUMs break SQLite-based tests and are hard to alter later
 - **`--autogenerate` migrations** — `init_db()` calls `create_all`, so Alembic autogenerate sees tables as already existing and generates empty migrations. Always use `alembic revision -m "..."` and write the DDL manually
+- **Fabricating foreign keys in tests** — never point a test row at an id you haven't created (`subsystem_id=1`, `raised_by=1`). SQLite silently ignored FKs until `PRAGMA foreign_keys=ON` was added, so ~40 tests were inserting broken rows and passing. Use the helpers in `backend/tests/factories.py`
+- **Testing only on SQLite** — the suite defaults to in-memory SQLite, but partial unique indexes and other dialect-gated DDL are inert there. Run it against PostgreSQL too before trusting a schema or query change: `TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest -q` (CI runs both legs)
 - **Secrets in code** — use environment variables and `.env` files. `SECRET_KEY` must be set for any `DEBUG=false` deployment; the app refuses to start with the repo's placeholder
 - **Self-service user creation** — there is no `/auth/register`; create users via `POST /api/v1/tenant/users`, which is admin-gated and forces the caller's tenant
 

@@ -10,15 +10,18 @@ from app.db.models.build import Build
 from app.db.models.deployment import Deployment
 from app.db.models.user import Tenant, User
 from app.core.security import get_password_hash
+from tests.factories import ensure_change_request, ensure_environment, ensure_subsystem
 
 _build_counter = 0
 _deploy_counter = 0
 
 
-async def _build(db, tenant_id, commit_dt, subsystem_id=1):
+async def _build(db, tenant_id, commit_dt, subsystem_id=None):
     global _build_counter
     _build_counter += 1
     sha = f"api{_build_counter:039d}"
+    if subsystem_id is None:
+        subsystem_id = (await ensure_subsystem(db, tenant_id)).id
     b = Build(tenant_id=tenant_id, subsystem_id=subsystem_id, git_sha=sha,
               build_number=str(_build_counter), commit_timestamp=commit_dt)
     db.add(b)
@@ -26,11 +29,17 @@ async def _build(db, tenant_id, commit_dt, subsystem_id=1):
     return b
 
 
-async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, status="success", release_id=None):
+async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, status="success", release_id=None,
+                  change_request_id=None):
     global _deploy_counter
     _deploy_counter += 1
+    if env_id is not None and env_id < 1000:
+        # Small integers are slots, not real ids — see tests.factories.
+        env_id = (await ensure_environment(db, tenant_id, env_id)).id
+    if change_request_id is None:
+        change_request_id = (await ensure_change_request(db, tenant_id)).id
     d = Deployment(tenant_id=tenant_id, build_id=build_id, environment_id=env_id,
-                   release_id=release_id, change_request_id=1,
+                   release_id=release_id, change_request_id=change_request_id,
                    event_id=f"api-e{deployed_dt.timestamp()}-{_deploy_counter}",
                    deployed_at=deployed_dt, status=status, custom_fields={})
     db.add(d)
@@ -94,7 +103,7 @@ async def test_plain_date_params_and_end_of_day_inclusive(authed_client, db_sess
     # deployed_at is intentionally late on the last day of the window
     deploy_dt = datetime(2026, 6, 15, 23, 0, 0, tzinfo=UTC)
 
-    b = await _build(db_session, tenant.id, commit_dt, subsystem_id=1)
+    b = await _build(db_session, tenant.id, commit_dt)
     await _deploy(db_session, tenant.id, b.id, 1, deploy_dt, "success")
     await db_session.flush()
 
@@ -136,7 +145,7 @@ async def test_dora_is_tenant_scoped(authed_client, db_session, tenant):
     db_session.add(t2)
     await db_session.flush()
 
-    b2 = await _build(db_session, t2.id, t0 - timedelta(days=1), subsystem_id=99)
+    b2 = await _build(db_session, t2.id, t0 - timedelta(days=1))
     await _deploy(db_session, t2.id, b2.id, 1, t0, "success")
     await db_session.flush()
 

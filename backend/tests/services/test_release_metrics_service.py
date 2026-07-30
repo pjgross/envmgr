@@ -7,6 +7,7 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.user import User, Tenant
 from app.core.security import get_password_hash
 from app.services import release_metrics_service
+from tests.factories import ensure_booking_type, ensure_change_request, ensure_environment, ensure_subsystem
 
 UTC = timezone.utc
 
@@ -33,7 +34,8 @@ async def _booking_request(db, tenant_id, user_id):
     # and exclusive_use_requested have model defaults. The request-level dates are placeholders;
     # conflict overlap is computed from the Booking rows, not the request.
     req = BookingRequest(
-        tenant_id=tenant_id, project_name="Proj", booked_by=user_id, booking_type_id=1,
+        tenant_id=tenant_id, project_name="Proj", booked_by=user_id,
+        booking_type_id=(await ensure_booking_type(db, tenant_id)).id,
         start_date=datetime(2026, 6, 1, tzinfo=UTC), end_date=datetime(2026, 6, 30, tzinfo=UTC),
     )
     db.add(req); await db.flush(); return req
@@ -148,20 +150,27 @@ _build_counter = 0
 _deploy_counter = 0
 
 
-async def _build(db, tenant_id, commit_dt, subsystem_id=1):
+async def _build(db, tenant_id, commit_dt, subsystem_id=None):
     global _build_counter
     _build_counter += 1
     sha = f"rm{_build_counter:038d}"
+    if subsystem_id is None:
+        subsystem_id = (await ensure_subsystem(db, tenant_id)).id
     b = Build(tenant_id=tenant_id, subsystem_id=subsystem_id, git_sha=sha,
               build_number=str(_build_counter), commit_timestamp=commit_dt)
     db.add(b); await db.flush(); return b
 
 
-async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, release_id):
+async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, release_id, change_request_id=None):
     global _deploy_counter
     _deploy_counter += 1
+    if env_id is not None and env_id < 1000:
+        # Small integers are slots, not real ids — see tests.factories.
+        env_id = (await ensure_environment(db, tenant_id, env_id)).id
+    if change_request_id is None:
+        change_request_id = (await ensure_change_request(db, tenant_id)).id
     d = Deployment(tenant_id=tenant_id, build_id=build_id, environment_id=env_id,
-                   release_id=release_id, change_request_id=1,
+                   release_id=release_id, change_request_id=change_request_id,
                    event_id=f"rm-e{deployed_dt.timestamp()}-{_deploy_counter}",
                    deployed_at=deployed_dt, status="success", custom_fields={})
     db.add(d); await db.flush(); return d

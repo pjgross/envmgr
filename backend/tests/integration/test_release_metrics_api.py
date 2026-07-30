@@ -10,6 +10,7 @@ from app.db.models.environment import Environment
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.user import Tenant
+from tests.factories import ensure_booking_type
 
 UTC = timezone.utc
 
@@ -56,7 +57,8 @@ async def test_booking_conflicts_shape(authed_client, db_session, tenant, user):
     env = Environment(tenant_id=tenant.id, name="SIT", environment_type="test")
     db_session.add(env); await db_session.flush()
     req = BookingRequest(
-        tenant_id=tenant.id, project_name="Proj", booked_by=user.id, booking_type_id=1,
+        tenant_id=tenant.id, project_name="Proj", booked_by=user.id,
+        booking_type_id=(await ensure_booking_type(db_session, tenant.id)).id,
         start_date=datetime(2026, 6, 1, tzinfo=UTC), end_date=datetime(2026, 6, 30, tzinfo=UTC),
     )
     db_session.add(req); await db_session.flush()
@@ -97,7 +99,8 @@ async def test_booking_conflicts_is_tenant_scoped(authed_client, db_session):
     env2 = Environment(tenant_id=t2.id, name="SIT2", environment_type="test")
     db_session.add(env2); await db_session.flush()
     req2 = BookingRequest(
-        tenant_id=t2.id, project_name="Proj2", booked_by=u2.id, booking_type_id=1,
+        tenant_id=t2.id, project_name="Proj2", booked_by=u2.id,
+        booking_type_id=(await ensure_booking_type(db_session, t2.id)).id,
         start_date=datetime(2026, 6, 1, tzinfo=UTC), end_date=datetime(2026, 6, 30, tzinfo=UTC),
     )
     db_session.add(req2); await db_session.flush()

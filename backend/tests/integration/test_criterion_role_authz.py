@@ -6,11 +6,13 @@ from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
 from app.services import gate_criterion_service
 from app.api.v1.schemas.gate_criterion import GateCriterionCreate
+from tests.factories import ensure_user
 
 
 async def _gate_with_role_criterion(db, tenant_id, template_id):
     r = Release(tenant_id=tenant_id, name="AZ", release_type="Test Major", release_kind="project",
-                lifecycle_template_id=template_id, status="draft", raised_by=1)
+                lifecycle_template_id=template_id, status="draft",
+                raised_by=(await ensure_user(db, tenant_id)).id)
     db.add(r)
     await db.flush()
     from datetime import datetime, timezone

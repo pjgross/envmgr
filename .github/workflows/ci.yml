@@ -12,14 +12,26 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend (pytest on PostgreSQL)
+    name: Backend (${{ matrix.db }})
     runs-on: ubuntu-latest
 
-    # The suite itself runs on in-memory SQLite, but tests/test_migration_schema_drift.py
-    # needs a real PostgreSQL server: it builds a throwaway database with
-    # `alembic upgrade head` and diffs the result against Base.metadata. Without a
-    # server that test silently skips, which is how six tables shipped without
-    # their created_at/updated_at columns.
+    # The suite runs against BOTH engines.
+    #
+    # sqlite is what it has always used: fast, in-memory, no server. But several
+    # migrations and constraints are dialect-gated — the partial unique indexes
+    # behind `if dialect.name != "postgresql": return` are inert under SQLite —
+    # so a SQLite-only run cannot exercise them and never touches the engine
+    # production actually uses.
+    #
+    # A PostgreSQL server is also required by tests/test_migration_schema_drift.py,
+    # which builds a throwaway database with `alembic upgrade head` and diffs the
+    # result against Base.metadata. That test skips without one, which is how six
+    # tables shipped missing their created_at/updated_at columns.
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+
     services:
       postgres:
         image: postgres:15
@@ -60,9 +72,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      - name: Create the PostgreSQL test database
+        if: matrix.db == 'postgres'
+        run: |
+          PGPASSWORD=envmgr_dev_password psql -h localhost -U envmgr -d postgres \
+            -c 'CREATE DATABASE envmgr_test'
+
       - name: Assert the migration drift guard is actually running
         # The guard skips when no PostgreSQL is reachable. A silent skip here
         # would defeat the point of this job, so fail loudly instead.
+        # Runs on one leg only — it is about the migration chain, not the engine
+        # the suite happens to be pointed at.
+        if: matrix.db == 'postgres'
         run: |
           uv run pytest tests/test_migration_schema_drift.py -q --no-header -rs \
             | tee /tmp/drift.txt
@@ -72,11 +93,14 @@ jobs:
           fi
 
       - name: Run test suite
+        env:
+          TEST_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test' || '' }}
         run: uv run pytest -q
 
       - name: Dependency advisories
         # Fails on any advisory not explicitly accepted with a reachability
         # argument in the script. See docs/dependency-audit.md.
+        if: matrix.db == 'sqlite'
         run: uv run python scripts/audit_dependencies.py
 
   frontend:
