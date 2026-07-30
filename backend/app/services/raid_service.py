@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import false, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.raid import RaidItem, RaidItemHistory, RaidItemScopeLink, RaidItemRelation
 from app.db.models.user import User
 from app.db.models.release_dependency import ReleaseDependency
@@ -220,8 +221,21 @@ async def promote_item(db, release_id: int, item_id: int, target_type: str,
     return new
 
 
+def _severity_values_for_rag(cfg: dict, wanted: str) -> list[int]:
+    """Severity scores that map to `wanted`, per the tenant's own bands.
+
+    Evaluating the real rag() over the whole (bounded) severity domain rather
+    than translating band ranges into SQL preserves first-match semantics —
+    including for overlapping bands, which nothing validates against.
+    """
+    p = len(cfg.get("probability_scale") or [])
+    i = len(cfg.get("impact_scale") or [])
+    return [s for s in range(1, p * i + 1) if rag(s, cfg) == wanted]
+
+
 async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
-                     item_type=None, status=None, owner_id=None, rag=None, overdue=None, config=None):
+                     item_type=None, status=None, owner_id=None, rag=None,
+                     overdue=None, config=None, page: Optional[Page] = None):
     stmt = select(RaidItem).where(
         RaidItem.tenant_id == tenant_id, RaidItem.release_id == release_id,
         RaidItem.deleted_at.is_(None))
@@ -231,21 +245,27 @@ async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
         stmt = stmt.where(RaidItem.status == status)
     if owner_id:
         stmt = stmt.where(RaidItem.owner_id == owner_id)
-    stmt = stmt.order_by(RaidItem.item_type, RaidItem.seq)
-    items = list((await db.execute(stmt)).scalars().all())
     if rag is not None and config is not None:
-        cfg = _config_dict(config)
-        items = [i for i in items if globals()["rag"](severity(i.probability, i.impact), cfg) == rag]
+        # severity is probability * impact; NULL in either factor propagates,
+        # and NULL IN (...) is NULL, so unset items are excluded exactly as
+        # severity()->None->rag()->None did.
+        values = _severity_values_for_rag(_config_dict(config), rag)
+        stmt = stmt.where(
+            (RaidItem.probability * RaidItem.impact).in_(values) if values else false()
+        )
     if overdue:
-        now = datetime.now(timezone.utc)
-        items = [i for i in items if i.review_date and i.review_date < now
-                 and i.status not in ("closed", "promoted", "met")]
-    return items
+        stmt = stmt.where(
+            RaidItem.review_date.isnot(None),
+            RaidItem.review_date < datetime.now(timezone.utc),
+            RaidItem.status.notin_(("closed", "promoted", "met")),
+        )
+    stmt = stmt.order_by(RaidItem.item_type, RaidItem.seq, RaidItem.id)
+    return await fetch_page(db, stmt, page)
 
 
 async def summary(db, release_id: int, tenant_id: int, config) -> dict:
     cfg = _config_dict(config)
-    items = await list_items(db, release_id, tenant_id, config=cfg)
+    items, _ = await list_items(db, release_id, tenant_id, config=cfg)
     psize = len(cfg.get("probability_scale", []))
     isize = len(cfg.get("impact_scale", []))
     heatmap = [[[] for _ in range(isize)] for _ in range(psize)]
