@@ -339,10 +339,13 @@ async def test_bounded_endpoint_conformance(
     # 3. asking past the cap is a 422, not a silent clamp
     over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
     assert over.status_code == 422
-
-    # 4. the default page is bounded — the unbounded default is what this removes
-    assert len(body) <= max_limit
 ```
+
+Deliberately **three** invariants, not four. An obvious fourth —
+`assert len(body) <= max_limit` — would be `0 <= 500` against an empty tenant and
+could never fail, so it would be an assertion that asserts nothing. That the
+window is actually applied is proven against `fetch_page` and `fetch_page_rows`
+directly in the primitive tests, where the rows exist to make it meaningful.
 
 The table carries an auth fixture name from the start because `admin/tenants`
 (Task 4) needs master-admin credentials, and retrofitting the column later would
@@ -801,8 +804,6 @@ async def test_release_subresource_conformance(
 
     over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
     assert over.status_code == 422
-
-    assert len(body) <= MAX_LIMIT
 ```
 
 Check the `Release` model's required columns before running — if `raised_by` or `release_type` differ from the above, match the model. Run `grep -n "class Release" -A 30 app/db/models/release.py` to confirm.
@@ -1764,12 +1765,46 @@ Expected: PASS
 Run: `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest tests/test_pagination_ordering.py -q`
 Expected: PASS
 
-- [ ] **Step 4: Verify the test can actually fail**
+- [ ] **Step 4: Prove the property directly rather than hoping the planner shuffles**
 
-Temporarily revert the tiebreaker in `app/services/environment_service.py` back to `query.order_by(Environment.name)`.
+Relying on PostgreSQL to *choose* an unstable plan is not a test — the engine is permitted to be consistent, not required to be. Assert the property directly instead.
+
+Add to `tests/test_pagination_ordering.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_only_the_total_order_gives_a_reproducible_sequence(
+    db_session, test_tenant
+):
+    """The walk test above is only meaningful if the tiebreaker is what pins the
+    sequence. Under `ORDER BY name` alone every row ties, so nothing in the SQL
+    determines the order; adding the primary key makes it unique and sorted.
+    """
+    from app.db.models.environment import Environment
+
+    for _ in range(20):
+        db_session.add(Environment(
+            tenant_id=test_tenant.id, name="identical", environment_type="SIT",
+        ))
+    await db_session.flush()
+
+    total_order = select(Environment).order_by(Environment.name, Environment.id)
+
+    first, _ = await fetch_page(db_session, total_order, Page(limit=20, offset=0))
+    again, _ = await fetch_page(db_session, total_order, Page(limit=20, offset=0))
+
+    ids = [r.id for r in first]
+    assert ids == [r.id for r in again], "a total order must be reproducible"
+    assert ids == sorted(ids), "the tiebreaker must determine the sequence"
+    assert len(set(ids)) == 20
+```
+
+Add `from sqlalchemy import select` to the test file imports.
 
 Run: `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest tests/test_pagination_ordering.py -q`
-Expected: this *may* still pass — PostgreSQL is permitted to be consistent here, not required to be. If it passes, the test is still worth keeping as a regression guard, but record in the commit message that it did not reproduce the failure on demand. **Restore the tiebreaker before committing.**
+Expected: PASS — both tests.
+
+Do not leave a tiebreaker removed anywhere in the tree.
 
 - [ ] **Step 5: Commit**
 
