@@ -378,9 +378,52 @@ Also add `builds` to `BOUNDED_ENDPOINTS` in `tests/test_pagination.py` once it s
 
 ---
 
-## Task 8: Sort-aware tie paging across every endpoint
+## Task 8: Deterministic NULL ordering, and sort-aware tie paging per endpoint
 
-**Files:** Modify `tests/test_sorting.py`.
+**Files:** Modify `app/core/pagination.py` and `tests/test_sorting.py`.
+
+### Part A — NULL ordering diverges between the two engines
+
+Measured directly: sorting a nullable column **ascending** puts `NULL` **first** on SQLite and
+**last** on PostgreSQL. Descending is the mirror. Several whitelisted sort columns are nullable —
+`deployer_name` (deployments), `target_date` (releases), `resolved_at` (incidents), `provider` and
+`region` (infrastructure) — so sorting by any of them returns a **different order on each engine**
+today, and no test covers it.
+
+That matters beyond tidiness: the dual-engine suite exists to catch exactly this class of
+dialect divergence, C3 will render whatever order comes back, and a developer reproducing a
+user's report on SQLite would see a different page than production serves.
+
+Make it deterministic in `apply_sort` so both engines agree:
+
+```python
+def apply_sort(query: Select, sort: Optional[Sort]) -> Select:
+    """Order `query` by `sort`, if given.
+
+    NULLs are pinned explicitly. SQLite sorts NULL first on ASC and PostgreSQL
+    sorts it last, so an unqualified ORDER BY on a nullable column returns a
+    different page per engine. Pinning them last on ASC and first on DESC keeps
+    the two identical and matches the more common expectation that "no value"
+    sorts after values.
+    """
+    if sort is None:
+        return query
+    column = sort.column.desc() if sort.descending else sort.column.asc()
+    return query.order_by(column.nullsfirst() if sort.descending else column.nullslast())
+```
+
+SQLite has supported `NULLS FIRST`/`NULLS LAST` since 3.30; this repo runs 3.50.4, so no dialect
+gate is needed — but confirm the emitted SQL on both engines rather than assuming.
+
+**Write a test per nullable whitelisted column** that seeds a NULL alongside real values and
+asserts the position, and **run it on both engines** — it is the only way to know the divergence
+is closed. This is the one place in C1 where a green SQLite run genuinely cannot substitute.
+
+Note this **changes ordering behaviour** for those columns on one engine or the other. That is
+the point, and it is a deliberate exception to C1's "nothing changes" rule — record it in the
+report and in Task 9's docs.
+
+### Part B — sort-aware tie paging per endpoint
 
 Task 1 proved the primitive composes with a tiebreaker in isolation. This proves it for each real endpoint — the case where a sort silently replaced the tiebreaker rather than preceding it.
 
