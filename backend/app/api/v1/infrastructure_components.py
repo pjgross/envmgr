@@ -1,10 +1,11 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.models.infrastructure_component import (
     InfrastructureComponentSource,
     InfrastructureComponentType,
@@ -22,15 +23,17 @@ router = APIRouter()
 
 @router.get("/", response_model=list[InfrastructureComponentResponse])
 async def list_components(
+    response: Response,
     component_type: Optional[InfrastructureComponentType] = None,
     provider: Optional[str] = None,
     region: Optional[str] = None,
     source: Optional[InfrastructureComponentSource] = None,
     search: Optional[str] = Query(None, description="Case-insensitive name contains"),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await infrastructure_component_service.list_infrastructure_components(
+    rows, total = await infrastructure_component_service.list_infrastructure_components(
         db,
         current_user.active_tenant_id,
         component_type=component_type,
@@ -38,7 +41,10 @@ async def list_components(
         region=region,
         source=source,
         search=search,
+        page=page,
     )
+    set_total_count(response, total)
+    return rows
 
 
 @router.post("/", response_model=InfrastructureComponentResponse, status_code=status.HTTP_201_CREATED)

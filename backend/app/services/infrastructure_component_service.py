@@ -16,6 +16,7 @@ from app.api.v1.schemas.infrastructure_component import (
     InfrastructureComponentUpdate,
 )
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 
 
 async def list_infrastructure_components(
@@ -26,7 +27,8 @@ async def list_infrastructure_components(
     region: Optional[str] = None,
     source: Optional[InfrastructureComponentSource] = None,
     search: Optional[str] = None,
-) -> list[InfrastructureComponent]:
+    page: Optional[Page] = None,
+) -> tuple[list[InfrastructureComponent], int]:
     query = select(InfrastructureComponent).where(
         InfrastructureComponent.tenant_id == tenant_id,
         InfrastructureComponent.deleted_at.is_(None),
@@ -41,9 +43,8 @@ async def list_infrastructure_components(
         query = query.where(InfrastructureComponent.source == source)
     if search:
         query = query.where(InfrastructureComponent.name.ilike(f"%{search}%"))
-    query = query.order_by(InfrastructureComponent.name)
-    result = await db.execute(query)
-    return list(result.scalars().all())
+    query = query.order_by(InfrastructureComponent.name, InfrastructureComponent.id)
+    return await fetch_page(db, query, page)
 
 
 async def get_infrastructure_component(

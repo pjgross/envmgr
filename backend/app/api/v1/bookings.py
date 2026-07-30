@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, status
+from fastapi import APIRouter, Body, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
+from app.core.pagination import Page, pagination, set_total_count
 from app.services import booking_service, booking_request_service, conflict_service
 from app.api.v1.schemas.booking import (
     BookingCreate,
@@ -46,21 +47,25 @@ def _request_summary(req) -> BookingRequestSummary:
 
 @router.get("/", response_model=list[BookingResponse])
 async def list_bookings(
+    response: Response,
     environment_id: Optional[int] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    bookings = await booking_service.list_bookings(
+    bookings, total = await booking_service.list_bookings(
         db,
         current_user.active_tenant_id,
         environment_id=environment_id,
         start=start,
         end=end,
         booking_status=booking_status,
+        page=page,
     )
+    set_total_count(response, total)
     responses: list[BookingResponse] = []
     for b in bookings:
         resp = _to_response(b)

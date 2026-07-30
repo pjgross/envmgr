@@ -223,6 +223,9 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ("environments", "/api/v1/environments/", MAX_LIMIT, "auth_headers"),
     ("systems", "/api/v1/systems/", MAX_LIMIT, "auth_headers"),
     ("incidents", "/api/v1/incidents", MAX_LIMIT, "auth_headers"),
+    ("bookings", "/api/v1/bookings/", MAX_LIMIT, "auth_headers"),
+    ("change_requests", "/api/v1/change-requests", MAX_LIMIT, "auth_headers"),
+    ("infrastructure_components", "/api/v1/infrastructure-components/", MAX_LIMIT, "auth_headers"),
 ]
 
 
