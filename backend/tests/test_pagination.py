@@ -205,3 +205,58 @@ async def test_fetch_page_rows_without_a_page_returns_everything(db_session, ten
         db_session, select(Environment.id, Environment.name), None
     )
     assert len(rows) == 5 == total
+
+
+# ── conformance sweep ────────────────────────────────────────────────────────
+#
+# Every bounded endpoint must satisfy the same four invariants. All of them hold
+# on an empty tenant — request validation and the count query do not need rows —
+# so this table needs no fixtures.
+#
+# NOTE: this proves *shape*, not that the window is correct. An endpoint whose
+# service filters in Python after the query would pass all four and still return
+# wrong results. That is controlled by reading each service before converting it,
+# not by this test.
+
+BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
+    # (test id, url, max_limit, auth fixture name)
+    ("environments", "/api/v1/environments/", MAX_LIMIT, "auth_headers"),
+    ("systems", "/api/v1/systems/", MAX_LIMIT, "auth_headers"),
+    ("incidents", "/api/v1/incidents", MAX_LIMIT, "auth_headers"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url,max_limit,auth_fixture",
+    [(url, cap, fix) for _id, url, cap, fix in BOUNDED_ENDPOINTS],
+    ids=[_id for _id, _url, _cap, _fix in BOUNDED_ENDPOINTS],
+)
+async def test_bounded_endpoint_conformance(
+    client, url, max_limit, auth_fixture, auth_headers
+):
+    # `request.getfixturevalue(auth_fixture)` is the natural way to resolve the
+    # table's fixture-name column, but pytest-asyncio (1.4.0, this repo's
+    # pinned version) runs each async test inside its own asyncio.Runner, and
+    # resolving an *async* fixture on demand from inside that already-running
+    # test coroutine tries to nest another Runner.run() call inside it —
+    # `RuntimeError: Runner.run() cannot be called from a running event loop`.
+    # So known auth fixtures are requested directly as parameters (resolved
+    # during setup, before the test coroutine runs) and picked by name here.
+    # A later task adding a second auth fixture (e.g. master-admin) adds it to
+    # this dict and the function signature — table rows still just append.
+    headers = {"auth_headers": auth_headers}[auth_fixture]
+    response = await client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+
+    # 1. still a bare array — no client change was required by this work
+    body = response.json()
+    assert isinstance(body, list)
+
+    # 2. the unwindowed total is advertised
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) >= 0
+
+    # 3. asking past the cap is a 422, not a silent clamp
+    over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
+    assert over.status_code == 422
