@@ -58,8 +58,9 @@ async def test_soft_delete_hides_from_list_and_get(db_session, tenant, user):
     )
     await incident_service.delete_incident(db_session, inc.id, tenant.id)
     assert await incident_service.get_incident(db_session, inc.id, tenant.id) is None
-    rows = await incident_service.list_incidents(db_session, tenant.id, {})
+    rows, total = await incident_service.list_incidents(db_session, tenant.id, {})
     assert all(r.id != inc.id for r in rows)
+    assert total == 0
 
 
 @pytest.mark.asyncio
