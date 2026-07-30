@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.core.pagination import Page, Sort, apply_sort, fetch_page, sorting
 from app.db.models.environment import Environment
+from tests.conftest import IS_POSTGRES
 
 ALLOWED = {"name": Environment.name, "created_at": Environment.created_at}
 
@@ -75,6 +76,53 @@ async def test_bad_direction_is_422():
 # ── apply_sort composes with, and does not replace, the tiebreaker ───────────
 
 
+@pytest.mark.asyncio
+async def test_apply_sort_precedes_the_tiebreaker_in_the_emitted_sql(test_tenant):
+    """The engine-independent half of the guard.
+
+    The paging walk below only discriminates on PostgreSQL, so this asserts the
+    property structurally: the requested sort key comes first, the unique
+    tiebreaker stays last. If apply_sort ever replaced the ordering instead of
+    prepending to it, this fails on any engine.
+    """
+    from sqlalchemy.dialects import postgresql
+
+    query = apply_sort(
+        select(Environment).where(Environment.tenant_id == test_tenant.id),
+        Sort(column=Environment.name, descending=False),
+    ).order_by(Environment.id)
+
+    compiled = str(query.compile(dialect=postgresql.dialect()))
+    assert "ORDER BY" in compiled
+    order_by = compiled.split("ORDER BY", 1)[1].strip()
+
+    assert order_by.startswith("environment.name")
+    assert order_by.rstrip().endswith("environment.id")
+
+
+@pytest.mark.asyncio
+async def test_apply_sort_descending_still_precedes_the_tiebreaker(test_tenant):
+    """Same structural guard, descending direction."""
+    from sqlalchemy.dialects import postgresql
+
+    query = apply_sort(
+        select(Environment).where(Environment.tenant_id == test_tenant.id),
+        Sort(column=Environment.name, descending=True),
+    ).order_by(Environment.id)
+
+    compiled = str(query.compile(dialect=postgresql.dialect()))
+    assert "ORDER BY" in compiled
+    order_by = compiled.split("ORDER BY", 1)[1].strip()
+
+    assert order_by.startswith("environment.name DESC")
+    assert order_by.rstrip().endswith("environment.id")
+
+
+@pytest.mark.skipif(
+    not IS_POSTGRES,
+    reason="SQLite returns rows in stable rowid order regardless of ORDER BY, so this "
+    "walk passes even with no ordering at all — it only discriminates on PostgreSQL",
+)
 @pytest.mark.asyncio
 async def test_paging_a_sorted_query_over_ties_sees_each_row_once(db_session, test_tenant):
     """Every row shares a name, so the sort column alone leaves 25 ties. If
