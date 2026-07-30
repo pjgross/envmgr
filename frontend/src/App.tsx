@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
@@ -6,47 +6,52 @@ import { RootState } from './store';
 import { authService } from './services/authService';
 import { setCredentials, logout } from './store/authSlice';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import TenantList from './pages/admin/TenantList';
-import TenantDetail from './pages/admin/TenantDetail';
-import TenantSettings from './pages/tenant/TenantSettings';
-import UserManagement from './pages/tenant/UserManagement';
-import SystemCatalog from './pages/systems/SystemCatalog';
-import SystemDetail from './pages/systems/SystemDetail';
-import EnvironmentList from './pages/environments/EnvironmentList';
-import EnvironmentDetail from './pages/environments/EnvironmentDetail';
-import BookingCalendar from './pages/bookings/BookingCalendar';
-import BookingList from './pages/bookings/BookingList';
-import BookingDetail from './pages/bookings/BookingDetail';
-import ChangeRequestList from './pages/change-requests/ChangeRequestList';
-import ChangeRequestDetail from './pages/change-requests/ChangeRequestDetail';
-import ReleaseList from './pages/releases/ReleaseList';
-import ReleaseDetail from './pages/releases/ReleaseDetail';
-import ReleaseCalendar from './pages/releases/ReleaseCalendar';
-import ReleaseTimeline from './pages/releases/ReleaseTimeline';
-import ScopeWindows from './pages/releases/ScopeWindows';
-import ReleaseAnalytics from './pages/releases/ReleaseAnalytics';
-import ReleaseTemplateLibrary from './pages/admin/release-templates/ReleaseTemplateLibrary';
-import ReleaseTemplateForm from './pages/admin/release-templates/ReleaseTemplateForm';
-import InfrastructureComponentList from './pages/infrastructure/InfrastructureComponentList';
-import ImportPage from './pages/import/ImportPage';
-import AdminLayout from './pages/admin/AdminLayout';
-import EntityConfig from './pages/admin/EntityConfig';
-import TenantScopeChangeRules from './pages/admin/TenantScopeChangeRules';
-import ApiKeyManagement from './pages/admin/ApiKeyManagement';
-import RaidSettings from './pages/admin/RaidSettings';
-import BuildList from './pages/builds/BuildList';
-import BuildDetail from './pages/builds/BuildDetail';
-import DeploymentList from './pages/deployments/DeploymentList';
-import DeploymentDetail from './pages/deployments/DeploymentDetail';
-import IncidentList from './pages/incidents/IncidentList';
-import IncidentForm from './pages/incidents/IncidentForm';
-import IncidentDetail from './pages/incidents/IncidentDetail';
-import DoraDashboard from './pages/insights/DoraDashboard';
-import HealthDashboard from './pages/insights/HealthDashboard';
+
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
+
+// Route components are code-split: the app shipped as a single 3.4 MB chunk,
+// so every visitor downloaded every page — including the ELK layout engine and
+// FullCalendar — before the login form could render.
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
+const ApiKeyManagement = lazy(() => import('./pages/admin/ApiKeyManagement'));
+const BookingCalendar = lazy(() => import('./pages/bookings/BookingCalendar'));
+const BookingDetail = lazy(() => import('./pages/bookings/BookingDetail'));
+const BookingList = lazy(() => import('./pages/bookings/BookingList'));
+const BuildDetail = lazy(() => import('./pages/builds/BuildDetail'));
+const BuildList = lazy(() => import('./pages/builds/BuildList'));
+const ChangeRequestDetail = lazy(() => import('./pages/change-requests/ChangeRequestDetail'));
+const ChangeRequestList = lazy(() => import('./pages/change-requests/ChangeRequestList'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const DeploymentDetail = lazy(() => import('./pages/deployments/DeploymentDetail'));
+const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
+const DoraDashboard = lazy(() => import('./pages/insights/DoraDashboard'));
+const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
+const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
+const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
+const HealthDashboard = lazy(() => import('./pages/insights/HealthDashboard'));
+const ImportPage = lazy(() => import('./pages/import/ImportPage'));
+const IncidentDetail = lazy(() => import('./pages/incidents/IncidentDetail'));
+const IncidentForm = lazy(() => import('./pages/incidents/IncidentForm'));
+const IncidentList = lazy(() => import('./pages/incidents/IncidentList'));
+const InfrastructureComponentList = lazy(() => import('./pages/infrastructure/InfrastructureComponentList'));
+const RaidSettings = lazy(() => import('./pages/admin/RaidSettings'));
+const ReleaseAnalytics = lazy(() => import('./pages/releases/ReleaseAnalytics'));
+const ReleaseCalendar = lazy(() => import('./pages/releases/ReleaseCalendar'));
+const ReleaseDetail = lazy(() => import('./pages/releases/ReleaseDetail'));
+const ReleaseList = lazy(() => import('./pages/releases/ReleaseList'));
+const ReleaseTemplateForm = lazy(() => import('./pages/admin/release-templates/ReleaseTemplateForm'));
+const ReleaseTemplateLibrary = lazy(() => import('./pages/admin/release-templates/ReleaseTemplateLibrary'));
+const ReleaseTimeline = lazy(() => import('./pages/releases/ReleaseTimeline'));
+const ScopeWindows = lazy(() => import('./pages/releases/ScopeWindows'));
+const SystemCatalog = lazy(() => import('./pages/systems/SystemCatalog'));
+const SystemDetail = lazy(() => import('./pages/systems/SystemDetail'));
+const TenantDetail = lazy(() => import('./pages/admin/TenantDetail'));
+const TenantList = lazy(() => import('./pages/admin/TenantList'));
+const TenantScopeChangeRules = lazy(() => import('./pages/admin/TenantScopeChangeRules'));
+const TenantSettings = lazy(() => import('./pages/tenant/TenantSettings'));
+const UserManagement = lazy(() => import('./pages/tenant/UserManagement'));
 
 function FullPageSpinner() {
   return (
@@ -101,131 +106,136 @@ function App() {
   return (
     <BrowserRouter>
       <ImpersonationBanner />
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route element={isAuthenticated ? <AppLayout /> : <Navigate to="/login" />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/insights/dora" element={<DoraDashboard />} />
-          <Route path="/insights/health" element={<HealthDashboard />} />
-          <Route
-            path="/admin/tenants"
-            element={
-              <PrivateRoute requireMasterAdmin>
-                <TenantList />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/admin/tenants/:tenantId"
-            element={
-              <PrivateRoute requireMasterAdmin>
-                <TenantDetail />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/tenant/settings"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <TenantSettings />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/tenant/users"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <UserManagement />
-              </PrivateRoute>
-            }
-          />
-          <Route path="/systems" element={<SystemCatalog />} />
-          <Route path="/systems/:id" element={<SystemDetail />} />
-          <Route path="/environments" element={<EnvironmentList />} />
-          <Route path="/environments/:id" element={<EnvironmentDetail />} />
-          <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
-          <Route path="/bookings/calendar" element={<BookingCalendar />} />
-          <Route path="/bookings/list" element={<BookingList />} />
-          <Route path="/bookings/:id" element={<BookingDetail />} />
-          <Route path="/change-requests" element={<ChangeRequestList />} />
-          <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
-          <Route path="/releases" element={<ReleaseList />} />
-          <Route path="/releases/new" element={<ReleaseList />} />
-          <Route path="/releases/calendar" element={<ReleaseCalendar />} />
-          <Route path="/releases/timeline" element={<ReleaseTimeline />} />
-          <Route path="/releases/scope-windows" element={<ScopeWindows />} />
-          <Route path="/releases/analytics" element={<ReleaseAnalytics />} />
-          <Route path="/releases/:id" element={<ReleaseDetail />} />
-          <Route
-            path="/admin/release-templates"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <ReleaseTemplateLibrary />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/admin/release-templates/:id"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <ReleaseTemplateForm />
-              </PrivateRoute>
-            }
-          />
-          <Route path="/builds" element={<BuildList />} />
-          <Route path="/builds/:id" element={<BuildDetail />} />
-          <Route path="/deployments" element={<DeploymentList />} />
-          <Route path="/deployments/:id" element={<DeploymentDetail />} />
-          <Route path="/incidents" element={<IncidentList />} />
-          <Route path="/incidents/new" element={<IncidentForm />} />
-          <Route path="/incidents/:id" element={<IncidentDetail />} />
-          <Route path="/incidents/:id/edit" element={<IncidentForm />} />
-          <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
-          <Route path="/import" element={<ImportPage />} />
-          <Route
-            path="/admin/config"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <AdminLayout />
-              </PrivateRoute>
-            }
-          >
-            <Route path=":entityType" element={<EntityConfig />} />
+      {/* One boundary around all routes: each lazy page resolves on first
+          navigation to it, showing the same spinner the app already uses for
+          auth bootstrap rather than a blank screen. */}
+      <Suspense fallback={<FullPageSpinner />}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={isAuthenticated ? <AppLayout /> : <Navigate to="/login" />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/insights/dora" element={<DoraDashboard />} />
+            <Route path="/insights/health" element={<HealthDashboard />} />
+            <Route
+              path="/admin/tenants"
+              element={
+                <PrivateRoute requireMasterAdmin>
+                  <TenantList />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/tenants/:tenantId"
+              element={
+                <PrivateRoute requireMasterAdmin>
+                  <TenantDetail />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/settings"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <TenantSettings />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/users"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <UserManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route path="/systems" element={<SystemCatalog />} />
+            <Route path="/systems/:id" element={<SystemDetail />} />
+            <Route path="/environments" element={<EnvironmentList />} />
+            <Route path="/environments/:id" element={<EnvironmentDetail />} />
+            <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
+            <Route path="/bookings/calendar" element={<BookingCalendar />} />
+            <Route path="/bookings/list" element={<BookingList />} />
+            <Route path="/bookings/:id" element={<BookingDetail />} />
+            <Route path="/change-requests" element={<ChangeRequestList />} />
+            <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
+            <Route path="/releases" element={<ReleaseList />} />
+            <Route path="/releases/new" element={<ReleaseList />} />
+            <Route path="/releases/calendar" element={<ReleaseCalendar />} />
+            <Route path="/releases/timeline" element={<ReleaseTimeline />} />
+            <Route path="/releases/scope-windows" element={<ScopeWindows />} />
+            <Route path="/releases/analytics" element={<ReleaseAnalytics />} />
+            <Route path="/releases/:id" element={<ReleaseDetail />} />
+            <Route
+              path="/admin/release-templates"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <ReleaseTemplateLibrary />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/release-templates/:id"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <ReleaseTemplateForm />
+                </PrivateRoute>
+              }
+            />
+            <Route path="/builds" element={<BuildList />} />
+            <Route path="/builds/:id" element={<BuildDetail />} />
+            <Route path="/deployments" element={<DeploymentList />} />
+            <Route path="/deployments/:id" element={<DeploymentDetail />} />
+            <Route path="/incidents" element={<IncidentList />} />
+            <Route path="/incidents/new" element={<IncidentForm />} />
+            <Route path="/incidents/:id" element={<IncidentDetail />} />
+            <Route path="/incidents/:id/edit" element={<IncidentForm />} />
+            <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
+            <Route path="/import" element={<ImportPage />} />
+            <Route
+              path="/admin/config"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <AdminLayout />
+                </PrivateRoute>
+              }
+            >
+              <Route path=":entityType" element={<EntityConfig />} />
+            </Route>
+            <Route
+              path="/admin/scope-change-rules"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <AdminLayout />
+                </PrivateRoute>
+              }
+            >
+              <Route index element={<TenantScopeChangeRules />} />
+            </Route>
+            <Route
+              path="/tenant/api-keys"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <AdminLayout />
+                </PrivateRoute>
+              }
+            >
+              <Route index element={<ApiKeyManagement />} />
+            </Route>
+            <Route
+              path="/tenant/raid-settings"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <AdminLayout />
+                </PrivateRoute>
+              }
+            >
+              <Route index element={<RaidSettings />} />
+            </Route>
           </Route>
-          <Route
-            path="/admin/scope-change-rules"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <AdminLayout />
-              </PrivateRoute>
-            }
-          >
-            <Route index element={<TenantScopeChangeRules />} />
-          </Route>
-          <Route
-            path="/tenant/api-keys"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <AdminLayout />
-              </PrivateRoute>
-            }
-          >
-            <Route index element={<ApiKeyManagement />} />
-          </Route>
-          <Route
-            path="/tenant/raid-settings"
-            element={
-              <PrivateRoute requiredRole="Admin">
-                <AdminLayout />
-              </PrivateRoute>
-            }
-          >
-            <Route index element={<RaidSettings />} />
-          </Route>
-        </Route>
-        <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />
+            <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
