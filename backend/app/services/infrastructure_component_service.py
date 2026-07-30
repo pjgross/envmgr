@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.environment import EnvironmentSubSystem, EnvironmentSubSystemHost
@@ -16,7 +16,7 @@ from app.api.v1.schemas.infrastructure_component import (
     InfrastructureComponentUpdate,
 )
 from app.core.events import publish_event
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 
 
 async def list_infrastructure_components(
@@ -28,6 +28,8 @@ async def list_infrastructure_components(
     source: Optional[InfrastructureComponentSource] = None,
     search: Optional[str] = None,
     page: Optional[Page] = None,
+    *,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[InfrastructureComponent], int]:
     query = select(InfrastructureComponent).where(
         InfrastructureComponent.tenant_id == tenant_id,
@@ -42,8 +44,17 @@ async def list_infrastructure_components(
     if source is not None:
         query = query.where(InfrastructureComponent.source == source)
     if search:
-        query = query.where(InfrastructureComponent.name.ilike(f"%{search}%"))
-    query = query.order_by(InfrastructureComponent.name, InfrastructureComponent.id)
+        term = f"%{search}%"
+        query = query.where(
+            or_(
+                InfrastructureComponent.name.ilike(term),
+                InfrastructureComponent.provider.ilike(term),
+                InfrastructureComponent.region.ilike(term),
+            )
+        )
+    query = apply_sort(query, sort).order_by(
+        InfrastructureComponent.name, InfrastructureComponent.id
+    )
     return await fetch_page(db, query, page)
 
 
