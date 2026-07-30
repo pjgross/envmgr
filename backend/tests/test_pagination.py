@@ -1,4 +1,6 @@
 """Bounded list results: the shared primitive and the endpoints using it."""
+from datetime import datetime, timezone
+
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI
@@ -234,6 +236,7 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     # RELEASE_SUBRESOURCES below for those), so it belongs in this table.
     ("release_changes_flat", "/api/v1/release-changes", MAX_LIMIT, "auth_headers"),
     ("releases", "/api/v1/releases", 200, "auth_headers"),
+    ("deployments", "/api/v1/deployments", 500, "auth_headers"),
 ]
 
 
@@ -303,6 +306,42 @@ async def test_bounded_endpoint_conformance(
     # 3. asking past the cap is a 422, not a silent clamp
     over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
     assert over.status_code == 422
+
+
+# ── deployments (row variant) ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_deployments_rows_keep_their_join_columns(
+    client, auth_headers, db_session, test_tenant
+):
+    """The row variant must hand back (Deployment, sha, env, release, cr), not scalars."""
+    import uuid
+    from app.db.models.deployment import Deployment
+    from tests.factories import ensure_build, ensure_change_request, ensure_environment
+
+    env = await ensure_environment(db_session, test_tenant.id)
+    build = await ensure_build(db_session, test_tenant.id)
+    cr = await ensure_change_request(db_session, test_tenant.id)
+
+    db_session.add(Deployment(
+        tenant_id=test_tenant.id,
+        build_id=build.id,
+        environment_id=env.id,
+        change_request_id=cr.id,
+        event_id=str(uuid.uuid4()),
+        status="succeeded",
+        deployed_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    response = await client.get("/api/v1/deployments", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) == 1
+    # environment_name comes from the join, not the Deployment row
+    assert body[0]["environment_name"] == env.name
 
 
 # ── release sub-resources ────────────────────────────────────────────────────
