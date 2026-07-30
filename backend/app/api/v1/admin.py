@@ -75,10 +75,13 @@ async def disable_tenant(
 @router.get("/tenants/{tenant_id}/users", response_model=list[UserResponse])
 async def list_tenant_users(
     tenant_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_master_admin()),
 ):
-    rows, _total = await user_admin_service.list_users(db, tenant_id)
+    rows, total = await user_admin_service.list_users(db, tenant_id, page=page)
+    set_total_count(response, total)
     return rows
 
 

@@ -59,7 +59,9 @@ async def test_list_tenants_returns_results():
 
     rows, total = await list_tenants(db)
 
-    assert db.execute.await_count == 2  # count query + windowed query
+    # page=None: the window is a no-op, so the total is derived from the
+    # fetched rows rather than a separate, now-unnecessary count query.
+    assert db.execute.await_count == 1
     assert rows == [tenant_a, tenant_b]
     assert total == 2
 
@@ -209,7 +211,9 @@ async def test_list_users_filters_by_tenant_id():
 
     rows, total = await list_users(db, tenant_id=42)
 
-    assert db.execute.await_count == 2  # count query + windowed query
+    # page=None: the window is a no-op, so the total is derived from the
+    # fetched rows rather than a separate, now-unnecessary count query.
+    assert db.execute.await_count == 1
     assert rows == [user_a, user_b]
     assert total == 2
 

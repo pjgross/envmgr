@@ -55,7 +55,7 @@ would multiply real work, not just serialisation.
 
 ## Bounded so far
 
-Twenty-one endpoints now go through the primitive:
+Twenty-two endpoints now go through the primitive:
 
 | Endpoint | Service | Cap |
 |---|---|---|
@@ -68,6 +68,7 @@ Twenty-one endpoints now go through the primitive:
 | `GET /environments/health` | `environment_health_service.health_overview` | 1000 |
 | `GET /admin/tenants` | `tenant_service.list_tenants` (master admin) | 1000 |
 | `GET /tenant/users` | `user_admin_service.list_users` | 1000 |
+| `GET /admin/tenants/{tenant_id}/users` | `user_admin_service.list_users` (master admin) | 1000 |
 | `GET /release-changes` | `release_scope_service.list_changes` — flat scope/backlog list, not the per-release view | 1000 |
 | `GET /releases` | `release_service.list_releases` | **200** (own 50/200 contract) |
 | `GET /deployments` | built inline in the endpoint (`app/api/v1/deployments.py`), row variant | **500** (own 100/500 contract) |
@@ -172,8 +173,12 @@ Two endpoints, `tenant/users` and `rollup/scope`, are a step worse: they had **n
 all** before this sweep. Their pages were undefined even before a window was applied — not
 merely non-deterministic under ties, but arbitrary on every request.
 
-Already total, no tiebreaker needed: `release changes`, `release dependencies`, `release
-systems` (all ordered by `id`), `admin/tenants` (name is unique).
+Already total, no tiebreaker needed: `GET /release-changes` (the flat scope/backlog list),
+`release changes`, `release dependencies`, `release systems` (all ordered by `id`).
+
+`admin/tenants` orders by `Tenant.name, Tenant.id` — `name` is unique on its own, but
+`tenant_service.list_tenants` appends `Tenant.id` as a tiebreaker anyway, so it isn't
+relying on that uniqueness in practice.
 
 ## Known gap: calendar and timeline silently truncate
 

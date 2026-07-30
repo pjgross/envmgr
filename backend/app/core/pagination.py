@@ -81,8 +81,8 @@ async def fetch_page(
     db: AsyncSession, query: Select, page: Optional[Page]
 ) -> tuple[list, int]:
     """Run `query` windowed by `page`, and return (entities, total)."""
-    total = await _total_for(db, query)
     rows = list((await db.execute(_window(query, page))).scalars().all())
+    total = len(rows) if page is None else await _total_for(db, query)
     return rows, total
 
 
@@ -94,8 +94,8 @@ async def fetch_page_rows(
     `fetch_page` ends in `.scalars()`, which keeps only the first column. A query
     like `select(Deployment, Build.git_sha, Environment.name)` needs whole rows.
     """
-    total = await _total_for(db, query)
     rows = list((await db.execute(_window(query, page))).all())
+    total = len(rows) if page is None else await _total_for(db, query)
     return rows, total
 
 

@@ -1,5 +1,6 @@
 """Bounded list results: the shared primitive and the endpoints using it."""
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -84,6 +85,52 @@ async def test_no_page_returns_everything(db_session, tenant):
     await _make_environments(db_session, tenant.id, 5)
     rows, total = await fetch_page(db_session, select(Environment), None)
     assert len(rows) == 5 == total
+
+
+@pytest.mark.asyncio
+async def test_no_page_issues_no_count_query():
+    """`page=None` must not run `_total_for`'s COUNT query.
+
+    Five internal callers pass `page=None` and discard the total — worst of all,
+    `conflict_service.has_unacknowledged_conflicts` does it once per booking
+    inside the loop backing `GET /bookings/`. A regression here turns one extra
+    `SELECT count(*)` per booking on that hot path. Mirrors the mocked-db idiom
+    in `tests/unit/test_services.py`, which already asserts on `await_count`.
+
+    If the unconditional count is reinstated, `db.execute` is awaited twice
+    (count + windowed query) instead of once, and this test fails.
+    """
+    scalars_result = MagicMock()
+    scalars_result.all.return_value = ["row-a", "row-b"]
+    execute_result = MagicMock()
+    execute_result.scalars.return_value = scalars_result
+
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=execute_result)
+
+    rows, total = await fetch_page(db, select(Environment), None)
+
+    assert db.execute.await_count == 1  # windowed query only, no COUNT
+    assert rows == ["row-a", "row-b"]
+    assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_no_page_issues_no_count_query_rows_variant():
+    """As above, for `fetch_page_rows` — the multi-column select variant."""
+    execute_result = MagicMock()
+    execute_result.all.return_value = [("row-a", 1), ("row-b", 2)]
+
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=execute_result)
+
+    rows, total = await fetch_page_rows(
+        db, select(Environment.id, Environment.name), None
+    )
+
+    assert db.execute.await_count == 1  # windowed query only, no COUNT
+    assert rows == [("row-a", 1), ("row-b", 2)]
+    assert total == 2
 
 
 # ── endpoint behaviour ───────────────────────────────────────────────────────
