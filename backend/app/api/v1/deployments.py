@@ -6,7 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.pagination import Page, fetch_page_rows, pagination, set_total_count
+from app.core.pagination import (
+    Page,
+    Sort,
+    apply_sort,
+    fetch_page_rows,
+    pagination,
+    set_total_count,
+    sorting,
+)
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.db.models.build import Build
@@ -20,6 +28,17 @@ from app.api.v1.schemas.deployment import DeploymentLinkChangeRequest, Deploymen
 
 router = APIRouter()
 env_sub_router = APIRouter()
+
+# today's default ordering is `deployed_at DESC, id` (newest first) — sorting()
+# must preserve that when no sort_by/sort_dir is requested at all, see
+# default_dir on the dependency below. All three columns are plain
+# String/DateTime columns on Deployment (no SQLAlchemy Enum), so there is no
+# name/value storage divergence to worry about.
+DEPLOYMENT_SORTS = {
+    "status": Deployment.status,
+    "deployer_name": Deployment.deployer_name,
+    "deployed_at": Deployment.deployed_at,
+}
 
 
 def _deployment_to_read(
@@ -56,7 +75,10 @@ async def list_deployments(
     status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    environment_search: Optional[str] = Query(None),
+    release_search: Optional[str] = Query(None),
     page: Page = Depends(pagination(default_limit=100, max_limit=500)),
+    sort: Sort = Depends(sorting(DEPLOYMENT_SORTS, default="deployed_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -76,7 +98,11 @@ async def list_deployments(
         q = q.where(Deployment.deployed_at >= date_from)
     if date_to is not None:
         q = q.where(Deployment.deployed_at <= date_to)
-    q = q.order_by(Deployment.deployed_at.desc(), Deployment.id)
+    if environment_search:
+        q = q.where(Environment.name.ilike(f"%{environment_search}%"))
+    if release_search:
+        q = q.where(Release.name.ilike(f"%{release_search}%"))
+    q = apply_sort(q, sort).order_by(Deployment.deployed_at.desc(), Deployment.id)
     rows, total = await fetch_page_rows(db, q, page)
     set_total_count(response, total)
     return [
