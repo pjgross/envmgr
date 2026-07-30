@@ -46,6 +46,7 @@ cd frontend && npm run dev
 | Backend API | http://localhost:8000 | FastAPI |
 | API Docs | http://localhost:8000/docs | Swagger UI |
 | NATS Monitor | http://localhost:8222 | Local NATS container |
+| Metrics | http://localhost:8000/metrics | Prometheus exposition |
 | PostgreSQL | localhost:5432 | Local Postgres container |
 | Redis | localhost:6379 | Local Redis container |
 | Jira | http://localhost:8090 | Dev/testing only — not in prod |
@@ -135,6 +136,11 @@ Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20c
 ## Quick Reference
 
 ```python
+# Logging — the root logger is configured at import; just take a module logger.
+# Lines are stamped with the current request id automatically.
+import logging
+logger = logging.getLogger(__name__)
+
 # Database session
 from app.db.base import get_db
 async def my_endpoint(db: AsyncSession = Depends(get_db)): ...
