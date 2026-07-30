@@ -19,7 +19,13 @@ Spec: [`docs/superpowers/specs/2026-07-30-pagination-sweep-design.md`](../specs/
 - **Services** take `page: Optional[Page] = None` and return `(rows, total)`. `page=None` returns everything, so non-request callers are unaffected.
 - **No `db.commit()` in services** — `get_db()` auto-commits. Use `db.flush()`.
 - **Tenant scoping** — every query on a tenant-scoped table filters by `tenant_id`; endpoints use `current_user.active_tenant_id`, never `.tenant_id`.
-- **Tests run on both engines.** SQLite: `uv run pytest -q`. PostgreSQL: `TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest -q`. All fixture rows go through `tests/factories.py` — never fabricate a foreign key.
+- **Verification cadence** (revised after measuring — see below). Per task, run the **targeted** tests: the task's own test file plus the test modules covering the endpoints it touched, on SQLite. That is seconds. The **full dual-engine suite** runs at three checkpoints only: after Task 1, after Task 8, and at Task 14.
+
+  Measured on this machine: the full suite is **923 passed, 1 skipped** in 5m50s on SQLite and 13m49s on PostgreSQL. Running both after each of 14 tasks would be ~4.7 hours, almost all of it re-executing 900 tests the change cannot reach. A targeted run of `tests/test_pagination.py` is 3.3 seconds.
+
+  Commands — targeted: `cd backend && uv run pytest tests/test_pagination.py tests/<other affected> -q`. Full SQLite: `cd backend && uv run pytest -q`. Full PostgreSQL: `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest -q` — allow **20 minutes**, do not background it and poll.
+
+  All fixture rows go through `tests/factories.py` — never fabricate a foreign key.
 - **Working directory** for all commands is `backend/`. Branch is `feature/pagination-sweep`.
 
 ## File Structure
