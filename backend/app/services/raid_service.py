@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import false, select, func
+from sqlalchemy import and_, false, not_, or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import Page, fetch_page
@@ -221,16 +221,27 @@ async def promote_item(db, release_id: int, item_id: int, target_type: str,
     return new
 
 
-def _severity_values_for_rag(cfg: dict, wanted: str) -> list[int]:
-    """Severity scores that map to `wanted`, per the tenant's own bands.
+def _rag_sql_condition(cfg: dict, wanted: str):
+    """SQL predicate selecting items whose RAG band is `wanted`.
 
-    Evaluating the real rag() over the whole (bounded) severity domain rather
-    than translating band ranges into SQL preserves first-match semantics —
-    including for overlapping bands, which nothing validates against.
+    rag() resolves by FIRST match, so a band only claims a severity no earlier
+    band claimed. That exclusion is expressed directly rather than by
+    enumerating a severity domain: probability and impact carry no upper
+    validation and rag_bands is unvalidated, so any enumeration has a ceiling
+    that can silently drop items above it.
     """
-    p = len(cfg.get("probability_scale") or [])
-    i = len(cfg.get("impact_scale") or [])
-    return [s for s in range(1, p * i + 1) if rag(s, cfg) == wanted]
+    severity_expr = RaidItem.probability * RaidItem.impact
+    earlier = []
+    matches = []
+    for band in cfg.get("rag_bands", []) or []:
+        in_band = severity_expr.between(band["min"], band["max"])
+        if band.get("rag") == wanted:
+            cond = in_band
+            for prev in earlier:
+                cond = and_(cond, not_(prev))
+            matches.append(cond)
+        earlier.append(in_band)
+    return or_(*matches) if matches else false()
 
 
 async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
@@ -246,13 +257,10 @@ async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
     if owner_id:
         stmt = stmt.where(RaidItem.owner_id == owner_id)
     if rag is not None and config is not None:
-        # severity is probability * impact; NULL in either factor propagates,
-        # and NULL IN (...) is NULL, so unset items are excluded exactly as
+        # severity is probability * impact; NULL in either factor propagates
+        # through BETWEEN/AND/OR, so unset items are excluded exactly as
         # severity()->None->rag()->None did.
-        values = _severity_values_for_rag(_config_dict(config), rag)
-        stmt = stmt.where(
-            (RaidItem.probability * RaidItem.impact).in_(values) if values else false()
-        )
+        stmt = stmt.where(_rag_sql_condition(_config_dict(config), rag))
     if overdue:
         stmt = stmt.where(
             RaidItem.review_date.isnot(None),

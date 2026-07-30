@@ -8,8 +8,6 @@ returns a subtly different set.
 from datetime import datetime, timedelta, timezone
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import select
 
 from app.core.pagination import MAX_LIMIT, TOTAL_COUNT_HEADER, Page
 from app.db.models.lifecycle import LifecycleTemplate
@@ -140,6 +138,39 @@ async def test_unknown_rag_label_matches_nothing(db_session, tenant, user):
     )
     assert got == []
     assert total == 0
+
+
+@pytest.mark.asyncio
+async def test_rag_filter_covers_severities_above_the_nominal_scale(db_session, tenant, user):
+    """probability/impact carry no upper validation and bands are unvalidated, so
+    a severity can exceed len(probability_scale) * len(impact_scale). A domain
+    enumeration capped at that product would silently drop this item."""
+    rel = await _make_release(db_session, tenant.id, user.id, name="wide-band")
+    cfg = await raid_config_service.get_or_seed_config(db_session, tenant.id)
+    cfg = await raid_config_service.update_config(
+        db_session, tenant.id,
+        rag_bands=[
+            {"rag": "green", "min": 1, "max": 5},
+            {"rag": "amber", "min": 6, "max": 14},
+            {"rag": "red", "min": 15, "max": 1000},
+        ],
+    )
+    item = RaidItem(
+        tenant_id=tenant.id, release_id=rel.id, item_type="risk", seq=1,
+        title="way-off-scale", status="open", raised_by=user.id,
+        raised_at=datetime.now(timezone.utc), probability=10, impact=10,
+    )
+    db_session.add(item)
+    await db_session.flush()
+
+    # the production function says this is red
+    assert raid_service.rag(100, raid_service._config_dict(cfg)) == "red"
+
+    got, total = await raid_service.list_items(
+        db_session, rel.id, tenant.id, rag="red", config=cfg
+    )
+    assert [i.id for i in got] == [item.id]
+    assert total == 1
 
 
 @pytest.mark.asyncio
