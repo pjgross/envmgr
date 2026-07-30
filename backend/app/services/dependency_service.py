@@ -214,44 +214,32 @@ async def _get_subsystem(
 
 
 async def list_component_dependencies(
-    db: AsyncSession, subsystem_id: int, tenant_id: int
-) -> tuple[list[ComponentDependency], list[ComponentDependency]]:
-    # Verify subsystem belongs to tenant
+    db: AsyncSession, subsystem_id: int, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[ComponentDependency], int]:
+    """As list_system_dependencies, for subsystems. Self-dependencies are
+    rejected by create_component_dependency, so the OR cannot duplicate a row."""
     await _get_subsystem(db, subsystem_id, tenant_id)
 
-    # Outgoing: this subsystem depends on others
-    outgoing_result = await db.execute(
+    query = (
         select(ComponentDependency)
         .where(
-            ComponentDependency.from_subsystem_id == subsystem_id,
             ComponentDependency.tenant_id == tenant_id,
+            or_(
+                ComponentDependency.from_subsystem_id == subsystem_id,
+                ComponentDependency.to_subsystem_id == subsystem_id,
+            ),
         )
         .options(
             selectinload(ComponentDependency.to_subsystem),
             selectinload(ComponentDependency.from_subsystem),
             selectinload(ComponentDependency.endpoints),
         )
-        .order_by(ComponentDependency.id)
-    )
-    outgoing = list(outgoing_result.scalars().all())
-
-    # Incoming: others depend on this subsystem
-    incoming_result = await db.execute(
-        select(ComponentDependency)
-        .where(
-            ComponentDependency.to_subsystem_id == subsystem_id,
-            ComponentDependency.tenant_id == tenant_id,
+        .order_by(
+            case((ComponentDependency.to_subsystem_id == subsystem_id, 1), else_=0),
+            ComponentDependency.id,
         )
-        .options(
-            selectinload(ComponentDependency.to_subsystem),
-            selectinload(ComponentDependency.from_subsystem),
-            selectinload(ComponentDependency.endpoints),
-        )
-        .order_by(ComponentDependency.id)
     )
-    incoming = list(incoming_result.scalars().all())
-
-    return outgoing, incoming
+    return await fetch_page(db, query, page)
 
 
 async def create_component_dependency(

@@ -316,3 +316,42 @@ async def test_system_dependencies_handle_one_sided_cases(db_session, tenant):
     # and from the other side it is incoming only
     rows, total = await dependency_service.list_system_dependencies(db_session, other.id, tenant.id)
     assert [r.id for r in rows] == [d.id] and total == 1
+
+
+# ── Component dependencies ───────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_component_dependencies_return_same_rows_and_order(db_session, tenant):
+    from app.db.models.dependency import ComponentDependency, DependencyType
+    from app.services import dependency_service
+    from tests.factories import ensure_subsystem
+
+    me = await ensure_subsystem(db_session, tenant.id, name="dep-me")
+    other = await ensure_subsystem(db_session, tenant.id, name="dep-other")
+
+    # INSERT THE INCOMING ROW FIRST so it gets the LOWER autoincrement id.
+    # If outgoing rows were created first their ids already sort
+    # outgoing-then-incoming, and the test would still pass with the CASE
+    # removed — i.e. it would not actually guard the grouping. Creating the
+    # incoming row first makes the CASE load-bearing: a plain ORDER BY id
+    # would put it first and fail this assertion.
+    inc = ComponentDependency(tenant_id=tenant.id, from_subsystem_id=other.id,
+                              to_subsystem_id=me.id,
+                              dependency_type=DependencyType.DATABASE)
+    db_session.add(inc)
+    await db_session.flush()
+
+    out = ComponentDependency(tenant_id=tenant.id, from_subsystem_id=me.id,
+                              to_subsystem_id=other.id,
+                              dependency_type=DependencyType.API_CALL)
+    db_session.add(out)
+    await db_session.flush()
+
+    assert inc.id < out.id, "fixture must give the incoming row the lower id"
+
+    rows, total = await dependency_service.list_component_dependencies(
+        db_session, me.id, tenant.id
+    )
+    # outgoing first despite having the HIGHER id — this is the grouping check
+    assert [r.id for r in rows] == [out.id, inc.id]
+    assert total == 2

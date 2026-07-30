@@ -165,18 +165,16 @@ async def update_system_dependency(
 )
 async def list_component_dependencies(
     subsystem_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    outgoing, incoming = await dependency_service.list_component_dependencies(
-        db, subsystem_id, current_user.active_tenant_id
+    rows, total = await dependency_service.list_component_dependencies(
+        db, subsystem_id, current_user.active_tenant_id, page=page
     )
-    result = []
-    for dep in outgoing:
-        result.append(_build_comp_dep_response(dep, subsystem_id))
-    for dep in incoming:
-        result.append(_build_comp_dep_response(dep, subsystem_id))
-    return result
+    set_total_count(response, total)
+    return [_build_comp_dep_response(dep, subsystem_id) for dep in rows]
 
 
 @router.post(
