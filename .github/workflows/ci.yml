@@ -149,8 +149,6 @@ jobs:
         env:
           SECRET_KEY: ci-secret-key-not-for-deployment
           POSTGRES_PASSWORD: ci-password
-          NEO4J_USER: neo4j
-          NEO4J_PASSWORD: ci-password
         run: |
           docker compose -f docker-compose.yml --profile app config >/dev/null
           docker compose -f docker-compose.yml -f docker-compose.prod.yml \

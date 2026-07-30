@@ -26,7 +26,7 @@
 ┌─────────────▼─────────┐  ┌─────▼──────────────────┐
 │  Database Layer       │  │  External Services     │
 │  - Models (SQLAlchemy)│  │  - GitHub, Jira, CI/CD │
-│  - Repositories       │  │  - Neo4j, Redis, NATS  │
+│  - Repositories       │  │  - Redis, NATS         │
 └───────────────────────┘  └────────────────────────┘
 ```
 
@@ -108,7 +108,7 @@ async with db.begin():
     db.add(event)
 
 # 3. Background worker reads event_log and publishes to NATS (JetStream subject)
-# 4. NATS consumers update Neo4j, send notifications, etc.
+# 4. NATS consumers send notifications, update reporting tables, etc.
 ```
 
 **Message broker: NATS with JetStream**
@@ -118,7 +118,6 @@ async with db.begin():
 - Subjects follow pattern: `envmgr.events.<AggregateType>.<EventType>` (e.g., `envmgr.events.Booking.BookingCreated`); stream name: `ENVMGR_EVENTS`
 
 **Event Consumers** (`backend/app/workers/`):
-- **Neo4j sync consumer** — update topology graph (subscribes to entity change events)
 - **Notification consumer** — email and webhooks
 - **Metrics consumer** — update reporting tables / DORA calculations
 
@@ -203,7 +202,7 @@ frontend/src/
    - Terraform → AWS/Azure/GCP resources
    - Docker Compose → containerized services
 4. Components stored in PostgreSQL with source traceability
-5. Topology projected to Neo4j for graph queries
+5. Topology served from PostgreSQL (`topology_service`); no graph store — see `decisions/2026-07-30-drop-neo4j.md`
 6. Drift detection compares `.tf` vs `.tfstate`
 
 **Fallback**: Manual file upload for systems without GitHub integration.
@@ -321,7 +320,6 @@ All services run locally via `docker-compose up -d`. OrbStack provides Docker De
 | Container | Image | Dev port | Purpose |
 |-----------|-------|----------|---------|
 | `db` | `postgres:16` | 5432 | Application database |
-| `neo4j` | `neo4j:5-community` | 7474 / 7687 | Graph store (topology) |
 | `redis` | `redis:7-alpine` | 6379 | Cache + metrics queue |
 | `nats` | `nats:latest` | 4222 / 8222 | Event bus (JetStream enabled) |
 | `backend` | (built locally) | 8000 | FastAPI application |
@@ -329,7 +327,7 @@ All services run locally via `docker-compose up -d`. OrbStack provides Docker De
 
 Start: `docker-compose up -d`
 
-Inter-container connection strings use Docker service names: `postgresql://db:5432/envmgr`, `bolt://neo4j:7687`, `nats://nats:4222`, `redis://redis:6379`.
+Inter-container connection strings use Docker service names: `postgresql+asyncpg://postgres:5432/envmgr`, `nats://nats:4222`, `redis://redis:6379`.
 
 ---
 
@@ -341,7 +339,6 @@ Some infrastructure is **shared** from macmini's existing service stack; EnvMana
 
 | Service | Connection | Notes |
 |---------|-----------|-------|
-| Neo4j | `bolt://macmini:7687` | Community Edition — see Neo4j note below |
 | NATS | `nats://macmini:4222` | JetStream enabled; use subject prefix `envmgr.` |
 | Grafana | `http://macmini:3003` | Add EnvManager dashboard to existing Grafana |
 | Prometheus | `http://macmini:9093` | Add EnvManager scrape target to existing Prometheus |
@@ -356,7 +353,7 @@ Some infrastructure is **shared** from macmini's existing service stack; EnvMana
 | `frontend` | 5173 | Vite preview / Caddy-served static build |
 
 **Prod docker-compose** uses a separate `docker-compose.prod.yml` (or override file) that:
-- Removes `neo4j` and `nats` containers
+- Removes the `nats` container
 - Sets env vars pointing to macmini shared services
 - Remaps `backend` port to 8100
 - Remaps `db` port to 5435
@@ -365,22 +362,24 @@ Some infrastructure is **shared** from macmini's existing service stack; EnvMana
 
 | Variable | Dev | Prod |
 |----------|-----|------|
-| `DATABASE_URL` | `postgresql://db:5432/envmgr` | `postgresql://localhost:5435/envmgr` |
-| `NEO4J_URI` | `bolt://neo4j:7687` | `bolt://macmini:7687` |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:5432/envmgr` | `postgresql+asyncpg://postgres:5432/envmgr` (published on `localhost:5435`) |
 | `NATS_URL` | `nats://nats:4222` | `nats://macmini:4222` |
 | `REDIS_URL` | `redis://redis:6379` | `redis://localhost:6379` |
 
 ---
 
-### Neo4j Community Edition — Namespacing
+### No graph database
 
-macmini runs Neo4j **Community Edition**, which supports only a single database (`neo4j`). EnvManager namespaces its data using a dedicated label prefix to avoid collisions with other users of the instance:
+Neo4j was in the original design as the topology graph store and was provisioned in dev and
+prod, but no backend module ever imported the driver. Topology shipped PostgreSQL-backed
+(`topology_service`, `dependency_service`, the `system_dependency` / `component_dependency`
+tables). It was removed 2026-07-30 — see
+[`decisions/2026-07-30-drop-neo4j.md`](decisions/2026-07-30-drop-neo4j.md) for the reasoning,
+the namespacing scheme that had been planned for the shared Community Edition instance, and how
+to reinstate it if a Phase 6 traversal turns out to need one.
 
-- All EnvManager nodes carry the label `EnvMgr` in addition to their entity label: e.g., `:EnvMgr:System`, `:EnvMgr:Environment`
-- All EnvManager relationships use the type prefix convention: `ENVMGR_DEPENDS_ON`, `ENVMGR_DEPLOYED_IN`
-- Queries always include the `EnvMgr` label to scope to EnvManager data only
-
-If the macmini Neo4j instance is upgraded to **Enterprise Edition**, EnvManager can use a dedicated named database (`envmgr`) and drop the label prefixes.
+The Neo4j instance in the port table below is a **shared macmini host service** used by other
+projects. It keeps running; EnvManager no longer connects to it.
 
 ---
 
@@ -400,8 +399,8 @@ If the macmini Neo4j instance is upgraded to **Enterprise Edition**, EnvManager 
 | 5678 | n8n | macmini |
 | 6333 | Qdrant | macmini |
 | **6379** | **EnvManager Redis** | **EnvManager** |
-| 7474 | Neo4j Browser | macmini (shared) |
-| 7687 | Neo4j Bolt | macmini (shared) |
+| 7474 | Neo4j Browser | macmini (shared — not used by EnvManager) |
+| 7687 | Neo4j Bolt | macmini (shared — not used by EnvManager) |
 | 8000 | Supabase Kong | macmini |
 | 8080 | SearXNG | macmini |
 | **8100** | **EnvManager Backend API** | **EnvManager** |

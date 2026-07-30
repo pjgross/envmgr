@@ -201,7 +201,7 @@ async def environments_affected_by_hosts(
 ) -> list[int]:
     """Return distinct environment IDs whose subsystems are deployed on any of the given hosts.
 
-    Used by CR outage preview, the CR service, and (later) Neo4j topology sync.
+    Used by CR outage preview and the CR service.
     """
     if not host_ids:
         return []
