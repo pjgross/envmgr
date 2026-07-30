@@ -284,6 +284,7 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ("release_changes_flat", "/api/v1/release-changes", MAX_LIMIT, "auth_headers"),
     ("releases", "/api/v1/releases", 200, "auth_headers"),
     ("deployments", "/api/v1/deployments", 500, "auth_headers"),
+    ("builds", "/api/v1/builds", 500, "auth_headers"),
     ("booking_requests", "/api/v1/booking-requests", MAX_LIMIT, "auth_headers"),
 ]
 
