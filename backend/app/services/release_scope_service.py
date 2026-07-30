@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 from app.services import custom_field_service, scope_change_rule_service
 from app.db.models.release import Release
 from app.db.models.system import System
@@ -210,7 +211,8 @@ async def list_changes(
     release_id: Optional[int],
     tenant_id: int,
     backlog: bool = False,
-) -> list[ReleaseChange]:
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseChange], int]:
     """List scope items. Pass `release_id` for a specific release; pass
     `backlog=True` for unassigned items (release_id IS NULL)."""
     stmt = select(ReleaseChange).where(
@@ -222,8 +224,7 @@ async def list_changes(
     elif release_id is not None:
         stmt = stmt.where(ReleaseChange.release_id == release_id)
     stmt = stmt.order_by(ReleaseChange.id)
-    rows = (await db.execute(stmt)).scalars().all()
-    return list(rows)
+    return await fetch_page(db, stmt, page)
 
 
 async def list_release_history(

@@ -230,6 +230,9 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ("environment_health", "/api/v1/environments/health", MAX_LIMIT, "auth_headers"),
     ("admin_tenants", "/api/v1/admin/tenants", MAX_LIMIT, "master_admin_headers"),
     ("tenant_users", "/api/v1/tenant/users", MAX_LIMIT, "auth_headers"),
+    # release-changes is a flat endpoint (not a /{release_id}/ sub-resource — see
+    # RELEASE_SUBRESOURCES below for those), so it belongs in this table.
+    ("release_changes_flat", "/api/v1/release-changes", MAX_LIMIT, "auth_headers"),
 ]
 
 
@@ -285,6 +288,87 @@ async def test_bounded_endpoint_conformance(
         "auth_headers": auth_headers,
         "master_admin_headers": master_admin_headers,
     }[auth_fixture]
+    response = await client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+
+    # 1. still a bare array — no client change was required by this work
+    body = response.json()
+    assert isinstance(body, list)
+
+    # 2. the unwindowed total is advertised
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) >= 0
+
+    # 3. asking past the cap is a 422, not a silent clamp
+    over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
+    assert over.status_code == 422
+
+
+# ── release sub-resources ────────────────────────────────────────────────────
+#
+# `/releases/{release_id}/events|changes|dependencies` are not flat endpoints —
+# each needs a real release id in the URL — so they get their own fixture and
+# their own parametrised test rather than a row in BOUNDED_ENDPOINTS.
+
+RELEASE_SUBRESOURCES: list[tuple[str, str, int, str]] = [
+    # (test id, sub-path under /api/v1/releases/{release_id}/, max_limit, auth fixture name)
+    ("release_events", "events", MAX_LIMIT, "auth_headers"),
+    ("release_changes", "changes", MAX_LIMIT, "auth_headers"),
+    ("release_dependencies", "dependencies", MAX_LIMIT, "auth_headers"),
+]
+
+
+@pytest_asyncio.fixture
+async def release_id(db_session, test_tenant, test_user) -> int:
+    """A persisted release. Mirrors the `release` fixture in test_releases_api.py —
+    lifecycle_template_id is NOT nullable, so the template must exist first."""
+    from app.db.models.lifecycle import LifecycleTemplate
+    from app.db.models.release import Release
+
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="release",
+        name="pagination-release-lifecycle",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+
+    release = Release(
+        tenant_id=test_tenant.id,
+        name="pagination-release",
+        release_type="major",
+        release_kind="project",
+        lifecycle_template_id=tpl.id,
+        status="draft",
+        raised_by=test_user.id,
+    )
+    db_session.add(release)
+    await db_session.commit()
+    await db_session.refresh(release)
+    return release.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "subresource,max_limit,auth_fixture",
+    [(sub, cap, fix) for _id, sub, cap, fix in RELEASE_SUBRESOURCES],
+    ids=[_id for _id, _sub, _cap, _fix in RELEASE_SUBRESOURCES],
+)
+async def test_release_subresource_conformance(
+    client, release_id, subresource, max_limit, auth_fixture, auth_headers, master_admin_headers
+):
+    headers = {
+        "auth_headers": auth_headers,
+        "master_admin_headers": master_admin_headers,
+    }[auth_fixture]
+    url = f"/api/v1/releases/{release_id}/{subresource}"
     response = await client.get(url, headers=headers)
     assert response.status_code == 200, response.text
 

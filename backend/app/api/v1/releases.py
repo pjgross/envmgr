@@ -13,10 +13,11 @@ Field-permissions contract (GET/PUT/transition on a single release):
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, status, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, status, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.lifecycle import LifecycleTemplate
@@ -924,12 +925,18 @@ async def remove_release_system(
 @router.get("/{release_id}/dependencies", response_model=list[ReleaseDependencyRead])
 async def list_dependencies(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    return await release_dependency_service.list_dependencies(db, release_id, tenant_id)
+    rows, total = await release_dependency_service.list_dependencies(
+        db, release_id, tenant_id, page=page
+    )
+    set_total_count(response, total)
+    return rows
 
 
 @router.post("/{release_id}/dependencies", response_model=ReleaseDependencyRead, status_code=status.HTTP_201_CREATED)
@@ -983,12 +990,18 @@ async def acknowledge_dependency_alert(
 @router.get("/{release_id}/events", response_model=list[ReleaseEventRead])
 async def list_events(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    return await release_event_service.list_events(db, release_id, tenant_id)
+    rows, total = await release_event_service.list_events(
+        db, release_id, tenant_id, page=page
+    )
+    set_total_count(response, total)
+    return rows
 
 
 @router.post("/{release_id}/events", response_model=ReleaseEventRead, status_code=status.HTTP_201_CREATED)
@@ -1008,18 +1021,26 @@ async def create_event(
 @router.get("/{release_id}/changes", response_model=list[ReleaseChangeRead])
 async def list_changes(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
     release = await _require_release(db, release_id, tenant_id)
-    rows = await release_scope_service.list_changes(db, release_id, tenant_id)
+    rows, total = await release_scope_service.list_changes(
+        db, release_id, tenant_id, page=page
+    )
+    # scope_creep_change_ids is computed across the whole release, independent
+    # of the page, so it stays correct against a windowed `rows` — this loop
+    # only decorates each surviving row, it never drops one.
     creep_ids = await release_scope_service.scope_creep_change_ids(db, release, tenant_id)
     out: list[ReleaseChangeRead] = []
     for r in rows:
         item = ReleaseChangeRead.model_validate(r)
         item.is_scope_creep = r.id in creep_ids
         out.append(item)
+    set_total_count(response, total)
     return out
 
 
@@ -1103,16 +1124,20 @@ async def delete_change(
 
 @release_changes_router.get("", response_model=list[ReleaseChangeRead])
 async def list_changes_flat(
+    response: Response,
     backlog: bool = Query(False, description="If true, return unassigned scope items (release_id IS NULL)"),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Flat list — primarily the backlog view. Per-release listing is under
     GET /releases/{release_id}/changes."""
     tenant_id = current_user.active_tenant_id
-    return await release_scope_service.list_changes(
-        db, release_id=None, tenant_id=tenant_id, backlog=backlog,
+    rows, total = await release_scope_service.list_changes(
+        db, release_id=None, tenant_id=tenant_id, backlog=backlog, page=page,
     )
+    set_total_count(response, total)
+    return rows
 
 
 @release_changes_router.post("/{change_id}/move", response_model=ReleaseChangeRead)

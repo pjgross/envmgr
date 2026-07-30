@@ -193,8 +193,9 @@ async def test_create_and_list_events(db_session, tenant, user):
     )
     assert event.id is not None
 
-    events = await release_event_service.list_events(db_session, release.id, tenant.id)
+    events, total = await release_event_service.list_events(db_session, release.id, tenant.id)
     assert len(events) == 1
+    assert total == 1
     assert events[0].description == "Stakeholder review complete"
 
 

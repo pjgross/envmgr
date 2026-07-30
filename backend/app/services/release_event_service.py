@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
 from app.api.v1.schemas.release_event import (
     ReleaseEventCreate,
@@ -149,16 +150,19 @@ async def list_events(
     db: AsyncSession,
     release_id: int,
     tenant_id: int,
-) -> list[ReleaseEvent]:
-    rows = (
-        await db.execute(
-            select(ReleaseEvent).where(
-                ReleaseEvent.release_id == release_id,
-                ReleaseEvent.tenant_id == tenant_id,
-            ).order_by(ReleaseEvent.occurred_at.desc())
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseEvent], int]:
+    stmt = (
+        select(ReleaseEvent)
+        .where(
+            ReleaseEvent.release_id == release_id,
+            ReleaseEvent.tenant_id == tenant_id,
         )
-    ).scalars().all()
-    return list(rows)
+        # occurred_at alone is not a total order (ties on equal timestamps);
+        # id is the unique tiebreaker.
+        .order_by(ReleaseEvent.occurred_at.desc(), ReleaseEvent.id.desc())
+    )
+    return await fetch_page(db, stmt, page)
 
 
 async def create_event(

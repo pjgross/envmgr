@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 from app.db.models.release import Release
 from app.db.models.release_dependency import ReleaseDependency
 from app.api.v1.schemas.release_dependency import ReleaseDependencyAlert, ReleaseDependencyCreate
@@ -58,16 +59,17 @@ async def list_dependencies(
     db: AsyncSession,
     release_id: int,
     tenant_id: int,
-) -> list[ReleaseDependency]:
-    rows = (
-        await db.execute(
-            select(ReleaseDependency).where(
-                ReleaseDependency.release_id == release_id,
-                ReleaseDependency.tenant_id == tenant_id,
-            ).order_by(ReleaseDependency.id)
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseDependency], int]:
+    stmt = (
+        select(ReleaseDependency)
+        .where(
+            ReleaseDependency.release_id == release_id,
+            ReleaseDependency.tenant_id == tenant_id,
         )
-    ).scalars().all()
-    return list(rows)
+        .order_by(ReleaseDependency.id)
+    )
+    return await fetch_page(db, stmt, page)
 
 
 async def create_dependency(
@@ -138,7 +140,9 @@ async def get_dependency_alerts(
     tenant_id: int,
 ) -> list[ReleaseDependencyAlert]:
     """Return dependencies where the dependency's target_date has shifted."""
-    deps = await list_dependencies(db, release_id, tenant_id)
+    # Alert computation is internal aggregation over the whole release, not a
+    # paginated list endpoint — page=None (the default) fetches every row.
+    deps, _ = await list_dependencies(db, release_id, tenant_id)
     alerts: list[ReleaseDependencyAlert] = []
 
     for dep in deps:

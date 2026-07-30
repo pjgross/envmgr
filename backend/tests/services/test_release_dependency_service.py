@@ -160,7 +160,8 @@ async def test_delete_dependency(db_session, tenant, user):
 
     await release_dependency_service.delete_dependency(db_session, dep_id, tenant.id)
 
-    deps = await release_dependency_service.list_dependencies(
+    deps, total = await release_dependency_service.list_dependencies(
         db_session, release_a.id, tenant.id
     )
     assert len(deps) == 0
+    assert total == 0
