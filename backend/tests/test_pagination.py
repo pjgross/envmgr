@@ -237,6 +237,7 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ("release_changes_flat", "/api/v1/release-changes", MAX_LIMIT, "auth_headers"),
     ("releases", "/api/v1/releases", 200, "auth_headers"),
     ("deployments", "/api/v1/deployments", 500, "auth_headers"),
+    ("booking_requests", "/api/v1/booking-requests", MAX_LIMIT, "auth_headers"),
 ]
 
 
@@ -306,6 +307,20 @@ async def test_bounded_endpoint_conformance(
     # 3. asking past the cap is a 422, not a silent clamp
     over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
     assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_booking_requests_still_include_their_bookings(
+    client, auth_headers, test_booking
+):
+    """The eager load must replace the per-row refresh without losing the relation."""
+    response = await client.get("/api/v1/booking-requests", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) >= 1
+    assert "bookings" in body[0]
+    assert len(body[0]["bookings"]) >= 1
 
 
 # ── deployments (row variant) ────────────────────────────────────────────────

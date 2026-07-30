@@ -1,11 +1,13 @@
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
 from app.db.models.booking_lifecycle import BookingType
@@ -112,6 +114,26 @@ async def create_request(
     # req.bookings without triggering async lazy-load outside a greenlet.
     await db.refresh(req, ["bookings"])
     return req, detected
+
+
+async def list_booking_requests(
+    db: AsyncSession, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[BookingRequest], int]:
+    """Tenant's booking requests, newest first, with child bookings eagerly loaded.
+
+    The eager load replaces a per-row `db.refresh`, which was one round trip per
+    request row.
+    """
+    query = (
+        select(BookingRequest)
+        .options(selectinload(BookingRequest.bookings))
+        .where(
+            BookingRequest.tenant_id == tenant_id,
+            BookingRequest.deleted_at.is_(None),
+        )
+        .order_by(BookingRequest.created_at.desc(), BookingRequest.id)
+    )
+    return await fetch_page(db, query, page)
 
 
 async def preview_conflicts(
