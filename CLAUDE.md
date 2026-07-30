@@ -130,6 +130,7 @@ Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20c
 - **Testing only on SQLite** — the suite defaults to in-memory SQLite, but partial unique indexes and other dialect-gated DDL are inert there. Run it against PostgreSQL too before trusting a schema or query change: `TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest -q` (CI runs both legs)
 - **Secrets in code** — use environment variables and `.env` files. `SECRET_KEY` must be set for any `DEBUG=false` deployment; the app refuses to start with the repo's placeholder
 - **Self-service user creation** — there is no `/auth/register`; create users via `POST /api/v1/tenant/users`, which is admin-gated and forces the caller's tenant
+- **Unbounded list endpoints** — new list endpoints take `page: Page = Depends(pagination)` and their service returns `(rows, total)` via `fetch_page`; see [docs/pagination.md](docs/pagination.md). Never add `limit` to an endpoint whose service filters in Python after the query — the page would be windowed before the filter and the results quietly wrong
 - **Minting tokens by hand** — `create_access_token` alone produces an unrevocable session. Use `auth_session_service.issue_session`; anything that invalidates a password must call `revoke_all_for_user`
 
 ---

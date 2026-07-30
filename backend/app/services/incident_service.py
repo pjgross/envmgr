@@ -14,6 +14,7 @@ from app.db.models.release_change import ReleaseChange
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
 from app.services import custom_field_service, lifecycle_service, pir_service
+from app.core.pagination import Page, fetch_page
 
 _FK_MODELS = {
     "environment_id": Environment,
@@ -102,7 +103,9 @@ async def get_incident(db: AsyncSession, incident_id: int, tenant_id: int) -> Op
     ))).scalar_one_or_none()
 
 
-async def list_incidents(db: AsyncSession, tenant_id: int, filters: dict) -> list[Incident]:
+async def list_incidents(
+    db: AsyncSession, tenant_id: int, filters: dict, page: Optional[Page] = None
+) -> tuple[list[Incident], int]:
     conds = [Incident.tenant_id == tenant_id, Incident.deleted_at.is_(None)]
     for f in ("status", "severity", "system_id", "environment_id", "release_id", "source"):
         if filters.get(f) not in (None, ""):
@@ -111,9 +114,8 @@ async def list_incidents(db: AsyncSession, tenant_id: int, filters: dict) -> lis
         conds.append(Incident.detected_at >= filters["date_from"])
     if filters.get("date_to"):
         conds.append(Incident.detected_at <= filters["date_to"])
-    return list((await db.execute(
-        select(Incident).where(and_(*conds)).order_by(Incident.detected_at.desc())
-    )).scalars().all())
+    query = select(Incident).where(and_(*conds)).order_by(Incident.detected_at.desc())
+    return await fetch_page(db, query, page)
 
 
 async def update_incident(db: AsyncSession, incident_id: int, data: IncidentUpdate, tenant_id: int) -> Incident:

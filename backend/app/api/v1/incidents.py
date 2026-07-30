@@ -1,11 +1,12 @@
 """Incidents API — CRUD, lifecycle transitions, and detail hydration (Phase 5 SP1)."""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Response, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.services import incident_service, pir_service
+from app.core.pagination import Page, pagination, set_total_count
 from app.api.v1.schemas.incident import (
     IncidentCreate, IncidentUpdate, IncidentTransition, IncidentDetail, IncidentListRow,
 )
@@ -39,6 +40,7 @@ async def _row(db: AsyncSession, inc, tenant_id: int, pir_status: str = "none") 
 
 @router.get("", response_model=list[IncidentListRow])
 async def list_incidents(
+    response: Response,
     status_: str | None = Query(None, alias="status"),
     severity: str | None = None,
     system_id: int | None = None,
@@ -47,6 +49,7 @@ async def list_incidents(
     source: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    page: Page = Depends(pagination),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -60,7 +63,10 @@ async def list_incidents(
         "date_from": date_from,
         "date_to": date_to,
     }
-    rows = await incident_service.list_incidents(db, current_user.active_tenant_id, filters)
+    rows, total = await incident_service.list_incidents(
+        db, current_user.active_tenant_id, filters, page=page
+    )
+    set_total_count(response, total)
     # Bulk-fetch PIR statuses for all incidents in one query
     status_map = await pir_service.pir_status_for_incidents(
         db, current_user.active_tenant_id, [r.id for r in rows]

@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -8,15 +9,18 @@ from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.system import SystemCreate, SystemUpdate, SubSystemCreate, SubSystemUpdate
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
+from app.core.pagination import Page, fetch_page
 
 
-async def list_systems(db: AsyncSession, tenant_id: int) -> list[System]:
-    result = await db.execute(
+async def list_systems(
+    db: AsyncSession, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[System], int]:
+    query = (
         select(System)
         .where(System.tenant_id == tenant_id, System.deleted_at.is_(None))
         .order_by(System.name)
     )
-    return list(result.scalars().all())
+    return await fetch_page(db, query, page)
 
 
 async def get_system(db: AsyncSession, system_id: int, tenant_id: int) -> System:

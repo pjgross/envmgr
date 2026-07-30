@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Response, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
+from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.environment import EnvironmentStatus
 from app.services import environment_service, environment_system_service
@@ -40,14 +41,22 @@ router = APIRouter()
 
 @router.get("/", response_model=list[EnvironmentResponse])
 async def list_environments(
+    response: Response,
     status: Optional[EnvironmentStatus] = None,
     environment_type: Optional[str] = None,
+    page: Page = Depends(pagination),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await environment_service.list_environments(
-        db, current_user.active_tenant_id, status_filter=status, environment_type=environment_type
+    rows, total = await environment_service.list_environments(
+        db,
+        current_user.active_tenant_id,
+        status_filter=status,
+        environment_type=environment_type,
+        page=page,
     )
+    set_total_count(response, total)
+    return rows
 
 
 @router.post("/", response_model=EnvironmentResponse, status_code=status.HTTP_201_CREATED)
