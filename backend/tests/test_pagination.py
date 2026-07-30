@@ -557,3 +557,92 @@ async def test_scope_rollup_advertises_its_total(client, auth_headers, release_i
         headers=auth_headers,
     )
     assert over.status_code == 422
+
+
+# ── enterprise memberships ──────────────────────────────────────────────────
+#
+# GET /releases/{enterprise_id}/memberships is not in BOUNDED_ENDPOINTS: an
+# empty tenant has no release with id 1, and `list_memberships` calls
+# `_get_release` first, so the conformance sweep would get a 404, not a 200.
+# This targeted test builds real rows instead. `list_memberships` itself never
+# checks `release_kind` (only `request_membership` does), so the existing
+# `release_id` fixture — a plain project-kind release — stands in as the
+# enterprise-scoped release in the URL.
+
+
+@pytest.mark.asyncio
+async def test_enterprise_memberships_advertises_total_and_bounds_the_page(
+    client, auth_headers, db_session, test_tenant, test_user, release_id
+):
+    from app.db.models.lifecycle import LifecycleTemplate
+    from app.db.models.release import Release
+    from app.db.models.release_membership import MembershipState, ReleaseMembership
+
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="release",
+        name="pagination-membership-lifecycle",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+
+    # Real project releases — never fabricate a foreign key id in a test.
+    project_releases = []
+    for n in range(3):
+        r = Release(
+            tenant_id=test_tenant.id,
+            name=f"pagination-membership-project-{n}",
+            release_type="major",
+            release_kind="project",
+            lifecycle_template_id=tpl.id,
+            status="draft",
+            raised_by=test_user.id,
+        )
+        db_session.add(r)
+        project_releases.append(r)
+    await db_session.flush()
+
+    # Terminal state (rejected) so the partial-unique "one open membership per
+    # project" guard (Postgres only) never comes into play.
+    now = datetime.now(timezone.utc)
+    for n, project in enumerate(project_releases):
+        db_session.add(ReleaseMembership(
+            tenant_id=test_tenant.id,
+            enterprise_release_id=release_id,
+            project_release_id=project.id,
+            state=MembershipState.REJECTED.value,
+            requested_by=test_user.id,
+            requested_at=now + timedelta(minutes=n),
+            late_scope=False,
+        ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/memberships", headers=auth_headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert len(body) == 3
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 3
+
+    limited = await client.get(
+        f"/api/v1/releases/{release_id}/memberships?limit=2", headers=auth_headers
+    )
+    assert limited.status_code == 200, limited.text
+    assert len(limited.json()) == 2
+    assert int(limited.headers[TOTAL_COUNT_HEADER]) == 3
+
+    over = await client.get(
+        f"/api/v1/releases/{release_id}/memberships?limit={MAX_LIMIT + 1}",
+        headers=auth_headers,
+    )
+    assert over.status_code == 422
