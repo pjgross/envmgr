@@ -203,4 +203,4 @@ See [docs/architecture copy.md](docs/architecture%20copy.md) for the macmini hos
 
 ---
 
-> **Note**: `GEMINI.md` at the project root is the original Gemini-era guide and is kept as a historical reference. `CLAUDE.md` (this file) is the authoritative guide for Claude Code sessions.
+> **Note**: `CLAUDE.md` (this file) is the authoritative guide for Claude Code sessions. The original Gemini-era guide is kept at [docs/archive/GEMINI.md](docs/archive/GEMINI.md) — see [docs/archive/](docs/archive/) for what else is there and why.

@@ -11,7 +11,7 @@ Delivered on `main` via MR !4 on 2026-04-20 (merge commit `8f154bd`).
 |----------|------|
 | Spec | `docs/superpowers/specs/2026-04-19-phase-3-core-releases-design.md` |
 | Plan | `docs/superpowers/plans/2026-04-19-phase-3-core-releases.md` |
-| Smoke checklist | `docs/phases/phase-3-sub1-smoke-checklist.md` |
+| Smoke checklist | `docs/archive/phase-3-sub1-smoke-checklist.md` |
 | Happy-path test | `backend/tests/integration/test_release_happy_path.py` |
 
 **Delivered in MR !4**: Release Template Library, Release CRUD, TestPhase + ReleaseGate + ReleaseSystem + ReleaseEvent + ReleaseChange models, full lifecycle transitions, release-booking linking with context_tag derivation, calendar and Gantt timeline views, frontend release list / form / detail (Main / Phases / Gates / Systems / Bookings / Scope / Events tabs), admin lifecycle + event-type management pages.
@@ -42,7 +42,7 @@ Merged to `main` via MR !15 (merge commit `64c52e3`, 2026-04-23). 558 backend te
 |----------|------|
 | Spec | `docs/superpowers/specs/2026-04-22-enterprise-releases-design.md` |
 | Plan | `docs/superpowers/plans/2026-04-22-enterprise-releases.md` |
-| Smoke checklist | `docs/phases/phase-3-sub2-smoke-checklist.md` |
+| Smoke checklist | `docs/archive/phase-3-sub2-smoke-checklist.md` |
 | Happy-path test | `backend/tests/integration/test_enterprise_release_happy_path.py` |
 | Backfill script | `backend/scripts/backfill_enterprise_lifecycles.py` |
 

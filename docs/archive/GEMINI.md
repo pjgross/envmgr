@@ -1,6 +1,6 @@
 # EnvManager - AI Assistant Project Guide
 
-> ⚠️ **HISTORICAL REFERENCE** — this file is the original Gemini-era guide and has not been updated since 2026-02-07. For the current state of the project (Phase 3 merged, tech stack, conventions, and all live guidance), see **[CLAUDE.md](CLAUDE.md)** at the repo root. Nothing below should be treated as authoritative.
+> ⚠️ **HISTORICAL REFERENCE** — this file is the original Gemini-era guide and has not been updated since 2026-02-07. For the current state of the project (Phase 3 merged, tech stack, conventions, and all live guidance), see **[CLAUDE.md](../../CLAUDE.md)** at the repo root. Nothing below should be treated as authoritative.
 
 > **Last Updated**: 2026-02-07  
 > **Current Phase** (as of 2026-02-07): Phase 0 Complete → Starting Phase 1  

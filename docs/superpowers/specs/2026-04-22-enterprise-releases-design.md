@@ -349,7 +349,7 @@ Data migration (separate Alembic revision, data-only):
 ### Frontend
 
 - No new unit tests (Tier 3 modernisation not in scope this sub-project).
-- Smoke checklist at `docs/phases/phase-3-sub2-smoke-checklist.md` covers UI flows.
+- Smoke checklist at `docs/archive/phase-3-sub2-smoke-checklist.md` covers UI flows.
 
 ## Acceptance criteria
 

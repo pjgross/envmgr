@@ -186,7 +186,7 @@ envmgr/
 **Reference**
 - [Requirements](docs/requirements.md) · [Gap Analysis](docs/gap-analysis.md)
 - [Dependency Audit](docs/dependency-audit.md) · [Pagination](docs/pagination.md) · [UI Audit](docs/ui-audit.md)
-- [Decisions](docs/decisions/) · [Phase summaries](docs/phases/)
+- [Decisions](docs/decisions/) · [Phase summaries](docs/phases/) · [Archive](docs/archive/)
 - [API docs](http://localhost:8000/docs) (when running)
 
 ## License

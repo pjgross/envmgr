@@ -4495,7 +4495,7 @@ git commit -m "feat(enterprise): admin lifecycle editor — kind + lockdown + ad
 ### Task 34: Smoke checklist
 
 **Files:**
-- Create: `docs/phases/phase-3-sub2-smoke-checklist.md`
+- Create: `docs/archive/phase-3-sub2-smoke-checklist.md`
 
 - [ ] **Step 1: Write the checklist**
 
@@ -4539,7 +4539,7 @@ git commit -m "feat(enterprise): admin lifecycle editor — kind + lockdown + ad
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/phases/phase-3-sub2-smoke-checklist.md
+git add docs/archive/phase-3-sub2-smoke-checklist.md
 git commit -m "docs(enterprise): smoke checklist"
 ```
 
