@@ -84,15 +84,25 @@ Twenty-two endpoints now go through the primitive:
 
 ## Not yet bounded
 
-This section covers the endpoints examined during the original sweep, plus four more —
-`membership` (the merged current/history view), `dependency-alerts`, `bookings`, and
-`change-requests`, all release sub-resources — added after a doc review on 2026-07-30 found
-they'd been left out of every group despite being unbounded. It is not a claim that every list
-endpoint in the codebase has been surveyed; it is what has actually been checked, group by group.
+This section originally covered the endpoints examined during the first sweep, then gained four
+more — `membership` (the merged current/history view), `dependency-alerts`, `bookings`, and
+`change-requests`, all release sub-resources — added after a 2026-07-30 doc review found they'd
+been left out of every group despite being unbounded. That review was itself incomplete: a third
+pass, also on 2026-07-30, enumerated every `GET` endpoint under `backend/app/api/v1/` declaring
+`response_model=list[...]` and checked each one against this file rather than trusting the
+existing groups to already be exhaustive. The reproducible count:
 
-The endpoints below fall into four groups, and the distinction matters: the first is work someone
+    grep -rn -B3 'response_model=list\[' backend/app/api/v1 | grep -v __pycache__ | grep -E '\.get\(' | wc -l
+
+That returns **51**. Of those, **22** are bounded (the table above) and **29** are not — every one
+of the 29 is named below, sorted into whichever group its code actually justifies. If a future
+change adds or removes a list endpoint, re-run the count above and re-check this file against it;
+this doc has now drifted out of sync with the code three times.
+
+The endpoints below fall into five groups, and the distinction matters: the first is work someone
 should still do, the second is a decision nobody should revisit, the third is not a problem at
-all, and the fourth is work that should still happen but fell out of this sweep's scope.
+all, the fourth already has a cap of its own that just isn't the shared one, and the fifth is work
+that should still happen but fell out of this sweep's scope.
 
 **Blocked on a query restructure.** Each of these filters or merges *after* the query, so a SQL
 `LIMIT` would window the wrong set. Adding `limit` before the restructure would be worse than
@@ -117,6 +127,14 @@ leaving them unbounded — the results would be quietly wrong rather than merely
   moved?) is computed per-row after the fetch, exactly like `raid`'s `rag`/`overdue` filters — a
   `LIMIT` on the initial fetch could return zero alerts while dozens of shifted dependencies exist
   further down the unfiltered set.
+- `GET /environments/{env_id}/versions` (`version_service.list_versions`) — takes a `current_only`
+  query flag. When `current_only=True` it fetches every version row for the environment ordered by
+  `subsystem_id, installed_at DESC`, then keeps only the first row per `subsystem_id` in Python —
+  the same shape as `raid`'s in-Python filter. A `LIMIT` on the initial fetch could return a page
+  holding several stale rows for one subsystem and none for another, silently missing that
+  subsystem's current version. (The default `current_only=False` call has no such filter and
+  returns the raw history, but the endpoint has to stay correct for both values of the flag, so the
+  whole route is blocked, not just one branch of it.)
 
 **Permanently unbounded — aggregations.** These are computed aggregate views, not row lists,
 and three of them do not return arrays at all. A partial rollup is a wrong rollup, so paginating
@@ -126,15 +144,69 @@ them is not meaningful: `rollup/systems`, `rollup/members`, `rollup/timeline`, `
 `rollup/scope` is the exception and *is* bounded (see the table above): it is a genuine row list
 with every filter in SQL.
 
-**Bounded in practice by tenant configuration**, where a cap would add a knob for no benefit:
-`component_types`, `release_event_types`, `release_templates`, `tenant_admin_fields`,
-`booking_lifecycle`, `api_keys`, and the per-release `phases` and `gates` (both capped by the
-release template).
+**Bounded in practice by tenant configuration or by the entity's own structure**, where a cap
+would add a knob for no benefit. Two different reasons land an endpoint in this group: some return
+a tenant-wide catalogue that is itself configuration; others return the history or sub-parts of a
+*single* entity, so the row count is capped by that one entity's own lifecycle rather than by
+tenant-wide data growth — a booking has a handful of status transitions and a handful of allowed
+next-transitions, a system is decomposed into a handful of subsystems, a scope item moves between
+releases or has its external status changed only occasionally.
 
-**Missed by this sweep — genuinely growth-bearing.** Unlike the group above, nothing caps these
-structurally, and unlike the "blocked" group, there is no Python filtering standing in the way —
-both do every filter in SQL and only shape rows afterwards (dict construction), so each is a
-clean drop-in for the shared primitive whenever someone picks it up.
+Tenant-wide catalogues: `component_types`, `release_event_types`, `release_templates`,
+`tenant_admin_fields` (`/fields`), `booking_lifecycle` (`/lifecycle-templates` and
+`/booking-types`), `api_keys`, and the per-release `phases` and `gates` (both capped by the release
+template) — unchanged from the previous sweep. Added by this pass:
+
+- `GET /tenant/scope-change-rules` and `GET /tenant/scope-change-rules/kinds`
+  (`scope_change_rule_service.list_rules`) — one row per `change_kind` a tenant has configured;
+  seeded with four (`story`, `defect`, `task`, `spike`) at tenant creation and grown only when an
+  admin adds another from the settings page.
+
+Single-entity structure or history, added by this pass:
+
+- `GET /systems/{system_id}/subsystems` (`system_service.list_subsystems`) and
+  `GET /environments/{env_id}/subsystems`
+  (`environment_system_service.get_environment_subsystems`) — inventory structure: how many
+  subsystems a system is decomposed into, or how many of those are attached to one environment.
+  The environment variant runs two more batch lookups afterward (system names, latest versions per
+  subsystem) but neither drops nor reorders the primary rows, so a `LIMIT` on the first query would
+  be safe whenever someone gets to it — it just isn't worth it at inventory scale.
+- `GET /bookings/{booking_id}/history` (`booking_service.get_status_history`) — the state
+  transitions of one booking; bounded by that booking's own lifecycle template, not by tenant data
+  volume.
+- `GET /bookings/{booking_id}/allowed-transitions`
+  (`booking_service.get_booking_allowed_transitions`) — not really a database list: it reads the
+  lifecycle template's state-machine definition and returns the outbound edges from the booking's
+  current state for the caller's role. Bounded by how many transitions a state can have, typically
+  single digits.
+- `GET /release-changes/{change_id}/release-history` and
+  `GET /release-changes/{change_id}/status-history`
+  (`release_scope_service.list_release_history` / `list_status_history`) — chronological audit
+  trails for one scope item: every release it has been moved to, and every external-status change
+  ingested for it. Both writers are no-ops when nothing actually changed (`list_status_history`'s
+  writer returns early if `from_status == to_status`), so row count tracks genuine transitions of
+  that one item, not tenant volume.
+
+**Already capped by their own ad hoc limit — not the shared primitive, and no `X-Total-Count`.**
+These were missed by earlier passes because "unbounded" was read as "returns everything with no
+cap"; these two already had a cap, just not the shared one, so a scan for a bare `list(...)`
+return missed them.
+
+- `GET /builds` (`builds.py`) — takes its own `limit: int = Query(100, le=500)` and
+  `offset: int = Query(0)`, ordered by `commit_timestamp DESC`. Every filter (`subsystem_id`,
+  `release_id`, `branch`, date range) runs in SQL before the `LIMIT`, so it windows correctly — it
+  just never learned about `X-Total-Count`, so a client has no way to tell 100 rows returned from
+  100 rows total.
+- `GET /environments/{env_id}/health/history` (`environment_health.py`) — takes
+  `limit: int = Query(50, ge=1, le=500)`. Same story: correctly windowed, no total exposed.
+
+Both are one `fetch_page`/`set_total_count` swap away from the shared primitive; the remaining
+work is wiring, not a query restructure.
+
+**Growth-bearing, not yet bounded.** Unlike the groups above, nothing caps these structurally, and
+unlike the "blocked" group, there is no Python filtering standing in the way — every one does its
+filtering in SQL and only shapes rows afterwards, so each is a clean drop-in for the shared
+primitive whenever someone picks it up.
 
 - `GET /releases/{release_id}/bookings` (`list_release_bookings` in `releases.py`) — every
   `Booking` row with `release_id` matching, ordered by `start_date`. A release under test for
@@ -145,6 +217,22 @@ clean drop-in for the shared primitive whenever someone picks it up.
   `ChangeRequest` row with `release_id` matching, ordered by `id`. Same shape as the tenant-wide
   `/change-requests` endpoint (already bounded), just release-scoped; nothing here caps the count
   either.
+- `GET /environments/{environment_id}/deployments` (`list_environment_deployments` in
+  `deployments.py`) — every `Deployment` row for one environment, newest first, no limit anywhere.
+  Its sibling `GET /deployments` **is** bounded (own 100/500 contract, above) and already accepts
+  the same `environment_id` filter, so `GET /deployments?environment_id=N` returns the identical,
+  paginated data today. This route is a separate query path that just never got the cap its
+  sibling has — deployments accumulate for the life of an environment, exactly the kind of history
+  that motivated bounding the tenant-wide route in the first place.
+- `GET /tenant/users/lite` (`list_users_lite` in `tenant_admin.py`) — every active user in the
+  tenant, `{id, username}` only, no limit. It mirrors `GET /tenant/users`, which needed real
+  pagination in this sweep because headcount is data, not configuration; the `/lite` variant reads
+  the same table with the same growth profile and currently has no cap at all.
+- `GET /bookings/{booking_id}/received-feedback` (`list_received_feedback` in `conflicts.py`) —
+  every ack left by another booking's owner about a conflict with this one, one query, no
+  post-fetch filtering. Its sibling on the same `booking_id`, `GET /bookings/{id}/conflicts`, was
+  bounded through the shared primitive in this sweep; this endpoint has the same growth driver
+  (however many other bookings overlapped this one and left feedback) and was simply missed.
 
 ## Ordering must be total
 
