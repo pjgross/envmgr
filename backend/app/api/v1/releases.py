@@ -954,18 +954,14 @@ async def delete_dependency(
 @router.get("/{release_id}/dependency-alerts", response_model=list[ReleaseDependencyAlert])
 async def get_dependency_alerts(
     release_id: int,
-    response: Response,
-    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    alerts, total = await release_dependency_service.get_dependency_alerts(
-        db, release_id, tenant_id, page=page
+    return await release_dependency_service.get_dependency_alerts(
+        db, release_id, tenant_id
     )
-    set_total_count(response, total)
-    return alerts
 
 
 @router.post("/{release_id}/dependency-alerts/{dep_id}/acknowledge", status_code=status.HTTP_204_NO_CONTENT)

@@ -246,7 +246,14 @@ def _rag_sql_condition(cfg: dict, wanted: str):
 
 async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
                      item_type=None, status=None, owner_id=None, rag=None,
-                     overdue=None, config=None, page: Optional[Page] = None):
+                     overdue=None, config=None,
+                     page: Optional[Page] = None) -> tuple[list[RaidItem], int]:
+    """RAID items for a release, optionally filtered by type/status/owner/rag/overdue.
+
+    `rag` and `overdue` are both pushed into SQL (see `_rag_sql_condition` and
+    the review_date/status predicate below) rather than filtered in Python
+    after the query, so the result can be windowed by `page`.
+    """
     stmt = select(RaidItem).where(
         RaidItem.tenant_id == tenant_id, RaidItem.release_id == release_id,
         RaidItem.deleted_at.is_(None))

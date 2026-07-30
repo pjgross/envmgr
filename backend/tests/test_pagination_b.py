@@ -318,6 +318,34 @@ async def test_system_dependencies_handle_one_sided_cases(db_session, tenant):
     assert [r.id for r in rows] == [d.id] and total == 1
 
 
+@pytest.mark.asyncio
+async def test_system_dependencies_endpoint_is_bounded(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    from app.db.models.dependency import DependencyType, SystemDependency
+
+    me = await _make_system(db_session, test_tenant.id, "bound-me")
+    for n in range(3):
+        other = await _make_system(db_session, test_tenant.id, f"bound-other-{n}")
+        db_session.add(SystemDependency(
+            tenant_id=test_tenant.id, from_system_id=me.id, to_system_id=other.id,
+            dependency_type=DependencyType.API_CALL,
+        ))
+    await db_session.commit()
+
+    url = f"/api/v1/systems/{me.id}/dependencies"
+    response = await client.get(url, headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 3
+
+    windowed = await client.get(f"{url}?limit=2", headers=auth_headers)
+    assert len(windowed.json()) == 2
+    assert int(windowed.headers[TOTAL_COUNT_HEADER]) == 3
+
+    over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
+    assert over.status_code == 422
+
+
 # ── Component dependencies ───────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -355,6 +383,35 @@ async def test_component_dependencies_return_same_rows_and_order(db_session, ten
     # outgoing first despite having the HIGHER id — this is the grouping check
     assert [r.id for r in rows] == [out.id, inc.id]
     assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_component_dependencies_endpoint_is_bounded(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    from app.db.models.dependency import ComponentDependency, DependencyType
+    from tests.factories import ensure_subsystem
+
+    me = await ensure_subsystem(db_session, test_tenant.id, name="bound-comp-me")
+    for n in range(3):
+        other = await ensure_subsystem(db_session, test_tenant.id, name=f"bound-comp-other-{n}")
+        db_session.add(ComponentDependency(
+            tenant_id=test_tenant.id, from_subsystem_id=me.id, to_subsystem_id=other.id,
+            dependency_type=DependencyType.API_CALL,
+        ))
+    await db_session.commit()
+
+    url = f"/api/v1/subsystems/{me.id}/dependencies"
+    response = await client.get(url, headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 3
+
+    windowed = await client.get(f"{url}?limit=2", headers=auth_headers)
+    assert len(windowed.json()) == 2
+    assert int(windowed.headers[TOTAL_COUNT_HEADER]) == 3
+
+    over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
+    assert over.status_code == 422
 
 
 # ── Versions ─────────────────────────────────────────────────────────────────
@@ -400,20 +457,66 @@ async def test_current_only_returns_one_row_per_subsystem(db_session, tenant):
     assert by_sub == {sub_a.id: "a-new", sub_b.id: "b-only"}
 
 
+# ── Dependency alerts: the reference implementation the SQL must agree with ──
+
+def _old_alert_diff_days(current, prior):
+    """Verbatim semantics of the pre-restructure Python predicate this
+    differential test pins (see `git show 7e50581:.../release_dependency_service.py`):
+    unchanged dates skip, both-None skip, otherwise a day-floor diff — and,
+    independently, a zero-day diff also skips. That second filter is why this
+    endpoint stays unbounded: it drops rows after the query with no portable
+    SQL equivalent (see the comments in `get_dependency_alerts`).
+
+    Returns None if no alert would fire, else the diff_days that would be
+    reported.
+    """
+    if current == prior:
+        return None
+    if current is not None and prior is not None:
+        diff_days = (current.replace(tzinfo=None) - prior.replace(tzinfo=None)).days
+    elif current is not None:
+        diff_days = 1
+    elif prior is not None:
+        diff_days = -1
+    else:
+        return None
+    if diff_days == 0:
+        return None
+    return diff_days
+
+
 @pytest.mark.asyncio
 async def test_dependency_alerts_match_the_python_filter_they_replaced(
     db_session, tenant, user
 ):
     """Covers: unchanged dates (skip), both-None (skip), one-None (alert),
-    changed (alert), and a soft-deleted target release (skip)."""
+    changed (alert), a soft-deleted target release (skip), and a sub-day
+    forward shift (skip — `timedelta.days` floors toward -inf, so a same-day
+    forward shift has `.days == 0` while the same-magnitude backward shift
+    has `.days == -1`; this is what the review found silently dropped).
+
+    Expectations are computed by running `_old_alert_diff_days` over the
+    fixture data, not hardcoded ids, so a case like the sub-day shift cannot
+    be added without the reference implementation actually exercising it.
+    """
     from app.db.models.release_dependency import ReleaseDependency
     from app.services import release_dependency_service
 
     rel = await _make_release(db_session, tenant.id, user.id, name="alerts-parent")
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 1, 15, 9, 0, tzinfo=timezone.utc)
+
+    # Hold strong references to every Release and ReleaseDependency created
+    # below. SQLAlchemy's identity map only holds a *strong* ref while an
+    # object is pending; once flushed, an unreferenced row can be GC'd and
+    # later re-materialised from the raw DB row — naive on SQLite's
+    # DateTime(timezone=True) — which would make comparing `target.target_date`
+    # against `now` below crash (naive vs aware) or silently misbehave. This
+    # is the suspected cause of an observed one-off flake in this test.
+    created = []
 
     async def _dep(name, target_date, prior, deleted=False):
         target = await _make_release(db_session, tenant.id, user.id, name=name)
+        created.append(target)
         target.target_date = target_date
         if deleted:
             target.deleted_at = now
@@ -424,25 +527,36 @@ async def test_dependency_alerts_match_the_python_filter_they_replaced(
         )
         db_session.add(d)
         await db_session.flush()
-        return d
+        created.append(d)
+        return d, target, deleted
 
-    unchanged = await _dep("unchanged", now, now)
-    both_none = await _dep("both-none", None, None)
-    now_set = await _dep("now-set", now, None)
-    now_gone = await _dep("now-gone", None, now)
-    shifted = await _dep("shifted", now + timedelta(days=5), now)
-    deleted = await _dep("deleted-target", now + timedelta(days=5), now, deleted=True)
+    cases = [
+        await _dep("unchanged", now, now),
+        await _dep("both-none", None, None),
+        await _dep("now-set", now, None),
+        await _dep("now-gone", None, now),
+        await _dep("shifted", now + timedelta(days=5), now),
+        await _dep("deleted-target", now + timedelta(days=5), now, deleted=True),
+        await _dep("sub-day-forward", now + timedelta(hours=3), now),
+    ]
 
-    alerts, total = await release_dependency_service.get_dependency_alerts(
+    alerts = await release_dependency_service.get_dependency_alerts(
         db_session, rel.id, tenant.id
     )
-
     alerted_dep_ids = {a.dependency_id for a in alerts}
-    assert alerted_dep_ids == {now_set.id, now_gone.id, shifted.id}
-    assert unchanged.id not in alerted_dep_ids
-    assert both_none.id not in alerted_dep_ids
-    assert deleted.id not in alerted_dep_ids, "soft-deleted target must not alert"
-    assert total == 3
+
+    expected_ids = {
+        dep.id
+        for dep, target, deleted in cases
+        if not deleted  # matches the join's Release.deleted_at.is_(None)
+        and _old_alert_diff_days(target.target_date, dep.last_dependency_target_date) is not None
+    }
+    assert alerted_dep_ids == expected_ids
+
+    sub_day_dep, _, _ = cases[-1]
+    assert sub_day_dep.id not in alerted_dep_ids, "sub-day forward shift must produce no alert"
+    shifted_dep, _, _ = cases[4]
+    assert shifted_dep.id in alerted_dep_ids, "a genuine multi-day shift must still alert"
 
 
 @pytest.mark.asyncio
@@ -469,6 +583,37 @@ async def test_current_only_picks_exactly_one_row_when_timestamps_tie(db_session
     )
     assert total == 1
     assert len(current) == 1
+
+
+@pytest.mark.asyncio
+async def test_versions_endpoint_is_bounded(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    from app.db.models.version import EnvironmentSubSystemVersion
+    from tests.factories import ensure_environment, ensure_subsystem
+
+    env = await ensure_environment(db_session, test_tenant.id)
+    sub = await ensure_subsystem(db_session, test_tenant.id, name="bound-ver")
+    now = datetime.now(timezone.utc)
+    for n in range(3):
+        db_session.add(EnvironmentSubSystemVersion(
+            tenant_id=test_tenant.id, environment_id=env.id, subsystem_id=sub.id,
+            build_identifier=f"bound-build-{n}", version_label=f"v{n}",
+            installed_at=now - timedelta(days=n),
+        ))
+    await db_session.commit()
+
+    url = f"/api/v1/environments/{env.id}/versions"
+    response = await client.get(url, headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 3
+
+    windowed = await client.get(f"{url}?limit=2", headers=auth_headers)
+    assert len(windowed.json()) == 2
+    assert int(windowed.headers[TOTAL_COUNT_HEADER]) == 3
+
+    over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
+    assert over.status_code == 422
 
 
 # ── Membership view ──────────────────────────────────────────────────────────
@@ -506,3 +651,38 @@ async def test_membership_view_bounds_history_and_preserves_duplication(
     assert body["current"] is not None
     assert len(body["history"]) == 2, "accepted membership still appears in history"
     assert int(response.headers[TOTAL_COUNT_HEADER]) == 2
+
+
+@pytest.mark.asyncio
+async def test_membership_history_endpoint_is_bounded(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    from app.db.models.release_membership import ReleaseMembership
+
+    ent = await _make_release(db_session, test_tenant.id, test_user.id, name="bound-ent")
+    proj = await _make_release(db_session, test_tenant.id, test_user.id, name="bound-proj")
+    now = datetime.now(timezone.utc)
+
+    for n in range(3):
+        db_session.add(ReleaseMembership(
+            tenant_id=test_tenant.id, enterprise_release_id=ent.id,
+            project_release_id=proj.id, state="rejected",
+            requested_by=test_user.id, requested_at=now - timedelta(days=n),
+        ))
+    await db_session.commit()
+
+    url = f"/api/v1/releases/{proj.id}/membership"
+    response = await client.get(url, headers=auth_headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["current"] is None
+    assert len(body["history"]) == 3
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 3
+
+    windowed = await client.get(f"{url}?limit=2", headers=auth_headers)
+    assert windowed.status_code == 200, windowed.text
+    assert len(windowed.json()["history"]) == 2
+    assert int(windowed.headers[TOTAL_COUNT_HEADER]) == 3
+
+    over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
+    assert over.status_code == 422
