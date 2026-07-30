@@ -2,7 +2,7 @@
 
 > **Authoritative reference for Claude Code sessions.**
 > Source documents: `EnvManager_Requirements_Summary.md`, `EnvManager_Development_Prompt.md`, `Planview Release & Verify Introduction.docx` (all in `docs/`).
-> Architecture: [architecture.md](architecture.md) | Roadmap: [plan.md](plan.md)
+> Architecture: [prod architecture.md](prod%20architecture.md) | Roadmap: [plan.md](plan.md)
 
 ---
 
@@ -90,7 +90,7 @@ EnvManager replaces a legacy test environment management system and eliminates r
 - Change types: configuration change, infrastructure change, code deployment
 - **Configurable lifecycle** with at least one lifecycle option supporting an approval step
 - Changes can be linked to a **release** and to a **deployment**
-- Changes include **impact analysis** (which components are affected — via Neo4j)
+- Changes include **impact analysis** (which components are affected)
 - Change requests include an **outage flag**: does this change cause an environment outage? If yes, outage start/end time is recorded
 - Full change history and audit trail
 - Change requests (TECRs) appear on the **unified environment schedule** alongside bookings, so all teams sharing an environment can see both planned changes and bookings in one view
@@ -245,9 +245,9 @@ Additional data requirements:
 - **Interactive web-based viewer** using React Flow (zoom, pan, click for details)
 - **Topology snapshots**: point-in-time captures for comparison
 - **Drift detection**: compare Terraform plan vs Terraform state
-- **Dependency / impact analysis**: show what is affected by a change to a component (Neo4j graph queries)
+- **Dependency / impact analysis**: show what is affected by a change to a component (PostgreSQL recursive queries; Neo4j dropped 2026-07-30)
 - Health status visualization (color-code components by status)
-- Neo4j is the graph store for topology; PostgreSQL is the system of record for all entities
+- ~~Neo4j is the graph store for topology~~ — **superseded 2026-07-30**: PostgreSQL is the system of record *and* serves topology; Neo4j was provisioned but never used and has been removed ([decisions/2026-07-30-drop-neo4j.md](decisions/2026-07-30-drop-neo4j.md))
 
 **IaC-to-dependency model integration (Phase 6):**
 - Terraform and Docker Compose parsers (Phase 6) populate the **same `SystemDependency` and `ComponentDependency` tables introduced in Phase 1** — they do not create a separate dependency model
@@ -257,7 +257,7 @@ Additional data requirements:
 ### 2.10 Notifications & Events
 
 - All key state changes publish events (booking, change, deployment, incident)
-- Event consumers: Neo4j sync, notification dispatch, reporting table updates
+- Event consumers: notification dispatch, reporting table updates
 - Notification channels: **email** and **webhooks** (POST to external URLs)
 - Notification templates are configurable per event type
 - Event replay capability for debugging and recovery
@@ -365,7 +365,7 @@ Key events requiring notifications:
 ### 3.4 Reliability
 
 - 99.9% uptime SLA
-- Graceful degradation: core booking works even if Neo4j is unavailable
+- Graceful degradation: core booking works even if NATS is unavailable (the outbox drains when it returns)
 - Daily database backups
 - Event replay capability for recovery
 
@@ -475,7 +475,7 @@ Still out of scope:
 | 3 | Release Management (Enterprise + Project Releases, Templates, Dependencies, Events, System Roles, Gantt View, PIR), Jira Integration |
 | 4 | Build Tracking, Deployment Tracking (GitHub Actions) |
 | 5 | DORA Metrics, Incident Tracking (manual), Health Check Dashboard, PIR, scheduled health checks, booking honour/utilisation |
-| 6 | Infrastructure Topology (Terraform, Neo4j, React Flow) + **Environment Drift detection & sync vs Production** (§2.12/B4) |
+| 6 | Infrastructure Topology (Terraform, React Flow) + **Environment Drift detection & sync vs Production** (§2.12/B4) |
 | 7 | Multi-Project Coordination, Environment Groups, Usage Agreements + **Environment Lifecycle & Governance** (§2.12: tiers, decommission, welcome pack, priority contention) |
 | 8 | *(reserved — parked AI Copilot / AI-driven Integrations design)* |
 | 9 | **Release Governance & Deployment Safety** (§2.11: intake, go/no-go, scope freeze, rollback, hyper-care, feature flags, deploy patterns) |

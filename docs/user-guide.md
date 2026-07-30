@@ -85,9 +85,11 @@ The top bar carries the EnvManager logo (click to return to the dashboard) and y
 
 - Header — your username, email, and role (master admins also see *Master Admin*).
 - *Light mode* / *Dark mode* / *System theme* — click to cycle.
-- *Logout* — ends the session and returns you to `/login`.
+- *Logout* — ends the session and returns you to `/login`. This revokes the session on the server, not just in your browser, so the old session cannot be resumed.
 
-> **Not yet available:** there is no in-app *Change password* action or tenant switcher in the user menu today. Ask your Admin to reset your password if needed.
+> **Not yet available:** there is no in-app *Change password* action or tenant switcher in the user menu today. Ask your Admin to reset your password if needed — note that a reset signs you out of every device.
+
+**About staying signed in.** Your session renews itself quietly in the background for up to 14 days, so you should not be interrupted mid-task; you only return to `/login` after that, or if you sign out, or if an Admin resets your password. If you mistype your password five times in fifteen minutes, sign-in is blocked for the rest of that window and returns "Too many failed sign-in attempts" — waiting is the only fix, and it applies even once you remember the right password.
 
 ## 3. Concepts in 5 minutes
 

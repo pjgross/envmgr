@@ -1,5 +1,11 @@
 # GitLab CI/CD setup — dogfooding EnvManager
 
+> **This is not the project's CI.** Since 2026-07-30 that is GitHub Actions
+> ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)), which gates `main` with the
+> test suite on both engines, lint, build, image builds and dependency audits. The pipeline
+> below runs on a local GitLab with a self-hosted runner and exists to exercise EnvManager's
+> own build/deployment-tracking webhooks against itself.
+
 This guide turns the local GitLab project into the source of truth for the EnvManager-on-EnvManager dogfooding loop. Every successful pipeline registers two builds (frontend + backend, where they changed) and two deployments to the *EnvMgr_SIT* environment, plus an auto-created `code_deployment` change request per subsystem.
 
 ## Prerequisites
