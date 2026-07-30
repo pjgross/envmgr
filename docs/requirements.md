@@ -1,7 +1,7 @@
 # EnvManager — Requirements
 
 > **Authoritative reference for Claude Code sessions.**
-> Source documents: `EnvManager_Requirements_Summary.md`, `EnvManager_Development_Prompt.md`, `Planview Release & Verify Introduction.docx` (all in `docs/`).
+> Source documents: [`archive/EnvManager_Requirements_Summary.md`](archive/EnvManager_Requirements_Summary.md), [`archive/EnvManager_Development_Prompt.md`](archive/EnvManager_Development_Prompt.md) (both superseded by this document — see [`archive/`](archive/)) and `Planview Release Verify Introduction.docx` in `docs/`.
 > Architecture: [prod architecture.md](prod%20architecture.md) | Roadmap: [plan.md](plan.md)
 
 ---

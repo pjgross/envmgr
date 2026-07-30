@@ -3154,7 +3154,7 @@ Commit: `test(phase-3): happy-path integration test for core releases`
 ## Task 41 — Manual QA smoke script + spec refresh
 
 **Files:**
-- Create: `docs/phases/phase-3-sub1-smoke-checklist.md` — a short, human-actionable list of browser flows to walk through (matches the happy path test but through the UI).
+- Create: `docs/archive/phase-3-sub1-smoke-checklist.md` — a short, human-actionable list of browser flows to walk through (matches the happy path test but through the UI).
 - Modify: `docs/plan.md` and/or `docs/phases/phase-3.md` to note sub-project 1 complete when this MR lands.
 
 Commit: `docs(phase-3): smoke checklist + plan status for sub-project 1`
