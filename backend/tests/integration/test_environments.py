@@ -1,10 +1,12 @@
 """Integration tests for Environment and EnvironmentSystem endpoints."""
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
 from app.db.models.user import Tenant, User
-from app.db.models.environment import Environment
+from app.db.models.environment import Environment, EnvironmentStatus
 from app.core.security import get_password_hash
 
 
@@ -307,3 +309,175 @@ async def test_remove_system_from_environment(client: AsyncClient, auth_headers)
     assert list_resp.status_code == 200
     sys_ids = [s["system_id"] for s in list_resp.json()["systems"]]
     assert sys_id not in sys_ids
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting + search (sub-project C1 task 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_environments_default_order_unchanged(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """No sort_by: order must stay `name, id` — today's ordering, byte for byte.
+
+    Insertion order (Charlie, Alpha, Bravo) deliberately disagrees with name
+    order, so a response that happened to preserve insertion/id order would not
+    accidentally satisfy this assertion. This is what makes C1 safe to merge
+    before the frontend half moves filtering server-side.
+    """
+    charlie = Environment(tenant_id=test_tenant.id, name="Charlie", environment_type="SIT")
+    alpha = Environment(tenant_id=test_tenant.id, name="Alpha", environment_type="SIT")
+    bravo = Environment(tenant_id=test_tenant.id, name="Bravo", environment_type="SIT")
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/environments/", headers=auth_headers)
+    assert response.status_code == 200
+    assert [e["id"] for e in response.json()] == [alpha.id, bravo.id, charlie.id]
+
+
+@pytest.mark.asyncio
+async def test_list_environments_sort_by_name_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    charlie = Environment(tenant_id=test_tenant.id, name="Charlie", environment_type="SIT")
+    alpha = Environment(tenant_id=test_tenant.id, name="Alpha", environment_type="SIT")
+    bravo = Environment(tenant_id=test_tenant.id, name="Bravo", environment_type="SIT")
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/environments/?sort_by=name&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [e["id"] for e in asc.json()] == [alpha.id, bravo.id, charlie.id]
+
+    desc = await client.get(
+        "/api/v1/environments/?sort_by=name&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [e["id"] for e in desc.json()] == [charlie.id, bravo.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_environments_sort_by_environment_type_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """Names/ids are already in ascending order here, so only environment_type
+    sorting — not the name tiebreaker or insertion order — could produce these
+    sequences."""
+    e1 = Environment(tenant_id=test_tenant.id, name="E1", environment_type="zebra")
+    e2 = Environment(tenant_id=test_tenant.id, name="E2", environment_type="apple")
+    e3 = Environment(tenant_id=test_tenant.id, name="E3", environment_type="middle")
+    db_session.add_all([e1, e2, e3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/environments/?sort_by=environment_type&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [e["id"] for e in asc.json()] == [e2.id, e3.id, e1.id]
+
+    desc = await client.get(
+        "/api/v1/environments/?sort_by=environment_type&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [e["id"] for e in desc.json()] == [e1.id, e3.id, e2.id]
+
+
+@pytest.mark.asyncio
+async def test_list_environments_sort_by_status_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    s1 = Environment(
+        tenant_id=test_tenant.id, name="S1", environment_type="SIT",
+        status=EnvironmentStatus.MAINTENANCE,
+    )
+    s2 = Environment(
+        tenant_id=test_tenant.id, name="S2", environment_type="SIT",
+        status=EnvironmentStatus.ACTIVE,
+    )
+    s3 = Environment(
+        tenant_id=test_tenant.id, name="S3", environment_type="SIT",
+        status=EnvironmentStatus.DECOMMISSIONED,
+    )
+    db_session.add_all([s1, s2, s3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/environments/?sort_by=status&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [e["id"] for e in asc.json()] == [s2.id, s3.id, s1.id]
+
+    desc = await client.get(
+        "/api/v1/environments/?sort_by=status&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [e["id"] for e in desc.json()] == [s1.id, s3.id, s2.id]
+
+
+@pytest.mark.asyncio
+async def test_list_environments_sort_by_created_at_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    c1 = Environment(
+        tenant_id=test_tenant.id, name="C1", environment_type="SIT",
+        created_at=base + timedelta(days=2),
+    )
+    c2 = Environment(
+        tenant_id=test_tenant.id, name="C2", environment_type="SIT", created_at=base,
+    )
+    c3 = Environment(
+        tenant_id=test_tenant.id, name="C3", environment_type="SIT",
+        created_at=base + timedelta(days=1),
+    )
+    db_session.add_all([c1, c2, c3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/environments/?sort_by=created_at&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [e["id"] for e in asc.json()] == [c2.id, c3.id, c1.id]
+
+    desc = await client.get(
+        "/api/v1/environments/?sort_by=created_at&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [e["id"] for e in desc.json()] == [c1.id, c3.id, c2.id]
+
+
+@pytest.mark.asyncio
+async def test_list_environments_sort_by_unknown_field_is_422(
+    client: AsyncClient, auth_headers
+):
+    """Through the real endpoint, not just Task 1's probe app."""
+    response = await client.get(
+        "/api/v1/environments/?sort_by=nonexistent", headers=auth_headers
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_environments_search_matches_case_insensitive_contains(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """search must agree with the browser's
+    `name.toLowerCase().includes(q.toLowerCase())` — matches regardless of case,
+    substrings match, and a name with no match at all is excluded."""
+    prod = Environment(tenant_id=test_tenant.id, name="Production", environment_type="SIT")
+    prod_backup = Environment(
+        tenant_id=test_tenant.id, name="production-backup", environment_type="SIT"
+    )
+    staging = Environment(tenant_id=test_tenant.id, name="Staging", environment_type="SIT")
+    db_session.add_all([prod, prod_backup, staging])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/environments/?search=PROD", headers=auth_headers)
+    assert response.status_code == 200
+    ids = {e["id"] for e in response.json()}
+    assert ids == {prod.id, prod_backup.id}

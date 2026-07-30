@@ -1,10 +1,13 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
+from app.db.models.system import System
 from app.services import system_service
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.api.v1.schemas.system import (
     SystemCreate,
     SystemUpdate,
@@ -22,15 +25,22 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
+SYSTEM_SORTS = {
+    "name": System.name,
+}
+
+
 @router.get("/", response_model=list[SystemResponse])
 async def list_systems(
     response: Response,
+    search: Optional[str] = None,
     page: Page = Depends(pagination()),
+    sort: Sort = Depends(sorting(SYSTEM_SORTS, default="name")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     rows, total = await system_service.list_systems(
-        db, current_user.active_tenant_id, page=page
+        db, current_user.active_tenant_id, page=page, search=search, sort=sort
     )
     set_total_count(response, total)
     return rows

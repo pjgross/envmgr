@@ -7,7 +7,7 @@ from sqlalchemy import select, delete, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.environment import (
     Environment,
     EnvironmentSystem,
@@ -28,6 +28,9 @@ async def list_environments(
     status_filter: Optional[EnvironmentStatus] = None,
     environment_type: Optional[str] = None,
     page: Optional[Page] = None,
+    *,
+    search: Optional[str] = None,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[Environment], int]:
     """Environments for a tenant, plus the unwindowed total.
 
@@ -42,7 +45,9 @@ async def list_environments(
         query = query.where(Environment.status == status_filter)
     if environment_type is not None:
         query = query.where(Environment.environment_type == environment_type)
-    query = query.order_by(Environment.name, Environment.id)
+    if search:
+        query = query.where(Environment.name.ilike(f"%{search}%"))
+    query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
     return await fetch_page(db, query, page)
 
 

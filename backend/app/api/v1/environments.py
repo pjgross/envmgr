@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, Response, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.core.security import get_current_user, require_tenant_admin
-from app.db.models.environment import EnvironmentStatus
+from app.db.models.environment import Environment, EnvironmentStatus
 from app.services import environment_service, environment_system_service
 from app.services import version_service, change_request_service
 from app.api.v1.schemas.environment import (
@@ -39,12 +39,22 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
+ENVIRONMENT_SORTS = {
+    "name": Environment.name,
+    "environment_type": Environment.environment_type,
+    "status": Environment.status,
+    "created_at": Environment.created_at,
+}
+
+
 @router.get("/", response_model=list[EnvironmentResponse])
 async def list_environments(
     response: Response,
     status: Optional[EnvironmentStatus] = None,
     environment_type: Optional[str] = None,
+    search: Optional[str] = None,
     page: Page = Depends(pagination()),
+    sort: Sort = Depends(sorting(ENVIRONMENT_SORTS, default="name")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -54,6 +64,8 @@ async def list_environments(
         status_filter=status,
         environment_type=environment_type,
         page=page,
+        search=search,
+        sort=sort,
     )
     set_total_count(response, total)
     return rows
