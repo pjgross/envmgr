@@ -384,13 +384,58 @@ Also add `builds` to `BOUNDED_ENDPOINTS` in `tests/test_pagination.py` once it s
 
 Task 1 proved the primitive composes with a tiebreaker in isolation. This proves it for each real endpoint — the case where a sort silently replaced the tiebreaker rather than preceding it.
 
-- [ ] **Step 1: Write a parametrised test**
+> **A seed-and-walk test does not discriminate on SQLite — do not rely on it alone.**
+> Task 1's review mutated its tie-paging test on SQLite by removing the tiebreaker, and
+> then by removing *all* ordering, and it passed 5/5 both times: SQLite returns rows in
+> stable rowid order regardless of `ORDER BY`, so the walk sees each row once whatever the
+> code does. The property is only exercised on PostgreSQL. Since SQLite is the leg
+> contributors watch day to day, a walk-only test is worse than no test — it reads as proof
+> while guarding nothing.
+>
+> So each endpoint gets **two** assertions, not one.
 
-For each endpoint with a whitelist, seed rows that **all tie on one sortable column**, page through the whole set with that `sort_by`, and assert every row appears exactly once. Use the `BOUNDED_ENDPOINTS`-style table so adding an endpoint later means adding a row.
+- [ ] **Step 1: An engine-independent structural assertion**
 
-- [ ] **Step 2: Prove it guards**
+For each endpoint with a whitelist, compile the service's query and assert its emitted
+`ORDER BY` puts the requested sort key **first** and the unique tiebreaker **last**. This is
+deterministic on both engines and fails immediately if `apply_sort` ever replaces the
+ordering instead of preceding it:
 
-For at least two endpoints, temporarily change the service's ordering from `apply_sort(query, sort).order_by(Model.id)` to `apply_sort(query, sort)` — dropping the tiebreaker — confirm the test FAILS, restore, confirm it passes. Report both observations. **This must run on PostgreSQL**; SQLite's plans are stable enough to pass by luck.
+```python
+from sqlalchemy.dialects import postgresql
+
+compiled = str(query.compile(dialect=postgresql.dialect()))
+order_by = compiled.split("ORDER BY", 1)[1]
+assert order_by.strip().startswith("<sort column>")
+assert order_by.rstrip().endswith("<pk column>")
+```
+
+Adapt the column names per endpoint. Prefer asserting on the parsed clause over a substring
+match on the whole statement, so an unrelated column with a similar name cannot satisfy it.
+
+- [ ] **Step 2: The paging walk, marked for what it is**
+
+Keep the seed-tied-rows-and-walk test — it is the end-to-end check — but make its
+engine-dependence explicit rather than implied, so nobody reads a green SQLite run as proof:
+
+```python
+@pytest.mark.skipif(
+    not IS_POSTGRES,
+    reason="SQLite returns rows in stable rowid order regardless of ORDER BY, so this "
+           "walk passes even with no ordering at all — it only discriminates on PostgreSQL",
+)
+```
+
+`IS_POSTGRES` already exists in `tests/conftest.py`; import it rather than re-deriving it.
+
+- [ ] **Step 3: Prove both guard**
+
+For at least two endpoints, temporarily change the service's ordering from
+`apply_sort(query, sort).order_by(Model.id)` to `apply_sort(query, sort)` — dropping the
+tiebreaker — and confirm **the structural test fails on SQLite** and **the walk fails on
+PostgreSQL**. Restore, confirm both pass. Report all four observations. If the structural
+test does not fail on SQLite, it has the same blind spot as the walk and must be fixed
+before this task is done.
 
 - [ ] **Step 3: Commit**
 
