@@ -36,12 +36,20 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    setCredentials: (state, action: PayloadAction<{ user: User; token: string }>) => {
+    setCredentials: (
+      state,
+      action: PayloadAction<{ user: User; token: string; refreshToken?: string }>
+    ) => {
       state.user = action.payload.user;
       state.token = action.payload.token;
       state.isAuthenticated = true;
       state.authInitialized = true;
       localStorage.setItem('token', action.payload.token);
+      // Optional because the reload path re-hydrates from an existing token and
+      // has no new refresh token to store.
+      if (action.payload.refreshToken) {
+        localStorage.setItem('refresh_token', action.payload.refreshToken);
+      }
     },
     // Mark auth resolution complete without changing credentials — used when the
     // reload user-fetch finishes (success handled by setCredentials; this covers
@@ -58,6 +66,7 @@ const authSlice = createSlice({
       state.impersonatingTenant = null;
       state.originalToken = null;
       localStorage.removeItem('token');
+      localStorage.removeItem('refresh_token');
       localStorage.removeItem('impersonation_token');
     },
     enterImpersonation(

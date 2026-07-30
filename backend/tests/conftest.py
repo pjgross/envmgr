@@ -128,7 +128,14 @@ async def db_session(db_engine):
 
 @pytest_asyncio.fixture(scope="function")
 async def client(db_session):
-    """HTTP test client with the DB dependency overridden."""
+    """HTTP test client with the DB dependency overridden.
+
+    Note this override does NOT reproduce get_db()'s commit-on-success /
+    rollback-on-exception behaviour: the session is shared with the test body, and
+    rolling back per request would discard fixture rows. Transaction-boundary
+    behaviour therefore has to be asserted at the service level — see
+    test_auth_session_service.test_reuse_raises_the_variant_that_demands_a_commit.
+    """
     async def override_get_db():
         yield db_session
 

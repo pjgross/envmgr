@@ -31,6 +31,7 @@ import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { RootState } from '../store';
+import { authService } from '../services/authService';
 import { logout } from '../store/authSlice';
 import { setThemeMode, type ThemeModePreference } from '../store/uiSlice';
 import ErrorFallback from './ErrorFallback';
@@ -70,8 +71,13 @@ export default function AppLayout() {
     closeMobileDrawer();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setMenuAnchor(null);
+    // Revoke server-side first, while the refresh token is still in storage —
+    // clearing local state first would leave the session alive on the server,
+    // which is the bug this whole flow exists to fix. Best-effort: local state is
+    // cleared regardless, so a failed call cannot trap the user signed in.
+    await authService.logout();
     dispatch(logout());
     navigate('/login');
   };

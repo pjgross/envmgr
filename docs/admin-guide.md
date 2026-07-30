@@ -87,7 +87,7 @@ Open the standard login page, enter the tenant slug `system` along with the user
 
 ### Walkthrough: signing in as a tenant
 
-The *Sign In As* action lives on each row of the `/admin/tenants` table. Clicking it issues an impersonation token: your session adopts the target tenant's `active_tenant_id`, so every page renders exactly as that tenant's Admin would see it. Use it for support, smoke-testing a freshly provisioned tenant, or troubleshooting a reported issue. While impersonating, a sticky warning banner reads "Viewing as *<tenant name>*. Exit to return to your account." Click *Exit* in that banner to drop the impersonation token and return to your master-admin context.
+The *Sign In As* action lives on each row of the `/admin/tenants` table. Clicking it issues an impersonation token: your session adopts the target tenant's `active_tenant_id`, so every page renders exactly as that tenant's Admin would see it. Impersonation tokens last **60 minutes** and have no refresh — they are the most privileged credential in the system, so they expire on their own rather than being renewed. A long support session will need re-issuing. Use it for support, smoke-testing a freshly provisioned tenant, or troubleshooting a reported issue. While impersonating, a sticky warning banner reads "Viewing as *<tenant name>*. Exit to return to your account." Click *Exit* in that banner to drop the impersonation token and return to your master-admin context.
 
 ### Walkthrough: disabling a tenant
 
@@ -114,7 +114,7 @@ From here, the tenant Admin takes over — see [chapter 3](#3-onboarding-your-te
 
 ### First login as Admin
 
-Once your Master Admin has seeded you as the first *Admin*, open the login page and enter three things: your **tenant slug** (e.g. `acme-corp`), your **username**, and the **password** the Master Admin set. Submit. The app drops you on `/dashboard` — every authenticated session lands there. Change your password immediately via the user menu (top-right avatar); the seeded password was chosen by someone who is not you.
+Once your Master Admin has seeded you as the first *Admin*, open the login page and enter three things: your **tenant slug** (e.g. `acme-corp`), your **username**, and the **password** the Master Admin set. Submit. The app drops you on `/dashboard` — every authenticated session lands there. Sessions renew silently in the background for up to 14 days; signing out ends the session on the server, not just in your browser. Five wrong passwords in 15 minutes locks that username out for the rest of the window. Change your password immediately via the user menu (top-right avatar); the seeded password was chosen by someone who is not you.
 
 ### The mental model
 

@@ -14,14 +14,12 @@ dependencies = [
     "asyncpg==0.29.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
-    # 3.3.0 was affected by CVE-2024-33663 (algorithm confusion) and
-    # CVE-2024-33664 (JWT bomb) — both in the request auth path.
-    "python-jose[cryptography]==3.5.0",
-    # passlib's last release was 2020 and it breaks against bcrypt>=4, which is
-    # what this pin is for. No advisories, but it is unmaintained — see the note
-    # in docs/dependency-audit.md.
-    "passlib[bcrypt]==1.7.4",
-    "bcrypt<4",
+    # PyJWT rather than python-jose: python-jose is near-dormant and drags in
+    # ecdsa, whose CVE-2024-33663 sibling CVE-2024-23342 upstream declined to fix.
+    "pyjwt==2.13.0",
+    # bcrypt directly rather than passlib, which last shipped in 2020 and could
+    # not work with bcrypt>=4 — the reason for the old `bcrypt<4` pin.
+    "bcrypt==5.0.0",
     "python-multipart==0.0.32",
     "redis==5.0.1",
     "pandas==2.1.4",
