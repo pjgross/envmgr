@@ -1,5 +1,7 @@
 """Bounded list results: the shared primitive and the endpoints using it."""
 import pytest
+from fastapi import Depends, FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.core.pagination import (
@@ -8,6 +10,8 @@ from app.core.pagination import (
     TOTAL_COUNT_HEADER,
     Page,
     fetch_page,
+    fetch_page_rows,
+    pagination,
 )
 from app.db.models.environment import Environment
 
@@ -126,3 +130,78 @@ async def test_list_endpoint_defaults_to_a_bounded_page(
     await _make_environments(db_session, test_tenant.id, 3)
     response = await client.get("/api/v1/environments/", headers=auth_headers)
     assert len(response.json()) <= DEFAULT_LIMIT
+
+
+# ── the factory ──────────────────────────────────────────────────────────────
+#
+# Tested against a throwaway app rather than a real endpoint: no endpoint uses
+# per-endpoint overrides until a later task, and the factory's whole contract is
+# visible from one route.
+
+
+def _probe_app(**overrides) -> FastAPI:
+    probe = FastAPI()
+
+    @probe.get("/probe")
+    async def _probe(page: Page = Depends(pagination(**overrides))):
+        return {"limit": page.limit, "offset": page.offset}
+
+    return probe
+
+
+@pytest.mark.asyncio
+async def test_factory_defaults_to_the_shared_window():
+    async with AsyncClient(
+        transport=ASGITransport(app=_probe_app()), base_url="http://probe"
+    ) as ac:
+        assert (await ac.get("/probe")).json() == {"limit": DEFAULT_LIMIT, "offset": 0}
+        assert (await ac.get(f"/probe?limit={MAX_LIMIT}")).status_code == 200
+        assert (await ac.get(f"/probe?limit={MAX_LIMIT + 1}")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_factory_overrides_are_enforced_not_clamped():
+    """A per-endpoint cap is a real 422, so a caller cannot opt out of it."""
+    app_50_200 = _probe_app(default_limit=50, max_limit=200)
+    async with AsyncClient(
+        transport=ASGITransport(app=app_50_200), base_url="http://probe"
+    ) as ac:
+        assert (await ac.get("/probe")).json() == {"limit": 50, "offset": 0}
+        assert (await ac.get("/probe?limit=200")).status_code == 200
+        assert (await ac.get("/probe?limit=201")).status_code == 422
+
+
+# ── the row variant ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rows_returns_tuples_not_scalars(db_session, tenant):
+    await _make_environments(db_session, tenant.id, 4)
+    query = select(Environment.id, Environment.name).order_by(Environment.name)
+
+    rows, total = await fetch_page_rows(db_session, query, Page(limit=2, offset=0))
+
+    assert total == 4
+    assert len(rows) == 2
+    # each row is a tuple of the selected columns, not an entity
+    assert [r[1] for r in rows] == ["env-000", "env-001"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rows_total_ignores_the_window(db_session, tenant):
+    await _make_environments(db_session, tenant.id, 9)
+    query = select(Environment, Environment.name).order_by(Environment.name)
+
+    rows, total = await fetch_page_rows(db_session, query, Page(limit=3, offset=6))
+
+    assert total == 9
+    assert len(rows) == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rows_without_a_page_returns_everything(db_session, tenant):
+    await _make_environments(db_session, tenant.id, 5)
+    rows, total = await fetch_page_rows(
+        db_session, select(Environment.id, Environment.name), None
+    )
+    assert len(rows) == 5 == total

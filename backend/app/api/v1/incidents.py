@@ -49,7 +49,7 @@ async def list_incidents(
     source: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    page: Page = Depends(pagination),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):

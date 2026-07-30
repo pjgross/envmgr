@@ -14,7 +14,7 @@ the cap; one that reads it can tell there is more and page through with
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import Query, Response
 from sqlalchemy import Select, func, select
@@ -35,37 +35,67 @@ class Page:
 
 
 def pagination(
-    limit: int = Query(
-        DEFAULT_LIMIT,
-        ge=1,
-        le=MAX_LIMIT,
-        description=f"Maximum rows to return (max {MAX_LIMIT}).",
-    ),
-    offset: int = Query(0, ge=0, description="Rows to skip."),
-) -> Page:
-    """FastAPI dependency supplying the window for a list endpoint."""
-    return Page(limit=limit, offset=offset)
+    *, default_limit: int = DEFAULT_LIMIT, max_limit: int = MAX_LIMIT
+) -> Callable[..., Page]:
+    """Build the FastAPI dependency supplying the window for a list endpoint.
 
-
-async def fetch_page(
-    db: AsyncSession, query: Select, page: Optional[Page]
-) -> tuple[list, int]:
-    """Run `query` windowed by `page`, and return (rows, total).
-
-    The count is a separate query against the same filters rather than a window
-    function, so it stays correct for queries with joins or DISTINCT where a
-    window count would double-count.
+    Most endpoints want the shared default. The two that already had their own
+    limit contract when this primitive arrived keep it by passing overrides,
+    because both do per-row work after the query — raising their default would
+    multiply real work, not just serialisation.
     """
-    total = (
+
+    def _pagination(
+        limit: int = Query(
+            default_limit,
+            ge=1,
+            le=max_limit,
+            description=f"Maximum rows to return (max {max_limit}).",
+        ),
+        offset: int = Query(0, ge=0, description="Rows to skip."),
+    ) -> Page:
+        return Page(limit=limit, offset=offset)
+
+    return _pagination
+
+
+def _window(query: Select, page: Optional[Page]) -> Select:
+    if page is None:
+        return query
+    return query.limit(page.limit).offset(page.offset)
+
+
+async def _total_for(db: AsyncSession, query: Select) -> int:
+    """Count against the same filters, as a separate query rather than a window
+    function, so it stays correct for joins and DISTINCT where a window count
+    would double-count.
+    """
+    return (
         await db.execute(
             select(func.count()).select_from(query.order_by(None).subquery())
         )
     ).scalar_one()
 
-    if page is not None:
-        query = query.limit(page.limit).offset(page.offset)
 
-    rows = list((await db.execute(query)).scalars().all())
+async def fetch_page(
+    db: AsyncSession, query: Select, page: Optional[Page]
+) -> tuple[list, int]:
+    """Run `query` windowed by `page`, and return (entities, total)."""
+    total = await _total_for(db, query)
+    rows = list((await db.execute(_window(query, page))).scalars().all())
+    return rows, total
+
+
+async def fetch_page_rows(
+    db: AsyncSession, query: Select, page: Optional[Page]
+) -> tuple[list, int]:
+    """As `fetch_page`, but for multi-column selects.
+
+    `fetch_page` ends in `.scalars()`, which keeps only the first column. A query
+    like `select(Deployment, Build.git_sha, Environment.name)` needs whole rows.
+    """
+    total = await _total_for(db, query)
+    rows = list((await db.execute(_window(query, page))).all())
     return rows, total
 
 
