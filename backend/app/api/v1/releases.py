@@ -565,22 +565,17 @@ async def get_release_lifecycle(
 @router.get("/{release_id}/history", response_model=list[ReleaseStatusHistoryRead])
 async def get_release_history(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Return lifecycle state-change history for a release."""
-    from app.db.models.release import ReleaseStatusHistory
     tenant_id = current_user.active_tenant_id
-    # Verify release belongs to tenant first
     await _require_release(db, release_id, tenant_id)
-    rows = (
-        await db.execute(
-            select(ReleaseStatusHistory)
-            .where(ReleaseStatusHistory.release_id == release_id)
-            .order_by(ReleaseStatusHistory.changed_at.asc())
-        )
-    ).scalars().all()
-    return list(rows)
+    rows, total = await release_service.list_release_history(db, release_id, page=page)
+    set_total_count(response, total)
+    return rows
 
 
 # ── Phases ────────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 """Bounded list results: the shared primitive and the endpoints using it."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -371,6 +371,7 @@ RELEASE_SUBRESOURCES: list[tuple[str, str, int, str]] = [
     ("release_changes", "changes", MAX_LIMIT, "auth_headers"),
     ("release_dependencies", "dependencies", MAX_LIMIT, "auth_headers"),
     ("release_systems", "systems", MAX_LIMIT, "auth_headers"),
+    ("release_history", "history", MAX_LIMIT, "auth_headers"),
 ]
 
 
@@ -470,6 +471,32 @@ async def test_release_systems_keep_the_joined_system_name(
     body = response.json()
     assert len(body) == 1
     assert body[0]["system_name"] == "payments"
+
+
+@pytest.mark.asyncio
+async def test_release_history_survives_the_extraction(
+    client, auth_headers, db_session, test_user, release_id
+):
+    from app.db.models.release import ReleaseStatusHistory
+
+    now = datetime.now(timezone.utc)
+    for n, (frm, to) in enumerate([("planned", "in_progress"), ("in_progress", "done")]):
+        db_session.add(ReleaseStatusHistory(
+            release_id=release_id,
+            from_state=frm,
+            to_state=to,
+            changed_by=test_user.id,
+            changed_at=now + timedelta(minutes=n),
+        ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/history", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [row["to_state"] for row in body] == ["in_progress", "done"]  # oldest first
 
 
 # ── conflicts and rollup/scope ────────────────────────────────────────────────
