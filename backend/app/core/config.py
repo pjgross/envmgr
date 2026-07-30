@@ -20,11 +20,6 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr"
     
-    # Neo4j
-    NEO4J_URI: str = "bolt://localhost:7687"
-    NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str = "envmgr_dev_password"
-    
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
     

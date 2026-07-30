@@ -14,7 +14,7 @@
 
 EnvManager is a multi-tenant test environment management platform: inventory, booking, change management, CI/CD tracking, DORA metrics, and infrastructure topology visualization.
 
-Stack: FastAPI + PostgreSQL + Neo4j + Redis + **NATS** (backend) / React 18 + TypeScript + MUI + Redux Toolkit (frontend).
+Stack: FastAPI + PostgreSQL + Redis + **NATS** (backend) / React 18 + TypeScript + MUI + Redux Toolkit (frontend).
 
 ---
 
@@ -23,7 +23,7 @@ Stack: FastAPI + PostgreSQL + Neo4j + Redis + **NATS** (backend) / React 18 + Ty
 Runs fully containerised on **OrbStack** (macOS). `docker-compose up -d` starts all services locally; OrbStack provides DNS at `<service>.orb.local` for inter-container access.
 
 ```bash
-# 1. Start infrastructure (PostgreSQL, Neo4j, Redis, NATS)
+# 1. Start infrastructure (PostgreSQL, Redis, NATS)
 docker-compose up -d
 
 # 2. Backend env (once) — DEBUG=true is what permits the repo's placeholder
@@ -45,7 +45,6 @@ cd frontend && npm run dev
 | Frontend | http://localhost:5173 | Vite dev server |
 | Backend API | http://localhost:8000 | FastAPI |
 | API Docs | http://localhost:8000/docs | Swagger UI |
-| Neo4j Browser | http://localhost:7474 | Local Neo4j container |
 | NATS Monitor | http://localhost:8222 | Local NATS container |
 | PostgreSQL | localhost:5432 | Local Postgres container |
 | Redis | localhost:6379 | Local Redis container |
@@ -66,7 +65,6 @@ Production runs on **macmini** (Tailscale network). EnvManager's containers are 
 
 ```bash
 SECRET_KEY=$(openssl rand -hex 32) POSTGRES_PASSWORD=... \
-  NEO4J_USER=... NEO4J_PASSWORD=... \
   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
     --profile app up -d --build
 ```
@@ -80,7 +78,6 @@ SECRET_KEY=$(openssl rand -hex 32) POSTGRES_PASSWORD=... \
 | Service | Source | Prod connection |
 |---------|--------|-----------------|
 | PostgreSQL | EnvManager docker-compose | `localhost:5435` (own container) |
-| Neo4j | **Shared — macmini** | `bolt://macmini:7687` |
 | Redis | EnvManager docker-compose | `localhost:6379` (own container) |
 | NATS | **Shared — macmini** | `nats://macmini:4222` |
 | Grafana | **Shared — macmini** | `http://macmini:3003` |
@@ -88,7 +85,7 @@ SECRET_KEY=$(openssl rand -hex 32) POSTGRES_PASSWORD=... \
 | Backend API | EnvManager docker-compose | `http://macmini:8100` |
 | Frontend | EnvManager docker-compose | `http://macmini:5173` (or via Caddy) |
 
-**Neo4j note**: macmini runs Neo4j Community Edition (single database). EnvManager uses dedicated node labels/prefixes to namespace its data within the shared instance. See `docs/architecture.md §11` for details.
+**No graph database**: Neo4j was provisioned early but never used — topology is PostgreSQL-backed. Removed 2026-07-30, see [docs/decisions/2026-07-30-drop-neo4j.md](docs/decisions/2026-07-30-drop-neo4j.md). The macmini Neo4j instance is a shared host service for other projects and still runs; EnvManager just doesn't connect to it.
 
 Prod architecture reference: [`docs/architecture copy.md`](docs/architecture%20copy.md)
 

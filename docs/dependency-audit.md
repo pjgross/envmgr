@@ -94,6 +94,5 @@ unreachable RSC issue. Revisit once a release above 8.2.0 ships.
   `bcrypt>=4`, which is what the `bcrypt<4` pin exists for. No advisories, so the audit is
   quiet, but it is a dead dependency holding back another. Replacing it means calling `bcrypt`
   directly; stored hashes are compatible, so the migration is mechanical.
-- **`neo4j` 5.16.0 and `pika` 1.3.2** — not imported by any backend module (`config.py` merely
-  names Neo4j). Pending the decision on whether topology moves to a graph store or Neo4j is
-  removed outright.
+- ~~**`neo4j` 5.16.0 and `pika` 1.3.2**~~ — both **removed** 2026-07-30; neither was imported by
+  any backend module. See [decisions/2026-07-30-drop-neo4j.md](decisions/2026-07-30-drop-neo4j.md).

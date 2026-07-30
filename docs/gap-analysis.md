@@ -225,7 +225,7 @@ New phases introduced by this analysis (Phase 8 remains reserved for the parked 
 | Capability | Status | Where |
 |---|---|---|
 | Interactive topology viewer (React Flow), layers, snapshots, drift | ✅ | Phase 6 (planned) |
-| Neo4j graph + impact analysis | ✅ | Phase 6 (planned) |
+| Graph traversal + impact analysis | ✅ | Phase 6 (planned) — PostgreSQL-backed; Neo4j dropped 2026-07-30 |
 | **Code-promotion & data-refresh direction** as first-class flows | 🟡 | Phase 6 |
 | Ownership boundaries + feedback flows on the diagram | 🟡 | Phase 6 |
 | Version-controlled topology + quarterly review | ❌ | Phase 6 |

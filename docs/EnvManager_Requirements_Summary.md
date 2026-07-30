@@ -1,5 +1,10 @@
 # EnvManager — Project Requirements Summary
 
+> **Historical document.** Captures the original requirements/design. Some decisions have since
+> changed — notably Neo4j, described here as the topology graph store, was never used and was
+> removed on 2026-07-30 ([decisions/2026-07-30-drop-neo4j.md](decisions/2026-07-30-drop-neo4j.md)).
+> `CLAUDE.md` and `docs/prod architecture.md` are authoritative for current state.
+
 > A platform to model, track, book, and visualize test environments across on-premise and cloud infrastructure.
 
 ---
