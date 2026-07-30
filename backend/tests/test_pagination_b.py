@@ -241,3 +241,67 @@ async def test_raid_endpoint_is_bounded(client, auth_headers, db_session, test_t
 
     over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
     assert over.status_code == 422
+
+
+# ── System dependencies ──────────────────────────────────────────────────────
+
+async def _make_system(db_session, tenant_id, name):
+    from app.db.models.system import System
+    s = System(tenant_id=tenant_id, name=name)
+    db_session.add(s)
+    await db_session.flush()
+    return s
+
+
+@pytest.mark.asyncio
+async def test_system_dependencies_return_same_rows_and_order_as_two_queries(
+    db_session, tenant
+):
+    """The OR query must reproduce the concatenation exactly: same rows, and
+    outgoing-then-incoming grouping preserved."""
+    from app.db.models.dependency import DependencyType, SystemDependency
+    from app.services import dependency_service
+
+    me = await _make_system(db_session, tenant.id, "me")
+    a = await _make_system(db_session, tenant.id, "a")
+    b = await _make_system(db_session, tenant.id, "b")
+
+    out1 = SystemDependency(tenant_id=tenant.id, from_system_id=me.id,
+                            to_system_id=a.id, dependency_type=DependencyType.API_CALL)
+    out2 = SystemDependency(tenant_id=tenant.id, from_system_id=me.id,
+                            to_system_id=b.id, dependency_type=DependencyType.DATABASE)
+    inc1 = SystemDependency(tenant_id=tenant.id, from_system_id=a.id,
+                            to_system_id=me.id, dependency_type=DependencyType.EVENT)
+    for d in (out1, out2, inc1):
+        db_session.add(d)
+    await db_session.flush()
+
+    rows, total = await dependency_service.list_system_dependencies(
+        db_session, me.id, tenant.id
+    )
+
+    # Reference: what the two-query version returned, concatenated.
+    expected_ids = [out1.id, out2.id, inc1.id]
+    assert [r.id for r in rows] == expected_ids, "grouping or membership changed"
+    assert total == 3
+
+
+@pytest.mark.asyncio
+async def test_system_dependencies_handle_one_sided_cases(db_session, tenant):
+    from app.db.models.dependency import DependencyType, SystemDependency
+    from app.services import dependency_service
+
+    me = await _make_system(db_session, tenant.id, "solo")
+    other = await _make_system(db_session, tenant.id, "other")
+
+    # outgoing only
+    d = SystemDependency(tenant_id=tenant.id, from_system_id=me.id,
+                         to_system_id=other.id, dependency_type=DependencyType.API_CALL)
+    db_session.add(d)
+    await db_session.flush()
+    rows, total = await dependency_service.list_system_dependencies(db_session, me.id, tenant.id)
+    assert [r.id for r in rows] == [d.id] and total == 1
+
+    # and from the other side it is incoming only
+    rows, total = await dependency_service.list_system_dependencies(db_session, other.id, tenant.id)
+    assert [r.id for r in rows] == [d.id] and total == 1

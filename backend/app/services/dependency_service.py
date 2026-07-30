@@ -1,8 +1,11 @@
+from typing import Optional
+
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.dependency import (
     SystemDependency,
     ComponentDependency,
@@ -26,42 +29,37 @@ from app.services.system_service import get_system
 
 
 async def list_system_dependencies(
-    db: AsyncSession, system_id: int, tenant_id: int
-) -> tuple[list[SystemDependency], list[SystemDependency]]:
-    # Verify system belongs to tenant
+    db: AsyncSession, system_id: int, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[SystemDependency], int]:
+    """Dependencies touching `system_id`, outgoing first then incoming.
+
+    One OR query rather than two concatenated ones, so the result can be
+    windowed. A row can only match both sides via a self-dependency, which
+    create_system_dependency rejects, so no row is duplicated. The CASE
+    reproduces the previous outgoing-then-incoming grouping and, with the
+    primary key appended, makes the ordering total.
+    """
     await get_system(db, system_id, tenant_id)
 
-    # Outgoing: this system depends on others
-    outgoing_result = await db.execute(
+    query = (
         select(SystemDependency)
         .where(
-            SystemDependency.from_system_id == system_id,
             SystemDependency.tenant_id == tenant_id,
+            or_(
+                SystemDependency.from_system_id == system_id,
+                SystemDependency.to_system_id == system_id,
+            ),
         )
         .options(
             selectinload(SystemDependency.to_system),
             selectinload(SystemDependency.from_system),
         )
-        .order_by(SystemDependency.id)
-    )
-    outgoing = list(outgoing_result.scalars().all())
-
-    # Incoming: others depend on this system
-    incoming_result = await db.execute(
-        select(SystemDependency)
-        .where(
-            SystemDependency.to_system_id == system_id,
-            SystemDependency.tenant_id == tenant_id,
+        .order_by(
+            case((SystemDependency.to_system_id == system_id, 1), else_=0),
+            SystemDependency.id,
         )
-        .options(
-            selectinload(SystemDependency.to_system),
-            selectinload(SystemDependency.from_system),
-        )
-        .order_by(SystemDependency.id)
     )
-    incoming = list(incoming_result.scalars().all())
-
-    return outgoing, incoming
+    return await fetch_page(db, query, page)
 
 
 async def create_system_dependency(
