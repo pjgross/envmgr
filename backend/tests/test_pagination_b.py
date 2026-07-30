@@ -355,3 +355,72 @@ async def test_component_dependencies_return_same_rows_and_order(db_session, ten
     # outgoing first despite having the HIGHER id — this is the grouping check
     assert [r.id for r in rows] == [out.id, inc.id]
     assert total == 2
+
+
+# ── Versions ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_current_only_returns_one_row_per_subsystem(db_session, tenant):
+    """The Python dedup kept the first row per subsystem under an ORDER BY that
+    did not break ties; the window function makes that deterministic. So this
+    asserts the invariant (one row per subsystem, and it is the latest), not a
+    specific winner for the tied case.
+    """
+    from app.db.models.version import EnvironmentSubSystemVersion
+    from app.services import version_service
+    from tests.factories import ensure_environment, ensure_subsystem
+
+    env = await ensure_environment(db_session, tenant.id)
+    sub_a = await ensure_subsystem(db_session, tenant.id, name="ver-a")
+    sub_b = await ensure_subsystem(db_session, tenant.id, name="ver-b")
+    now = datetime.now(timezone.utc)
+
+    def _v(sub_id, label, installed):
+        return EnvironmentSubSystemVersion(
+            tenant_id=tenant.id, environment_id=env.id, subsystem_id=sub_id,
+            build_identifier=f"build-{label}", version_label=label,
+            installed_at=installed,
+        )
+
+    db_session.add(_v(sub_a.id, "a-old", now - timedelta(days=2)))
+    db_session.add(_v(sub_a.id, "a-new", now))
+    db_session.add(_v(sub_b.id, "b-only", now - timedelta(days=1)))
+    await db_session.flush()
+
+    all_rows, all_total = await version_service.list_versions(
+        db_session, env.id, tenant.id, current_only=False
+    )
+    assert all_total == 3
+
+    current, total = await version_service.list_versions(
+        db_session, env.id, tenant.id, current_only=True
+    )
+    assert total == 2
+    by_sub = {v.subsystem_id: v.version_label for v in current}
+    assert by_sub == {sub_a.id: "a-new", sub_b.id: "b-only"}
+
+
+@pytest.mark.asyncio
+async def test_current_only_picks_exactly_one_row_when_timestamps_tie(db_session, tenant):
+    """installed_at is not unique. The old code's winner was undefined; the new
+    one is deterministic. Assert the invariant, not which row wins."""
+    from app.db.models.version import EnvironmentSubSystemVersion
+    from app.services import version_service
+    from tests.factories import ensure_environment, ensure_subsystem
+
+    env = await ensure_environment(db_session, tenant.id)
+    sub = await ensure_subsystem(db_session, tenant.id, name="ver-tied")
+    same = datetime.now(timezone.utc)
+
+    for label in ("tied-1", "tied-2"):
+        db_session.add(EnvironmentSubSystemVersion(
+            tenant_id=tenant.id, environment_id=env.id, subsystem_id=sub.id,
+            build_identifier=f"b-{label}", version_label=label, installed_at=same,
+        ))
+    await db_session.flush()
+
+    current, total = await version_service.list_versions(
+        db_session, env.id, tenant.id, current_only=True
+    )
+    assert total == 1
+    assert len(current) == 1
