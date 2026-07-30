@@ -5,13 +5,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
+from app.db.models.incident import Incident
 from app.services import incident_service, pir_service
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.api.v1.schemas.incident import (
     IncidentCreate, IncidentUpdate, IncidentTransition, IncidentDetail, IncidentListRow,
 )
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
+
+
+# today's default ordering is `detected_at DESC, id` (newest first) — sorting()
+# must preserve that when no sort_by/sort_dir is requested at all, see
+# default_dir on the dependency below.
+INCIDENT_SORTS = {
+    "title": Incident.title,
+    "severity": Incident.severity,
+    "status": Incident.status,
+    "detected_at": Incident.detected_at,
+    "resolved_at": Incident.resolved_at,
+}
 
 
 async def _row(db: AsyncSession, inc, tenant_id: int, pir_status: str = "none") -> IncidentListRow:
@@ -50,6 +63,7 @@ async def list_incidents(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     page: Page = Depends(pagination()),
+    sort: Sort = Depends(sorting(INCIDENT_SORTS, default="detected_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -64,7 +78,7 @@ async def list_incidents(
         "date_to": date_to,
     }
     rows, total = await incident_service.list_incidents(
-        db, current_user.active_tenant_id, filters, page=page
+        db, current_user.active_tenant_id, filters, page=page, sort=sort
     )
     set_total_count(response, total)
     # Bulk-fetch PIR statuses for all incidents in one query

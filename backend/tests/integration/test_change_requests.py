@@ -529,3 +529,176 @@ async def test_tenant_isolation(
         await client.get(f"/api/v1/change-requests/{cr_id}", headers=other_headers)
     ).status_code == 404
     assert (await client.get("/api/v1/change-requests", headers=other_headers)).json() == []
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting (sub-project C1 task 3)
+# ---------------------------------------------------------------------------
+
+
+def _sched(offset_days: float) -> datetime:
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return base + timedelta(days=offset_days)
+
+
+async def _make_cr(
+    db_session,
+    test_tenant,
+    test_cr_lifecycle,
+    test_user,
+    *,
+    title: str,
+    change_type: str = "configuration",
+    status: str = "draft",
+    scheduled_start_offset: float,
+) -> ChangeRequest:
+    """A ChangeRequest row created directly (bypassing the create endpoint's
+    validation, which requires a target) so tests can control the sort columns
+    precisely — mirrors tests/factories.py's ensure_change_request."""
+    start = _sched(scheduled_start_offset)
+    cr = ChangeRequest(
+        tenant_id=test_tenant.id,
+        title=title,
+        change_type=change_type,
+        status=status,
+        lifecycle_id=test_cr_lifecycle.id,
+        raised_by=test_user.id,
+        scheduled_start=start,
+        scheduled_end=start + timedelta(hours=1),
+    )
+    db_session.add(cr)
+    await db_session.flush()
+    return cr
+
+
+@pytest.mark.asyncio
+async def test_list_change_requests_default_order_unchanged(
+    client, auth_headers, db_session, test_tenant, test_cr_lifecycle, test_user,
+):
+    """No sort_by: order must stay `scheduled_start DESC, id` — today's
+    ordering, byte for byte.
+
+    Insertion order (a, b, c) deliberately disagrees with both id-ascending and
+    scheduled_start-ascending order, so a response that happened to preserve
+    insertion order — or that silently flipped to ascending the moment this
+    endpoint gained the sorting() dependency — would not accidentally satisfy
+    this assertion.
+    """
+    a = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                        title="A", scheduled_start_offset=2)
+    b = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                        title="B", scheduled_start_offset=0)
+    c = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                        title="C", scheduled_start_offset=1)
+
+    resp = await client.get("/api/v1/change-requests", headers=auth_headers)
+    assert resp.status_code == 200
+    assert [row["id"] for row in resp.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_change_requests_sort_by_title_both_directions(
+    client, auth_headers, db_session, test_tenant, test_cr_lifecycle, test_user,
+):
+    charlie = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                              title="Charlie", scheduled_start_offset=0)
+    alpha = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                            title="Alpha", scheduled_start_offset=1)
+    bravo = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                            title="Bravo", scheduled_start_offset=2)
+
+    asc = await client.get(
+        "/api/v1/change-requests?sort_by=title&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, bravo.id, charlie.id]
+
+    desc = await client.get(
+        "/api/v1/change-requests?sort_by=title&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [charlie.id, bravo.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_change_requests_sort_by_change_type_both_directions(
+    client, auth_headers, db_session, test_tenant, test_cr_lifecycle, test_user,
+):
+    """change_type is a plain String(50) column (VALID_CHANGE_TYPES is enforced
+    only by the pydantic schema, not a DB enum), so the stored value equals
+    whatever string is set here — no name/value divergence to worry about.
+    Insertion order deliberately disagrees with alphabetical order."""
+    infra = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                            title="i1", change_type="infrastructure", scheduled_start_offset=0)
+    config = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                             title="i2", change_type="configuration", scheduled_start_offset=1)
+    deploy = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                             title="i3", change_type="code_deployment", scheduled_start_offset=2)
+
+    asc = await client.get(
+        "/api/v1/change-requests?sort_by=change_type&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [deploy.id, config.id, infra.id]
+
+    desc = await client.get(
+        "/api/v1/change-requests?sort_by=change_type&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [infra.id, config.id, deploy.id]
+
+
+@pytest.mark.asyncio
+async def test_list_change_requests_sort_by_status_both_directions(
+    client, auth_headers, db_session, test_tenant, test_cr_lifecycle, test_user,
+):
+    mu = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                         title="i1", status="mu", scheduled_start_offset=0)
+    alpha = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                            title="i2", status="alpha", scheduled_start_offset=1)
+    zeta = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                           title="i3", status="zeta", scheduled_start_offset=2)
+
+    asc = await client.get(
+        "/api/v1/change-requests?sort_by=status&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, mu.id, zeta.id]
+
+    desc = await client.get(
+        "/api/v1/change-requests?sort_by=status&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [zeta.id, mu.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_change_requests_sort_by_scheduled_start_both_directions(
+    client, auth_headers, db_session, test_tenant, test_cr_lifecycle, test_user,
+):
+    a = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                        title="A", scheduled_start_offset=2)
+    b = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                        title="B", scheduled_start_offset=0)
+    c = await _make_cr(db_session, test_tenant, test_cr_lifecycle, test_user,
+                        title="C", scheduled_start_offset=1)
+
+    asc = await client.get(
+        "/api/v1/change-requests?sort_by=scheduled_start&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [b.id, c.id, a.id]
+
+    desc = await client.get(
+        "/api/v1/change-requests?sort_by=scheduled_start&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_change_requests_unknown_sort_by_is_422(client, auth_headers):
+    resp = await client.get(
+        "/api/v1/change-requests?sort_by=nonexistent", headers=auth_headers
+    )
+    assert resp.status_code == 422

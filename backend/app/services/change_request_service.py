@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.events import publish_event
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.change_request import (
     ChangeHistory,
     ChangeRequest,
@@ -507,6 +507,7 @@ async def list_change_requests(
     scheduled_from: Optional[datetime] = None,
     scheduled_to: Optional[datetime] = None,
     page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[ChangeRequest], int]:
     stmt = (
         select(ChangeRequest)
@@ -538,7 +539,7 @@ async def list_change_requests(
         stmt = stmt.where(ChangeRequest.scheduled_end >= scheduled_from)
     if scheduled_to is not None:
         stmt = stmt.where(ChangeRequest.scheduled_start <= scheduled_to)
-    stmt = stmt.order_by(ChangeRequest.scheduled_start.desc(), ChangeRequest.id)
+    stmt = apply_sort(stmt, sort).order_by(ChangeRequest.scheduled_start.desc(), ChangeRequest.id)
     return await fetch_page(db, stmt, page)
 
 

@@ -112,7 +112,10 @@ class Sort:
 
 
 def sorting(
-    allowed: Mapping[str, InstrumentedAttribute], default: str
+    allowed: Mapping[str, InstrumentedAttribute],
+    default: str,
+    *,
+    default_dir: str = "asc",
 ) -> Callable[..., Sort]:
     """Build a FastAPI dependency resolving `sort_by`/`sort_dir` against a whitelist.
 
@@ -127,9 +130,20 @@ def sorting(
     tiebreaker. A sort column is almost never unique, so a sort that replaced the
     tiebreaker would reintroduce the duplicate/missing-row bug that LIMIT/OFFSET
     over a partial order produces.
+
+    `default_dir` is the direction used when the client sends no `sort_dir` at
+    all — most endpoints' pre-existing default order is ascending, but a couple
+    (incidents, change requests) have always defaulted to newest-first. Without
+    this, an endpoint adopting `sorting()` would silently flip its own default
+    page from descending to ascending the moment it started depending on this
+    primitive, which is exactly the kind of behaviour change C1 must not cause.
+    An explicit `sort_dir` from the client always wins over `default_dir`,
+    regardless of which `sort_by` was requested.
     """
     if default not in allowed:
         raise ValueError(f"default sort {default!r} is not in the whitelist")
+    if default_dir not in ("asc", "desc"):
+        raise ValueError(f"default_dir must be 'asc' or 'desc', got {default_dir!r}")
 
     field_names = sorted(allowed)
 
@@ -138,8 +152,10 @@ def sorting(
             default,
             description=f"Field to sort by. One of: {', '.join(field_names)}.",
         ),
-        sort_dir: str = Query(
-            "asc", pattern="^(asc|desc)$", description="Sort direction."
+        sort_dir: Optional[str] = Query(
+            None,
+            pattern="^(asc|desc)$",
+            description=f"Sort direction. Defaults to {default_dir!r} when omitted.",
         ),
     ) -> Sort:
         column = allowed.get(sort_by)
@@ -148,7 +164,8 @@ def sorting(
                 status_code=422,
                 detail=f"sort_by must be one of: {', '.join(field_names)}",
             )
-        return Sort(column=column, descending=sort_dir == "desc")
+        direction = default_dir if sort_dir is None else sort_dir
+        return Sort(column=column, descending=direction == "desc")
 
     return _sorting
 

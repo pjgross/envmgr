@@ -73,6 +73,60 @@ async def test_bad_direction_is_422():
         assert (await ac.get("/probe?sort_dir=sideways")).status_code == 422
 
 
+# ── default_dir: an endpoint may declare its own default direction ───────────
+# (incidents/change-requests pre-date sorting() and always defaulted to
+# newest-first; sorting() must be able to preserve that instead of forcing
+# every adopter back to ascending.)
+
+
+def _probe_app_desc_default():
+    probe = FastAPI()
+
+    @probe.get("/probe")
+    async def _probe(
+        sort: Sort = Depends(sorting(ALLOWED, default="created_at", default_dir="desc"))
+    ):
+        return {"column": str(sort.column.key), "descending": sort.descending}
+
+    return probe
+
+
+@pytest.mark.asyncio
+async def test_default_dir_is_honoured_when_no_sort_dir_requested():
+    """No sort_dir at all: falls back to the endpoint's declared default_dir,
+    not a hardcoded 'asc'. If this regressed to always-ascending, an endpoint
+    like incidents that has always defaulted to newest-first would silently
+    flip its default page order the moment it adopted sorting()."""
+    async with AsyncClient(
+        transport=ASGITransport(app=_probe_app_desc_default()), base_url="http://probe"
+    ) as ac:
+        assert (await ac.get("/probe")).json() == {
+            "column": "created_at",
+            "descending": True,
+        }
+
+
+@pytest.mark.asyncio
+async def test_explicit_sort_dir_overrides_default_dir():
+    """A client-supplied sort_dir always wins over default_dir, whatever field
+    is requested."""
+    async with AsyncClient(
+        transport=ASGITransport(app=_probe_app_desc_default()), base_url="http://probe"
+    ) as ac:
+        body = (await ac.get("/probe?sort_by=name&sort_dir=asc")).json()
+        assert body == {"column": "name", "descending": False}
+
+
+@pytest.mark.asyncio
+async def test_default_dir_defaults_to_asc_for_existing_callers():
+    """Task 2's endpoints call sorting(...) without default_dir at all — this
+    pins that omission still means ascending, so they keep working unchanged."""
+    async with AsyncClient(
+        transport=ASGITransport(app=_probe_app()), base_url="http://probe"
+    ) as ac:
+        assert (await ac.get("/probe")).json()["descending"] is False
+
+
 # ── apply_sort composes with, and does not replace, the tiebreaker ───────────
 
 
