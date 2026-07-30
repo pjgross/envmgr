@@ -86,7 +86,6 @@ a follow-on sub-project restructured out of "blocked" (see below):
 | `GET /systems/{id}/dependencies` | `dependency_service.list_system_dependencies`, row variant | 1000 |
 | `GET /subsystems/{id}/dependencies` | `dependency_service.list_component_dependencies`, row variant | 1000 |
 | `GET /environments/{id}/versions` | `version_service.list_versions` — both `current_only` values, row variant | 1000 |
-| `GET /releases/{id}/dependency-alerts` | `release_dependency_service.get_dependency_alerts`, row variant | 1000 |
 | `GET /releases/{id}/membership` **†** | `enterprise_membership_service.list_history_for_project` — bounds the `history` list only | 1000 |
 
 **†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
@@ -117,10 +116,14 @@ existing groups to already be exhaustive. The reproducible count:
     grep -rn -B3 'response_model=list\[' backend/app/api/v1 | grep -v __pycache__ | grep -E '\.get\(' | wc -l
 
 That returns **51**, unchanged by the restructure below — no endpoint was added or removed, only
-made bound-able. Of those, **27** are now bounded (the table above) and **24** are not — every one
-of the 24 is named below, sorted into whichever group its code actually justifies. If a future
+made bound-able. Of those, **26** are now bounded (the table above) and **25** are not — every one
+of the 25 is named below, sorted into whichever group its code actually justifies. If a future
 change adds or removes a list endpoint, re-run the count above and re-check this file against it;
 this doc has now drifted out of sync with the code three times.
+
+Note the second count does not match the first: `grep -c set_total_count` over
+`backend/app/api/v1/` returns **27**, one more than the 26 bounded list endpoints, because
+`membership` sets the header without being a `list[...]` endpoint. Expect that off-by-one.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
 never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged
@@ -132,12 +135,25 @@ should still do, the second is a decision nobody should revisit, the third is no
 all, the fourth already has a cap of its own that just isn't the shared one, and the fifth is work
 that should still happen but fell out of this sweep's scope.
 
-**Blocked on a query restructure — now empty.** As of this pass, every endpoint that used to be
-in this group has been restructured so its filtering happens in SQL before the page is taken, and
-each moved into the bounded table above. The group is kept here, empty, rather than deleted:
-a future reader should be able to see that this category existed, what was in it, and how each
-case was cleared, instead of finding six endpoints in the bounded table with no record of why they
-were harder than the rest. One line per restructure technique:
+**Blocked on a query restructure — all but one cleared.** Five of the six endpoints in this group
+have been restructured so their filtering happens in SQL before the page is taken, and each moved
+into the bounded table above. The sixth, `dependency-alerts`, turned out not to be expressible and
+stays here. The cleared cases are kept below rather than deleted: a future reader should be able
+to see that this category existed, what was in it, and how each case was resolved, instead of
+finding five endpoints in the bounded table with no record of why they were harder than the rest.
+
+> **Still blocked: `GET /releases/{release_id}/dependency-alerts`.** Its N+1 was fixed (see
+> below) but it is **not** bounded, deliberately. After computing `diff_days` the service applies
+> `if diff_days == 0: continue`, which drops rows *after* the query. That filter is asymmetric —
+> `timedelta.days` floors toward negative infinity, so a same-day forward shift of a few hours
+> gives `0` and is suppressed while the same-magnitude backward shift gives `-1` and is reported —
+> and it has no clean equivalent that renders on both SQLite and PostgreSQL. Adding a `page` here
+> would window the pre-filter set and return quietly wrong results, which is exactly what this
+> whole effort exists to prevent. Bounding it means first deciding whether that sub-day
+> suppression is wanted behaviour at all; until then, unbounded and correct beats bounded and
+> wrong.
+
+One line per restructure technique for the five that were cleared:
 
 - `GET /releases/{release_id}/raid` — `rag` and `overdue` were filtered in Python. `overdue` became
   a straightforward SQL predicate on `review_date`/`status`. `rag` was the harder case: `rag()`
@@ -155,12 +171,15 @@ were harder than the rest. One line per restructure technique:
   only the first per `subsystem_id` in Python. It's now a `ROW_NUMBER() OVER (PARTITION BY
   subsystem_id ORDER BY installed_at DESC, id DESC)` window, filtered to `rn = 1`, so the "keep the
   latest per subsystem" rule is expressed in the query the `LIMIT` applies to instead of after it.
-- `GET /releases/{release_id}/dependency-alerts` — fetched every dependency for the release, then
-  issued a second query per row for its target release (an N+1) and skipped any whose date hadn't
-  shifted. It's now one query: an inner join to the target release plus
+- `GET /releases/{release_id}/dependency-alerts` — **partially cleared, still unbounded.** It
+  fetched every dependency for the release, then issued a second query per row for its target
+  release (an N+1) and skipped any whose date hadn't shifted. It's now one query: an inner join to
+  the target release plus
   `Release.target_date.is_distinct_from(ReleaseDependency.last_dependency_target_date)`, which
   reproduces "current != prior" including the both-NULL case the old code also skipped as
-  unchanged. The per-dependency N+1 query is gone along with the Python filter.
+  unchanged. So the N+1 is gone and one of its two filters moved into SQL — but the second,
+  `diff_days == 0`, did not, for the reason in the call-out above. The endpoint keeps a
+  post-query Python filter and therefore cannot take a `page`.
 - `GET /releases/{project_release_id}/membership` — computed `current` (one query) and `history`
   (a second, independent query) and concatenated them in Python. `current` is at most one row and
   isn't paginated; `history`, which is genuinely growth-bearing, now goes through `fetch_page` like
