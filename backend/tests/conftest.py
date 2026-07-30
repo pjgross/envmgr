@@ -39,7 +39,9 @@ from app.db.models.system import System
 from app.core.security import get_password_hash
 from datetime import datetime, timezone, timedelta
 
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+# `or` not a get() default: an empty value (e.g. a CI matrix leg that sets the
+# variable to "") must fall back too, not be passed to SQLAlchemy as a URL.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or "sqlite+aiosqlite:///:memory:"
 IS_POSTGRES = TEST_DATABASE_URL.startswith("postgresql")
 
 

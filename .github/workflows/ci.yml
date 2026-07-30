@@ -92,9 +92,14 @@ jobs:
             exit 1
           fi
 
-      - name: Run test suite
+      - name: Run test suite (SQLite)
+        if: matrix.db == 'sqlite'
+        run: uv run pytest -q
+
+      - name: Run test suite (PostgreSQL)
+        if: matrix.db == 'postgres'
         env:
-          TEST_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test' || '' }}
+          TEST_DATABASE_URL: postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test
         run: uv run pytest -q
 
       - name: Dependency advisories
