@@ -174,12 +174,14 @@ module.
 ([`app/api/v1/releases.py:573`](../../../backend/app/api/v1/releases.py)) — inline scalar select,
 moves alongside the other release history helpers.
 
-> **Observation, not scope.** The `history` query filters on `release_id` only — it has no
-> `tenant_id` predicate, relying entirely on the preceding `_require_release` check for tenant
-> scoping. That is sound as written, but it deviates from the project rule that every query on a
-> tenant-scoped table filters by `tenant_id`, and tenant isolation is a security-clearance
-> requirement here. Since the extraction rewrites this query anyway, the `tenant_id` predicate is
-> added as part of the move. No behaviour change — it is defence in depth.
+> **Corrected 2026-07-30, during implementation planning.** An earlier draft of this spec proposed
+> adding a `tenant_id` predicate to the `history` query as defence in depth, on the grounds that it
+> filtered on `release_id` alone. That is not possible and the premise was wrong:
+> `ReleaseStatusHistory` ([`app/db/models/release.py:40`](../../../backend/app/db/models/release.py))
+> has no `tenant_id` column. Its columns are `release_id`, `from_state`, `to_state`, `changed_by`,
+> `changed_at`, `notes`. The table is scoped transitively through its release, so the preceding
+> `_require_release` check is not the first of two defences — it is the only one available, and it
+> is the correct one. This endpoint is a plain extraction.
 
 ## Explicitly out of scope
 
@@ -247,8 +249,7 @@ to pass it by luck.
   still populated on every row.
 - `releases/{id}/systems` — the extraction preserves `system_name` enrichment through the row
   variant.
-- `releases/{id}/history` — the added `tenant_id` predicate does not change which rows are
-  returned for a legitimate caller.
+- `releases/{id}/history` — the extraction preserves the rows and their oldest-first order.
 - `deployments` — the row variant returns the same five-tuple shape the response builder expects,
   and the endpoint still honours its 100/500 contract.
 
