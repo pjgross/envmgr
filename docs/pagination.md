@@ -55,7 +55,8 @@ would multiply real work, not just serialisation.
 
 ## Bounded so far
 
-Twenty-two endpoints now go through the primitive:
+Twenty-seven endpoints now go through the primitive — the original twenty-two plus five that
+a follow-on sub-project restructured out of "blocked" (see below):
 
 | Endpoint | Service | Cap |
 |---|---|---|
@@ -81,6 +82,27 @@ Twenty-two endpoints now go through the primitive:
 | `GET /bookings/{id}/conflicts` | `conflict_service.list_conflicts`, row variant | 1000 |
 | `GET /releases/{enterprise_id}/rollup/scope` | `enterprise_rollup_service.scope_rollup`, row variant | 1000 |
 | `GET /releases/{enterprise_id}/memberships` | `enterprise_membership_service.list_memberships` | 1000 |
+| `GET /releases/{id}/raid` | `raid_service.list_items` — `rag`/`overdue` restructured into SQL (below) | 1000 |
+| `GET /systems/{id}/dependencies` | `dependency_service.list_system_dependencies`, row variant | 1000 |
+| `GET /subsystems/{id}/dependencies` | `dependency_service.list_component_dependencies`, row variant | 1000 |
+| `GET /environments/{id}/versions` | `version_service.list_versions` — both `current_only` values, row variant | 1000 |
+| `GET /releases/{id}/dependency-alerts` | `release_dependency_service.get_dependency_alerts`, row variant | 1000 |
+| `GET /releases/{id}/membership` **†** | `enterprise_membership_service.list_history_for_project` — bounds the `history` list only | 1000 |
+
+**†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
+not a bare array, so it was never part of the `list[...]` count above or below. `current` is at
+most one row and stays unbounded (there's nothing to page). Only `history` goes through
+`fetch_page`, and the `X-Total-Count` header on this response describes **the `history` list's
+total, not a combined count of `current` + `history`**. A header whose subject is ambiguous is
+worse than no header, so treat any consumer of this endpoint as needing to know that explicitly
+rather than inferring it from the shape of other endpoints in this table.
+
+Pre-existing and deliberately left alone: `list_history_for_project` filters `history` only by
+`project_release_id`/`tenant_id`, with no `state` exclusion, so an accepted membership shows up in
+both `current` (which specifically queries `state == ACCEPTED`) and in `history`. That's a
+semantic question about what "history" should mean, not a pagination bug, and changing it is out
+of scope for a query-restructure pass — noted here so it isn't mistaken for a side effect of the
+bounding work.
 
 ## Not yet bounded
 
@@ -94,47 +116,56 @@ existing groups to already be exhaustive. The reproducible count:
 
     grep -rn -B3 'response_model=list\[' backend/app/api/v1 | grep -v __pycache__ | grep -E '\.get\(' | wc -l
 
-That returns **51**. Of those, **22** are bounded (the table above) and **29** are not — every one
-of the 29 is named below, sorted into whichever group its code actually justifies. If a future
+That returns **51**, unchanged by the restructure below — no endpoint was added or removed, only
+made bound-able. Of those, **27** are now bounded (the table above) and **24** are not — every one
+of the 24 is named below, sorted into whichever group its code actually justifies. If a future
 change adds or removes a list endpoint, re-run the count above and re-check this file against it;
 this doc has now drifted out of sync with the code three times.
+
+`membership` still never appears in that 51: it returns a dict, not a bare array, so the count
+never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged
+as a special case) precisely because a query that isn't in the reproducible count is easy to lose
+track of.
 
 The endpoints below fall into five groups, and the distinction matters: the first is work someone
 should still do, the second is a decision nobody should revisit, the third is not a problem at
 all, the fourth already has a cap of its own that just isn't the shared one, and the fifth is work
 that should still happen but fell out of this sweep's scope.
 
-**Blocked on a query restructure.** Each of these filters or merges *after* the query, so a SQL
-`LIMIT` would window the wrong set. Adding `limit` before the restructure would be worse than
-leaving them unbounded — the results would be quietly wrong rather than merely large.
+**Blocked on a query restructure — now empty.** As of this pass, every endpoint that used to be
+in this group has been restructured so its filtering happens in SQL before the page is taken, and
+each moved into the bounded table above. The group is kept here, empty, rather than deleted:
+a future reader should be able to see that this category existed, what was in it, and how each
+case was cleared, instead of finding six endpoints in the bounded table with no record of why they
+were harder than the rest. One line per restructure technique:
 
-- `GET /releases/{release_id}/raid` — `raid_service.list_items` applies its `rag` and `overdue`
-  filters in Python, computed from probability/impact against tenant config and from review
-  dates. `?limit=50` could return 3 rows while hundreds matched.
-- `GET /systems/{system_id}/dependencies` and `GET /subsystems/{subsystem_id}/dependencies` —
-  both execute two queries (outgoing and incoming) and concatenate the results in Python. A
-  `LIMIT` cannot window a concatenation of two separately-executed queries; they need a single
-  `UNION ALL` first.
-- `GET /releases/{project_release_id}/membership` (`project_membership_view` in
-  `enterprise_memberships.py`) — computes `current` (one query) and `history` (a second,
-  independent query) and concatenates them in Python before returning `{"current": ..., "history":
-  [...]}`. Same shape as the dependencies case above: a `LIMIT` on either underlying query cannot
-  window a result that only exists after both have run and been merged. It also doesn't return a
-  bare array, so it isn't a drop-in for the shared primitive even after a restructure.
-- `GET /releases/{release_id}/dependency-alerts` (`release_dependency_service.get_dependency_alerts`)
-  — fetches every dependency for the release, then loops and `continue`s past any dependency whose
-  target date hasn't shifted, only appending the rest to `alerts`. The filter (has this date
-  moved?) is computed per-row after the fetch, exactly like `raid`'s `rag`/`overdue` filters — a
-  `LIMIT` on the initial fetch could return zero alerts while dozens of shifted dependencies exist
-  further down the unfiltered set.
-- `GET /environments/{env_id}/versions` (`version_service.list_versions`) — takes a `current_only`
-  query flag. When `current_only=True` it fetches every version row for the environment ordered by
-  `subsystem_id, installed_at DESC`, then keeps only the first row per `subsystem_id` in Python —
-  the same shape as `raid`'s in-Python filter. A `LIMIT` on the initial fetch could return a page
-  holding several stale rows for one subsystem and none for another, silently missing that
-  subsystem's current version. (The default `current_only=False` call has no such filter and
-  returns the raw history, but the endpoint has to stay correct for both values of the flag, so the
-  whole route is blocked, not just one branch of it.)
+- `GET /releases/{release_id}/raid` — `rag` and `overdue` were filtered in Python. `overdue` became
+  a straightforward SQL predicate on `review_date`/`status`. `rag` was the harder case: `rag()`
+  resolves a severity score to a band by *first match* against tenant-configured bands, and
+  probability/impact/bands carry no validated upper bound, so there's no safe severity domain to
+  enumerate in SQL. The fix evaluates each band's range directly as a SQL predicate and excludes
+  any severity already claimed by an earlier band with `NOT`, reproducing first-match-wins without
+  enumerating a domain.
+- `GET /systems/{system_id}/dependencies` and `GET /subsystems/{subsystem_id}/dependencies` — both
+  used to run two queries (outgoing and incoming) and concatenate the results in Python. Each is
+  now a single query with an `OR` across the two directions; self-dependencies are rejected at
+  creation, so the `OR` cannot double-match a row. A `CASE` in the `ORDER BY` reproduces the
+  previous outgoing-then-incoming grouping.
+- `GET /environments/{env_id}/versions` — `current_only=True` fetched every version row and kept
+  only the first per `subsystem_id` in Python. It's now a `ROW_NUMBER() OVER (PARTITION BY
+  subsystem_id ORDER BY installed_at DESC, id DESC)` window, filtered to `rn = 1`, so the "keep the
+  latest per subsystem" rule is expressed in the query the `LIMIT` applies to instead of after it.
+- `GET /releases/{release_id}/dependency-alerts` — fetched every dependency for the release, then
+  issued a second query per row for its target release (an N+1) and skipped any whose date hadn't
+  shifted. It's now one query: an inner join to the target release plus
+  `Release.target_date.is_distinct_from(ReleaseDependency.last_dependency_target_date)`, which
+  reproduces "current != prior" including the both-NULL case the old code also skipped as
+  unchanged. The per-dependency N+1 query is gone along with the Python filter.
+- `GET /releases/{project_release_id}/membership` — computed `current` (one query) and `history`
+  (a second, independent query) and concatenated them in Python. `current` is at most one row and
+  isn't paginated; `history`, which is genuinely growth-bearing, now goes through `fetch_page` like
+  any other bounded list. The response still isn't a bare array, so — unlike the other five — it
+  needed a documentation call-out rather than a drop-in, which is the special case flagged above.
 
 **Permanently unbounded — aggregations.** These are computed aggregate views, not row lists,
 and three of them do not return arrays at all. A partial rollup is a wrong rollup, so paginating
