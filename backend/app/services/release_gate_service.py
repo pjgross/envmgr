@@ -326,7 +326,7 @@ async def override_gate(
 ) -> ReleaseGate:
     if not notes or not notes.strip():
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "notes are required when overriding a gate",
         )
 

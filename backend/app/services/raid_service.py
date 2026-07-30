@@ -287,7 +287,7 @@ async def update_item(db: AsyncSession, item_id: int, data: RaidItemUpdate,
     update_data = data.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] != item.status:
         if not is_transition_allowed(item.item_type, item.status, update_data["status"]):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "invalid status transition")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid status transition")
     if "owner_id" in update_data:
         await _validate_owner(db, update_data["owner_id"], tenant_id)
     now = datetime.now(timezone.utc)

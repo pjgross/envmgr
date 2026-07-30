@@ -32,7 +32,7 @@ async def _validate_fk_tenant(db: AsyncSession, field: str, value: Optional[int]
     model = _FK_MODELS[field]
     row = (await db.execute(select(model).where(model.id == value))).scalar_one_or_none()
     if row is None or getattr(row, "tenant_id", None) != tenant_id or getattr(row, "deleted_at", None) is not None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail=f"{field} does not reference a valid record for this tenant")
 
 

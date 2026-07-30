@@ -52,13 +52,13 @@ async def _resolve_lifecycle_template(
         ).scalar_one_or_none()
         if tpl is None:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "lifecycle_template_id must refer to an active release lifecycle template for this tenant",
             )
         # Enforce kind match
         if tpl.applies_to_kind is not None and tpl.applies_to_kind != release_kind:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"Lifecycle template's applies_to_kind={tpl.applies_to_kind} does not match release kind {release_kind}",
             )
         return tpl
@@ -93,7 +93,7 @@ async def _resolve_lifecycle_template(
         return universal_tpl
 
     raise HTTPException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         "No default release lifecycle template found for this tenant. "
         "Provide lifecycle_template_id explicitly or seed defaults.",
     )
@@ -182,7 +182,7 @@ async def create_release(
 
     if data.scope_deadline is not None and data.release_kind == "enterprise":
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "scope_deadline is only valid on project releases",
         )
 
@@ -330,7 +330,7 @@ async def update_release(
         and release.release_kind == "enterprise"
     ):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "scope_deadline is only valid on project releases",
         )
 

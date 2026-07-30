@@ -166,7 +166,7 @@ async def validate_custom_fields(
         val = values.get(defn.field_key)
         if val is None or (isinstance(val, str) and val.strip() == ""):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Required custom field '{defn.label}' ({defn.field_key}) is missing",
             )
 
@@ -179,13 +179,13 @@ async def validate_custom_fields(
                 float(val)
             except (TypeError, ValueError):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Custom field '{defn.label}' ({defn.field_key}) must be a number",
                 )
         elif defn.field_type == "boolean":
             if not isinstance(val, bool):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Custom field '{defn.label}' ({defn.field_key}) must be a boolean",
                 )
 

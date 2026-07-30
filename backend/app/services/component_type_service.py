@@ -144,7 +144,7 @@ async def validate_fields_against_type(
 
         if required and (key not in fields or fields[key] is None or fields[key] == ""):
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Required field '{field_def['label']}' ({key}) is missing",
             )
 
@@ -152,16 +152,16 @@ async def validate_fields_against_type(
             value = fields[key]
             if field_type == "number" and not isinstance(value, (int, float)):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Field '{field_def['label']}' ({key}) must be a number",
                 )
             if field_type == "boolean" and not isinstance(value, bool):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Field '{field_def['label']}' ({key}) must be a boolean",
                 )
             if field_type == "text" and not isinstance(value, str):
                 raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Field '{field_def['label']}' ({key}) must be a string",
                 )

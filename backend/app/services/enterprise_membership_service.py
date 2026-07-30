@@ -64,12 +64,12 @@ async def request_membership(
 
     if enterprise.release_kind != "enterprise":
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Target is not an enterprise release",
         )
     if project.release_kind != "project":
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Only project releases can be admitted",
         )
     if await _get_open_membership_for_project(db, project_release_id):

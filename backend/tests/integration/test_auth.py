@@ -147,8 +147,9 @@ async def test_me_returns_current_user(client: AsyncClient, auth_headers, test_u
 @pytest.mark.asyncio
 async def test_me_no_token_rejected(client: AsyncClient):
     response = await client.get("/api/v1/auth/me")
-    # HTTPBearer raises 403 when no credentials provided
-    assert response.status_code == 403
+    # 401, not 403: HTTPBearer returns Unauthorized for absent credentials.
+    # (FastAPI < 0.112 returned 403 here, which was the wrong semantics.)
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -160,4 +161,5 @@ async def test_me_invalid_token_rejected(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_me_malformed_header_rejected(client: AsyncClient):
     response = await client.get("/api/v1/auth/me", headers={"Authorization": "NotBearer token"})
-    assert response.status_code == 403
+    # As above — an unparseable scheme is unauthenticated, not forbidden.
+    assert response.status_code == 401

@@ -203,7 +203,7 @@ async def create_booking(
             rule = rrulestr(data.recurrence_rule, dtstart=data.start_date, ignoretz=False)
         except Exception as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Invalid recurrence rule: {exc}",
             )
         duration = data.end_date - data.start_date
