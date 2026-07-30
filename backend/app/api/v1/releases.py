@@ -32,6 +32,7 @@ from app.services import (
     release_dependency_service,
     release_scope_service,
     release_booking_service,
+    release_system_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -741,25 +742,17 @@ async def override_gate(
 @router.get("/{release_id}/systems", response_model=list[ReleaseSystemRead])
 async def list_release_systems(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    from app.db.models.release_system import ReleaseSystem
-    from app.db.models.system import System
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    rows = (
-        await db.execute(
-            select(ReleaseSystem, System.name)
-            .join(System, System.id == ReleaseSystem.system_id)
-            .where(
-                ReleaseSystem.release_id == release_id,
-                ReleaseSystem.tenant_id == tenant_id,
-                System.deleted_at.is_(None),
-            )
-            .order_by(ReleaseSystem.id)
-        )
-    ).all()
+    rows, total = await release_system_service.list_release_systems(
+        db, release_id, tenant_id, page=page
+    )
+    set_total_count(response, total)
     out: list[ReleaseSystemRead] = []
     for rs, name in rows:
         item = ReleaseSystemRead.model_validate(rs)

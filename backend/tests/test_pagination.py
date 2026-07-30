@@ -370,6 +370,7 @@ RELEASE_SUBRESOURCES: list[tuple[str, str, int, str]] = [
     ("release_events", "events", MAX_LIMIT, "auth_headers"),
     ("release_changes", "changes", MAX_LIMIT, "auth_headers"),
     ("release_dependencies", "dependencies", MAX_LIMIT, "auth_headers"),
+    ("release_systems", "systems", MAX_LIMIT, "auth_headers"),
 ]
 
 
@@ -438,6 +439,37 @@ async def test_release_subresource_conformance(
     # 3. asking past the cap is a 422, not a silent clamp
     over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
     assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_release_systems_keep_the_joined_system_name(
+    client, auth_headers, db_session, test_tenant, release_id
+):
+    """`/releases/{id}/systems` goes through fetch_page_rows because System.name
+    is joined in, not a ReleaseSystem column — confirm that enrichment survives
+    the move into release_system_service."""
+    from app.db.models.release_system import ReleaseSystem
+    from app.db.models.system import System
+
+    system = System(tenant_id=test_tenant.id, name="payments")
+    db_session.add(system)
+    await db_session.flush()
+    db_session.add(ReleaseSystem(
+        tenant_id=test_tenant.id,
+        release_id=release_id,
+        system_id=system.id,
+        role="changing",
+    ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/systems", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["system_name"] == "payments"
 
 
 # ── conflicts and rollup/scope ────────────────────────────────────────────────
