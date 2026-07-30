@@ -1,6 +1,6 @@
 # EnvManager — Implementation Roadmap
 
-> Architecture: [architecture.md](architecture.md) | Guide: [../CLAUDE.md](../CLAUDE.md)
+> Architecture: [prod architecture.md](prod%20architecture.md) | Guide: [../CLAUDE.md](../CLAUDE.md)
 
 ---
 
@@ -9,12 +9,13 @@
 | Phase | Name | Status | Duration | Detail |
 |-------|------|--------|----------|--------|
 | 0 | Foundations & Guardrails | ✅ Complete | — | See below |
+| — | **Hardening programme** | ✅ Complete (2026-07-30, PRs #23–#33) — see [../CLAUDE.md](../CLAUDE.md) banner | 2 days | CI, Dockerfiles, dual-engine tests, auth sessions, observability, pagination |
 | 1 | Environment Inventory + Shared Booking | ✅ Complete | — | [phases/phase-1.md](phases/phase-1.md) |
 | 2 | Change Management | ✅ Complete (MR !2, merge `3bb3833`, 2026-04-19) | 2–3 weeks | [phases/phase-2.md](phases/phase-2.md) |
 | 2.5 | Hosts + multi-target CRs (Phase 6 pull-forward) | ✅ Complete (same MR) | — | [phases/phase-2.md](phases/phase-2.md#phase-25--hosts-and-multi-target-change-requests-phase-6-pull-forward) |
 | 3 | Releases, Templates, Enterprise Release, Jira | ✅ Sub-1 merged 2026-04-20/21 (MRs !4–!13); ✅ Sub-2 (Enterprise Releases) merged 2026-04-23 (MR !15, `64c52e3`); ✅ follow-ups MR !17 (gate due dates + timeline diamonds, `a2f55de`) + MR !18 (tenant-configurable change kinds, `0fa2eb5`) on 2026-04-23. Sub-3 (Jira) deferred. | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
-| 4 | Build Tracking + CI/CD Deployment Tracking | ✅ Sub-1 (backend) merged 2026-04-23 (MR !20); ✅ Sub-2 (frontend + API keys) merged 2026-04-25 (MR !21, `d802797`); 🟡 Sub-3 (`can-deploy` preflight gate + `build_number` now required at API) on branch `docs/user-manual-spec`, awaiting MR (2026-04-26) | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
-| 5 | DORA Metrics + Health Dashboard + PIR | ⏳ Planned. Pre-work in flight: GitLab CI dogfooding pipeline on branch `feature/gitlab-ci-pipeline` (registers EnvManager's own builds + deployments to demo tenant) — awaiting MR (2026-04-26). | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
+| 4 | Build Tracking + CI/CD Deployment Tracking | ✅ Complete — Sub-1 (MR !20), Sub-2 (MR !21, `d802797`), Sub-3 (`can-deploy` preflight + required `build_number`) all merged | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
+| 5 | DORA Metrics + Health Dashboard + PIR | ✅ Complete + in-app verified (2026-07-29) — SP1 Incidents (#20), SP2 DORA (#21), SP3 Env Health (#22), SP4 PIR, SP5b release/conflict metrics, SP5a operating hours + utilisation | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
 | 6 | Infrastructure Topology **+ Environment Drift** | 🟡 Model pulled forward — Terraform/React Flow + drift-vs-Production still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
 | 7 | Multi-Project Coordination **+ Environment Lifecycle & Governance** | ⏳ Planned (expanded 2026-07-16) | 6–8 weeks | [phases/phase-7.md](phases/phase-7.md) |
 | 8 | *(reserved — parked AI Copilot / AI-driven Integrations)* | ⏸ Parked | — | — |

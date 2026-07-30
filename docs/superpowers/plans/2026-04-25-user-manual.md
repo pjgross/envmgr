@@ -867,8 +867,8 @@ Read: `docs/user-guide.md`. Confirm 11 chapters present and non-empty. Confirm t
 - [ ] **Step 5: Update CLAUDE.md banner**
 
 Add two bullets to the docs links block in `CLAUDE.md`'s header (the block currently containing Requirements / App Architecture / Infra / Roadmap):
-- `> **Admin Guide**: [docs/admin-guide.md](docs/admin-guide.md)`
-- `> **User Guide**: [docs/user-guide.md](docs/user-guide.md)`
+- `> **Admin Guide**: [docs/admin-guide.md](../../admin-guide.md)`
+- `> **User Guide**: [docs/user-guide.md](../../user-guide.md)`
 
 - [ ] **Step 6: Commit**
 

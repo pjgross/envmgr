@@ -2,7 +2,11 @@
 
 > **Review date:** 2026-04-18
 > **Reviewed branch:** `feature/multi-env-booking-lifecycle`
-> **Status:** Plan only — not yet executed. Tier 1 is the recommended next step.
+> **Status (updated 2026-07-30):** partially executed. Vitest/Playwright infrastructure, the
+> MUI confirm sweep, nav grouping and the P1 items from [ui-audit.md](ui-audit.md) have landed;
+> route-level **code splitting is done** (entry chunk 3,445 kB → 180 kB, PR #31). The remaining
+> tiers below are still open. Read alongside [ui-audit.md](ui-audit.md), which is the more
+> recent review.
 
 ## Context
 
