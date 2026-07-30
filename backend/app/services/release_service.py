@@ -288,7 +288,7 @@ async def list_releases(
     stmt = (
         select(Release)
         .where(*base_where)
-        .order_by(Release.created_at.desc())
+        .order_by(Release.created_at.desc(), Release.id)
         .limit(limit)
         .offset(offset)
     )

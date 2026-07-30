@@ -137,6 +137,7 @@ async def _require_phase(db: AsyncSession, phase_id: int, tenant_id: int) -> Tes
 
 @router.get("", response_model=list[ReleaseListItemRead])
 async def list_releases(
+    response: Response,
     release_type: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[datetime] = Query(None),
@@ -145,13 +146,12 @@ async def list_releases(
     search: Optional[str] = Query(None),
     release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
     system_id: Optional[int] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
-    releases, _total = await release_service.list_releases(
+    releases, total = await release_service.list_releases(
         db,
         tenant_id,
         release_type=release_type,
@@ -162,9 +162,10 @@ async def list_releases(
         search=search,
         release_kind=release_kind,
         system_id=system_id,
-        limit=limit,
-        offset=offset,
+        limit=page.limit,
+        offset=page.offset,
     )
+    set_total_count(response, total)
     if not releases:
         return []
     release_ids = [r.id for r in releases]

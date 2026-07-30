@@ -233,6 +233,7 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     # release-changes is a flat endpoint (not a /{release_id}/ sub-resource — see
     # RELEASE_SUBRESOURCES below for those), so it belongs in this table.
     ("release_changes_flat", "/api/v1/release-changes", MAX_LIMIT, "auth_headers"),
+    ("releases", "/api/v1/releases", 200, "auth_headers"),
 ]
 
 
