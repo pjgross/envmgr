@@ -49,7 +49,7 @@ async def record_version(
     )
     if env_system_result.scalar_one_or_none() is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "Subsystem's parent system is not linked to this environment. "
                 "Add the system to the environment before recording a version."

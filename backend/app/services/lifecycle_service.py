@@ -54,7 +54,7 @@ async def create_template(
     try:
         validate_definition_for_entity(data.definition, entity_type, applies_to_kind=data.applies_to_kind)
     except ValueError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
     definition_dict = migrate_field_permissions(data.definition.model_dump(), entity_type)
     template = LifecycleTemplate(
         tenant_id=tenant_id,
@@ -122,7 +122,7 @@ async def update_template(
         try:
             validate_definition_for_entity(data.definition, template.entity_type, applies_to_kind=effective_kind)
         except ValueError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
         template.definition = migrate_field_permissions(
             data.definition.model_dump(), template.entity_type
         )

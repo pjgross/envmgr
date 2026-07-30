@@ -347,7 +347,7 @@ async def update_change(
         bad_fields = _JIRA_READONLY_FIELDS & set(update_data.keys())
         if bad_fields:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"Cannot edit fields {sorted(bad_fields)} on a jira-sourced change item",
             )
 
@@ -429,7 +429,7 @@ async def move_change(
 
     if change.source == "jira":
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Cannot move jira-sourced scope items",
         )
 

@@ -87,6 +87,50 @@ def test_tampered_token_raises_401():
 # Impersonation and master admin
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Algorithm confinement — CVE-2024-33663 class
+# ---------------------------------------------------------------------------
+
+def test_token_signed_with_a_different_algorithm_is_rejected():
+    """decode_access_token must honour only settings.ALGORITHM.
+
+    python-jose 3.3.0 was affected by CVE-2024-33663 (algorithm confusion). The
+    library is fixed, but the defence that matters here is passing an explicit
+    algorithms= allowlist to jwt.decode — pin it so a future refactor can't drop
+    it silently.
+    """
+    from jose import jwt
+    from app.core.config import settings
+
+    other = "HS512" if settings.ALGORITHM != "HS512" else "HS256"
+    token = jwt.encode({"sub": "1", "tenant_id": 1}, settings.SECRET_KEY, algorithm=other)
+
+    with pytest.raises(HTTPException) as exc:
+        decode_access_token(token)
+    assert exc.value.status_code == 401
+
+
+def test_unsigned_token_is_rejected():
+    """An alg=none token carries no signature and must never authenticate.
+
+    Hand-assembled rather than built with jose, which refuses to encode alg=none
+    — an attacker has no such scruples.
+    """
+    import base64
+    import json
+
+    def b64(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    header = b64(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+    payload = b64(json.dumps({"sub": "1", "tenant_id": 1}).encode())
+    token = f"{header}.{payload}."  # empty signature
+
+    with pytest.raises(HTTPException) as exc:
+        decode_access_token(token)
+    assert exc.value.status_code == 401
+
+
 def test_impersonating_tenant_id_preserved_in_token():
     """impersonating_tenant_id passed in data must survive encode/decode."""
     token = create_access_token({"sub": "1", "tenant_id": 1, "impersonating_tenant_id": 99})

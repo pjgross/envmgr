@@ -401,7 +401,7 @@ async def create_change_request(
 
     if not environment_ids and not host_ids:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "At least one environment_ids or host_ids entry is required",
         )
 
@@ -687,7 +687,7 @@ async def update_change_request(
     )
     if not effective_env_ids and not effective_host_ids:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "A change request must target at least one environment or host",
         )
     await _validate_subsystem_scope(

@@ -21,27 +21,27 @@ def _validate_timezone(tz: str) -> None:
     try:
         ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError, TypeError):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail=f"Invalid timezone: {tz!r}")
 
 
 def _validate_week(week) -> None:
     if not isinstance(week, list) or len(week) != 7:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail="week must have exactly 7 entries (Mon..Sun)")
     for i, day in enumerate(week):
         if not isinstance(day, dict):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail=f"week[{i}] must be an object")
         if day.get("closed"):
             continue
         opened, closed = day.get("open"), day.get("close")
         if not (isinstance(opened, str) and _HHMM.match(opened)) or \
            not (isinstance(closed, str) and _HHMM.match(closed)):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail=f"week[{i}] open/close must be HH:MM")
         if opened >= closed:  # lexical compare is valid for zero-padded HH:MM
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail=f"week[{i}] open must be before close")
 
 

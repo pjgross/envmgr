@@ -97,7 +97,7 @@ async def update_event_type(
     # System event types cannot be renamed
     if et.is_system and data.name is not None and data.name != et.name:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "System event types cannot be renamed",
         )
 
@@ -126,7 +126,7 @@ async def delete_event_type(
 
     if et.is_system:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "System event types cannot be deleted",
         )
 

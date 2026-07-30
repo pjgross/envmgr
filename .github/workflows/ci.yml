@@ -74,6 +74,11 @@ jobs:
       - name: Run test suite
         run: uv run pytest -q
 
+      - name: Dependency advisories
+        # Fails on any advisory not explicitly accepted with a reachability
+        # argument in the script. See docs/dependency-audit.md.
+        run: uv run python scripts/audit_dependencies.py
+
   frontend:
     name: Frontend (lint, test, build)
     runs-on: ubuntu-latest
@@ -99,6 +104,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Dependency advisories
+        run: npm run audit
 
       - name: Unit tests
         run: npm run test -- --run
