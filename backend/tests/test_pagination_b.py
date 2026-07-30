@@ -469,3 +469,40 @@ async def test_current_only_picks_exactly_one_row_when_timestamps_tie(db_session
     )
     assert total == 1
     assert len(current) == 1
+
+
+# ── Membership view ──────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_membership_view_bounds_history_and_preserves_duplication(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    """history includes the accepted membership that also appears as `current`.
+    That duplication is pre-existing and deliberately preserved here."""
+    from app.db.models.release_membership import ReleaseMembership
+
+    ent = await _make_release(db_session, test_tenant.id, test_user.id, name="ent")
+    proj = await _make_release(db_session, test_tenant.id, test_user.id, name="proj")
+    now = datetime.now(timezone.utc)
+
+    db_session.add(ReleaseMembership(
+        tenant_id=test_tenant.id, enterprise_release_id=ent.id,
+        project_release_id=proj.id, state="accepted",
+        requested_by=test_user.id, requested_at=now,
+    ))
+    db_session.add(ReleaseMembership(
+        tenant_id=test_tenant.id, enterprise_release_id=ent.id,
+        project_release_id=proj.id, state="rejected",
+        requested_by=test_user.id, requested_at=now - timedelta(days=1),
+    ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{proj.id}/membership", headers=auth_headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["current"] is not None
+    assert len(body["history"]) == 2, "accepted membership still appears in history"
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 2

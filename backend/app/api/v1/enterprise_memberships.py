@@ -210,6 +210,8 @@ async def remove_membership(
 )
 async def project_membership_view(
     project_release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -218,15 +220,17 @@ async def project_membership_view(
         user=user,
         project_release_id=project_release_id,
     )
-    history = await enterprise_membership_service.list_history_for_project(
+    history, history_total = await enterprise_membership_service.list_history_for_project(
         db,
         user=user,
         project_release_id=project_release_id,
+        page=page,
     )
     all_memberships = ([current] if current else []) + history
     reads = await _hydrate_reads(db, all_memberships)
     current_read = reads[0] if current else None
     history_reads = reads[(1 if current else 0):]
+    set_total_count(response, history_total)
     return {
         "current": current_read.model_dump() if current_read else None,
         "history": [h.model_dump() for h in history_reads],
