@@ -1,7 +1,10 @@
+from typing import Optional
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.user import Tenant
 from app.api.v1.schemas import TenantCreate, TenantUpdate
 from app.services import change_request_service, scope_change_rule_service, raid_config_service
@@ -9,9 +12,11 @@ from app.services.release_defaults import seed_release_defaults_for_tenant
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
 
 
-async def list_tenants(db: AsyncSession) -> list[Tenant]:
-    result = await db.execute(select(Tenant).order_by(Tenant.name))
-    return list(result.scalars().all())
+async def list_tenants(
+    db: AsyncSession, page: Optional[Page] = None
+) -> tuple[list[Tenant], int]:
+    query = select(Tenant).order_by(Tenant.name, Tenant.id)
+    return await fetch_page(db, query, page)
 
 
 async def get_tenant(db: AsyncSession, tenant_id: int) -> Tenant:

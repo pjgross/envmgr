@@ -1,5 +1,6 @@
 """Bounded list results: the shared primitive and the endpoints using it."""
 import pytest
+import pytest_asyncio
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -226,7 +227,39 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ("bookings", "/api/v1/bookings/", MAX_LIMIT, "auth_headers"),
     ("change_requests", "/api/v1/change-requests", MAX_LIMIT, "auth_headers"),
     ("infrastructure_components", "/api/v1/infrastructure-components/", MAX_LIMIT, "auth_headers"),
+    ("environment_health", "/api/v1/environments/health", MAX_LIMIT, "auth_headers"),
+    ("admin_tenants", "/api/v1/admin/tenants", MAX_LIMIT, "master_admin_headers"),
+    ("tenant_users", "/api/v1/tenant/users", MAX_LIMIT, "auth_headers"),
 ]
+
+
+@pytest_asyncio.fixture
+async def master_admin_headers(client, db_session):
+    """Bearer headers for a master admin in the system tenant."""
+    from app.db.models.user import Tenant, User
+    from app.core.security import get_password_hash
+
+    system = Tenant(name="System", slug="system-pagination")
+    db_session.add(system)
+    await db_session.flush()
+    user = User(
+        tenant_id=system.id,
+        username="pagination-masteradmin",
+        email="ma@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Admin",
+        is_active=True,
+        is_master_admin=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    response = await client.post("/api/v1/auth/login", json={
+        "username": user.username,
+        "password": "password123",
+        "tenant_slug": system.slug,
+    })
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.mark.asyncio
@@ -236,7 +269,7 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ids=[_id for _id, _url, _cap, _fix in BOUNDED_ENDPOINTS],
 )
 async def test_bounded_endpoint_conformance(
-    client, url, max_limit, auth_fixture, auth_headers
+    client, url, max_limit, auth_fixture, auth_headers, master_admin_headers
 ):
     # `request.getfixturevalue(auth_fixture)` is the natural way to resolve the
     # table's fixture-name column, but pytest-asyncio (1.4.0, this repo's
@@ -248,7 +281,10 @@ async def test_bounded_endpoint_conformance(
     # during setup, before the test coroutine runs) and picked by name here.
     # A later task adding a second auth fixture (e.g. master-admin) adds it to
     # this dict and the function signature — table rows still just append.
-    headers = {"auth_headers": auth_headers}[auth_fixture]
+    headers = {
+        "auth_headers": auth_headers,
+        "master_admin_headers": master_admin_headers,
+    }[auth_fixture]
     response = await client.get(url, headers=headers)
     assert response.status_code == 200, response.text
 

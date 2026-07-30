@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from datetime import timedelta
 
@@ -22,10 +23,14 @@ router = APIRouter()
 
 @router.get("/tenants", response_model=list[TenantResponse])
 async def list_tenants(
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_master_admin()),
 ):
-    return await tenant_service.list_tenants(db)
+    rows, total = await tenant_service.list_tenants(db, page=page)
+    set_total_count(response, total)
+    return rows
 
 
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
@@ -73,7 +78,8 @@ async def list_tenant_users(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_master_admin()),
 ):
-    return await user_admin_service.list_users(db, tenant_id)
+    rows, _total = await user_admin_service.list_users(db, tenant_id)
+    return rows
 
 
 @router.post("/tenants/{tenant_id}/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

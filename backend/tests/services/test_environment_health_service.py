@@ -132,14 +132,14 @@ async def test_derive_status_fresh_stale_and_none(db_session, tenant):
     now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
     env = await _env(db_session, tenant.id)
     # no samples -> unknown
-    ov = await svc.health_overview(db_session, tenant.id, now=now)
+    ov, _total = await svc.health_overview(db_session, tenant.id, now=now)
     assert ov[0]["current_status"] == "unknown"
     # fresh sample -> its status
     await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now - timedelta(minutes=5))
-    ov = await svc.health_overview(db_session, tenant.id, now=now)
+    ov, _total = await svc.health_overview(db_session, tenant.id, now=now)
     assert ov[0]["current_status"] == "down"
     # stale sample (>15m) -> unknown
-    ov = await svc.health_overview(db_session, tenant.id, now=now + timedelta(minutes=20))
+    ov, _total = await svc.health_overview(db_session, tenant.id, now=now + timedelta(minutes=20))
     assert ov[0]["current_status"] == "unknown"
 
 
@@ -150,7 +150,8 @@ async def test_alert_truth_table(db_session, tenant, user):
     win = (now - timedelta(hours=1), now + timedelta(hours=1))
 
     async def overview_for(env):
-        return next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+        rows, _total = await svc.health_overview(db_session, tenant.id, now=now)
+        return next(r for r in rows if r["environment_id"] == env.id)
 
     # Case 1: down + active booking + no outage -> ALERT
     e1 = await _env(db_session, tenant.id, "e1")
@@ -193,7 +194,7 @@ async def test_closed_booking_is_not_active_no_alert(db_session, tenant, user):
     env = await _env(db_session, tenant.id, "closed-booking-env")
     await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now)
     await _booking(db_session, tenant.id, user.id, env.id, *win, status="closed")
-    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    ov = next(r for r in (await svc.health_overview(db_session, tenant.id, now=now))[0] if r["environment_id"] == env.id)
     assert ov["active_booking"] is False
     assert ov["alert"] is False
 
@@ -206,7 +207,7 @@ async def test_issue_status_triggers_alert(db_session, tenant, user):
     env = await _env(db_session, tenant.id, "issue-env")
     await svc.record_sample(db_session, tenant.id, env.id, "issue", "x", recorded_at=now)
     await _booking(db_session, tenant.id, user.id, env.id, *win)
-    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    ov = next(r for r in (await svc.health_overview(db_session, tenant.id, now=now))[0] if r["environment_id"] == env.id)
     assert ov["alert"] is True
 
 
@@ -233,7 +234,7 @@ async def test_scheduled_window_fallback_suppresses_alert(db_session, tenant, us
         tenant_id=tenant.id, change_request_id=cr.id, environment_id=env.id,
     ))
     await db_session.flush()
-    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    ov = next(r for r in (await svc.health_overview(db_session, tenant.id, now=now))[0] if r["environment_id"] == env.id)
     assert ov["alert"] is False
 
 
@@ -246,7 +247,7 @@ async def test_cancelled_cr_does_not_suppress_alert(db_session, tenant, user):
     await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=now)
     await _booking(db_session, tenant.id, user.id, env.id, *win)
     await _cr_outage(db_session, tenant.id, user.id, env.id, *win, status="cancelled")
-    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    ov = next(r for r in (await svc.health_overview(db_session, tenant.id, now=now))[0] if r["environment_id"] == env.id)
     assert ov["alert"] is True
 
 
@@ -260,7 +261,7 @@ async def test_stale_sample_with_active_booking_no_alert(db_session, tenant, use
     await svc.record_sample(db_session, tenant.id, env.id, "down", "x",
                              recorded_at=now - timedelta(minutes=20))
     await _booking(db_session, tenant.id, user.id, env.id, *win)
-    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    ov = next(r for r in (await svc.health_overview(db_session, tenant.id, now=now))[0] if r["environment_id"] == env.id)
     assert ov["current_status"] == "unknown"
     assert ov["alert"] is False
 
@@ -280,7 +281,7 @@ async def test_orphan_booking_still_counts_as_active(db_session, tenant, user):
     )).scalar_one()
     req.deleted_at = now
     await db_session.flush()
-    ov = next(r for r in await svc.health_overview(db_session, tenant.id, now=now) if r["environment_id"] == env.id)
+    ov = next(r for r in (await svc.health_overview(db_session, tenant.id, now=now))[0] if r["environment_id"] == env.id)
     # Booking still counted; fallback label used
     assert ov["active_booking"] is True
     assert ov["active_booking_summary"]["project_name"] == "Booking"
@@ -299,7 +300,7 @@ async def test_tenant_isolation_in_overview(db_session, tenant, user, second_ten
     env_b = await _env(db_session, tenant_b.id, "tenant-b-env")
     await svc.record_sample(db_session, tenant_b.id, env_b.id, "down", "x", recorded_at=now)
     # tenant A overview must not include env_b
-    ov_a = await svc.health_overview(db_session, tenant.id, now=now)
+    ov_a, _total = await svc.health_overview(db_session, tenant.id, now=now)
     ids_in_a = {r["environment_id"] for r in ov_a}
     assert env_a.id in ids_in_a
     assert env_b.id not in ids_in_a
