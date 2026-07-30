@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, fetch_page, fetch_page_rows
 from app.db.models.release import Release
 from app.db.models.release_dependency import ReleaseDependency
 from app.api.v1.schemas.release_dependency import ReleaseDependencyAlert, ReleaseDependencyCreate
@@ -138,46 +138,47 @@ async def get_dependency_alerts(
     db: AsyncSession,
     release_id: int,
     tenant_id: int,
-) -> list[ReleaseDependencyAlert]:
-    """Return dependencies where the dependency's target_date has shifted."""
-    # Alert computation is internal aggregation over the whole release, not a
-    # paginated list endpoint — page=None (the default) fetches every row.
-    deps, _ = await list_dependencies(db, release_id, tenant_id)
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseDependencyAlert], int]:
+    """Dependencies whose target release's date has shifted.
+
+    Previously this fetched every dependency and issued another query per row
+    for its target release, then skipped the ones that were missing or
+    unchanged — a filter after the query, and an N+1. The join reproduces
+    'target release exists and is not deleted'; is_distinct_from reproduces
+    'current != prior', including the both-NULL case the old code also skipped.
+    """
+    query = (
+        select(ReleaseDependency, Release)
+        .join(
+            Release,
+            and_(
+                Release.id == ReleaseDependency.depends_on_release_id,
+                Release.tenant_id == tenant_id,
+                Release.deleted_at.is_(None),
+            ),
+        )
+        .where(
+            ReleaseDependency.release_id == release_id,
+            ReleaseDependency.tenant_id == tenant_id,
+            Release.target_date.is_distinct_from(
+                ReleaseDependency.last_dependency_target_date
+            ),
+        )
+        .order_by(ReleaseDependency.id)
+    )
+    rows, total = await fetch_page_rows(db, query, page)
+
     alerts: list[ReleaseDependencyAlert] = []
-
-    for dep in deps:
-        dep_release = (
-            await db.execute(
-                select(Release).where(
-                    Release.id == dep.depends_on_release_id,
-                    Release.tenant_id == tenant_id,
-                    Release.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if dep_release is None:
-            continue
-
+    for dep, dep_release in rows:
         current = dep_release.target_date
         prior = dep.last_dependency_target_date
-
-        if current == prior:
-            continue
-
-        # Compute diff in days (None dates are treated as 0 for diff calculation)
         if current is not None and prior is not None:
-            diff_days = (
-                current.replace(tzinfo=None) - prior.replace(tzinfo=None)
-            ).days
+            diff_days = (current.replace(tzinfo=None) - prior.replace(tzinfo=None)).days
         elif current is not None:
             diff_days = 1  # prior was None, now has a date — non-zero
-        elif prior is not None:
-            diff_days = -1  # was set, now gone
         else:
-            continue  # both None, no change
-
-        if diff_days == 0:
-            continue
+            diff_days = -1  # was set, now gone
 
         alerts.append(
             ReleaseDependencyAlert(
@@ -189,7 +190,7 @@ async def get_dependency_alerts(
                 diff_days=diff_days,
             )
         )
-    return alerts
+    return alerts, total
 
 
 async def acknowledge_alert(

@@ -61,10 +61,11 @@ async def test_alerts_returns_diff_when_target_date_shifts(db_session, tenant, u
     release_b.target_date = new_date
     await db_session.flush()
 
-    alerts = await release_dependency_service.get_dependency_alerts(
+    alerts, total = await release_dependency_service.get_dependency_alerts(
         db_session, release_a.id, tenant.id
     )
     assert len(alerts) == 1
+    assert total == 1
     alert = alerts[0]
     assert alert.dependency_id == dep.id
     assert alert.depends_on_release_id == release_b.id
@@ -85,10 +86,11 @@ async def test_alerts_empty_when_no_change(db_session, tenant, user):
         tenant.id,
     )
 
-    alerts = await release_dependency_service.get_dependency_alerts(
+    alerts, total = await release_dependency_service.get_dependency_alerts(
         db_session, release_a.id, tenant.id
     )
     assert alerts == []
+    assert total == 0
 
 
 # ── test_acknowledge_clears_alert ─────────────────────────────────────────────
@@ -111,20 +113,22 @@ async def test_acknowledge_clears_alert(db_session, tenant, user):
     release_b.target_date = shifted
     await db_session.flush()
 
-    alerts_before = await release_dependency_service.get_dependency_alerts(
+    alerts_before, total_before = await release_dependency_service.get_dependency_alerts(
         db_session, release_a.id, tenant.id
     )
     assert len(alerts_before) == 1
+    assert total_before == 1
 
     # Acknowledge
     await release_dependency_service.acknowledge_alert(
         db_session, release_a.id, dep.id, tenant.id
     )
 
-    alerts_after = await release_dependency_service.get_dependency_alerts(
+    alerts_after, total_after = await release_dependency_service.get_dependency_alerts(
         db_session, release_a.id, tenant.id
     )
     assert len(alerts_after) == 0
+    assert total_after == 0
 
 
 # ── test_self_dependency_rejected ────────────────────────────────────────────

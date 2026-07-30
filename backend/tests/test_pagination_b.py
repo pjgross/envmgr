@@ -401,6 +401,51 @@ async def test_current_only_returns_one_row_per_subsystem(db_session, tenant):
 
 
 @pytest.mark.asyncio
+async def test_dependency_alerts_match_the_python_filter_they_replaced(
+    db_session, tenant, user
+):
+    """Covers: unchanged dates (skip), both-None (skip), one-None (alert),
+    changed (alert), and a soft-deleted target release (skip)."""
+    from app.db.models.release_dependency import ReleaseDependency
+    from app.services import release_dependency_service
+
+    rel = await _make_release(db_session, tenant.id, user.id, name="alerts-parent")
+    now = datetime.now(timezone.utc)
+
+    async def _dep(name, target_date, prior, deleted=False):
+        target = await _make_release(db_session, tenant.id, user.id, name=name)
+        target.target_date = target_date
+        if deleted:
+            target.deleted_at = now
+        d = ReleaseDependency(
+            tenant_id=tenant.id, release_id=rel.id,
+            depends_on_release_id=target.id, kind="deploys_after",
+            last_dependency_target_date=prior,
+        )
+        db_session.add(d)
+        await db_session.flush()
+        return d
+
+    unchanged = await _dep("unchanged", now, now)
+    both_none = await _dep("both-none", None, None)
+    now_set = await _dep("now-set", now, None)
+    now_gone = await _dep("now-gone", None, now)
+    shifted = await _dep("shifted", now + timedelta(days=5), now)
+    deleted = await _dep("deleted-target", now + timedelta(days=5), now, deleted=True)
+
+    alerts, total = await release_dependency_service.get_dependency_alerts(
+        db_session, rel.id, tenant.id
+    )
+
+    alerted_dep_ids = {a.dependency_id for a in alerts}
+    assert alerted_dep_ids == {now_set.id, now_gone.id, shifted.id}
+    assert unchanged.id not in alerted_dep_ids
+    assert both_none.id not in alerted_dep_ids
+    assert deleted.id not in alerted_dep_ids, "soft-deleted target must not alert"
+    assert total == 3
+
+
+@pytest.mark.asyncio
 async def test_current_only_picks_exactly_one_row_when_timestamps_tie(db_session, tenant):
     """installed_at is not unique. The old code's winner was undefined; the new
     one is deterministic. Assert the invariant, not which row wins."""
