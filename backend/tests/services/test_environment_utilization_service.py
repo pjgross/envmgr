@@ -2,6 +2,7 @@ import pytest
 from datetime import datetime, timezone, timedelta
 
 from app.services import environment_utilization_service as util
+from tests.factories import ensure_booking_type
 
 UTC = timezone.utc
 
@@ -120,7 +121,8 @@ async def _mk_user(db, tenant_id):
 
 
 async def _mk_booking(db, tenant_id, env_id, user_id, start, end, status="approved"):
-    req = BookingRequest(tenant_id=tenant_id, project_name="P", booked_by=user_id, booking_type_id=1,
+    req = BookingRequest(tenant_id=tenant_id, project_name="P", booked_by=user_id,
+                         booking_type_id=(await ensure_booking_type(db, tenant_id)).id,
                          start_date=start, end_date=end)
     db.add(req); await db.flush()
     b = Booking(tenant_id=tenant_id, environment_id=env_id, booking_request_id=req.id,

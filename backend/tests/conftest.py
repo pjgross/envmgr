@@ -1,7 +1,17 @@
 """
 Shared test fixtures.
 
-Uses an in-memory SQLite database so no running PostgreSQL is required.
+Defaults to in-memory SQLite so no running database is required. Set
+TEST_DATABASE_URL to a PostgreSQL DSN to run the same suite against the engine
+production actually uses:
+
+    TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test \
+        uv run pytest -q
+
+That matters because several migrations and constraints are dialect-gated — the
+partial unique indexes guarded by `if dialect.name != "postgresql": return` are
+inert under SQLite, so a SQLite-only run cannot exercise them. CI runs both.
+
 The app's get_db dependency is overridden to inject the test session.
 """
 import os
@@ -13,8 +23,9 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-deployment")
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import create_engine as sync_create_engine, event, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.main import app
 from app.db.base import Base, get_db
@@ -28,30 +39,81 @@ from app.db.models.system import System
 from app.core.security import get_password_hash
 from datetime import datetime, timezone, timedelta
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+# `or` not a get() default: an empty value (e.g. a CI matrix leg that sets the
+# variable to "") must fall back too, not be passed to SQLAlchemy as a URL.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or "sqlite+aiosqlite:///:memory:"
+IS_POSTGRES = TEST_DATABASE_URL.startswith("postgresql")
 
 
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    """Use default asyncio event loop policy."""
-    import asyncio
-    return asyncio.DefaultEventLoopPolicy()
+if IS_POSTGRES:
+    # Schema setup and inter-test cleanup go through a *sync* (psycopg2) engine.
+    # An asyncpg connection is bound to the event loop that opened it, and
+    # pytest-asyncio gives each test its own loop — so a session-scoped async
+    # engine blows up with "attached to a different loop" on the second test.
+    # A sync engine has no such affinity, and it keeps the expensive part
+    # (building 50-odd tables) out of every test.
+    SYNC_TEST_DATABASE_URL = TEST_DATABASE_URL.replace("+asyncpg", "+psycopg2")
 
+    @pytest.fixture(scope="session")
+    def _pg_sync_engine():
+        engine = sync_create_engine(SYNC_TEST_DATABASE_URL, isolation_level="AUTOCOMMIT")
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+        yield engine
+        engine.dispose()
 
-@pytest_asyncio.fixture(scope="function")
-async def db_engine():
-    """Create a fresh in-memory SQLite engine for each test."""
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    @pytest.fixture(scope="function")
+    def _pg_clean(_pg_sync_engine):
+        """Start every test from an empty database.
+
+        RESTART IDENTITY keeps parity with the SQLite path, where each test got a
+        virgin database and therefore ids from 1 — some tests rely on that.
+        CASCADE is required by the FK graph.
+        """
+        tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+        with _pg_sync_engine.connect() as conn:
+            conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+
+    @pytest_asyncio.fixture(scope="function")
+    async def db_engine(_pg_clean):
+        # NullPool: don't hand a pooled connection to the next test's loop.
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+        yield engine
+        await engine.dispose()
+
+else:
+
+    def _enforce_foreign_keys(dbapi_connection, _record):
+        """SQLite ignores foreign keys unless asked, per connection.
+
+        Without this a test can insert a Build pointing at a subsystem that does
+        not exist and still pass — which is what 30 tests were doing until the
+        suite was first pointed at PostgreSQL. Both engines now enforce the same
+        constraints.
+
+        Registered on this engine only, never globally on Engine: other tests
+        (tests/test_migration_schema_drift.py) build psycopg2 engines in the same
+        process, and PRAGMA is not valid SQL there.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    @pytest_asyncio.fixture(scope="function")
+    async def db_engine():
+        """Create a fresh in-memory SQLite engine for each test."""
+        engine = create_async_engine(
+            TEST_DATABASE_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        event.listen(engine.sync_engine, "connect", _enforce_foreign_keys)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture(scope="function")

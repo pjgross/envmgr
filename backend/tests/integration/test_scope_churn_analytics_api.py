@@ -10,6 +10,7 @@ from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
 from app.db.models.deployment import Deployment
+from tests.factories import ensure_build, ensure_change_request, ensure_environment
 
 NOW = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
 
@@ -65,7 +66,10 @@ async def _event(db, tenant, user, release_id, type_name):
 
 async def _failed_deploy(db, tenant, release_id):
     db.add(Deployment(
-        tenant_id=tenant.id, build_id=1, environment_id=1, change_request_id=1,
+        tenant_id=tenant.id,
+        build_id=(await ensure_build(db, tenant.id)).id,
+        environment_id=(await ensure_environment(db, tenant.id)).id,
+        change_request_id=(await ensure_change_request(db, tenant.id)).id,
         event_id=f"evt-{release_id}", deployed_at=NOW, status="failed", release_id=release_id,
     ))
     await db.flush()
@@ -73,7 +77,10 @@ async def _failed_deploy(db, tenant, release_id):
 
 async def _deploy(db, tenant, release_id, status):
     db.add(Deployment(
-        tenant_id=tenant.id, build_id=1, environment_id=1, change_request_id=1,
+        tenant_id=tenant.id,
+        build_id=(await ensure_build(db, tenant.id)).id,
+        environment_id=(await ensure_environment(db, tenant.id)).id,
+        change_request_id=(await ensure_change_request(db, tenant.id)).id,
         event_id=f"evt-{release_id}-{status}", deployed_at=NOW, status=status, release_id=release_id,
     ))
     await db.flush()

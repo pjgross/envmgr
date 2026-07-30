@@ -9,29 +9,38 @@ from app.db.models.user import User, Tenant
 from app.core.security import get_password_hash
 from app.services import dora_service
 from app.services.dora_service import _percentile
+from tests.factories import ensure_change_request, ensure_environment, ensure_subsystem
 
 UTC = timezone.utc
 
 _build_counter = 0
 
-async def _build(db, tenant_id, commit_dt, subsystem_id=1):
+async def _build(db, tenant_id, commit_dt, subsystem_id=None):
     # Note: Build has no `status` column; omit it (plan listed it but it's not on the model).
     # Use a counter in git_sha/build_number to avoid UNIQUE(tenant_id,subsystem_id,git_sha,build_number).
     global _build_counter
     _build_counter += 1
     sha = f"{_build_counter:040d}"
+    if subsystem_id is None:
+        subsystem_id = (await ensure_subsystem(db, tenant_id)).id
     b = Build(tenant_id=tenant_id, subsystem_id=subsystem_id, git_sha=sha,
               build_number=str(_build_counter), commit_timestamp=commit_dt)
     db.add(b); await db.flush(); return b
 
 _deploy_counter = 0
 
-async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, status="success", release_id=None):
+async def _deploy(db, tenant_id, build_id, env_id, deployed_dt, status="success", release_id=None,
+                  change_request_id=None):
     # Use a counter to ensure event_id is unique even when deployed_dt is the same.
     global _deploy_counter
     _deploy_counter += 1
+    if env_id is not None and env_id < 1000:
+        # Small integers are slots, not real ids — see tests.factories.
+        env_id = (await ensure_environment(db, tenant_id, env_id)).id
+    if change_request_id is None:
+        change_request_id = (await ensure_change_request(db, tenant_id)).id
     d = Deployment(tenant_id=tenant_id, build_id=build_id, environment_id=env_id,
-                   release_id=release_id, change_request_id=1,
+                   release_id=release_id, change_request_id=change_request_id,
                    event_id=f"e{deployed_dt.timestamp()}-{_deploy_counter}",
                    deployed_at=deployed_dt, status=status, custom_fields={})
     db.add(d); await db.flush(); return d
@@ -58,7 +67,8 @@ async def test_deployment_frequency_env_filter(db_session, tenant):
     await _deploy(db_session, tenant.id, b.id, 1, t0, "success")
     await _deploy(db_session, tenant.id, b.id, 2, t0, "success")
     res = await dora_service.deployment_frequency(
-        db_session, tenant.id, t0, t0 + timedelta(days=7), environment_id=1)
+        db_session, tenant.id, t0, t0 + timedelta(days=7),
+        environment_id=(await ensure_environment(db_session, tenant.id, 1)).id)
     assert res["total"] == 1
 
 
@@ -382,7 +392,7 @@ async def test_deployment_frequency_tenant_isolation(db_session, tenant):
     await db_session.flush()
 
     # Deployment for the second tenant (same date range)
-    b2 = await _build(db_session, t2.id, t0 - timedelta(days=1), subsystem_id=2)
+    b2 = await _build(db_session, t2.id, t0 - timedelta(days=1))
     await _deploy(db_session, t2.id, b2.id, 1, t0, "success")
 
     res = await dora_service.deployment_frequency(
