@@ -699,12 +699,37 @@ describe('useServerGrid', () => {
     );
   });
 
+  // Starts from a NON-default sort deliberately. Clearing an already-default
+  // sort produces byte-identical params, and the effect keys on the resolved
+  // request — so it correctly does not refetch, and asserting a call there
+  // would be asserting a wasted one.
   it('falls back to the default sort when the grid clears the sort model', () => {
-    const { result, onFetch } = setup();
+    const { result, onFetch } = setup('/releases?sort_by=name&sort_dir=asc');
     onFetch.mockClear();
     act(() => result.current.onSortModelChange([]));
+    expect(result.current.sortModel).toEqual([{ field: 'created_at', sort: 'desc' }]);
     expect(onFetch).toHaveBeenLastCalledWith(
       expect.objectContaining({ sort_by: 'created_at', sort_dir: 'desc' })
+    );
+  });
+
+  it('fetches the next page when the pagination model changes', () => {
+    const { result, onFetch } = setup();
+    onFetch.mockClear();
+    act(() => result.current.onPaginationModelChange({ page: 2, pageSize: 25 }));
+    expect(result.current.paginationModel).toEqual({ page: 2, pageSize: 25 });
+    expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 25, offset: 50 }));
+  });
+
+  // Deliberately starts at page 0: the other filter test starts at ?page=3, so
+  // its 3->0 reset changes the effect key by itself and would mask a filter
+  // that never reached the request at all.
+  it('refetches when a filter changes on page 0, where no page reset can mask it', () => {
+    const { result, onFetch } = setup();
+    onFetch.mockClear();
+    act(() => result.current.setFilter('status', 'draft'));
+    expect(onFetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 0, status: 'draft' })
     );
   });
 });
@@ -762,8 +787,11 @@ export function useServerGrid({
 }: UseServerGridOptions): ServerGrid {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const page = Number(searchParams.get('page') ?? 0);
-  const pageSize = Number(searchParams.get('page_size') ?? DEFAULT_PAGE_SIZE);
+  // The URL is an untrusted input surface, and not only for sort_by:
+  // ?page=abc&page_size=-5 would otherwise send {limit: -5, offset: NaN} and
+  // feed NaN straight into DataGrid.
+  const page = clampInt(searchParams.get('page'), 0, 0, Number.MAX_SAFE_INTEGER);
+  const pageSize = clampInt(searchParams.get('page_size'), DEFAULT_PAGE_SIZE, 1, 100);
   const sort = resolveSort(endpoint, searchParams.get('sort_by'), searchParams.get('sort_dir'));
 
   const filters = useMemo(() => {
