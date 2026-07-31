@@ -18,7 +18,7 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "releases"): name, release_type, release_kind, status, target_date, created_at.
-// `id` is not in the whitelist, so it stops being sortable — and the five computed
+// `id` is not in the whitelist, so it stops being sortable — and the six computed
 // columns (phase_count, scope_count, scope_change_count, blocker_count,
 // overdue_criterion_count, systems) never were and never can be: none is backed by
 // a single column the database could order by.

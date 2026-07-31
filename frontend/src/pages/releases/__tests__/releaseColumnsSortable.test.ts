@@ -15,7 +15,14 @@ describe('release grid columns', () => {
   });
 
   it('covers the computed columns that lose sorting', () => {
-    const computed = ['phase_count', 'scope_count', 'scope_change_count', 'blocker_count', 'systems'];
+    const computed = [
+      'phase_count',
+      'scope_count',
+      'scope_change_count',
+      'blocker_count',
+      'overdue_criterion_count',
+      'systems',
+    ];
     computed.forEach((field) => {
       const col = releaseColumns.find((c) => c.field === field);
       expect(col, `${field} column missing`).toBeDefined();
