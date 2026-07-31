@@ -127,6 +127,23 @@ describe('useServerGrid', () => {
     expect(result.current.paginationModel).toEqual({ page: 0, pageSize: 25 });
   });
 
+  // DataTable's pageSizeOptions is the fixed set [10, 25, 50, 100]. A
+  // page_size that's a valid integer 1-100 but not one of those options
+  // (e.g. a hand-edited link) still built a valid request, but produced a
+  // MUI out-of-range console warning and a blank page-size select.
+  it('clamps an in-range but non-option page_size to the default', () => {
+    const { result, onFetch } = setup('/releases?page_size=7');
+    expect(result.current.paginationModel).toEqual({ page: 0, pageSize: 25 });
+    expect(onFetch).toHaveBeenCalledWith(expect.objectContaining({ limit: 25 }));
+  });
+
+  it('accepts every page_size DataTable actually offers', () => {
+    [10, 25, 50, 100].forEach((pageSize) => {
+      const { result } = setup(`/releases?page_size=${pageSize}`);
+      expect(result.current.paginationModel.pageSize).toBe(pageSize);
+    });
+  });
+
   it('keeps setFilter referentially stable across a re-render that changes nothing', () => {
     // debounceKeys, like filterKeys, is typically an inline array literal at
     // the call site — a fresh reference every render. setFilter must key its

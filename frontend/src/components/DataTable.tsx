@@ -94,6 +94,14 @@ export default function DataTable<R extends GridValidRowModel>({
               ...rest.initialState,
             }
       }
+      // A server-mode grid's rows are one windowed page of a much larger
+      // result set. `filterMode` defaults to `'client'` and the toolbar's
+      // Filters panel isn't disabled by default, so a column filter would
+      // silently filter only the page in hand while the footer keeps
+      // showing the true server-side `rowCount` — the grid would lie about
+      // what it's showing. Default filtering off for server mode unless the
+      // caller explicitly opted back in; client-mode callers are untouched.
+      disableColumnFilter={rest.paginationMode === 'server' ? true : undefined}
       {...rest}
       columnVisibilityModel={columnVisibilityModel}
       onColumnVisibilityModelChange={handleVisibilityChange}

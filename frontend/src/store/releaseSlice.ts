@@ -327,7 +327,17 @@ const releaseSlice = createSlice({
         state.list = action.payload.rows;
         state.total = action.payload.total;
       })
-      .addCase(fetchReleases.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed to load releases'; })
+      .addCase(fetchReleases.rejected, (state, action) => {
+        // useServerGrid aborts a superseded request rather than merely
+        // ignoring its reply. RTK dispatches `pending` for the new request
+        // synchronously, then `rejected` for the aborted one on a
+        // microtask — so without this guard, `loading` would flip back to
+        // false (the grid's spinner flickers off) and `error` would be set
+        // to 'Aborted' while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load releases';
+      })
 
       // get
       .addCase(fetchRelease.pending, (state) => { state.loading = true; state.error = null; })

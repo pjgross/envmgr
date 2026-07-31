@@ -100,4 +100,35 @@ describe('DataTable server mode', () => {
     // "1–100 of 317".
     expect(screen.getByText('1–50 of 317')).toBeInTheDocument();
   });
+
+  // Covers: a server-mode grid's rows are one windowed page of a much larger
+  // result set. The toolbar's Filters panel filters only what's in `rows`
+  // while the footer keeps showing the server-supplied `rowCount` — the grid
+  // would lie about what it's showing. `disableColumnFilter` must default to
+  // true for server mode so no column-filter entry point exists at all.
+  it('disables column filtering by default in server mode', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-server-filter"
+        rows={rows}
+        columns={columns}
+        paginationMode="server"
+        rowCount={317}
+        paginationModel={{ page: 0, pageSize: 25 }}
+        onPaginationModelChange={vi.fn()}
+        showToolbar
+      />
+    );
+    expect(screen.queryByRole('button', { name: /filters/i })).not.toBeInTheDocument();
+  });
+
+  // Covers: the server-mode default must not leak backwards onto client-mode
+  // callers, who still filter (and export) exactly what's in `rows` — that's
+  // correct there, since `rows` already is the whole result set.
+  it('still offers column filtering by default in client mode', () => {
+    render(
+      <DataTable storageKey="test-grid-client-filter" rows={rows} columns={columns} showToolbar />
+    );
+    expect(screen.getByRole('button', { name: /filters/i })).toBeInTheDocument();
+  });
 });

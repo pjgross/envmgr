@@ -21,6 +21,18 @@ const clampInt = (raw: string | null, fallback: number, min: number, max: number
   return raw !== null && Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 };
 
+/**
+ * `DataTable`'s `pageSizeOptions` is the fixed set `[10, 25, 50, 100]`. A
+ * `page_size` that's a valid integer 1-100 but not one of those (e.g. a
+ * hand-edited `?page_size=7`) still produces a valid request, but MUI logs
+ * an out-of-range console warning and renders a blank page-size select.
+ */
+const ALLOWED_PAGE_SIZES = [10, 25, 50, 100];
+const clampPageSize = (raw: string | null): number => {
+  const n = clampInt(raw, DEFAULT_PAGE_SIZE, 1, 100);
+  return ALLOWED_PAGE_SIZES.includes(n) ? n : DEFAULT_PAGE_SIZE;
+};
+
 /** What `dispatch(someThunk())` returns in Redux Toolkit: a promise with `.abort()`. */
 export interface Abortable {
   abort: () => void;
@@ -70,7 +82,7 @@ export function useServerGrid({
   const navigate = useNavigate();
 
   const page = clampInt(searchParams.get('page'), 0, 0, Number.MAX_SAFE_INTEGER);
-  const pageSize = clampInt(searchParams.get('page_size'), DEFAULT_PAGE_SIZE, 1, 100);
+  const pageSize = clampPageSize(searchParams.get('page_size'));
   const rawSortBy = searchParams.get('sort_by');
   const rawSortDir = searchParams.get('sort_dir');
   // `buildParams` below re-resolves sort_by/sort_dir itself rather than taking

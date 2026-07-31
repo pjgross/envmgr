@@ -101,3 +101,38 @@ describe('releaseSlice — total tracking', () => {
     expect(afterDelete.total).toBe(0);
   });
 });
+
+describe('releaseSlice — aborted fetches', () => {
+  // useServerGrid aborts a superseded request rather than merely ignoring its
+  // reply. RTK dispatches `pending` for the new request synchronously, then
+  // `rejected` (with `meta.aborted: true`) for the aborted one on a
+  // microtask — landing *after* the new request's own `pending`. Without a
+  // guard, that late `rejected` would flip `loading` back to false while the
+  // real request is still in flight, and stamp `error` with 'Aborted'.
+  it('leaves loading and error untouched when a fetch is aborted', () => {
+    const midFlight = reducer(undefined, { type: fetchReleases.pending.type });
+    expect(midFlight.loading).toBe(true);
+
+    const afterAbort = reducer(midFlight, {
+      type: fetchReleases.rejected.type,
+      error: { message: 'Aborted' },
+      meta: { aborted: true },
+    });
+
+    expect(afterAbort.loading).toBe(true);
+    expect(afterAbort.error).toBeNull();
+  });
+
+  it('still records loading/error for a genuine (non-aborted) failure', () => {
+    const midFlight = reducer(undefined, { type: fetchReleases.pending.type });
+
+    const afterFailure = reducer(midFlight, {
+      type: fetchReleases.rejected.type,
+      error: { message: 'Network error' },
+      meta: { aborted: false },
+    });
+
+    expect(afterFailure.loading).toBe(false);
+    expect(afterFailure.error).toBe('Network error');
+  });
+});

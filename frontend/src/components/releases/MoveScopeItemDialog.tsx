@@ -11,10 +11,12 @@ import {
   MenuItem,
   TextField,
 } from '@mui/material';
-import { useDispatch, useSelector } from 'react-redux';
-import type { AppDispatch, RootState } from '../../store';
-import { fetchReleases, moveReleaseChange } from '../../store/releaseSlice';
+import { useDispatch } from 'react-redux';
+import type { AppDispatch } from '../../store';
+import { moveReleaseChange } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { releaseService } from '../../services/releaseService';
+import type { ReleaseListItemResponse } from '../../types/release';
 
 interface Props {
   open: boolean;
@@ -35,21 +37,29 @@ export default function MoveScopeItemDialog({
 }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
-  const releases = useSelector((s: RootState) => s.release.list);
+  const [releases, setReleases] = useState<ReleaseListItemResponse[]>([]);
 
   const [targetReleaseId, setTargetReleaseId] = useState<number | null>(currentReleaseId);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // This dialog needs its own copy of the release list rather than reading
+  // `state.release.list` — that slice is now the Releases tab's current
+  // filtered/sorted page (server-side paging), so whatever status/type
+  // filter the user left active there would silently narrow the "Target
+  // Release" options here too, with nothing indicating anything is missing.
+  // Fetched directly into local state on every open, unconditionally, so it
+  // never depends on — or overwrites — the shared slice.
   useEffect(() => {
     if (open) {
       setTargetReleaseId(currentReleaseId);
       setNotes('');
-      if (releases.length === 0) {
-        dispatch(fetchReleases({}));
-      }
+      releaseService
+        .list({ limit: 200 })
+        .then(({ rows }) => setReleases(rows))
+        .catch(() => setReleases([]));
     }
-  }, [open, currentReleaseId, releases.length, dispatch]);
+  }, [open, currentReleaseId]);
 
   const handleClose = () => {
     if (submitting) return;
