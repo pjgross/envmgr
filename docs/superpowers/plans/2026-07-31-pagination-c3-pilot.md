@@ -1428,11 +1428,34 @@ git commit -m "feat(releases): server-side paging, sorting and filtering on the 
 - Create: `frontend/e2e/releases-pagination.spec.ts`
 
 **Interfaces:**
-- Consumes: the converted page (Task 8). Follows the existing Playwright setup in `frontend/e2e/` (`global-setup.ts` handles auth).
+- Consumes: the converted page (Task 8). Follows the existing Playwright setup in `frontend/e2e/`.
+
+**The seed has no releases — this spec must create its own.** `backend/scripts/seed_e2e.py`
+creates exactly one tenant and one user and nothing else; the three existing specs are
+navigation-only and never needed domain data, so there is no established pattern to copy. With
+zero releases there is no second page, no sortable content and no filter to narrow, and all
+three assertions below would pass or fail for reasons unrelated to pagination.
+
+So the spec seeds itself through the API in `test.beforeAll`, using Playwright's `request`
+fixture — not by extending `seed_e2e.py`, which is shared mutable state the other specs also
+depend on.
+
+- `POST /api/v1/auth/login` takes `{ tenant_slug, username, password }` and returns
+  `access_token`. Credentials: `e2e` / `e2eadmin` / `e2epassword123`.
+- `POST /api/v1/releases` requires only `name` and `release_type`; `release_kind` defaults to
+  `"project"`. Send `Authorization: Bearer <token>`.
+- Create **30** releases, comfortably more than the 25-row default page, with names that sort
+  predictably so the sort assertion can check order rather than merely that a request was sent.
+  Give some of them a non-default `status` so the filter assertion has something to narrow to —
+  check how status is set, since `ReleaseCreate` does not accept it directly.
+
+Every assertion below must be reachable from that seeded state; if one is not, fix the seeding
+rather than weakening the assertion.
 
 - [ ] **Step 1: Write the spec**
 
-Create `frontend/e2e/releases-pagination.spec.ts`:
+Create `frontend/e2e/releases-pagination.spec.ts`, with the `beforeAll` seeding described above
+and a `login` helper matching the one in `bookings.spec.ts`:
 
 ```ts
 import { expect, test } from '@playwright/test';
@@ -1471,7 +1494,13 @@ test.describe('release list server-side pagination', () => {
 - [ ] **Step 2: Run the e2e suite**
 
 Run: `cd frontend && npm run test:e2e -- releases-pagination.spec.ts`
-Expected: 3 passed. The suite needs the backend and frontend running — see `frontend/e2e/global-setup.ts`.
+Expected: 3 passed. Playwright starts its own backend on port 8002 against a SQLite database and
+its own Vite dev server, and runs `seed_e2e.py` first — so nothing needs to be running
+beforehand, and the dev stack on ports 8000/5173 is not disturbed.
+
+Then run the whole e2e suite (`npm run test:e2e`) to confirm the releases this spec creates have
+not broken `auth.spec.ts`, `bookings.spec.ts` or `systems-environments.spec.ts`, which share the
+same database.
 
 - [ ] **Step 3: Commit**
 
