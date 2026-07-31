@@ -15,9 +15,9 @@ import {
   Typography,
 } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
-import BlockIcon from '@mui/icons-material/Block';
 import DriveFileMoveIcon from '@mui/icons-material/DriveFileMove';
 import DataTable from '../../components/DataTable';
+import { useServerGrid } from '../../hooks/useServerGrid';
 import { AppDispatch, RootState } from '../../store';
 import { fetchReleases, fetchBacklogChanges } from '../../store/releaseSlice';
 import type { ReleaseListItemResponse } from '../../types/release';
@@ -26,18 +26,7 @@ import ReleaseForm from './ReleaseForm';
 import MoveScopeItemDialog from '../../components/releases/MoveScopeItemDialog';
 import { systemService } from '../../services/systemService';
 import type { SystemResponse } from '../../types/system';
-import { RELEASE_SYSTEM_ROLE_LABELS } from '../../utils/releaseSystemRoles';
-
-const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
-  draft: 'default',
-  planning: 'info',
-  in_progress: 'info',
-  submitted: 'warning',
-  approved: 'success',
-  rejected: 'error',
-  completed: 'success',
-  cancelled: 'error',
-};
+import { releaseColumns } from './releaseColumns';
 
 const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
   story: 'info',
@@ -51,23 +40,22 @@ const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
 export default function ReleaseList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { list, backlog, loading } = useSelector((s: RootState) => s.release);
+  const { list, total, backlog, loading } = useSelector((s: RootState) => s.release);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
   const [tab, setTab] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [kindFilter, setKindFilter] = useState<'all' | 'project' | 'enterprise'>('all');
-  const [systemFilter, setSystemFilter] = useState<string>('all');
   const [systems, setSystems] = useState<SystemResponse[]>([]);
   const [formOpen, setFormOpen] = useState(false);
 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<ReleaseChangeResponse | null>(null);
 
-  useEffect(() => {
-    dispatch(fetchReleases({}));
-  }, [dispatch]);
+  const grid = useServerGrid({
+    endpoint: 'releases',
+    filterKeys: ['status', 'release_type', 'release_kind', 'system_id'],
+    total,
+    onFetch: (params) => dispatch(fetchReleases(params)),
+  });
 
   useEffect(() => {
     systemService.listSystems().then(setSystems).catch(() => setSystems([]));
@@ -78,179 +66,6 @@ export default function ReleaseList() {
       dispatch(fetchBacklogChanges());
     }
   }, [tab, dispatch]);
-
-  const filteredRows = useMemo(
-    () =>
-      list.filter((r) => {
-        if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-        if (typeFilter !== 'all' && r.release_type !== typeFilter) return false;
-        if (kindFilter !== 'all' && r.release_kind !== kindFilter) return false;
-        if (systemFilter !== 'all' && !r.systems.some((s) => s.id === Number(systemFilter))) return false;
-        return true;
-      }),
-    [list, statusFilter, typeFilter, kindFilter, systemFilter]
-  );
-
-  const releaseColumns = useMemo<GridColDef<ReleaseListItemResponse>[]>(
-    () => [
-      { field: 'id', headerName: 'ID', width: 70 },
-      {
-        field: 'name',
-        headerName: 'Name',
-        flex: 1,
-        minWidth: 200,
-      },
-      {
-        field: 'release_type',
-        headerName: 'Type',
-        width: 120,
-        renderCell: (params) => (
-          <Chip label={params.row.release_type} size="small" variant="outlined" />
-        ),
-      },
-      {
-        field: 'release_kind',
-        headerName: 'Kind',
-        width: 110,
-        renderCell: (params) => (
-          <Chip
-            label={params.row.release_kind}
-            color={params.row.release_kind === 'enterprise' ? 'secondary' : 'default'}
-            size="small"
-            variant="outlined"
-          />
-        ),
-      },
-      {
-        field: 'status',
-        headerName: 'Status',
-        width: 130,
-        renderCell: (params) => (
-          <Chip
-            label={params.row.status}
-            color={STATUS_COLORS[params.row.status] ?? 'default'}
-            size="small"
-          />
-        ),
-      },
-      {
-        field: 'target_date',
-        headerName: 'Target Date',
-        width: 130,
-        valueFormatter: (params) =>
-          params.value ? new Date(params.value as string).toLocaleDateString() : '—',
-      },
-      {
-        field: 'phase_count',
-        headerName: 'Phases',
-        width: 90,
-        align: 'center',
-        headerAlign: 'center',
-      },
-      {
-        field: 'scope_count',
-        headerName: 'Scope',
-        width: 90,
-        align: 'center',
-        headerAlign: 'center',
-      },
-      {
-        field: 'scope_change_count',
-        headerName: 'Scope Changes',
-        width: 150,
-        align: 'center',
-        headerAlign: 'center',
-        renderCell: (params) => {
-          const row = params.row;
-          if (!row.scope_change_count) {
-            return (
-              <Typography variant="body2" color="text.secondary">
-                —
-              </Typography>
-            );
-          }
-          return (
-            <Tooltip
-              title={`+${row.scope_additions_count} additions, -${row.scope_removals_count} removals`}
-            >
-              <Chip
-                label={`scope: +${row.scope_additions_count}/-${row.scope_removals_count}`}
-                size="small"
-                color="warning"
-              />
-            </Tooltip>
-          );
-        },
-      },
-      {
-        field: 'systems',
-        headerName: 'Systems',
-        width: 200,
-        sortable: false,
-        renderCell: (params) =>
-          params.row.systems.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">—</Typography>
-          ) : (
-            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-              {params.row.systems.map((s) => (
-                <Tooltip key={s.id} title={RELEASE_SYSTEM_ROLE_LABELS[s.role]}>
-                  <Chip label={s.name} size="small" variant="outlined" />
-                </Tooltip>
-              ))}
-            </Box>
-          ),
-      },
-      {
-        field: 'blocker_count',
-        headerName: 'Blockers',
-        width: 100,
-        align: 'center',
-        headerAlign: 'center',
-        renderCell: (params) =>
-          params.row.blocker_count > 0 ? (
-            <Tooltip title={`${params.row.blocker_count} pending gate(s)`}>
-              <Chip
-                icon={<BlockIcon />}
-                label={params.row.blocker_count}
-                color="warning"
-                size="small"
-              />
-            </Tooltip>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              —
-            </Typography>
-          ),
-      },
-      {
-        field: 'overdue_criterion_count',
-        headerName: 'Overdue',
-        width: 110,
-        align: 'center',
-        headerAlign: 'center',
-        renderCell: (params) =>
-          params.row.overdue_criterion_count > 0 ? (
-            <Chip
-              size="small"
-              color="error"
-              label={`${params.row.overdue_criterion_count} overdue`}
-            />
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              —
-            </Typography>
-          ),
-      },
-      {
-        field: 'created_at',
-        headerName: 'Created',
-        width: 130,
-        valueFormatter: (params) =>
-          params.value ? new Date(params.value as string).toLocaleDateString() : '—',
-      },
-    ],
-    []
-  );
 
   const backlogColumns = useMemo<GridColDef<ReleaseChangeResponse>[]>(
     () => [
@@ -333,8 +148,8 @@ export default function ReleaseList() {
               select
               label="Status"
               size="small"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              value={grid.filters.status ?? 'all'}
+              onChange={(e) => grid.setFilter('status', e.target.value)}
               sx={{ minWidth: 160 }}
             >
               <MenuItem value="all">All</MenuItem>
@@ -348,8 +163,8 @@ export default function ReleaseList() {
               select
               label="Type"
               size="small"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              value={grid.filters.release_type ?? 'all'}
+              onChange={(e) => grid.setFilter('release_type', e.target.value)}
               sx={{ minWidth: 160 }}
             >
               <MenuItem value="all">All</MenuItem>
@@ -360,10 +175,10 @@ export default function ReleaseList() {
               ))}
             </TextField>
             <ToggleButtonGroup
-              value={kindFilter}
+              value={grid.filters.release_kind ?? 'all'}
               exclusive
               size="small"
-              onChange={(_, v) => v && setKindFilter(v)}
+              onChange={(_, v) => v && grid.setFilter('release_kind', v)}
               aria-label="Release kind filter"
             >
               <ToggleButton value="all">All</ToggleButton>
@@ -374,8 +189,8 @@ export default function ReleaseList() {
               select
               label="System"
               size="small"
-              value={systemFilter}
-              onChange={(e) => setSystemFilter(e.target.value)}
+              value={grid.filters.system_id ?? 'all'}
+              onChange={(e) => grid.setFilter('system_id', e.target.value)}
               sx={{ minWidth: 180 }}
               disabled={systems.length === 0}
             >
@@ -390,11 +205,18 @@ export default function ReleaseList() {
             <DataTable<ReleaseListItemResponse>
               storageKey="releases-list"
               userId={currentUserId}
-              rows={filteredRows}
+              rows={list}
               columns={releaseColumns}
               loading={loading}
               emptyMessage="No releases yet"
               onRowClick={(params) => navigate(`/releases/${params.row.id}`)}
+              paginationMode="server"
+              sortingMode="server"
+              rowCount={total}
+              paginationModel={grid.paginationModel}
+              onPaginationModelChange={grid.onPaginationModelChange}
+              sortModel={grid.sortModel}
+              onSortModelChange={grid.onSortModelChange}
             />
           </Box>
         </>

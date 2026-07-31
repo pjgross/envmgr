@@ -59,7 +59,7 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
         release_kind: kindFilter === 'all' ? undefined : kindFilter,
         system_id: effectiveSystemId,
       })
-      .then(setRows)
+      .then((paged) => setRows(paged.rows))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
   }, [effectiveSystemId, kindFilter]);

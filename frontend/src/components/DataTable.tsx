@@ -86,10 +86,22 @@ export default function DataTable<R extends GridValidRowModel>({
       density="standard"
       disableRowSelectionOnClick
       pageSizeOptions={[10, 25, 50, 100]}
-      initialState={{
-        pagination: { paginationModel: { pageSize: 25 } },
-        ...rest.initialState,
-      }}
+      initialState={
+        rest.paginationMode === 'server'
+          ? rest.initialState
+          : {
+              pagination: { paginationModel: { pageSize: 25 } },
+              ...rest.initialState,
+            }
+      }
+      // A server-mode grid's rows are one windowed page of a much larger
+      // result set. `filterMode` defaults to `'client'` and the toolbar's
+      // Filters panel isn't disabled by default, so a column filter would
+      // silently filter only the page in hand while the footer keeps
+      // showing the true server-side `rowCount` — the grid would lie about
+      // what it's showing. Default filtering off for server mode unless the
+      // caller explicitly opted back in; client-mode callers are untouched.
+      disableColumnFilter={rest.paginationMode === 'server' ? true : undefined}
       {...rest}
       columnVisibilityModel={columnVisibilityModel}
       onColumnVisibilityModelChange={handleVisibilityChange}
@@ -98,7 +110,23 @@ export default function DataTable<R extends GridValidRowModel>({
         noRowsOverlay: () => <NoRowsOverlay message={emptyMessage} />,
       }}
       slotProps={{
-        toolbar: { showQuickFilter: false },
+        toolbar: {
+          showQuickFilter: false,
+          // Same "the grid lies about what it's showing" hazard as the
+          // Filters panel above, but for export: `GridToolbarExport`'s
+          // csv/print export is wired independently of
+          // `disableColumnFilter` and exports whatever rows are currently
+          // loaded in the grid — one windowed page — while the footer
+          // advertises the full server-side total. Suppress both export
+          // buttons in server mode; client-mode callers already hold their
+          // whole result set in `rows`, so export there is correct as-is.
+          ...(rest.paginationMode === 'server'
+            ? {
+                csvOptions: { disableToolbarButton: true },
+                printOptions: { disableToolbarButton: true },
+              }
+            : {}),
+        },
       }}
     />
   );

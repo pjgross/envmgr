@@ -149,7 +149,12 @@ export interface ReleaseListFilters {
   release_kind?: ReleaseKind;
   from_date?: string;
   to_date?: string;
-  system_id?: number;
+  system_id?: number | string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
 }
 
 export interface TestPhaseCreatePayload {

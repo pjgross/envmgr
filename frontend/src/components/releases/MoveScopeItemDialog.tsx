@@ -8,13 +8,16 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormHelperText,
   MenuItem,
   TextField,
 } from '@mui/material';
-import { useDispatch, useSelector } from 'react-redux';
-import type { AppDispatch, RootState } from '../../store';
-import { fetchReleases, moveReleaseChange } from '../../store/releaseSlice';
+import { useDispatch } from 'react-redux';
+import type { AppDispatch } from '../../store';
+import { moveReleaseChange } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { releaseService } from '../../services/releaseService';
+import type { ReleaseListItemResponse } from '../../types/release';
 
 interface Props {
   open: boolean;
@@ -35,21 +38,43 @@ export default function MoveScopeItemDialog({
 }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
-  const releases = useSelector((s: RootState) => s.release.list);
+  const [releases, setReleases] = useState<ReleaseListItemResponse[]>([]);
+  const [releaseTotal, setReleaseTotal] = useState(0);
 
   const [targetReleaseId, setTargetReleaseId] = useState<number | null>(currentReleaseId);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // This dialog needs its own copy of the release list rather than reading
+  // `state.release.list` — that slice is now the Releases tab's current
+  // filtered/sorted page (server-side paging), so whatever status/type
+  // filter the user left active there would silently narrow the "Target
+  // Release" options here too, with nothing indicating anything is missing.
+  // Fetched directly into local state on every open, unconditionally, so it
+  // never depends on — or overwrites — the shared slice.
   useEffect(() => {
     if (open) {
       setTargetReleaseId(currentReleaseId);
       setNotes('');
-      if (releases.length === 0) {
-        dispatch(fetchReleases({}));
-      }
+      releaseService
+        .list({ limit: 200 })
+        .then(({ rows, total }) => {
+          setReleases(rows);
+          setReleaseTotal(total);
+        })
+        .catch((err) => {
+          setReleases([]);
+          setReleaseTotal(0);
+          snackbar.error(
+            err instanceof Error ? err.message : 'Failed to load releases'
+          );
+        });
     }
-  }, [open, currentReleaseId, releases.length, dispatch]);
+    // `snackbar` is a fresh object every render (see useSnackbar) — adding
+    // it here would refire this effect, and refetch releases, on every
+    // render rather than only on open/currentReleaseId changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, currentReleaseId]);
 
   const handleClose = () => {
     if (submitting) return;
@@ -103,6 +128,11 @@ export default function MoveScopeItemDialog({
             </MenuItem>
           ))}
         </TextField>
+        {releaseTotal > releases.length && (
+          <FormHelperText sx={{ mt: -1.5, mb: 2 }}>
+            Only the first {releases.length} of {releaseTotal} releases are shown.
+          </FormHelperText>
+        )}
         <TextField
           label="Notes (optional)"
           multiline

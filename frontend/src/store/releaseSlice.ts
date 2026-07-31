@@ -37,6 +37,7 @@ import { releaseService } from '../services/releaseService';
 
 interface ReleaseState {
   list: ReleaseListItemResponse[];
+  total: number;
   detail: ReleaseResponse | null;
   loading: boolean;
   error: string | null;
@@ -57,6 +58,7 @@ interface ReleaseState {
 
 const initialState: ReleaseState = {
   list: [],
+  total: 0,
   detail: null,
   loading: false,
   error: null,
@@ -302,9 +304,6 @@ const releaseSlice = createSlice({
   name: 'release',
   initialState,
   reducers: {
-    setFilters(state, action: { payload: ReleaseListFilters }) {
-      state.filters = action.payload;
-    },
     clearDetail(state) {
       state.detail = null;
       state.phases = [];
@@ -320,8 +319,22 @@ const releaseSlice = createSlice({
     builder
       // list
       .addCase(fetchReleases.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(fetchReleases.fulfilled, (state, action) => { state.loading = false; state.list = action.payload; })
-      .addCase(fetchReleases.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed to load releases'; })
+      .addCase(fetchReleases.fulfilled, (state, action) => {
+        state.loading = false;
+        state.list = action.payload.rows;
+        state.total = action.payload.total;
+      })
+      .addCase(fetchReleases.rejected, (state, action) => {
+        // useServerGrid aborts a superseded request rather than merely
+        // ignoring its reply. RTK dispatches `pending` for the new request
+        // synchronously, then `rejected` for the aborted one on a
+        // microtask — so without this guard, `loading` would flip back to
+        // false (the grid's spinner flickers off) and `error` would be set
+        // to 'Aborted' while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load releases';
+      })
 
       // get
       .addCase(fetchRelease.pending, (state) => { state.loading = true; state.error = null; })
@@ -344,6 +357,7 @@ const releaseSlice = createSlice({
           days_to_cutoff: null,
           systems: [],
         });
+        state.total += 1;
       })
 
       // update — preserve existing counts, merge updated fields
@@ -363,15 +377,36 @@ const releaseSlice = createSlice({
       // delete
       .addCase(deleteRelease.fulfilled, (state, action) => {
         state.list = state.list.filter((r) => r.id !== action.payload);
+        state.total = Math.max(0, state.total - 1);
         if (state.detail?.id === action.payload) state.detail = null;
       })
 
       // history
       .addCase(fetchReleaseHistory.fulfilled, (state, action) => { state.history = action.payload; })
 
-      // calendar / timeline
-      .addCase(fetchReleaseCalendar.fulfilled, (state, action) => { state.calendar = action.payload; })
-      .addCase(fetchReleaseTimeline.fulfilled, (state, action) => { state.timeline = action.payload; })
+      // calendar / timeline — these thunks are not wired to useServerGrid's
+      // abort mechanism (ReleaseCalendar/ReleaseTimeline dispatch directly
+      // in a plain useEffect), but they still need ordinary pending/rejected
+      // loading transitions: without them, `loading` never turns true (so
+      // the spinner never shows) and never turns false on failure.
+      .addCase(fetchReleaseCalendar.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchReleaseCalendar.fulfilled, (state, action) => {
+        state.loading = false;
+        state.calendar = action.payload;
+      })
+      .addCase(fetchReleaseCalendar.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load calendar';
+      })
+      .addCase(fetchReleaseTimeline.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchReleaseTimeline.fulfilled, (state, action) => {
+        state.loading = false;
+        state.timeline = action.payload;
+      })
+      .addCase(fetchReleaseTimeline.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load timeline';
+      })
 
       // phases
       .addCase(fetchPhases.fulfilled, (state, action) => { state.phases = action.payload; })
@@ -486,5 +521,5 @@ const releaseSlice = createSlice({
   },
 });
 
-export const { setFilters, clearDetail } = releaseSlice.actions;
+export const { clearDetail } = releaseSlice.actions;
 export default releaseSlice.reducer;

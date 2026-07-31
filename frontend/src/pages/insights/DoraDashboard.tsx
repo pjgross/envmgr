@@ -110,7 +110,7 @@ export default function DoraDashboard() {
   // Load filter options once
   useEffect(() => {
     environmentService.listEnvironments().then(setEnvironments).catch(() => setEnvironments([]));
-    releaseService.list().then(setReleases).catch(() => setReleases([]));
+    releaseService.list().then((paged) => setReleases(paged.rows)).catch(() => setReleases([]));
   }, []);
 
   // Fetch DORA summary whenever filters change
