@@ -861,7 +861,16 @@ git commit -m "feat(pagination): useServerGrid drives a server-side grid from th
 
 **Interfaces:**
 - Consumes: everything from Task 4.
-- Produces: `UseServerGridOptions` gains `debounceKeys?: string[]` and `total?: number`; `onFetch` may now return a `Promise<unknown>` so the hook can discard superseded responses.
+- Produces: `UseServerGridOptions` gains `debounceKeys?: string[]` and `total?: number`; `onFetch` returns the value of `dispatch(thunk(params))` — an RTK promise carrying `.abort()` — typed as `{ abort: () => void } | void`.
+
+**Cancellation, not counting.** The hook does not apply responses; the thunk's
+`fulfilled` reducer writes the slice. So a hook that merely *notices* a superseded
+response cannot stop it painting — the store is written either way. The guard has to
+prevent the write: keep the promise returned by the previous `dispatch` and `.abort()`
+it when the parameters change. An aborted RTK thunk dispatches `rejected` with
+`meta.aborted`, so `fulfilled` never runs and `list`/`total` are never touched. This
+also keeps the test honest — it asserts the store was not updated, rather than reading
+a counter the hook exposed for the test's benefit.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -895,12 +904,16 @@ describe('useServerGrid resilience', () => {
     vi.useRealTimers();
   });
 
-  it('discards a response that a newer request has superseded', async () => {
-    const resolvers: ((v: unknown) => void)[] = [];
-    const applied: number[] = [];
-    const onFetch = vi.fn((p) => {
-      const promise = new Promise((resolve) => resolvers.push(resolve));
-      return promise.then(() => applied.push(p.offset as number));
+  it('aborts the previous request when the parameters change', () => {
+    // The hook does not apply responses — the thunk's fulfilled reducer writes
+    // the slice. Noticing a superseded response therefore cannot stop it
+    // painting; only aborting it can, because an aborted RTK thunk never
+    // reaches fulfilled.
+    const aborts: number[] = [];
+    let call = 0;
+    const onFetch = vi.fn(() => {
+      const id = call++;
+      return { abort: () => aborts.push(id) };
     });
     const { result } = renderHook(
       () => useServerGrid({ endpoint: 'releases', filterKeys: [], onFetch }),
@@ -910,13 +923,22 @@ describe('useServerGrid resilience', () => {
     act(() => result.current.onPaginationModelChange({ page: 1, pageSize: 25 }));
     act(() => result.current.onPaginationModelChange({ page: 2, pageSize: 25 }));
 
-    // Resolve out of order: the older request answers last.
-    await act(async () => {
-      resolvers[resolvers.length - 1]?.(null);
-      resolvers[0]?.(null);
-    });
+    // The mount request and the page-1 request are both superseded; the
+    // in-flight page-2 request is not aborted.
+    expect(aborts).toEqual([0, 1]);
+  });
 
-    expect(result.current.staleResponsesDiscarded).toBeGreaterThan(0);
+  it('aborts the in-flight request on unmount', () => {
+    let aborted = false;
+    const onFetch = vi.fn(() => ({ abort: () => { aborted = true; } }));
+    const { unmount } = renderHook(
+      () => useServerGrid({ endpoint: 'releases', filterKeys: [], onFetch }),
+      { wrapper: wrapper(['/releases']) }
+    );
+
+    unmount();
+
+    expect(aborted).toBe(true);
   });
 
   it('clamps to the last valid page when the offset runs past the total', () => {
@@ -940,17 +962,23 @@ describe('useServerGrid resilience', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cd frontend && npx vitest run src/hooks/__tests__/useServerGrid.test.tsx`
-Expected: FAIL — 3 new failures (`debounceKeys` not accepted, `staleResponsesDiscarded` undefined, page not clamped)
+Expected: FAIL — 4 new failures (`debounceKeys` not accepted, no abort on parameter change, no abort on unmount, page not clamped)
 
-- [ ] **Step 3: Add debounce, sequence guarding and clamping**
+- [ ] **Step 3: Add debounce, abort-based cancellation and clamping**
 
 In `frontend/src/hooks/useServerGrid.ts`, extend the options and return type:
 
 ```ts
+/** What `dispatch(someThunk())` returns in Redux Toolkit: a promise with `.abort()`. */
+export interface Abortable {
+  abort: () => void;
+}
+
 export interface UseServerGridOptions {
   endpoint: EndpointKey;
   filterKeys: string[];
-  onFetch: (params: ServerGridParams) => void | Promise<unknown>;
+  /** Return the value of `dispatch(thunk(params))` so the hook can cancel it. */
+  onFetch: (params: ServerGridParams) => Abortable | void;
   /** Filter keys whose changes should be debounced — free-text inputs. */
   debounceKeys?: string[];
   /** Latest known total, used to clamp an offset that has run past the end. */
@@ -958,29 +986,28 @@ export interface UseServerGridOptions {
 }
 ```
 
-Add `staleResponsesDiscarded: number;` to `ServerGrid`.
+`ServerGrid` is unchanged — cancellation is not observable through the interface, and
+a field existing only so a test can read it would be.
 
-Add these imports: `useRef`, `useState` from `react`.
+Add `useRef` to the `react` import.
 
-Replace the fetch effect with a sequence-guarded one:
+Replace the fetch effect with a cancelling one:
 
 ```ts
-  const sequence = useRef(0);
-  const [staleResponsesDiscarded, setStaleResponsesDiscarded] = useState(0);
+  const inFlight = useRef<Abortable | void>();
 
   const paramsKey = JSON.stringify(params);
   useEffect(() => {
-    sequence.current += 1;
-    const mine = sequence.current;
-    const result = onFetch(params);
-    if (result && typeof (result as Promise<unknown>).then === 'function') {
-      void (result as Promise<unknown>).then(() => {
-        // A reply for a request the user has already moved past must not paint.
-        if (mine !== sequence.current) setStaleResponsesDiscarded((n) => n + 1);
-      });
-    }
+    // Abort the previous request rather than merely ignoring its reply: the
+    // response is applied by the thunk's fulfilled reducer, which this hook
+    // never sees. An aborted RTK thunk dispatches rejected with meta.aborted,
+    // so the slice is never written with rows the user has moved past.
+    inFlight.current?.abort();
+    inFlight.current = onFetch(params);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey]);
+
+  useEffect(() => () => inFlight.current?.abort(), []);
 ```
 
 Add the clamp effect immediately after it:
@@ -1012,23 +1039,33 @@ Debounce `setFilter` for the nominated keys:
   useEffect(() => () => clearTimeout(debounceTimer.current), []);
 ```
 
-Destructure `debounceKeys = []` and `total` from the options, return `setFilter` and `staleResponsesDiscarded`.
+Destructure `debounceKeys = []` and `total` from the options, and return the debounced
+`setFilter` in place of the Task 4 version.
+
+Hoist `debounceKeys = []` to a module-level `const NO_DEBOUNCE: string[] = []` default, or
+memoise it — a fresh array literal per render would rebuild `setFilter` every render.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd frontend && npx vitest run src/hooks/__tests__/useServerGrid.test.tsx`
-Expected: PASS — 9 passed
+Expected: PASS — 10 passed
 
 - [ ] **Step 5: Prove the tests discriminate**
 
-Remove the `if (mine !== sequence.current)` guard so every response counts, re-run.
-Expected: FAIL on the staleness test. Revert and confirm PASS.
+Run all three mutations, restoring after each and confirming PASS again:
+
+1. Remove `inFlight.current?.abort()` from the fetch effect.
+   Expected: FAIL on "aborts the previous request when the parameters change".
+2. Remove the unmount effect.
+   Expected: FAIL on "aborts the in-flight request on unmount".
+3. Make `setFilter` debounce every key (drop the `debounceKeys.includes` check).
+   Expected: FAIL on "debounces a text filter but not a select".
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add frontend/src/hooks/useServerGrid.ts frontend/src/hooks/__tests__/useServerGrid.test.tsx
-git commit -m "feat(pagination): debounce text filters, discard stale responses, clamp overshot pages"
+git commit -m "feat(pagination): debounce text filters, abort superseded requests, clamp overshot pages"
 ```
 
 ---
