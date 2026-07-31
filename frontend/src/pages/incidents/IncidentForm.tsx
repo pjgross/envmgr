@@ -111,7 +111,7 @@ export default function IncidentForm() {
     dispatch(fetchDefinitions('incident'));
     environmentService.listEnvironments().then(setEnvironments).catch(() => setEnvironments([]));
     deploymentService.list().then(setDeployments).catch(() => setDeployments([]));
-    releaseService.list().then(setReleases).catch(() => setReleases([]));
+    releaseService.list().then((paged) => setReleases(paged.rows)).catch(() => setReleases([]));
     systemService.listSystems().then(setSystems).catch(() => setSystems([]));
   }, [dispatch]);
 

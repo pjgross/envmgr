@@ -37,6 +37,7 @@ import { releaseService } from '../services/releaseService';
 
 interface ReleaseState {
   list: ReleaseListItemResponse[];
+  total: number;
   detail: ReleaseResponse | null;
   loading: boolean;
   error: string | null;
@@ -57,6 +58,7 @@ interface ReleaseState {
 
 const initialState: ReleaseState = {
   list: [],
+  total: 0,
   detail: null,
   loading: false,
   error: null,
@@ -320,7 +322,11 @@ const releaseSlice = createSlice({
     builder
       // list
       .addCase(fetchReleases.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(fetchReleases.fulfilled, (state, action) => { state.loading = false; state.list = action.payload; })
+      .addCase(fetchReleases.fulfilled, (state, action) => {
+        state.loading = false;
+        state.list = action.payload.rows;
+        state.total = action.payload.total;
+      })
       .addCase(fetchReleases.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed to load releases'; })
 
       // get

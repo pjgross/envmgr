@@ -1,4 +1,5 @@
 import api from './api';
+import type { Paged } from '../types/pagination';
 import type {
   ReleaseResponse,
   ReleaseListItemResponse,
@@ -48,8 +49,11 @@ import type { ChangeRequestResponse } from '../types/changeRequest';
 
 export const releaseService = {
   // --- Release CRUD ---
-  list: (filters: ReleaseListFilters = {}): Promise<ReleaseListItemResponse[]> =>
-    api.get('/releases', { params: filters }).then((r) => r.data),
+  list: (params: ReleaseListFilters = {}): Promise<Paged<ReleaseListItemResponse>> =>
+    api.get('/releases', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   get: (id: number): Promise<ReleaseResponse> =>
     api.get(`/releases/${id}`).then((r) => r.data),
