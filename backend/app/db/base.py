@@ -7,10 +7,18 @@ from typing import AsyncGenerator
 from app.core.config import settings
 
 
-# Create async engine
+# Create async engine.
+#
+# `echo` stays False even in DEBUG. It is not the way to turn SQL logging on
+# here: echo attaches a second handler to the `sqlalchemy.engine.Engine`
+# instance logger, which still propagates to the root handler, so every
+# statement is emitted twice — once in SQLAlchemy's own format and once in
+# ours. SQL logging is controlled entirely by the level set on
+# `sqlalchemy.engine` in app.core.observability.configure_logging, which routes
+# it through the root handler alone and stamps it with the request id.
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=False,
     future=True,
 )
 

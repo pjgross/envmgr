@@ -20,5 +20,6 @@ def test_real_secret_key_is_accepted_outside_debug():
 
 
 def test_debug_is_off_by_default():
-    """DEBUG drives SQL echo (app/db/base.py) — it must not default on."""
+    """DEBUG turns on SQL statement logging (app/core/observability.py) and
+    permits the shipped placeholder SECRET_KEY — it must not default on."""
     assert Settings.model_fields["DEBUG"].default is False
