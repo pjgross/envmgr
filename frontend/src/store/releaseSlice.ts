@@ -350,6 +350,7 @@ const releaseSlice = createSlice({
           days_to_cutoff: null,
           systems: [],
         });
+        state.total += 1;
       })
 
       // update — preserve existing counts, merge updated fields
@@ -369,6 +370,7 @@ const releaseSlice = createSlice({
       // delete
       .addCase(deleteRelease.fulfilled, (state, action) => {
         state.list = state.list.filter((r) => r.id !== action.payload);
+        state.total = Math.max(0, state.total - 1);
         if (state.detail?.id === action.payload) state.detail = null;
       })
 
