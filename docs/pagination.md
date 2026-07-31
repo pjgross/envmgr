@@ -51,12 +51,161 @@ double-count.
 Two endpoints predate the shared primitive and keep their own limits, because both do per-row
 work after the query: `GET /releases` (50/200) and `GET /deployments` (100/500). They pass
 overrides to `pagination()` rather than adopting the shared 500/1000 — raising their defaults
-would multiply real work, not just serialisation.
+would multiply real work, not just serialisation. `GET /builds` (100/500) is a third, added by
+sub-project C1: it already had its own hand-rolled `100`/`500` limit (see *Not yet bounded*
+below for what it looked like before), so C1 wired it onto `pagination()` with those same
+numbers rather than widening it to the shared default — raising an endpoint's cap is a product
+decision, not a side effect of giving it a total-count header.
+
+## Sorting
+
+Bounding the page settled *how many* rows come back; it said nothing about *which* rows. Without
+an explicit order, whatever the window keeps is arbitrary, and a grid whose column headers claim
+to sort needs the server to actually guarantee that order rather than re-sort whatever the
+current page happens to contain. [`sorting()`](../backend/app/core/pagination.py) is the
+primitive sub-project C1 added for that — a whitelist-based dependency, structurally a sibling of
+`pagination()` rather than a replacement, now wired into the nine endpoints below alongside the
+filter parameters they were missing.
+
+```python
+sort: Sort = Depends(sorting(ENVIRONMENT_SORTS, default="name")),
+...
+query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
+```
+
+**The whitelist is the entire security boundary.** `allowed` maps a client-facing field name —
+the string that arrives as `?sort_by=`— to the ORM column it sorts by. `sorting()` does nothing
+with that string except look it up in the mapping: no `getattr`, no f-string built into an
+`ORDER BY`, no path from client input to a column name at all. A `sort_by` outside the whitelist
+is a **422**, not a silent fallback to the default order — the same reasoning that makes
+`?limit=` past the pagination cap a 422 rather than a clamp. A client that receives a different
+order than it asked for, with no error, has no reason to suspect the response isn't what it
+requested.
+
+**`apply_sort` precedes the tiebreaker; it never replaces it.**
+`apply_sort(query, sort).order_by(Model.id)` still ends in `Model.id` — SQLAlchemy appends rather
+than overwrites. A sort column is almost never unique (two releases share a `status`, two
+bookings share a `start_date`), and sub-project A already proved, on PostgreSQL, that dropping
+the tiebreaker breaks `LIMIT`/`OFFSET` paging deterministically: ties get ordered arbitrarily
+between the query that produces page 1 and the one that produces page 2, so a row can appear on
+both or on neither. Sorting has to compose with the total-ordering rule in *Ordering must be
+total* below, not stand in for it.
+
+**NULLs are pinned, which changes SQLite's behaviour.** SQLite orders `NULL` first on `ASC`;
+PostgreSQL orders it last — so an unqualified `ORDER BY` on a nullable sortable column returned a
+different page per engine before this pass. `apply_sort` now always sorts NULLs last on
+ascending and first on descending, on both engines. That's a deliberate, documented behaviour
+change on SQLite for the five nullable whitelisted columns: `deployer_name`, `target_date`,
+`resolved_at`, `provider`, `region`. PostgreSQL's own default already matched, so it is
+unaffected.
+
+### The nine endpoints
+
+| Endpoint | Sortable fields | Default | New filters |
+|---|---|---|---|
+| `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | — |
+| `GET /bookings/` | `start_date`, `end_date`, `status` | `start_date` asc | — |
+| `GET /environments/` | `name`, `environment_type`, `status`, `created_at` | `name` asc | `search` |
+| `GET /change-requests` | `title`, `change_type`, `status`, `scheduled_start` | `scheduled_start` desc | — |
+| `GET /systems/` | `name` | `name` asc | `search` |
+| `GET /infrastructure-components/` | `name`, `component_type`, `provider`, `region`, `source` | `name` asc | `search` (widened to name/provider/region) |
+| `GET /incidents` | `title`, `severity`, `status`, `detected_at`, `resolved_at` | `detected_at` desc | — |
+| `GET /deployments` | `status`, `deployer_name`, `deployed_at` | `deployed_at` desc | `environment_search`, `release_search` |
+| `GET /builds` | `git_branch`, `build_number`, `commit_timestamp` | `commit_timestamp` desc | `subsystem_search` |
+
+Four of the nine — releases, incidents, change-requests, deployments — declare
+`default_dir="desc"` because that was each endpoint's pre-existing default order, and adopting
+`sorting()` was not allowed to change a default page's contents. That has a sharp edge for
+anyone building a client against this table; see point 3 under *What sub-project C3 must
+honour* below.
+
+Every whitelisted field is a plain column reachable directly off the queried entity. No joined
+column (`environment_name` on a booking, `release_name` on a deployment) is sortable yet — each
+would need its join shape checked individually for whether sorting by it could change which rows
+come back, and that check didn't happen in this pass. Nor is any column that a service computes
+after the page is fetched; see point 2 below for exactly which those are and why.
+
+### Filters that came along for the ride
+
+Five pages filtered client-side on something their endpoint didn't accept as a parameter. Each
+gained one, and every one is a case-insensitive `ilike("%...%")` — the same match the browser
+already performed, so a page that later switches from client- to server-side filtering returns
+the identical matching set.
+
+| Endpoint | New parameter | Matches |
+|---|---|---|
+| `GET /environments/` | `search` | `name` contains |
+| `GET /systems/` | `search` | `name` contains |
+| `GET /infrastructure-components/` | `search` (widened) | `name` **or** `provider` **or** `region` contains — the parameter already existed but matched `name` only; the client was already searching all three |
+| `GET /deployments` | `environment_search`, `release_search` | the already-joined `Environment.name` / `Release.name`, distinct from the id filters the endpoint already had |
+| `GET /builds` | `subsystem_search` | the already-joined `SubSystem.name` |
+
+## What sub-project C3 must honour
+
+C1 produced findings that are inputs to C3's design, not just notes on its own implementation.
+The working ledger they were tracked in as the sub-project progressed is a local, gitignored
+file that does not ship with the repository, so they're recorded here instead — this section
+**is** the contract between the two halves, not a summary of one side of it.
+
+1. **The whitelist table above is the sortable-column contract.** C3 must set `sortable: false`
+   on every grid column whose field is not a key in that endpoint's whitelist. Nothing in either
+   codebase enforces this — a grid column left sortable whose field the backend doesn't
+   recognise gives the user a header that looks clickable and 422s the moment they click it.
+   C3's review must walk this table column by column against each grid's `columns` array, not
+   spot-check it.
+
+2. **Twelve columns can never be sorted server-side, and that is a real capability loss.**
+   `phase_count`, `scope_count`, `scope_change_count`, `blocker_count`,
+   `overdue_criterion_count`, `conflicts`, `pir_status`, `latest_step`, `has_outage`, `systems`,
+   `environments`, `hosts` are computed after the page is fetched — most in Python from batch
+   queries keyed on the page's row ids, `latest_step` in the browser from a JSON field on the
+   build. They're absent from every whitelist above by necessity, not oversight; restructuring
+   any of them into their query is out of scope for both C1 and C3. Users can sort by these
+   columns **today**, because today's grids hold the whole (truncated) page in the browser and
+   sort that — what they have today is a sort of the wrong set, not a correct one. After C3
+   lands, they will have no sort on these columns at all. That is a genuine reduction in
+   capability, traded for correctness, and belongs in release notes or the UI copy rather than
+   being discovered by a confused user.
+
+3. **`default_dir` is endpoint-wide, not per-field — C3 must always send `sort_dir` explicitly.**
+   `sorting()` takes one `default_dir` for the whole endpoint, used only when the client sends no
+   `sort_dir` at all. Four endpoints set it to `"desc"` (see the table above), so
+   `GET /change-requests?sort_by=title` with no `sort_dir` resolves to **descending**, not
+   ascending. A naive grid handler that omits `sort_dir` on a column-header click would therefore
+   render that column descending on first click, which is not what a user expects. C3 must
+   always send an explicit `sort_dir` whenever the user has chosen a sort; the omitted-direction
+   default is only correct for "no sort requested at all".
+
+4. **NULL ordering changed, deliberately, and only on SQLite.** See *Sorting* above: `apply_sort`
+   now pins NULLs last on ascending sorts and first on descending, on both engines. PostgreSQL's
+   default already matched; SQLite's did not, so its behaviour changed for the five nullable
+   whitelisted columns (`deployer_name`, `target_date`, `resolved_at`, `provider`, `region`).
+   This is intentional — don't mistake it for a regression if it's noticed during C3's manual
+   testing against a dev SQLite database.
+
+5. **Two enum-storage conventions coexist; check before whitelisting a new one.**
+   `EnvironmentStatus` is `Enum(native_enum=False)` **without** `values_callable`, so its column
+   stores the enum **name** (`"ACTIVE"`). `InfrastructureComponentType` and
+   `InfrastructureComponentSource` use `values_callable`, so theirs store `.value` (lowercase).
+   Sorting by `environments.status` therefore orders by the name-string; sorting by
+   `infrastructure-components.component_type`/`.source` orders by the value-string. For every
+   member of both enums today, name-order and value-order happen to coincide — the names and
+   values differ only in case — which is member-specific luck, not a property either pattern
+   guarantees. Anyone whitelisting a future enum column, in C3 or elsewhere, must check which
+   convention it uses before assuming its sort order matches what the UI displays.
+
+6. **C1 made exactly two behaviour changes; everything else is additive.** Every new query
+   parameter above is optional, and every endpoint's default, unfiltered result is unchanged by
+   C1 — that's what makes the backend half safe to merge ahead of C3. The two exceptions:
+   `GET /builds` is now bounded and gained an `id` tiebreaker it never had (rows with distinct
+   `commit_timestamp`s are unaffected; only true ties gain a defined order — see *Ordering must
+   be total* below), and NULL ordering on SQLite changed for the five columns in point 4.
 
 ## Bounded so far
 
-Twenty-seven endpoints now go through the primitive — the original twenty-two plus five that
-a follow-on sub-project restructured out of "blocked" (see below):
+Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a
+follow-on sub-project restructured out of "blocked" (see below), and `GET /builds`, moved here
+by sub-project C1 from the "own ad hoc limit" group further down:
 
 | Endpoint | Service | Cap |
 |---|---|---|
@@ -73,6 +222,7 @@ a follow-on sub-project restructured out of "blocked" (see below):
 | `GET /release-changes` | `release_scope_service.list_changes` — flat scope/backlog list, not the per-release view | 1000 |
 | `GET /releases` | `release_service.list_releases` | **200** (own 50/200 contract) |
 | `GET /deployments` | built inline in the endpoint (`app/api/v1/deployments.py`), row variant | **500** (own 100/500 contract) |
+| `GET /builds` | built inline in the endpoint (`app/api/v1/builds.py`), row variant | **500** (own 100/500 contract, preserved from before it had `X-Total-Count`) |
 | `GET /booking-requests` | `booking_request_service.list_booking_requests` — extracted to a service; N+1 removed in the same pass | 1000 |
 | `GET /releases/{id}/events` | release sub-resource | 1000 |
 | `GET /releases/{id}/changes` | release sub-resource | 1000 |
@@ -115,14 +265,16 @@ existing groups to already be exhaustive. The reproducible count:
 
     grep -rn -B3 'response_model=list\[' backend/app/api/v1 | grep -v __pycache__ | grep -E '\.get\(' | wc -l
 
-That returns **51**, unchanged by the restructure below — no endpoint was added or removed, only
-made bound-able. Of those, **26** are now bounded (the table above) and **25** are not — every one
-of the 25 is named below, sorted into whichever group its code actually justifies. If a future
-change adds or removes a list endpoint, re-run the count above and re-check this file against it;
-this doc has now drifted out of sync with the code three times.
+That returns **51**, unchanged by the restructure below or by sub-project C1 — no endpoint was
+added or removed, only made bound-able. Of those, **27** are now bounded (the table above) and
+**24** are not — every one of the 24 is named below, sorted into whichever group its code
+actually justifies. `GET /builds` moved from "own ad hoc limit" (below) into the bounded table in
+this latest pass, which is the one count that changed since the number was last 26/25. If a
+future change adds or removes a list endpoint, re-run the count above and re-check this file
+against it; this doc has now drifted out of sync with the code three times.
 
-Note the second count does not match the first: `grep -c set_total_count` over
-`backend/app/api/v1/` returns **27**, one more than the 26 bounded list endpoints, because
+Note the second count does not match the first: counting call sites of `set_total_count(response`
+under `backend/app/api/v1/` returns **28**, one more than the 27 bounded list endpoints, because
 `membership` sets the header without being a `list[...]` endpoint. Expect that off-by-one.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
@@ -238,20 +390,19 @@ Single-entity structure or history, added by this pass:
   that one item, not tenant volume.
 
 **Already capped by their own ad hoc limit — not the shared primitive, and no `X-Total-Count`.**
-These were missed by earlier passes because "unbounded" was read as "returns everything with no
-cap"; these two already had a cap, just not the shared one, so a scan for a bare `list(...)`
-return missed them.
+This was missed by earlier passes because "unbounded" was read as "returns everything with no
+cap"; it already had a cap, just not the shared one, so a scan for a bare `list(...)` return
+missed it. `GET /builds` used to be the other member of this group — it took its own
+`limit: int = Query(100, le=500)` with every filter running in SQL before the `LIMIT`, so it
+windowed correctly but never learned about `X-Total-Count` — until sub-project C1 wired it onto
+`pagination(default_limit=100, max_limit=500)` and moved it into the bounded table above. It's
+kept as the model for what "wiring, not a query restructure" looks like for the one endpoint
+still in this group:
 
-- `GET /builds` (`builds.py`) — takes its own `limit: int = Query(100, le=500)` and
-  `offset: int = Query(0)`, ordered by `commit_timestamp DESC`. Every filter (`subsystem_id`,
-  `release_id`, `branch`, date range) runs in SQL before the `LIMIT`, so it windows correctly — it
-  just never learned about `X-Total-Count`, so a client has no way to tell 100 rows returned from
-  100 rows total.
 - `GET /environments/{env_id}/health/history` (`environment_health.py`) — takes
-  `limit: int = Query(50, ge=1, le=500)`. Same story: correctly windowed, no total exposed.
-
-Both are one `fetch_page`/`set_total_count` swap away from the shared primitive; the remaining
-work is wiring, not a query restructure.
+  `limit: int = Query(50, ge=1, le=500)`. Correctly windowed, no total exposed. One
+  `fetch_page`/`set_total_count` swap away from the shared primitive, exactly as `GET /builds`
+  was before this pass.
 
 **Growth-bearing, not yet bounded.** Unlike the groups above, nothing caps these structurally, and
 unlike the "blocked" group, there is no Python filtering standing in the way — every one does its
@@ -305,7 +456,15 @@ Endpoints that needed one added because their existing sort column was not uniqu
 (scheduled_start), `environment_health` (Environment.name), `infrastructure-components` (name),
 `releases` (created_at), `deployments` (deployed_at), `booking-requests` (created_at), `release
 events` (occurred_at), `release history` (changed_at), `conflicts` (start_date), `enterprise
-memberships` (requested_at).
+memberships` (requested_at). `builds` (commit_timestamp) joined this list in sub-project C1 — see
+the next paragraph, since unlike the rest it's a genuine behaviour change rather than a gap this
+sweep merely found and closed at the same time as everything else.
+
+`builds` is worth calling out on its own: before sub-project C1 it had no tiebreaker at all —
+`order_by(commit_timestamp.desc())` and nothing else — which is exactly the bug this section
+describes, just on an endpoint that predated the sweep that fixed it everywhere else. It now ends
+in `Build.id`. Rows with distinct `commit_timestamp`s are unaffected; only true ties (same
+millisecond) gain a defined order they didn't have before.
 
 Two endpoints, `tenant/users` and `rollup/scope`, are a step worse: they had **no `ORDER BY` at
 all** before this sweep. Their pages were undefined even before a window was applied — not
