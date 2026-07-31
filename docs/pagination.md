@@ -205,6 +205,71 @@ file that does not ship with the repository, so they're recorded here instead �
    parameter's semantics, though inert today since no frontend page passes `search` to that
    endpoint.
 
+## The C3 pilot
+
+Sub-project C3 converted one page — `ReleaseList` — from the client-side pattern (fetch a
+capped page, filter and sort it in the browser) to true server-side paging, sorting and
+filtering, on `feature/pagination-sweep-c3`. It exists to prove the pattern once, on the
+hardest of the nine grids (six sortable columns, six permanently-unsortable computed ones,
+tab-scoped filters), before repeating it eight more times. What it built:
+
+- **[`frontend/src/constants/sortWhitelists.json`](../frontend/src/constants/sortWhitelists.json)**
+  — a checked-in transcription of all nine endpoints' `sortable`/`default`/`default_dir`. It
+  lives under `frontend/src/`, not `docs/`, because the frontend image's Docker build context is
+  `./frontend` and the file has to ship in the bundle. Enforcement is two-sided, not a
+  hand-maintained copy trusted to stay in sync:
+  [`backend/tests/test_sort_whitelist_contract.py`](../backend/tests/test_sort_whitelist_contract.py)
+  asserts the JSON against the nine `*_SORTS` dicts directly, and
+  `frontend/src/pages/releases/__tests__/releaseColumnsSortable.test.ts` asserts `releaseColumns`
+  against the same JSON via `isSortable`. Cross-language drift — someone widening a backend
+  whitelist without telling the frontend, or the reverse — is now a CI failure on either side,
+  not something a reviewer has to notice by eye.
+- **`frontend/src/hooks/serverGridParams.ts`** and **`useServerGrid.ts`** — pure param-building
+  plus a hook that makes the URL the source of truth (refresh, back button, and a shared link all
+  reproduce the same view), with per-key debounce, abort-based cancellation of superseded
+  requests, and page clamping when a filter narrows the result set past the current offset.
+- **`DataTable`** gained an optional server mode, which also turns off the toolbar's column
+  filter and CSV/Print export — both operate on whatever page is loaded in the browser, and doing
+  that silently while the footer shows the true server-side total would be showing the user two
+  different counts under one control.
+- **`ComputedColumnHeader`** — a header with a keyboard-reachable tooltip explaining *why* a
+  column can't be sorted, for the six computed columns on the release grid.
+
+Two rules the pattern depends on, not obvious from reading either hook in isolation:
+
+**`sort_dir` is always sent explicitly, never omitted.** `resolveSort` in `serverGridParams.ts`
+always returns a direction, even when the user hasn't chosen a sort — because four of the nine
+endpoints declare `default_dir="desc"` (see the table above), an omitted direction on a first
+header click would render that column descending, not ascending, which is not what a user
+expects from a first click.
+
+**`id` is not sortable on any converted grid.** It is not a key in any endpoint's whitelist, so
+`releaseColumns` declares `id: { sortable: false }` and the same will be true of every remaining
+page — there is no ID column to reclaim by whitelisting it later without a backend change.
+
+**The hazard the rollout must not relearn: converting a page changes what its Redux slice
+*means*.** Before this pilot, `state.release.list` held the newest N releases the last unbounded
+fetch happened to return. After it, the same slice holds whatever page `ReleaseList`'s grid
+currently has open — 25 rows, filtered and sorted however the user last left the grid. Nothing
+about the slice's shape changed, only its contents' meaning, so nothing type-checks to catch a
+consumer still assuming the old one. This broke `MoveScopeItemDialog`'s target-release dropdown
+during this pilot: it read `state.release.list` for "every release", and started offering only
+whatever subset matched the grid's active filter. The fix was to give the dialog its own
+unfiltered fetch into local state rather than reading the shared slice at all (see the comment in
+`frontend/src/components/releases/MoveScopeItemDialog.tsx`). **Before converting each remaining
+page, grep for every other consumer of that page's list slice** — they were written against a
+large, unfiltered batch, and a converted slice will quietly stop being one.
+
+**Eight pages remain on the old client-side pattern**, unconverted until the rollout picks them
+up: bookings, environments, change-requests, systems, infrastructure-components, incidents,
+deployments, builds. Each fetches a capped page today and filters/sorts it in the browser —
+the same live bug `ReleaseList` had, still present on all eight.
+
+**Manual browser verification of `ReleaseList` has not been done.** The pilot's proof is
+automated — unit tests, the contract test, and
+[`frontend/e2e/releases-pagination.spec.ts`](../frontend/e2e/releases-pagination.spec.ts) — not a
+human exercising the converted page in a browser. That step is still outstanding.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a
