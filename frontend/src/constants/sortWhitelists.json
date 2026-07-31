@@ -1,0 +1,47 @@
+{
+  "releases": {
+    "sortable": ["name", "release_type", "release_kind", "status", "target_date", "created_at"],
+    "default": "created_at",
+    "default_dir": "desc"
+  },
+  "bookings": {
+    "sortable": ["start_date", "end_date", "status"],
+    "default": "start_date",
+    "default_dir": "asc"
+  },
+  "environments": {
+    "sortable": ["name", "environment_type", "status", "created_at"],
+    "default": "name",
+    "default_dir": "asc"
+  },
+  "change-requests": {
+    "sortable": ["title", "change_type", "status", "scheduled_start"],
+    "default": "scheduled_start",
+    "default_dir": "desc"
+  },
+  "systems": {
+    "sortable": ["name"],
+    "default": "name",
+    "default_dir": "asc"
+  },
+  "infrastructure-components": {
+    "sortable": ["name", "component_type", "provider", "region", "source"],
+    "default": "name",
+    "default_dir": "asc"
+  },
+  "incidents": {
+    "sortable": ["title", "severity", "status", "detected_at", "resolved_at"],
+    "default": "detected_at",
+    "default_dir": "desc"
+  },
+  "deployments": {
+    "sortable": ["status", "deployer_name", "deployed_at"],
+    "default": "deployed_at",
+    "default_dir": "desc"
+  },
+  "builds": {
+    "sortable": ["git_branch", "build_number", "commit_timestamp"],
+    "default": "commit_timestamp",
+    "default_dir": "desc"
+  }
+}
