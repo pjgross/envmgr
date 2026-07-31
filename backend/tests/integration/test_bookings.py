@@ -1,10 +1,14 @@
 """Integration tests for the Booking System (M4)."""
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
 from app.db.models.user import Tenant, User
 from app.db.models.environment import Environment
+from app.db.models.booking import Booking
+from app.db.models.booking_request import BookingRequest
 from app.core.security import get_password_hash
 
 
@@ -437,3 +441,153 @@ async def test_tenant_isolation(client: AsyncClient, auth_headers, other_auth_he
     # Tenant B gets 404 when fetching by ID
     get_resp = await client.get(f"/api/v1/bookings/{booking_id}", headers=other_auth_headers)
     assert get_resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting (sub-project C1 task 4)
+# ---------------------------------------------------------------------------
+
+
+def _t(offset_days: float) -> datetime:
+    return datetime(2026, 3, 1, tzinfo=timezone.utc) + timedelta(days=offset_days)
+
+
+async def _direct_booking(
+    db_session,
+    tenant_id: int,
+    environment_id: int,
+    booking_type_id: int,
+    user_id: int,
+    *,
+    start: datetime,
+    end: datetime,
+    status: str = "draft",
+    project_name: str = "SortProj",
+) -> Booking:
+    """Insert a Booking + its parent BookingRequest directly, bypassing the
+    overlap check and lifecycle validation that POST /bookings/ enforces, so
+    tests can seed exact start_date/end_date/status combinations that
+    deliberately disagree with insertion order."""
+    req = BookingRequest(
+        tenant_id=tenant_id,
+        project_name=project_name,
+        booking_type_id=booking_type_id,
+        start_date=start,
+        end_date=end,
+        booked_by=user_id,
+    )
+    db_session.add(req)
+    await db_session.flush()
+    booking = Booking(
+        tenant_id=tenant_id,
+        environment_id=environment_id,
+        booking_request_id=req.id,
+        start_date=start,
+        end_date=end,
+        status=status,
+    )
+    db_session.add(booking)
+    await db_session.flush()
+    return booking
+
+
+@pytest.mark.asyncio
+async def test_list_bookings_default_order_unchanged(
+    client: AsyncClient, auth_headers, default_booking_type_id: int,
+    db_session, test_tenant, test_user,
+):
+    """No sort_by: order must stay `start_date ASC, id` — today's ordering,
+    byte for byte.
+
+    Insertion order (a, b, c) deliberately disagrees with both id-ascending
+    and start_date-ascending order, so a response that happened to preserve
+    insertion order — or that silently flipped direction the moment this
+    endpoint gained the sorting() dependency — would not accidentally satisfy
+    this assertion.
+    """
+    env_id = await _create_env(client, auth_headers, "SortDefaultEnv")
+    a = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                               test_user.id, start=_t(2), end=_t(2.1))
+    b = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                               test_user.id, start=_t(0), end=_t(0.1))
+    c = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                               test_user.id, start=_t(1), end=_t(1.1))
+
+    resp = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert resp.status_code == 200
+    assert [row["id"] for row in resp.json()] == [b.id, c.id, a.id]
+
+
+@pytest.mark.asyncio
+async def test_list_bookings_sort_by_start_date_both_directions(
+    client: AsyncClient, auth_headers, default_booking_type_id: int,
+    db_session, test_tenant, test_user,
+):
+    env_id = await _create_env(client, auth_headers, "SortStartEnv")
+    charlie = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                     test_user.id, start=_t(0), end=_t(0.1))
+    alpha = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                   test_user.id, start=_t(1), end=_t(1.1))
+    bravo = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                   test_user.id, start=_t(2), end=_t(2.1))
+
+    asc = await client.get("/api/v1/bookings/?sort_by=start_date&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [charlie.id, alpha.id, bravo.id]
+
+    desc = await client.get("/api/v1/bookings/?sort_by=start_date&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [bravo.id, alpha.id, charlie.id]
+
+
+@pytest.mark.asyncio
+async def test_list_bookings_sort_by_end_date_both_directions(
+    client: AsyncClient, auth_headers, default_booking_type_id: int,
+    db_session, test_tenant, test_user,
+):
+    """All three start at the same instant so only end_date can drive the
+    order — insertion order deliberately disagrees with end_date order."""
+    start = _t(0)
+    env_id = await _create_env(client, auth_headers, "SortEndEnv")
+    late = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                  test_user.id, start=start, end=_t(5))
+    early = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                   test_user.id, start=start, end=_t(1))
+    mid = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                 test_user.id, start=start, end=_t(3))
+
+    asc = await client.get("/api/v1/bookings/?sort_by=end_date&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [early.id, mid.id, late.id]
+
+    desc = await client.get("/api/v1/bookings/?sort_by=end_date&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [late.id, mid.id, early.id]
+
+
+@pytest.mark.asyncio
+async def test_list_bookings_sort_by_status_both_directions(
+    client: AsyncClient, auth_headers, default_booking_type_id: int,
+    db_session, test_tenant, test_user,
+):
+    env_id = await _create_env(client, auth_headers, "SortStatusEnv")
+    mu = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                test_user.id, start=_t(0), end=_t(0.1), status="mu")
+    alpha = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                   test_user.id, start=_t(1), end=_t(1.1), status="alpha")
+    zeta = await _direct_booking(db_session, test_tenant.id, env_id, default_booking_type_id,
+                                  test_user.id, start=_t(2), end=_t(2.1), status="zeta")
+
+    asc = await client.get("/api/v1/bookings/?sort_by=status&sort_dir=asc", headers=auth_headers)
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, mu.id, zeta.id]
+
+    desc = await client.get("/api/v1/bookings/?sort_by=status&sort_dir=desc", headers=auth_headers)
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [zeta.id, mu.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_bookings_unknown_sort_by_is_422(client: AsyncClient, auth_headers):
+    resp = await client.get("/api/v1/bookings/?sort_by=nonexistent", headers=auth_headers)
+    assert resp.status_code == 422

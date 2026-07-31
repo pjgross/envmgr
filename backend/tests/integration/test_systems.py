@@ -304,3 +304,80 @@ async def test_create_subsystem_duplicate_name(client: AsyncClient, auth_headers
         json={"name": "DuplicateSub", "description": "second"},
     )
     assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting + search (sub-project C1 task 2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_systems_default_order_unchanged(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """No sort_by: order must stay `name, id` — today's ordering, byte for byte.
+
+    Insertion order (Charlie, Alpha, Bravo) deliberately disagrees with name
+    order, so a response that happened to preserve insertion/id order would not
+    accidentally satisfy this assertion.
+    """
+    charlie = System(tenant_id=test_tenant.id, name="Charlie")
+    alpha = System(tenant_id=test_tenant.id, name="Alpha")
+    bravo = System(tenant_id=test_tenant.id, name="Bravo")
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/systems/", headers=auth_headers)
+    assert response.status_code == 200
+    assert [s["id"] for s in response.json()] == [alpha.id, bravo.id, charlie.id]
+
+
+@pytest.mark.asyncio
+async def test_list_systems_sort_by_name_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    charlie = System(tenant_id=test_tenant.id, name="Charlie")
+    alpha = System(tenant_id=test_tenant.id, name="Alpha")
+    bravo = System(tenant_id=test_tenant.id, name="Bravo")
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/systems/?sort_by=name&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [s["id"] for s in asc.json()] == [alpha.id, bravo.id, charlie.id]
+
+    desc = await client.get(
+        "/api/v1/systems/?sort_by=name&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [s["id"] for s in desc.json()] == [charlie.id, bravo.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_systems_sort_by_unknown_field_is_422(
+    client: AsyncClient, auth_headers
+):
+    """Through the real endpoint, not just Task 1's probe app."""
+    response = await client.get("/api/v1/systems/?sort_by=nonexistent", headers=auth_headers)
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_systems_search_matches_case_insensitive_contains(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """search must agree with the browser's
+    `name.toLowerCase().includes(q.toLowerCase())` — matches regardless of case,
+    substrings match, and a name with no match at all is excluded."""
+    payments = System(tenant_id=test_tenant.id, name="Payments")
+    payments_gateway = System(tenant_id=test_tenant.id, name="payments-gateway")
+    other = System(tenant_id=test_tenant.id, name="Notifications")
+    db_session.add_all([payments, payments_gateway, other])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/systems/?search=PAY", headers=auth_headers)
+    assert response.status_code == 200
+    ids = {s["id"] for s in response.json()}
+    assert ids == {payments.id, payments_gateway.id}

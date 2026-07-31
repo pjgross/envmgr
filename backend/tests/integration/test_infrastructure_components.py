@@ -7,6 +7,11 @@ from httpx import AsyncClient
 
 from app.db.models.system import System, SubSystem
 from app.db.models.environment import EnvironmentSubSystem
+from app.db.models.infrastructure_component import (
+    InfrastructureComponent,
+    InfrastructureComponentSource,
+    InfrastructureComponentType,
+)
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -417,3 +422,251 @@ async def test_update_writes_env_host_diff_history(
     history = detail.json()["history"]
     field_names = [h["field_name"] for h in history if h["field_name"]]
     assert "hosts" in field_names
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting + widened search (sub-project C1 task 5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_components_default_order_unchanged(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """No sort_by: order must stay `name, id` — today's ordering, byte for byte.
+
+    Insertion order (Charlie, Alpha, Bravo) deliberately disagrees with name
+    order, so a response that happened to preserve insertion/id order would not
+    accidentally satisfy this assertion.
+    """
+    charlie = InfrastructureComponent(tenant_id=test_tenant.id, name="Charlie")
+    alpha = InfrastructureComponent(tenant_id=test_tenant.id, name="Alpha")
+    bravo = InfrastructureComponent(tenant_id=test_tenant.id, name="Bravo")
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/infrastructure-components/", headers=auth_headers)
+    assert response.status_code == 200
+    assert [c["id"] for c in response.json()] == [alpha.id, bravo.id, charlie.id]
+
+
+@pytest.mark.asyncio
+async def test_list_components_sort_by_name_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    charlie = InfrastructureComponent(tenant_id=test_tenant.id, name="Charlie")
+    alpha = InfrastructureComponent(tenant_id=test_tenant.id, name="Alpha")
+    bravo = InfrastructureComponent(tenant_id=test_tenant.id, name="Bravo")
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=name&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [c["id"] for c in asc.json()] == [alpha.id, bravo.id, charlie.id]
+
+    desc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=name&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [c["id"] for c in desc.json()] == [charlie.id, bravo.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_components_sort_by_component_type_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """Names/ids are already ascending here, so only component_type sorting —
+    not the name tiebreaker or insertion order — could produce these sequences.
+
+    component_type is stored via `values_callable` (the enum's `.value`, e.g.
+    "cache"/"load_balancer"/"server"), so this also pins that sorting happens
+    on the lowercase value column, not the Python-side enum name.
+    """
+    c1 = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="C1", component_type=InfrastructureComponentType.SERVER
+    )
+    c2 = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="C2", component_type=InfrastructureComponentType.CACHE
+    )
+    c3 = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="C3", component_type=InfrastructureComponentType.LOAD_BALANCER
+    )
+    db_session.add_all([c1, c2, c3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=component_type&sort_dir=asc",
+        headers=auth_headers,
+    )
+    assert asc.status_code == 200
+    assert [c["id"] for c in asc.json()] == [c2.id, c3.id, c1.id]
+
+    desc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=component_type&sort_dir=desc",
+        headers=auth_headers,
+    )
+    assert desc.status_code == 200
+    assert [c["id"] for c in desc.json()] == [c1.id, c3.id, c2.id]
+
+
+@pytest.mark.asyncio
+async def test_list_components_sort_by_provider_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    p1 = InfrastructureComponent(tenant_id=test_tenant.id, name="P1", provider="zebra")
+    p2 = InfrastructureComponent(tenant_id=test_tenant.id, name="P2", provider="alpha")
+    p3 = InfrastructureComponent(tenant_id=test_tenant.id, name="P3", provider="mid")
+    db_session.add_all([p1, p2, p3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=provider&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [c["id"] for c in asc.json()] == [p2.id, p3.id, p1.id]
+
+    desc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=provider&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [c["id"] for c in desc.json()] == [p1.id, p3.id, p2.id]
+
+
+@pytest.mark.asyncio
+async def test_list_components_sort_by_region_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    r1 = InfrastructureComponent(tenant_id=test_tenant.id, name="R1", region="west")
+    r2 = InfrastructureComponent(tenant_id=test_tenant.id, name="R2", region="east")
+    r3 = InfrastructureComponent(tenant_id=test_tenant.id, name="R3", region="central")
+    db_session.add_all([r1, r2, r3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=region&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [c["id"] for c in asc.json()] == [r3.id, r2.id, r1.id]
+
+    desc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=region&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [c["id"] for c in desc.json()] == [r1.id, r2.id, r3.id]
+
+
+@pytest.mark.asyncio
+async def test_list_components_sort_by_source_both_directions(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """source is also stored via `values_callable` — "docker_compose" < "manual"
+    < "terraform" alphabetically."""
+    s1 = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="S1", source=InfrastructureComponentSource.TERRAFORM
+    )
+    s2 = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="S2", source=InfrastructureComponentSource.MANUAL
+    )
+    s3 = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="S3", source=InfrastructureComponentSource.DOCKER_COMPOSE
+    )
+    db_session.add_all([s1, s2, s3])
+    await db_session.commit()
+
+    asc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=source&sort_dir=asc", headers=auth_headers
+    )
+    assert asc.status_code == 200
+    assert [c["id"] for c in asc.json()] == [s3.id, s2.id, s1.id]
+
+    desc = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=source&sort_dir=desc", headers=auth_headers
+    )
+    assert desc.status_code == 200
+    assert [c["id"] for c in desc.json()] == [s1.id, s2.id, s3.id]
+
+
+@pytest.mark.asyncio
+async def test_list_components_sort_by_unknown_field_is_422(client, auth_headers):
+    """Through the real endpoint, not just Task 1's probe app."""
+    response = await client.get(
+        "/api/v1/infrastructure-components/?sort_by=nonexistent", headers=auth_headers
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_search_matches_name_even_when_provider_and_region_are_null(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """The nullable-column trap: `provider`/`region` are NULL on this row, and a
+    naive widening that ANDs a per-field ILIKE (instead of ORing them) would
+    turn `name ILIKE '%prod%' AND NULL AND NULL` into NULL — silently dropping
+    a row whose name plainly matches. `provider`/`region` default to None here
+    (never set), so this is exactly that shape.
+    """
+    match = InfrastructureComponent(tenant_id=test_tenant.id, name="prod-web-1")
+    db_session.add(match)
+    await db_session.commit()
+    await db_session.refresh(match)
+    assert match.provider is None
+    assert match.region is None
+
+    response = await client.get(
+        "/api/v1/infrastructure-components/?search=prod", headers=auth_headers
+    )
+    assert response.status_code == 200
+    ids = {c["id"] for c in response.json()}
+    assert match.id in ids
+
+
+@pytest.mark.asyncio
+async def test_search_widened_to_match_provider_when_name_does_not(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """The actual widening under test: a row whose `name` does not contain the
+    search term at all is still returned because `provider` does. A search that
+    only ever matched `name` (the un-widened code) would pass every test that
+    only covers name matches and fail this one.
+    """
+    provider_match = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="Unrelated-Box", provider="aws-production"
+    )
+    no_match = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="Nothing-Here", provider="on_premise", region="dev-zone"
+    )
+    db_session.add_all([provider_match, no_match])
+    await db_session.commit()
+
+    response = await client.get(
+        "/api/v1/infrastructure-components/?search=PROD", headers=auth_headers
+    )
+    assert response.status_code == 200
+    ids = {c["id"] for c in response.json()}
+    assert ids == {provider_match.id}
+
+
+@pytest.mark.asyncio
+async def test_search_widened_to_match_region_when_name_does_not(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """Same widening, but for `region` specifically — a fix that widened
+    `provider` and forgot `region` would fail this one while passing the
+    provider-mirror test above."""
+    region_match = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="Unrelated-Box-2", region="us-production-1"
+    )
+    no_match = InfrastructureComponent(
+        tenant_id=test_tenant.id, name="Nothing-Here-2", provider="on_premise", region="dev-zone"
+    )
+    db_session.add_all([region_match, no_match])
+    await db_session.commit()
+
+    response = await client.get(
+        "/api/v1/infrastructure-components/?search=PROD", headers=auth_headers
+    )
+    assert response.status_code == 200
+    ids = {c["id"] for c in response.json()}
+    assert ids == {region_match.id}

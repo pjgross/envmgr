@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
+from app.db.models.change_request import ChangeRequest
 from app.services import change_request_service
 from app.api.v1.schemas.change_request import (
     ChangeRequestCreate,
@@ -23,6 +24,17 @@ from app.api.v1.schemas.change_request import (
 router = APIRouter(prefix="/change-requests", tags=["Change Requests"])
 
 
+# today's default ordering is `scheduled_start DESC, id` — sorting() must
+# preserve that when no sort_by/sort_dir is requested at all, see default_dir
+# on the dependency below.
+CHANGE_REQUEST_SORTS = {
+    "title": ChangeRequest.title,
+    "change_type": ChangeRequest.change_type,
+    "status": ChangeRequest.status,
+    "scheduled_start": ChangeRequest.scheduled_start,
+}
+
+
 async def _shape(db: AsyncSession, cr, tenant_id: int) -> dict:
     return await change_request_service.build_cr_response_dict(db, cr, tenant_id)
 
@@ -37,6 +49,9 @@ async def list_change_requests(
     scheduled_from: Optional[datetime] = Query(None),
     scheduled_to: Optional[datetime] = Query(None),
     page: Page = Depends(pagination()),
+    sort: Sort = Depends(
+        sorting(CHANGE_REQUEST_SORTS, default="scheduled_start", default_dir="desc")
+    ),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -51,6 +66,7 @@ async def list_change_requests(
         scheduled_from=scheduled_from,
         scheduled_to=scheduled_to,
         page=page,
+        sort=sort,
     )
     set_total_count(response, total)
     return [await _shape(db, cr, tenant_id) for cr in crs]

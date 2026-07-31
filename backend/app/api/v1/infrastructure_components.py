@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.models.infrastructure_component import (
+    InfrastructureComponent,
     InfrastructureComponentSource,
     InfrastructureComponentType,
 )
@@ -21,6 +22,15 @@ from app.api.v1.schemas.infrastructure_component import (
 router = APIRouter()
 
 
+INFRASTRUCTURE_SORTS = {
+    "name": InfrastructureComponent.name,
+    "component_type": InfrastructureComponent.component_type,
+    "provider": InfrastructureComponent.provider,
+    "region": InfrastructureComponent.region,
+    "source": InfrastructureComponent.source,
+}
+
+
 @router.get("/", response_model=list[InfrastructureComponentResponse])
 async def list_components(
     response: Response,
@@ -28,8 +38,9 @@ async def list_components(
     provider: Optional[str] = None,
     region: Optional[str] = None,
     source: Optional[InfrastructureComponentSource] = None,
-    search: Optional[str] = Query(None, description="Case-insensitive name contains"),
+    search: Optional[str] = Query(None, description="Case-insensitive name/provider/region contains"),
     page: Page = Depends(pagination()),
+    sort: Sort = Depends(sorting(INFRASTRUCTURE_SORTS, default="name")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -42,6 +53,7 @@ async def list_components(
         source=source,
         search=search,
         page=page,
+        sort=sort,
     )
     set_total_count(response, total)
     return rows

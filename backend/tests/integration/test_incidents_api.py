@@ -1,10 +1,13 @@
 """Integration tests for the Incidents API (Phase 5 SP1)."""
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
 from app.db.base import get_db
+from app.db.models.incident import Incident
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
@@ -168,3 +171,154 @@ async def test_incident_list_has_pir_status(authed_client, demo_release_id):
     row = next((i for i in r.json() if i["id"] == iid), None)
     assert row is not None, "Incident not found in list"
     assert row["pir_status"] == "complete", f"Expected 'complete', got: {row['pir_status']}"
+
+
+# ---------------------------------------------------------------------------
+# Server-side sorting (sub-project C1 task 3)
+# ---------------------------------------------------------------------------
+
+
+def _t(offset_days: float) -> datetime:
+    return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=offset_days)
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_default_order_unchanged(
+    authed_client: AsyncClient, db_session, tenant
+):
+    """No sort_by: order must stay `detected_at DESC, id` — today's ordering,
+    byte for byte.
+
+    Insertion order (a, b, c) deliberately disagrees with both id-ascending and
+    detected_at-ascending order, so a response that happened to preserve
+    insertion order — or that silently flipped to ascending the moment this
+    endpoint gained the sorting() dependency — would not accidentally satisfy
+    this assertion.
+    """
+    a = Incident(tenant_id=tenant.id, title="A", severity="P1", status="new", detected_at=_t(2))
+    b = Incident(tenant_id=tenant.id, title="B", severity="P1", status="new", detected_at=_t(0))
+    c = Incident(tenant_id=tenant.id, title="C", severity="P1", status="new", detected_at=_t(1))
+    db_session.add_all([a, b, c])
+    await db_session.flush()
+
+    resp = await authed_client.get("/api/v1/incidents")
+    assert resp.status_code == 200
+    assert [row["id"] for row in resp.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_sort_by_title_both_directions(
+    authed_client: AsyncClient, db_session, tenant
+):
+    charlie = Incident(tenant_id=tenant.id, title="Charlie", severity="P1", status="new", detected_at=_t(0))
+    alpha = Incident(tenant_id=tenant.id, title="Alpha", severity="P1", status="new", detected_at=_t(1))
+    bravo = Incident(tenant_id=tenant.id, title="Bravo", severity="P1", status="new", detected_at=_t(2))
+    db_session.add_all([charlie, alpha, bravo])
+    await db_session.flush()
+
+    asc = await authed_client.get("/api/v1/incidents?sort_by=title&sort_dir=asc")
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, bravo.id, charlie.id]
+
+    desc = await authed_client.get("/api/v1/incidents?sort_by=title&sort_dir=desc")
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [charlie.id, bravo.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_sort_by_severity_both_directions(
+    authed_client: AsyncClient, db_session, tenant
+):
+    """Severities P1-P4 are stored as the literal string (plain String(2)
+    column, not a SQLAlchemy Enum) — insertion order below deliberately
+    disagrees with severity order so only the sort, not insertion/id order,
+    could produce these sequences."""
+    p3 = Incident(tenant_id=tenant.id, title="i1", severity="P3", status="new", detected_at=_t(0))
+    p1 = Incident(tenant_id=tenant.id, title="i2", severity="P1", status="new", detected_at=_t(1))
+    p2 = Incident(tenant_id=tenant.id, title="i3", severity="P2", status="new", detected_at=_t(2))
+    db_session.add_all([p3, p1, p2])
+    await db_session.flush()
+
+    asc = await authed_client.get("/api/v1/incidents?sort_by=severity&sort_dir=asc")
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [p1.id, p2.id, p3.id]
+
+    desc = await authed_client.get("/api/v1/incidents?sort_by=severity&sort_dir=desc")
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [p3.id, p2.id, p1.id]
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_sort_by_status_both_directions(
+    authed_client: AsyncClient, db_session, tenant
+):
+    mu = Incident(tenant_id=tenant.id, title="i1", severity="P1", status="mu", detected_at=_t(0))
+    alpha = Incident(tenant_id=tenant.id, title="i2", severity="P1", status="alpha", detected_at=_t(1))
+    zeta = Incident(tenant_id=tenant.id, title="i3", severity="P1", status="zeta", detected_at=_t(2))
+    db_session.add_all([mu, alpha, zeta])
+    await db_session.flush()
+
+    asc = await authed_client.get("/api/v1/incidents?sort_by=status&sort_dir=asc")
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [alpha.id, mu.id, zeta.id]
+
+    desc = await authed_client.get("/api/v1/incidents?sort_by=status&sort_dir=desc")
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [zeta.id, mu.id, alpha.id]
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_sort_by_detected_at_both_directions(
+    authed_client: AsyncClient, db_session, tenant
+):
+    a = Incident(tenant_id=tenant.id, title="A", severity="P1", status="new", detected_at=_t(2))
+    b = Incident(tenant_id=tenant.id, title="B", severity="P1", status="new", detected_at=_t(0))
+    c = Incident(tenant_id=tenant.id, title="C", severity="P1", status="new", detected_at=_t(1))
+    db_session.add_all([a, b, c])
+    await db_session.flush()
+
+    asc = await authed_client.get("/api/v1/incidents?sort_by=detected_at&sort_dir=asc")
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [b.id, c.id, a.id]
+
+    desc = await authed_client.get("/api/v1/incidents?sort_by=detected_at&sort_dir=desc")
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_sort_by_resolved_at_both_directions(
+    authed_client: AsyncClient, db_session, tenant
+):
+    """All rows get a non-null resolved_at — Postgres defaults NULLs LAST on
+    ASC and NULLS FIRST on DESC while SQLite treats NULL as the smallest value,
+    so a row with a null resolved_at here would make the two engines disagree
+    on the expected sequence."""
+    a = Incident(
+        tenant_id=tenant.id, title="A", severity="P1", status="new",
+        detected_at=_t(0), resolved_at=_t(2),
+    )
+    b = Incident(
+        tenant_id=tenant.id, title="B", severity="P1", status="new",
+        detected_at=_t(0), resolved_at=_t(0),
+    )
+    c = Incident(
+        tenant_id=tenant.id, title="C", severity="P1", status="new",
+        detected_at=_t(0), resolved_at=_t(1),
+    )
+    db_session.add_all([a, b, c])
+    await db_session.flush()
+
+    asc = await authed_client.get("/api/v1/incidents?sort_by=resolved_at&sort_dir=asc")
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()] == [b.id, c.id, a.id]
+
+    desc = await authed_client.get("/api/v1/incidents?sort_by=resolved_at&sort_dir=desc")
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()] == [a.id, c.id, b.id]
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_unknown_sort_by_is_422(authed_client: AsyncClient):
+    resp = await authed_client.get("/api/v1/incidents?sort_by=nonexistent")
+    assert resp.status_code == 422

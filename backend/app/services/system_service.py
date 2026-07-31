@@ -9,17 +9,23 @@ from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.system import SystemCreate, SystemUpdate, SubSystemCreate, SubSystemUpdate
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 
 
 async def list_systems(
-    db: AsyncSession, tenant_id: int, page: Optional[Page] = None
+    db: AsyncSession,
+    tenant_id: int,
+    page: Optional[Page] = None,
+    *,
+    search: Optional[str] = None,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[System], int]:
-    query = (
-        select(System)
-        .where(System.tenant_id == tenant_id, System.deleted_at.is_(None))
-        .order_by(System.name, System.id)
+    query = select(System).where(
+        System.tenant_id == tenant_id, System.deleted_at.is_(None)
     )
+    if search:
+        query = query.where(System.name.ilike(f"%{search}%"))
+    query = apply_sort(query, sort).order_by(System.name, System.id)
     return await fetch_page(db, query, page)
 
 

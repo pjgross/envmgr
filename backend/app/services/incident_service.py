@@ -14,7 +14,7 @@ from app.db.models.release_change import ReleaseChange
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
 from app.services import custom_field_service, lifecycle_service, pir_service
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 
 _FK_MODELS = {
     "environment_id": Environment,
@@ -104,7 +104,12 @@ async def get_incident(db: AsyncSession, incident_id: int, tenant_id: int) -> Op
 
 
 async def list_incidents(
-    db: AsyncSession, tenant_id: int, filters: dict, page: Optional[Page] = None
+    db: AsyncSession,
+    tenant_id: int,
+    filters: dict,
+    page: Optional[Page] = None,
+    *,
+    sort: Optional[Sort] = None,
 ) -> tuple[list[Incident], int]:
     conds = [Incident.tenant_id == tenant_id, Incident.deleted_at.is_(None)]
     for f in ("status", "severity", "system_id", "environment_id", "release_id", "source"):
@@ -114,9 +119,8 @@ async def list_incidents(
         conds.append(Incident.detected_at >= filters["date_from"])
     if filters.get("date_to"):
         conds.append(Incident.detected_at <= filters["date_to"])
-    query = select(Incident).where(and_(*conds)).order_by(
-        Incident.detected_at.desc(), Incident.id
-    )
+    query = select(Incident).where(and_(*conds))
+    query = apply_sort(query, sort).order_by(Incident.detected_at.desc(), Incident.id)
     return await fetch_page(db, query, page)
 
 

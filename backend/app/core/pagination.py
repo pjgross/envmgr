@@ -14,11 +14,12 @@ the cap; one that reads it can tell there is more and page through with
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Mapping, Optional
 
-from fastapi import Query, Response
+from fastapi import HTTPException, Query, Response
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 # Generous enough that no realistic current page truncates, low enough that a
 # pathological tenant cannot take the API down with one request.
@@ -102,3 +103,86 @@ async def fetch_page_rows(
 def set_total_count(response: Response, total: int) -> None:
     """Advertise the unwindowed total so a client can tell it has a partial page."""
     response.headers[TOTAL_COUNT_HEADER] = str(total)
+
+
+@dataclass(frozen=True)
+class Sort:
+    column: InstrumentedAttribute
+    descending: bool
+
+
+def sorting(
+    allowed: Mapping[str, InstrumentedAttribute],
+    default: str,
+    *,
+    default_dir: str = "asc",
+) -> Callable[..., Sort]:
+    """Build a FastAPI dependency resolving `sort_by`/`sort_dir` against a whitelist.
+
+    `allowed` maps the client-facing field name to the column it sorts by. The
+    mapping is the entire security boundary: `sort_by` is a client-supplied
+    string and is looked up, never used to address a column. An unknown field is
+    a 422 rather than a silent fallback — a client that receives a different
+    order than it asked for, with no error, will render it as though it were the
+    order it requested.
+
+    The returned Sort is applied by `apply_sort` BEFORE the caller's existing
+    tiebreaker. A sort column is almost never unique, so a sort that replaced the
+    tiebreaker would reintroduce the duplicate/missing-row bug that LIMIT/OFFSET
+    over a partial order produces.
+
+    `default_dir` is the direction used when the client sends no `sort_dir` at
+    all — most endpoints' pre-existing default order is ascending, but a couple
+    (incidents, change requests) have always defaulted to newest-first. Without
+    this, an endpoint adopting `sorting()` would silently flip its own default
+    page from descending to ascending the moment it started depending on this
+    primitive, which is exactly the kind of behaviour change C1 must not cause.
+    An explicit `sort_dir` from the client always wins over `default_dir`,
+    regardless of which `sort_by` was requested.
+    """
+    if default not in allowed:
+        raise ValueError(f"default sort {default!r} is not in the whitelist")
+    if default_dir not in ("asc", "desc"):
+        raise ValueError(f"default_dir must be 'asc' or 'desc', got {default_dir!r}")
+
+    field_names = sorted(allowed)
+
+    def _sorting(
+        sort_by: str = Query(
+            default,
+            description=f"Field to sort by. One of: {', '.join(field_names)}.",
+        ),
+        sort_dir: Optional[str] = Query(
+            None,
+            pattern="^(asc|desc)$",
+            description=f"Sort direction. Defaults to {default_dir!r} when omitted.",
+        ),
+    ) -> Sort:
+        column = allowed.get(sort_by)
+        if column is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"sort_by must be one of: {', '.join(field_names)}",
+            )
+        direction = default_dir if sort_dir is None else sort_dir
+        return Sort(column=column, descending=direction == "desc")
+
+    return _sorting
+
+
+def apply_sort(query: Select, sort: Optional[Sort]) -> Select:
+    """Order `query` by `sort`, if given.
+
+    Chain the caller's unique tiebreaker after this — `apply_sort(q, s).order_by(Model.id)`.
+    SQLAlchemy appends, so the tiebreaker stays the final key.
+
+    NULLs are pinned explicitly. SQLite sorts NULL first on ASC and PostgreSQL
+    sorts it last, so an unqualified ORDER BY on a nullable column returns a
+    different page per engine. Pinning them last on ASC and first on DESC keeps
+    the two identical and matches the more common expectation that "no value"
+    sorts after values.
+    """
+    if sort is None:
+        return query
+    column = sort.column.desc() if sort.descending else sort.column.asc()
+    return query.order_by(column.nullsfirst() if sort.descending else column.nullslast())
