@@ -63,11 +63,41 @@ describe('useServerGrid', () => {
   });
 
   it('falls back to the default sort when the grid clears the sort model', () => {
-    const { result, onFetch } = setup();
+    const { result, onFetch } = setup('/releases?sort_by=name&sort_dir=asc');
     onFetch.mockClear();
     act(() => result.current.onSortModelChange([]));
+    expect(result.current.sortModel).toEqual([{ field: 'created_at', sort: 'desc' }]);
     expect(onFetch).toHaveBeenLastCalledWith(
       expect.objectContaining({ sort_by: 'created_at', sort_dir: 'desc' })
     );
+  });
+
+  it('fetches the next page when the pagination model changes', () => {
+    const { result, onFetch } = setup();
+    onFetch.mockClear();
+    act(() => result.current.onPaginationModelChange({ page: 2, pageSize: 25 }));
+    expect(result.current.paginationModel).toEqual({ page: 2, pageSize: 25 });
+    expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 25, offset: 50 }));
+  });
+
+  it('refetches when a filter changes on page 0, where no page reset can mask it', () => {
+    const { result, onFetch } = setup(); // no ?page= — offset stays 0
+    onFetch.mockClear();
+    act(() => result.current.setFilter('status', 'draft'));
+    expect(onFetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ offset: 0, status: 'draft' })
+    );
+  });
+
+  it('keeps filters referentially stable across a re-render that changes nothing', () => {
+    const { result, rerender } = setup();
+    const first = result.current.filters;
+    rerender();
+    expect(result.current.filters).toBe(first);
+  });
+
+  it('falls back to safe page/page_size defaults when the URL values are invalid', () => {
+    const { result } = setup('/releases?page=abc&page_size=-5');
+    expect(result.current.paginationModel).toEqual({ page: 0, pageSize: 25 });
   });
 });
