@@ -75,9 +75,9 @@ describe('useServerGrid', () => {
   it('fetches the next page when the pagination model changes', () => {
     const { result, onFetch } = setup();
     onFetch.mockClear();
-    act(() => result.current.onPaginationModelChange({ page: 2, pageSize: 25 }));
-    expect(result.current.paginationModel).toEqual({ page: 2, pageSize: 25 });
-    expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 25, offset: 50 }));
+    act(() => result.current.onPaginationModelChange({ page: 2, pageSize: 50 }));
+    expect(result.current.paginationModel).toEqual({ page: 2, pageSize: 50 });
+    expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 50, offset: 100 }));
   });
 
   it('refetches when a filter changes on page 0, where no page reset can mask it', () => {
