@@ -94,8 +94,12 @@ def configure_logging() -> None:
     # and it cannot carry the request id or the handler duration. Ours wins.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-    # SQL echo is already controlled by DEBUG via create_async_engine; keep the
-    # engine logger from double-reporting at INFO.
+    # This level is the ONLY switch for SQL logging. The engine is built with
+    # echo=False on purpose (see app/db/base.py): echo would attach a second
+    # handler to the `sqlalchemy.engine.Engine` instance logger, and since that
+    # logger still propagates here, every statement would be logged twice — once
+    # in SQLAlchemy's format and once in ours. Setting a level cannot undo that;
+    # only not attaching the handler can.
     logging.getLogger("sqlalchemy.engine").setLevel(
         logging.INFO if settings.DEBUG else logging.WARNING
     )
