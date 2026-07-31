@@ -192,6 +192,12 @@ export function useServerGrid({
     if (page > lastPage) patch({ page: String(lastPage) }, false);
   }, [total, page, pageSize, patch]);
 
+  // debounceKeys is typically an inline array literal at the call site too
+  // (see filterKeysKey above) — key setFilter's memoisation on its stable
+  // string form instead so callers passing a fresh array each render don't
+  // get a new setFilter identity every render.
+  const debounceKeysKey = debounceKeys.join(' ');
+
   // One timer per debounced key, not one shared timer — otherwise changing
   // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
   // write and it would never happen at all.
@@ -207,7 +213,8 @@ export function useServerGrid({
       clearTimeout(debounceTimers.current[key]);
       debounceTimers.current[key] = setTimeout(() => patch({ [key]: value }, true), 300);
     },
-    [debounceKeys, patch]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [debounceKeysKey, patch]
   );
 
   useEffect(
