@@ -272,12 +272,52 @@ in the same way. Two dialogs now fetch their own release list into local state
 for pickers: **the slice is one grid's current view; a picker that wants "all releases" must ask
 for them itself.** Nothing enforces it but this paragraph.
 
-**Manual browser verification of `ReleaseList` has not been done.** The pilot's proof is
-automated — unit tests, the contract test, and
-[`frontend/e2e/releases-pagination.spec.ts`](../frontend/e2e/releases-pagination.spec.ts) — not a
-human exercising the converted page in a browser. That step is still outstanding. Note also that
-the e2e suite runs in **no CI pipeline**, so that spec — the pilot's only end-to-end evidence —
-is currently only ever run by hand.
+**Manual browser verification of `ReleaseList` is done** (2026-07-31). The pilot's automated
+proof — unit tests, the contract test, and
+[`frontend/e2e/releases-pagination.spec.ts`](../frontend/e2e/releases-pagination.spec.ts) — passed
+without catching one real defect, which a human found on the first look at the page: see
+"Case-insensitive text sorting" below. Note also that the e2e suite runs in **no CI pipeline**, so
+that spec — the pilot's only end-to-end evidence — is currently only ever run by hand.
+
+### Case-insensitive text sorting (found by that verification, fixed)
+
+Sorting the grid by name put `mortgage r1` after `Q3 2026 Enterprise Bundle` instead of next to
+`Mortgage R2`. The root cause was not in the release endpoint but in `apply_sort` itself: a bare
+`ORDER BY release.name` delegates ordering to the column's collation, and **every engine this app
+runs on collates by byte value**, so every capitalised name sorts before every lowercase one.
+
+- SQLite's default collation is `BINARY`.
+- The app's PostgreSQL is `postgres:15-alpine` (`docker-compose.yml`), and **musl libc implements
+  no locales** — the database reports `datcollate = en_US.utf8`, but `SELECT 'a' < 'B'` returns
+  false. `docker-compose.prod.yml` only remaps ports, so **prod collated identically**; this was
+  never a dev-only artifact.
+
+Before C3 the grid sorted in the browser with MUI's `Intl.Collator`, which is case-insensitive, so
+moving the sort into SQL is what made it visible. `apply_sort` now folds case for text columns
+explicitly (`lower(col)`), applied by column type so a `DateTime` is never wrapped — for the same
+reason it already pins NULLs explicitly: **row order must not depend on which engine or base image
+happens to be deployed.** It also aligns sorting with filtering, where every `search` already
+matches case-insensitively via `ILIKE`.
+
+Because the fix is in the primitive, **all nine `sorting()` endpoints get it** — `name` on
+environments/systems/infrastructure-components, `title` on change-requests/incidents,
+`deployer_name` on deployments — so the eight pages still to be converted inherit it rather than
+each rediscovering the bug. Enum-backed columns (`status`, `severity`, …) are `String` subclasses
+and so are folded too, which is a no-op because they store consistent case.
+
+Trade-off accepted: `ORDER BY lower(name)` cannot use a plain btree index on `name`. At this app's
+page sizes, under a tenant filter, that is not worth a functional index — add
+`CREATE INDEX ... ON tbl (lower(col))` if a list endpoint ever appears in slow queries.
+
+Rejected alternative: swapping to a glibc `postgres:15` image. Changing a database's collation
+needs a dump/restore rather than a redeploy, it would not fix SQLite, and it would leave row order
+depending on which base image is running — the failure mode the NULL-pinning already exists to
+prevent.
+
+The lesson for the rollout is about the tests, not the sort: the pilot's structural assertions
+pinned the *emitted SQL token* (`"system.name DESC NULLS FIRST"`), which is exactly the kind of
+assertion that stays green while the user-visible ordering is wrong. The guards added with the fix
+assert **rendered row order over mixed-case data** instead, and discriminate on both engines.
 
 ### Recorded during the pilot, deliberately not fixed
 

@@ -181,7 +181,8 @@ async def test_apply_sort_precedes_the_tiebreaker_in_the_emitted_sql(test_tenant
     assert "ORDER BY" in compiled
     order_by = compiled.split("ORDER BY", 1)[1].strip()
 
-    assert order_by.startswith("environment.name")
+    # `name` is a text column, so the sort key is case-folded — see Part C.
+    assert order_by.startswith("lower(environment.name)")
     assert order_by.rstrip().endswith("environment.id")
 
 
@@ -199,7 +200,7 @@ async def test_apply_sort_descending_still_precedes_the_tiebreaker(test_tenant):
     assert "ORDER BY" in compiled
     order_by = compiled.split("ORDER BY", 1)[1].strip()
 
-    assert order_by.startswith("environment.name DESC")
+    assert order_by.startswith("lower(environment.name) DESC")
     assert order_by.rstrip().endswith("environment.id")
 
 
@@ -513,7 +514,7 @@ async def test_systems_sort_precedes_the_tiebreaker_in_the_emitted_sql(db_sessio
         db_session, test_tenant.id, sort=Sort(column=System.name, descending=True)
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("system.name DESC NULLS FIRST")
+    assert order_by.startswith("lower(system.name) DESC NULLS FIRST")
     assert order_by.rstrip().endswith("system.id")
 
 
@@ -873,7 +874,7 @@ async def test_infrastructure_components_sort_precedes_the_tiebreaker_in_the_emi
         sort=Sort(column=InfrastructureComponent.name, descending=True),
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("infrastructure_component.name DESC NULLS FIRST")
+    assert order_by.startswith("lower(infrastructure_component.name) DESC NULLS FIRST")
     assert order_by.rstrip().endswith("infrastructure_component.id")
 
 
@@ -1083,3 +1084,154 @@ async def test_deployments_paging_a_sorted_query_over_ties_sees_each_row_once(
 
     assert len(seen) == 25
     assert len(set(seen)) == 25, "a row appeared on more than one page"
+
+
+# ── Part C: text sorts must be case-insensitive ──────────────────────────────
+#
+# Found by manual browser verification of the C3 pilot's converted ReleaseList:
+# "mortgage r1" sorted after "Q3 2026 Enterprise Bundle" instead of next to
+# "Mortgage R2". Root cause is in apply_sort, not the release endpoint — a bare
+# `ORDER BY release.name` delegates ordering to the column's collation, and
+# every engine this app runs on collates by byte value, so uppercase sorts
+# before lowercase:
+#
+#   - SQLite's default collation is BINARY.
+#   - The app's PostgreSQL is `postgres:15-alpine` (docker-compose.yml), and
+#     musl libc implements no locales — the database reports
+#     `datcollate = en_US.utf8` but `SELECT 'a' < 'B'` is false. The prod
+#     overlay only remaps ports, so prod collates identically.
+#
+# Before C3 this grid sorted in the browser with MUI's Intl.Collator, which is
+# case-insensitive, so moving the sort into SQL changed observable behaviour.
+# apply_sort now folds case for text columns explicitly rather than trusting
+# the collation, for the same reason it pins NULLs explicitly above: ordering
+# must not depend on which engine or base image happens to be deployed.
+#
+# These tests discriminate on BOTH engines — unlike the tie-walks above, the
+# rows here have distinct values, so SQLite genuinely honours the ORDER BY.
+
+
+async def _mixed_case_environments(db_session, tenant_id, names):
+    created = [
+        Environment(tenant_id=tenant_id, name=name, environment_type="SIT")
+        for name in names
+    ]
+    db_session.add_all(created)
+    await db_session.flush()
+    return created
+
+
+async def _sorted_names(db_session, tenant_id, column, descending):
+    query = apply_sort(
+        select(Environment).where(Environment.tenant_id == tenant_id),
+        Sort(column=column, descending=descending),
+    ).order_by(Environment.id)
+    rows = (await db_session.execute(query)).scalars().all()
+    return [r.name for r in rows]
+
+
+@pytest.mark.asyncio
+async def test_text_sort_is_case_insensitive_ascending(db_session, test_tenant):
+    """The reported bug, reduced. Under byte ordering every capitalised name
+    sorts before every lowercase one, so `apple` would land last rather than
+    first."""
+    await _mixed_case_environments(
+        db_session, test_tenant.id, ["banana", "Apple", "Cherry", "date"]
+    )
+
+    assert await _sorted_names(db_session, test_tenant.id, Environment.name, False) == [
+        "Apple",
+        "banana",
+        "Cherry",
+        "date",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_text_sort_is_case_insensitive_descending(db_session, test_tenant):
+    """The mirror. Guards against a fix that folds case on ASC only."""
+    await _mixed_case_environments(
+        db_session, test_tenant.id, ["banana", "Apple", "Cherry", "date"]
+    )
+
+    assert await _sorted_names(db_session, test_tenant.id, Environment.name, True) == [
+        "date",
+        "Cherry",
+        "banana",
+        "Apple",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_case_insensitive_sort_still_precedes_the_tiebreaker(test_tenant):
+    """Case folding must wrap the sort key, not displace the ordering. If the
+    fix emitted `ORDER BY environment.id, lower(environment.name)` — or dropped
+    the tiebreaker — paging over ties breaks the way sub-project A documented."""
+    query = apply_sort(
+        select(Environment).where(Environment.tenant_id == test_tenant.id),
+        Sort(column=Environment.name, descending=False),
+    ).order_by(Environment.id)
+
+    order_by = str(query.compile(dialect=postgresql.dialect())).split("ORDER BY", 1)[1]
+    assert order_by.strip().startswith("lower(environment.name) ASC NULLS LAST")
+    assert order_by.rstrip().endswith("environment.id")
+
+
+@pytest.mark.asyncio
+async def test_non_text_columns_are_not_case_folded(test_tenant):
+    """`lower()` is applied by column type, not to everything. Wrapping a
+    DateTime would force a cast and sort it as a string — '2026-1-9' after
+    '2026-10-1'."""
+    query = apply_sort(
+        select(Environment).where(Environment.tenant_id == test_tenant.id),
+        Sort(column=Environment.created_at, descending=False),
+    ).order_by(Environment.id)
+
+    order_by = str(query.compile(dialect=postgresql.dialect())).split("ORDER BY", 1)[1]
+    assert "lower(" not in order_by
+    assert order_by.strip().startswith("environment.created_at ASC NULLS LAST")
+
+
+@pytest.mark.asyncio
+async def test_release_name_sort_is_case_insensitive_end_to_end(db_session, test_tenant):
+    """The user-visible path the bug was actually reported on: the release list
+    service, sorted by name, as ReleaseList now requests it server-side."""
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="release",
+        name="case-lifecycle",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False}
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    user = await ensure_user(db_session, test_tenant.id)
+
+    for name in ["Mortgage R2", "mortgage r1", "DORA Good Release"]:
+        db_session.add(
+            Release(
+                tenant_id=test_tenant.id,
+                name=name,
+                release_type="major",
+                release_kind="project",
+                lifecycle_template_id=tpl.id,
+                status="draft",
+                raised_by=user.id,
+            )
+        )
+    await db_session.flush()
+
+    rows, _ = await release_service.list_releases(
+        db_session, test_tenant.id, sort=Sort(column=Release.name, descending=False)
+    )
+
+    assert [r.name for r in rows] == [
+        "DORA Good Release",
+        "mortgage r1",
+        "Mortgage R2",
+    ]

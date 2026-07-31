@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Callable, Mapping, Optional
 
 from fastapi import HTTPException, Query, Response
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 
@@ -170,11 +170,47 @@ def sorting(
     return _sorting
 
 
+def _sort_key(column: InstrumentedAttribute):
+    """The expression to order by — case-folded for text columns.
+
+    A bare `ORDER BY some.name` delegates ordering to the column's collation,
+    and every engine this app runs on collates by byte value, which sorts every
+    capitalised name before every lowercase one ("Zebra" before "apple"):
+
+      - SQLite's default collation is BINARY.
+      - The app's PostgreSQL is `postgres:15-alpine`, and musl libc implements
+        no locales, so the declared `en_US.utf8` behaves as C — `SELECT 'a' <
+        'B'` is false. `docker-compose.prod.yml` only remaps ports, so prod
+        collates the same way.
+
+    Folding here rather than relying on the collation is the same call as
+    pinning NULLs below: row order must not depend on which engine or base
+    image happens to be deployed. It also matches the rest of the codebase,
+    where every `search` filter already matches case-insensitively via ILIKE.
+
+    Applied by column type so a DateTime is never wrapped — `lower()` on one
+    would cast it to text and sort '2026-1-9' after '2026-10-1'. SQLAlchemy's
+    Text/Unicode/Enum all subclass String, so the one check covers them; enum
+    columns store consistent case, making the fold a no-op for them rather than
+    a behaviour change.
+
+    Trade-off: `ORDER BY lower(name)` cannot use a plain btree index on `name`.
+    At this app's page sizes, under a tenant filter, that is not worth a
+    functional index — add `CREATE INDEX ... ON tbl (lower(col))` if a list
+    endpoint ever shows up in slow queries.
+    """
+    if isinstance(column.type, String):
+        return func.lower(column)
+    return column
+
+
 def apply_sort(query: Select, sort: Optional[Sort]) -> Select:
     """Order `query` by `sort`, if given.
 
     Chain the caller's unique tiebreaker after this — `apply_sort(q, s).order_by(Model.id)`.
     SQLAlchemy appends, so the tiebreaker stays the final key.
+
+    Text columns sort case-insensitively; see `_sort_key`.
 
     NULLs are pinned explicitly. SQLite sorts NULL first on ASC and PostgreSQL
     sorts it last, so an unqualified ORDER BY on a nullable column returns a
@@ -184,5 +220,6 @@ def apply_sort(query: Select, sort: Optional[Sort]) -> Select:
     """
     if sort is None:
         return query
-    column = sort.column.desc() if sort.descending else sort.column.asc()
+    key = _sort_key(sort.column)
+    column = key.desc() if sort.descending else key.asc()
     return query.order_by(column.nullsfirst() if sort.descending else column.nullslast())
