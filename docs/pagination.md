@@ -265,10 +265,56 @@ up: bookings, environments, change-requests, systems, infrastructure-components,
 deployments, builds. Each fetches a capped page today and filters/sorts it in the browser —
 the same live bug `ReleaseList` had, still present on all eight.
 
+The grep advice above is necessary but was **not sufficient** — a whole-branch review found a
+second consumer the pilot's own sweep had missed, `RequestAdmissionDialog`, doing the same thing
+in the same way. Two dialogs now fetch their own release list into local state
+(`releaseService.list({ limit: 200 })`) rather than reading the shared slice. That is the rule
+for pickers: **the slice is one grid's current view; a picker that wants "all releases" must ask
+for them itself.** Nothing enforces it but this paragraph.
+
 **Manual browser verification of `ReleaseList` has not been done.** The pilot's proof is
 automated — unit tests, the contract test, and
 [`frontend/e2e/releases-pagination.spec.ts`](../frontend/e2e/releases-pagination.spec.ts) — not a
-human exercising the converted page in a browser. That step is still outstanding.
+human exercising the converted page in a browser. That step is still outstanding. Note also that
+the e2e suite runs in **no CI pipeline**, so that spec — the pilot's only end-to-end evidence —
+is currently only ever run by hand.
+
+### Recorded during the pilot, deliberately not fixed
+
+These were found by review, judged not worth growing the pilot for, and will matter to the
+rollout:
+
+- **The `'all'` sentinel will eventually eat a real search term.** `buildParams` drops any filter
+  value of `''` or `'all'`, for every key. `ReleaseList` has no text input so it cannot bite yet —
+  but environments, systems and infrastructure-components all gain a `search` parameter in the
+  rollout, and typing `all` into one of those boxes will silently return unfiltered results while
+  the box still reads "all". Fix it when the first text filter lands: exempt the `debounceKeys`,
+  or have the selects delete the parameter instead of writing the string `'all'`.
+- **A stale slice `total` can clamp a legitimate deep link.** The clamp effect trusts whatever
+  `total` is in the store, which need not correspond to the request in flight. A cold load is safe
+  (`total === 0` short-circuits), but arriving at `?page=8` with a narrower total already in the
+  slice rewrites the URL to page 0. Pass `total={loading ? undefined : total}`, or have the hook
+  record which `paramsKey` the total belongs to.
+- **`useServerGrid` has no `refetch()`.** The fetch effect is keyed purely on the resolved params,
+  so nothing can re-run the current query. That is why `createRelease`/`deleteRelease` still
+  perform optimistic surgery on `state.list` — which server-side paging makes structurally wrong,
+  since the new row need not belong on the current page at all. Any rollout page with an inline
+  create or delete will hit this; adding a `refetch()` and dropping the list surgery is the real
+  fix.
+- **Three sibling pickers are still silently truncated** at the server default of 50:
+  `IncidentForm`, `DoraDashboard` and `ScopeWindowsTable` each call `releaseService.list()` and
+  discard the `total` the pilot made available. They are the same shape as the two dialogs that
+  were fixed.
+- **`ScopeWindowsTable` is a tenth grid with the live bug, and the hardest one.** It fetches ≤50
+  releases and then filters `window_status` and sorts by `days_to_cutoff` in the browser. Both are
+  computed after the query, so unlike the eight pages above it **cannot** be converted by this
+  pattern at all without restructuring those into SQL first.
+- **One `loading` boolean per slice is the structural weak point.** Each slice has a single flag
+  shared by roughly twenty thunks. Abort-based cancellation introduces a thunk that can end
+  *without* a successor raising the flag again, which is how the pilot left `loading` stuck true
+  after an unmount and hung `/releases/calendar` and `/releases/timeline` — both of which had no
+  loading transitions of their own. Every slice converted next inherits that shape; consider a
+  separate `listLoading` on converted slices.
 
 ## Bounded so far
 
