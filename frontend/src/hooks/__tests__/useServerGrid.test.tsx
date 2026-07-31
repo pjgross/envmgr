@@ -1,5 +1,12 @@
 import { act, render, renderHook } from '@testing-library/react';
-import { MemoryRouter, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
+import {
+  MemoryRouter,
+  UNSAFE_createMemoryHistory,
+  unstable_HistoryRouter as HistoryRouter,
+  useLocation,
+  useNavigate,
+  type NavigateFunction,
+} from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useServerGrid } from '../useServerGrid';
@@ -400,6 +407,30 @@ describe('useServerGrid resilience', () => {
     unmount();
 
     expect(aborted).toBe(true);
+  });
+
+  it('navigates with replace so a grid interaction does not grow browser history', () => {
+    // Every filter/sort/page change writes a new URL. If that write were a
+    // push instead of a replace, each interaction would add its own history
+    // entry, and Back would walk through every intermediate grid state
+    // instead of leaving the page — history.index tracks the stack position
+    // the way an actual push/replace does, so it directly observes that.
+    const history = UNSAFE_createMemoryHistory({ initialEntries: ['/releases'] });
+    const onFetch = vi.fn();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <HistoryRouter history={history}>{children}</HistoryRouter>
+    );
+    const { result } = renderHook(
+      () => useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch }),
+      { wrapper }
+    );
+    const startIndex = history.index;
+
+    act(() => result.current.setFilter('status', 'draft'));
+    act(() => result.current.onPaginationModelChange({ page: 1, pageSize: 25 }));
+    act(() => result.current.onSortModelChange([{ field: 'name', sort: 'asc' }]));
+
+    expect(history.index).toBe(startIndex);
   });
 
   it('clamps to the last valid page when the offset runs past the total', () => {
