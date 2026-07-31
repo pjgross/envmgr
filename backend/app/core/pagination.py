@@ -175,7 +175,14 @@ def apply_sort(query: Select, sort: Optional[Sort]) -> Select:
 
     Chain the caller's unique tiebreaker after this — `apply_sort(q, s).order_by(Model.id)`.
     SQLAlchemy appends, so the tiebreaker stays the final key.
+
+    NULLs are pinned explicitly. SQLite sorts NULL first on ASC and PostgreSQL
+    sorts it last, so an unqualified ORDER BY on a nullable column returns a
+    different page per engine. Pinning them last on ASC and first on DESC keeps
+    the two identical and matches the more common expectation that "no value"
+    sorts after values.
     """
     if sort is None:
         return query
-    return query.order_by(sort.column.desc() if sort.descending else sort.column.asc())
+    column = sort.column.desc() if sort.descending else sort.column.asc()
+    return query.order_by(column.nullsfirst() if sort.descending else column.nullslast())
