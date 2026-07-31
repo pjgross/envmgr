@@ -304,9 +304,6 @@ const releaseSlice = createSlice({
   name: 'release',
   initialState,
   reducers: {
-    setFilters(state, action: { payload: ReleaseListFilters }) {
-      state.filters = action.payload;
-    },
     clearDetail(state) {
       state.detail = null;
       state.phases = [];
@@ -387,9 +384,29 @@ const releaseSlice = createSlice({
       // history
       .addCase(fetchReleaseHistory.fulfilled, (state, action) => { state.history = action.payload; })
 
-      // calendar / timeline
-      .addCase(fetchReleaseCalendar.fulfilled, (state, action) => { state.calendar = action.payload; })
-      .addCase(fetchReleaseTimeline.fulfilled, (state, action) => { state.timeline = action.payload; })
+      // calendar / timeline — these thunks are not wired to useServerGrid's
+      // abort mechanism (ReleaseCalendar/ReleaseTimeline dispatch directly
+      // in a plain useEffect), but they still need ordinary pending/rejected
+      // loading transitions: without them, `loading` never turns true (so
+      // the spinner never shows) and never turns false on failure.
+      .addCase(fetchReleaseCalendar.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchReleaseCalendar.fulfilled, (state, action) => {
+        state.loading = false;
+        state.calendar = action.payload;
+      })
+      .addCase(fetchReleaseCalendar.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load calendar';
+      })
+      .addCase(fetchReleaseTimeline.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchReleaseTimeline.fulfilled, (state, action) => {
+        state.loading = false;
+        state.timeline = action.payload;
+      })
+      .addCase(fetchReleaseTimeline.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.error.message ?? 'Failed to load timeline';
+      })
 
       // phases
       .addCase(fetchPhases.fulfilled, (state, action) => { state.phases = action.payload; })
@@ -504,5 +521,5 @@ const releaseSlice = createSlice({
   },
 });
 
-export const { setFilters, clearDetail } = releaseSlice.actions;
+export const { clearDetail } = releaseSlice.actions;
 export default releaseSlice.reducer;
