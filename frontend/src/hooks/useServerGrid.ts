@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   buildParams,
@@ -21,10 +21,25 @@ const clampInt = (raw: string | null, fallback: number, min: number, max: number
   return raw !== null && Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 };
 
+/** What `dispatch(someThunk())` returns in Redux Toolkit: a promise with `.abort()`. */
+export interface Abortable {
+  abort: () => void;
+}
+
+// filterKeys/debounceKeys are typically inline array literals at the call
+// site (a new reference every render); a shared empty-array default avoids
+// rebuilding memoised callbacks that depend on it every render.
+const NO_DEBOUNCE: string[] = [];
+
 export interface UseServerGridOptions {
   endpoint: EndpointKey;
   filterKeys: string[];
-  onFetch: (params: ServerGridParams) => void;
+  /** Return the value of `dispatch(thunk(params))` so the hook can cancel it. */
+  onFetch: (params: ServerGridParams) => Abortable | void;
+  /** Filter keys whose changes should be debounced — free-text inputs. */
+  debounceKeys?: string[];
+  /** Latest known total, used to clamp an offset that has run past the end. */
+  total?: number;
 }
 
 export interface ServerGrid {
@@ -48,6 +63,8 @@ export function useServerGrid({
   endpoint,
   filterKeys,
   onFetch,
+  debounceKeys = NO_DEBOUNCE,
+  total,
 }: UseServerGridOptions): ServerGrid {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -94,13 +111,22 @@ export function useServerGrid({
   // drops that value either way, issuing a duplicate byte-identical GET.
   const paramsKey = JSON.stringify(params);
 
+  const inFlight = useRef<Abortable | void>();
+
   useEffect(() => {
-    onFetch(params);
+    // Abort the previous request rather than merely ignoring its reply: the
+    // response is applied by the thunk's fulfilled reducer, which this hook
+    // never sees. An aborted RTK thunk dispatches rejected with meta.aborted,
+    // so the slice is never written with rows the user has moved past.
+    inFlight.current?.abort();
+    inFlight.current = onFetch(params);
     // onFetch is a fresh dispatch closure on every render, and `params` is a
     // fresh object every render too; `paramsKey` is what decides whether a
     // refetch is warranted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey]);
+
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   const patch = useCallback(
     (changes: Record<string, string | null>, resetPage: boolean) => {
@@ -116,6 +142,32 @@ export function useServerGrid({
     },
     [searchParams, setSearchParams]
   );
+
+  useEffect(() => {
+    // A row deleted elsewhere (or a filter narrowing the set) can leave the
+    // current offset past the end of the result — clamp back onto the last
+    // real page rather than painting an empty grid over a non-zero total.
+    if (total === undefined || total === 0) return;
+    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    if (page > lastPage) patch({ page: String(lastPage) }, false);
+  }, [total, page, pageSize, patch]);
+
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  const setFilter = useCallback(
+    (key: string, value: string) => {
+      if (!debounceKeys.includes(key)) {
+        patch({ [key]: value }, true);
+        return;
+      }
+      // Free-text filters (e.g. search) fire on every keystroke; debounce
+      // rather than issuing a request per character.
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = setTimeout(() => patch({ [key]: value }, true), 300);
+    },
+    [debounceKeys, patch]
+  );
+
+  useEffect(() => () => clearTimeout(debounceTimer.current), []);
 
   return {
     paginationModel: { page, pageSize },
@@ -135,6 +187,6 @@ export function useServerGrid({
       [endpoint, patch]
     ),
     filters,
-    setFilter: useCallback((key, value) => patch({ [key]: value }, true), [patch]),
+    setFilter,
   };
 }

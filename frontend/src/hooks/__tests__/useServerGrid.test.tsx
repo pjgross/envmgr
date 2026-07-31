@@ -101,3 +101,84 @@ describe('useServerGrid', () => {
     expect(result.current.paginationModel).toEqual({ page: 0, pageSize: 25 });
   });
 });
+
+describe('useServerGrid resilience', () => {
+  it('debounces a text filter but not a select', async () => {
+    vi.useFakeTimers();
+    const onFetch = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useServerGrid({
+          endpoint: 'releases',
+          filterKeys: ['search', 'status'],
+          debounceKeys: ['search'],
+          onFetch,
+        }),
+      { wrapper: wrapper(['/releases']) }
+    );
+    onFetch.mockClear();
+
+    act(() => result.current.setFilter('search', 'pay'));
+    expect(onFetch).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(300));
+    expect(onFetch).toHaveBeenCalledTimes(1);
+
+    onFetch.mockClear();
+    act(() => result.current.setFilter('status', 'draft'));
+    expect(onFetch).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('aborts the previous request when the parameters change', () => {
+    // The hook does not apply responses — the thunk's fulfilled reducer writes
+    // the slice. Noticing a superseded response therefore cannot stop it
+    // painting; only aborting it can, because an aborted RTK thunk never
+    // reaches fulfilled.
+    const aborts: number[] = [];
+    let call = 0;
+    const onFetch = vi.fn(() => {
+      const id = call++;
+      return { abort: () => aborts.push(id) };
+    });
+    const { result } = renderHook(
+      () => useServerGrid({ endpoint: 'releases', filterKeys: [], onFetch }),
+      { wrapper: wrapper(['/releases']) }
+    );
+
+    act(() => result.current.onPaginationModelChange({ page: 1, pageSize: 25 }));
+    act(() => result.current.onPaginationModelChange({ page: 2, pageSize: 25 }));
+
+    // The mount request and the page-1 request are both superseded; the
+    // in-flight page-2 request is not aborted.
+    expect(aborts).toEqual([0, 1]);
+  });
+
+  it('aborts the in-flight request on unmount', () => {
+    let aborted = false;
+    const onFetch = vi.fn(() => ({ abort: () => { aborted = true; } }));
+    const { unmount } = renderHook(
+      () => useServerGrid({ endpoint: 'releases', filterKeys: [], onFetch }),
+      { wrapper: wrapper(['/releases']) }
+    );
+
+    unmount();
+
+    expect(aborted).toBe(true);
+  });
+
+  it('clamps to the last valid page when the offset runs past the total', () => {
+    const onFetch = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ total }) =>
+        useServerGrid({ endpoint: 'releases', filterKeys: [], onFetch, total }),
+      { wrapper: wrapper(['/releases?page=4&page_size=25']), initialProps: { total: 200 } }
+    );
+    onFetch.mockClear();
+
+    // A row deleted elsewhere shrinks the set under the current offset.
+    rerender({ total: 30 });
+
+    expect(result.current.paginationModel.page).toBe(1);
+    expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25 }));
+  });
+});
