@@ -86,10 +86,14 @@ export default function DataTable<R extends GridValidRowModel>({
       density="standard"
       disableRowSelectionOnClick
       pageSizeOptions={[10, 25, 50, 100]}
-      initialState={{
-        pagination: { paginationModel: { pageSize: 25 } },
-        ...rest.initialState,
-      }}
+      initialState={
+        rest.paginationMode === 'server'
+          ? rest.initialState
+          : {
+              pagination: { paginationModel: { pageSize: 25 } },
+              ...rest.initialState,
+            }
+      }
       {...rest}
       columnVisibilityModel={columnVisibilityModel}
       onColumnVisibilityModelChange={handleVisibilityChange}
