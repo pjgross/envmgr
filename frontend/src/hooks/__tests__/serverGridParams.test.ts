@@ -81,4 +81,20 @@ describe('buildParams', () => {
     expect(p).not.toHaveProperty('release_type');
     expect(p.system_id).toBe('3');
   });
+
+  it('does not let a filter key override the resolved sort/paging params', () => {
+    // A filters object containing sort_by/sort_dir/limit (e.g. relayed from a
+    // careless caller) must not clobber the values resolveSort/pageSize computed.
+    const p = buildParams({
+      endpoint: 'releases',
+      page: 0,
+      pageSize: 25,
+      sortBy: 'name',
+      sortDir: 'asc',
+      filters: { sort_by: 'phase_count', sort_dir: 'sideways', limit: '999' },
+    });
+    expect(p.sort_by).toBe('name');
+    expect(p.sort_dir).toBe('asc');
+    expect(p.limit).toBe(25);
+  });
 });

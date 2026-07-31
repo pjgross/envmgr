@@ -19,6 +19,13 @@ export type ServerGridParams = {
 /** The pages' existing "no filter selected" values. */
 const NO_FILTER = ['', 'all'];
 
+/**
+ * Reserved param names already set from the resolved page/sort. A filter key
+ * colliding with one of these (e.g. a stray `sort_by` in a filters object)
+ * would otherwise silently override the validated sort/paging values below.
+ */
+const RESERVED = new Set(['limit', 'offset', 'sort_by', 'sort_dir']);
+
 function whitelistFor(endpoint: EndpointKey): WhitelistEntry {
   return whitelists[endpoint] as WhitelistEntry;
 }
@@ -65,7 +72,7 @@ export function buildParams(args: {
     sort_dir,
   };
   Object.entries(args.filters).forEach(([key, value]) => {
-    if (!NO_FILTER.includes(value)) params[key] = value;
+    if (!RESERVED.has(key) && !NO_FILTER.includes(value)) params[key] = value;
   });
   return params;
 }
