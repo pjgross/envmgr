@@ -87,7 +87,7 @@ async def test_soft_delete_hides_from_list(db_session, tenant, user):
     cfg = await raid_config_service.get_or_seed_config(db_session, tenant.id)
     item = await raid_service.create_item(db_session, rel.id, RaidItemCreate(item_type="issue", title="A"), tenant.id, user.id)
     await raid_service.delete_item(db_session, item.id, tenant.id, user.id)
-    items = await raid_service.list_items(db_session, rel.id, tenant.id, config=cfg)
+    items, _ = await raid_service.list_items(db_session, rel.id, tenant.id, config=cfg)
     assert item.id not in [i.id for i in items]
 
 

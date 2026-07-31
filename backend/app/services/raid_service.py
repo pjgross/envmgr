@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, func
+from sqlalchemy import and_, false, not_, or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.raid import RaidItem, RaidItemHistory, RaidItemScopeLink, RaidItemRelation
 from app.db.models.user import User
 from app.db.models.release_dependency import ReleaseDependency
@@ -220,8 +221,39 @@ async def promote_item(db, release_id: int, item_id: int, target_type: str,
     return new
 
 
+def _rag_sql_condition(cfg: dict, wanted: str):
+    """SQL predicate selecting items whose RAG band is `wanted`.
+
+    rag() resolves by FIRST match, so a band only claims a severity no earlier
+    band claimed. That exclusion is expressed directly rather than by
+    enumerating a severity domain: probability and impact carry no upper
+    validation and rag_bands is unvalidated, so any enumeration has a ceiling
+    that can silently drop items above it.
+    """
+    severity_expr = RaidItem.probability * RaidItem.impact
+    earlier = []
+    matches = []
+    for band in cfg.get("rag_bands", []) or []:
+        in_band = severity_expr.between(band["min"], band["max"])
+        if band.get("rag") == wanted:
+            cond = in_band
+            for prev in earlier:
+                cond = and_(cond, not_(prev))
+            matches.append(cond)
+        earlier.append(in_band)
+    return or_(*matches) if matches else false()
+
+
 async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
-                     item_type=None, status=None, owner_id=None, rag=None, overdue=None, config=None):
+                     item_type=None, status=None, owner_id=None, rag=None,
+                     overdue=None, config=None,
+                     page: Optional[Page] = None) -> tuple[list[RaidItem], int]:
+    """RAID items for a release, optionally filtered by type/status/owner/rag/overdue.
+
+    `rag` and `overdue` are both pushed into SQL (see `_rag_sql_condition` and
+    the review_date/status predicate below) rather than filtered in Python
+    after the query, so the result can be windowed by `page`.
+    """
     stmt = select(RaidItem).where(
         RaidItem.tenant_id == tenant_id, RaidItem.release_id == release_id,
         RaidItem.deleted_at.is_(None))
@@ -231,21 +263,24 @@ async def list_items(db: AsyncSession, release_id: int, tenant_id: int, *,
         stmt = stmt.where(RaidItem.status == status)
     if owner_id:
         stmt = stmt.where(RaidItem.owner_id == owner_id)
-    stmt = stmt.order_by(RaidItem.item_type, RaidItem.seq)
-    items = list((await db.execute(stmt)).scalars().all())
     if rag is not None and config is not None:
-        cfg = _config_dict(config)
-        items = [i for i in items if globals()["rag"](severity(i.probability, i.impact), cfg) == rag]
+        # severity is probability * impact; NULL in either factor propagates
+        # through BETWEEN/AND/OR, so unset items are excluded exactly as
+        # severity()->None->rag()->None did.
+        stmt = stmt.where(_rag_sql_condition(_config_dict(config), rag))
     if overdue:
-        now = datetime.now(timezone.utc)
-        items = [i for i in items if i.review_date and i.review_date < now
-                 and i.status not in ("closed", "promoted", "met")]
-    return items
+        stmt = stmt.where(
+            RaidItem.review_date.isnot(None),
+            RaidItem.review_date < datetime.now(timezone.utc),
+            RaidItem.status.notin_(("closed", "promoted", "met")),
+        )
+    stmt = stmt.order_by(RaidItem.item_type, RaidItem.seq, RaidItem.id)
+    return await fetch_page(db, stmt, page)
 
 
 async def summary(db, release_id: int, tenant_id: int, config) -> dict:
     cfg = _config_dict(config)
-    items = await list_items(db, release_id, tenant_id, config=cfg)
+    items, _ = await list_items(db, release_id, tenant_id, config=cfg)
     psize = len(cfg.get("probability_scale", []))
     isize = len(cfg.get("impact_scale", []))
     heatmap = [[[] for _ in range(isize)] for _ in range(psize)]

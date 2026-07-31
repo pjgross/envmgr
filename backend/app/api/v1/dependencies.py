@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.dependency import ComponentDependency
@@ -56,44 +57,30 @@ def _build_comp_dep_response(
 )
 async def list_system_dependencies(
     system_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    outgoing, incoming = await dependency_service.list_system_dependencies(
-        db, system_id, current_user.active_tenant_id
+    rows, total = await dependency_service.list_system_dependencies(
+        db, system_id, current_user.active_tenant_id, page=page
     )
-    result = []
-    for dep in outgoing:
-        result.append(
-            SystemDependencyResponse(
-                id=dep.id,
-                from_system_id=dep.from_system_id,
-                to_system_id=dep.to_system_id,
-                dependency_type=dep.dependency_type,
-                direction=dep.direction,
-                source=dep.source,
-                tenant_id=dep.tenant_id,
-                to_system=dep.to_system,
-                from_system=dep.from_system,
-                is_incoming=False,
-            )
+    set_total_count(response, total)
+    return [
+        SystemDependencyResponse(
+            id=dep.id,
+            from_system_id=dep.from_system_id,
+            to_system_id=dep.to_system_id,
+            dependency_type=dep.dependency_type,
+            direction=dep.direction,
+            source=dep.source,
+            tenant_id=dep.tenant_id,
+            to_system=dep.to_system,
+            from_system=dep.from_system,
+            is_incoming=dep.to_system_id == system_id,
         )
-    for dep in incoming:
-        result.append(
-            SystemDependencyResponse(
-                id=dep.id,
-                from_system_id=dep.from_system_id,
-                to_system_id=dep.to_system_id,
-                dependency_type=dep.dependency_type,
-                direction=dep.direction,
-                source=dep.source,
-                tenant_id=dep.tenant_id,
-                to_system=dep.to_system,
-                from_system=dep.from_system,
-                is_incoming=True,
-            )
-        )
-    return result
+        for dep in rows
+    ]
 
 
 @router.post(
@@ -178,18 +165,16 @@ async def update_system_dependency(
 )
 async def list_component_dependencies(
     subsystem_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    outgoing, incoming = await dependency_service.list_component_dependencies(
-        db, subsystem_id, current_user.active_tenant_id
+    rows, total = await dependency_service.list_component_dependencies(
+        db, subsystem_id, current_user.active_tenant_id, page=page
     )
-    result = []
-    for dep in outgoing:
-        result.append(_build_comp_dep_response(dep, subsystem_id))
-    for dep in incoming:
-        result.append(_build_comp_dep_response(dep, subsystem_id))
-    return result
+    set_total_count(response, total)
+    return [_build_comp_dep_response(dep, subsystem_id) for dep in rows]
 
 
 @router.post(

@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.db.models.system import SubSystem
 from app.db.models.environment import EnvironmentSystem
@@ -84,37 +86,53 @@ async def list_versions(
     env_id: int,
     tenant_id: int,
     current_only: bool = False,
-) -> list[EnvironmentSubSystemVersion]:
+    page: Optional[Page] = None,
+) -> tuple[list[EnvironmentSubSystemVersion], int]:
+    """Version history for an environment.
+
+    With current_only, the latest row per subsystem. That was a Python dedup
+    over every row; it is now a ROW_NUMBER() window, so the result can be
+    windowed. installed_at is not unique, so id DESC breaks ties inside the
+    partition — the previous winner for a tie was whichever row the query
+    happened to return first, which was undefined.
     """
-    List version history for an environment.
-    If current_only=True, return only the latest row per subsystem.
-    """
-    # Verify environment belongs to tenant
     await get_environment(db, env_id, tenant_id)
 
-    result = await db.execute(
-        select(EnvironmentSubSystemVersion)
-        .where(
-            EnvironmentSubSystemVersion.environment_id == env_id,
-            EnvironmentSubSystemVersion.tenant_id == tenant_id,
-        )
-        .options(selectinload(EnvironmentSubSystemVersion.subsystem))
-        .order_by(
-            EnvironmentSubSystemVersion.subsystem_id,
-            EnvironmentSubSystemVersion.installed_at.desc(),
-        )
+    base = select(EnvironmentSubSystemVersion).where(
+        EnvironmentSubSystemVersion.environment_id == env_id,
+        EnvironmentSubSystemVersion.tenant_id == tenant_id,
     )
-    all_versions = list(result.scalars().all())
 
     if not current_only:
-        return all_versions
+        query = base.options(
+            selectinload(EnvironmentSubSystemVersion.subsystem)
+        ).order_by(
+            EnvironmentSubSystemVersion.subsystem_id,
+            EnvironmentSubSystemVersion.installed_at.desc(),
+            EnvironmentSubSystemVersion.id,
+        )
+        return await fetch_page(db, query, page)
 
-    # Keep only the latest per subsystem_id (already ordered DESC by installed_at)
-    seen: dict[int, EnvironmentSubSystemVersion] = {}
-    for v in all_versions:
-        if v.subsystem_id not in seen:
-            seen[v.subsystem_id] = v
-    return sorted(seen.values(), key=lambda v: v.subsystem_id)
+    ranked = base.add_columns(
+        func.row_number()
+        .over(
+            partition_by=EnvironmentSubSystemVersion.subsystem_id,
+            order_by=(
+                EnvironmentSubSystemVersion.installed_at.desc(),
+                EnvironmentSubSystemVersion.id.desc(),
+            ),
+        )
+        .label("rn")
+    ).subquery()
+
+    entity = aliased(EnvironmentSubSystemVersion, ranked)
+    query = (
+        select(entity)
+        .where(ranked.c.rn == 1)
+        .options(selectinload(entity.subsystem))
+        .order_by(ranked.c.subsystem_id, ranked.c.id)
+    )
+    return await fetch_page(db, query, page)
 
 
 async def update_version(

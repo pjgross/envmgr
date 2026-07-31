@@ -277,13 +277,16 @@ async def get_environment_topology(
 @router.get("/{env_id}/versions", response_model=list[VersionResponse])
 async def list_versions(
     env_id: int,
+    response: Response,
     current_only: bool = False,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    versions = await version_service.list_versions(
-        db, env_id, current_user.active_tenant_id, current_only=current_only
+    versions, total = await version_service.list_versions(
+        db, env_id, current_user.active_tenant_id, current_only=current_only, page=page
     )
+    set_total_count(response, total)
     return [VersionResponse.from_orm_with_name(v) for v in versions]
 
 

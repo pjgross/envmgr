@@ -959,7 +959,9 @@ async def get_dependency_alerts(
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    return await release_dependency_service.get_dependency_alerts(db, release_id, tenant_id)
+    return await release_dependency_service.get_dependency_alerts(
+        db, release_id, tenant_id
+    )
 
 
 @router.post("/{release_id}/dependency-alerts/{dep_id}/acknowledge", status_code=status.HTTP_204_NO_CONTENT)

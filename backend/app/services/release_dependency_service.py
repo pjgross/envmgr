@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
@@ -139,43 +139,64 @@ async def get_dependency_alerts(
     release_id: int,
     tenant_id: int,
 ) -> list[ReleaseDependencyAlert]:
-    """Return dependencies where the dependency's target_date has shifted."""
-    # Alert computation is internal aggregation over the whole release, not a
-    # paginated list endpoint — page=None (the default) fetches every row.
-    deps, _ = await list_dependencies(db, release_id, tenant_id)
+    """Dependencies whose target release's date has shifted.
+
+    Previously this fetched every dependency and issued another query per row
+    for its target release, then skipped the ones that were missing or
+    unchanged — a filter after the query, and an N+1. The join reproduces
+    'target release exists and is not deleted'; is_distinct_from reproduces
+    'current != prior', including the both-NULL case the old code also skipped.
+
+    Deliberately NOT paginated (no `page` parameter). See the `diff_days == 0`
+    filter below: it drops rows after the query and has no portable SQL
+    equivalent, so a `page` here would window the pre-filter set — precisely
+    the bug this list-endpoints sweep exists to prevent. This endpoint fetches
+    every dependency for the release, which is bounded anyway by how many
+    dependencies a single release can realistically have.
+    """
+    query = (
+        select(ReleaseDependency, Release)
+        .join(
+            Release,
+            and_(
+                Release.id == ReleaseDependency.depends_on_release_id,
+                Release.tenant_id == tenant_id,
+                Release.deleted_at.is_(None),
+            ),
+        )
+        .where(
+            ReleaseDependency.release_id == release_id,
+            ReleaseDependency.tenant_id == tenant_id,
+            Release.target_date.is_distinct_from(
+                ReleaseDependency.last_dependency_target_date
+            ),
+        )
+        .order_by(ReleaseDependency.id)
+    )
+    rows = (await db.execute(query)).all()
+
     alerts: list[ReleaseDependencyAlert] = []
-
-    for dep in deps:
-        dep_release = (
-            await db.execute(
-                select(Release).where(
-                    Release.id == dep.depends_on_release_id,
-                    Release.tenant_id == tenant_id,
-                    Release.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if dep_release is None:
-            continue
-
+    for dep, dep_release in rows:
         current = dep_release.target_date
         prior = dep.last_dependency_target_date
-
-        if current == prior:
-            continue
-
-        # Compute diff in days (None dates are treated as 0 for diff calculation)
         if current is not None and prior is not None:
-            diff_days = (
-                current.replace(tzinfo=None) - prior.replace(tzinfo=None)
-            ).days
+            diff_days = (current.replace(tzinfo=None) - prior.replace(tzinfo=None)).days
         elif current is not None:
             diff_days = 1  # prior was None, now has a date — non-zero
-        elif prior is not None:
-            diff_days = -1  # was set, now gone
         else:
-            continue  # both None, no change
+            # current is None here. The join's is_distinct_from predicate
+            # already excludes the both-NULL case (is_distinct_from(NULL,
+            # NULL) is false, so such rows never satisfy the WHERE), which
+            # guarantees prior is non-NULL whenever we reach this branch.
+            diff_days = -1  # was set, now gone
 
+        # timedelta.days floors toward negative infinity, so this filter is
+        # asymmetric: a same-day forward shift of a few hours gives diff_days
+        # == 0 (suppressed) while the same-magnitude backward shift gives -1
+        # (reported). That asymmetry has no clean portable SQL translation
+        # across SQLite and PostgreSQL, which is why it stays a Python filter
+        # after the query rather than another WHERE clause — and why this
+        # function is not paginated (see the docstring above).
         if diff_days == 0:
             continue
 

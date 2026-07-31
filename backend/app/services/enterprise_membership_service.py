@@ -364,16 +364,17 @@ async def list_history_for_project(
     *,
     user: User,
     project_release_id: int,
-) -> list[ReleaseMembership]:
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseMembership], int]:
     stmt = (
         select(ReleaseMembership)
         .where(
             ReleaseMembership.project_release_id == project_release_id,
             ReleaseMembership.tenant_id == user.active_tenant_id,
         )
-        .order_by(ReleaseMembership.requested_at.desc())
+        .order_by(ReleaseMembership.requested_at.desc(), ReleaseMembership.id)
     )
-    return list((await db.execute(stmt)).scalars().all())
+    return await fetch_page(db, stmt, page)
 
 
 async def get_membership_summary(

@@ -1,9 +1,10 @@
 """RAID log endpoints — per-release Risks / Assumptions / Issues / Dependencies."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.services import raid_service, raid_config_service, release_service
@@ -27,20 +28,23 @@ def _assert_in_release(item, release_id: int) -> None:
 @router.get("/{release_id}/raid", response_model=list[RaidItemRead])
 async def list_raid(
     release_id: int,
+    response: Response,
     item_type: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     owner_id: Optional[int] = Query(None),
     rag: Optional[str] = Query(None),
     overdue: Optional[bool] = Query(None),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
-    items = await raid_service.list_items(
+    items, total = await raid_service.list_items(
         db, release_id, tenant_id, item_type=item_type, status=status_filter,
-        owner_id=owner_id, rag=rag, overdue=overdue, config=cfg)
+        owner_id=owner_id, rag=rag, overdue=overdue, config=cfg, page=page)
+    set_total_count(response, total)
     return [raid_service.to_read(i, cfg) for i in items]
 
 
