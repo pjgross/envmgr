@@ -95,9 +95,9 @@ total* below, not stand in for it.
 PostgreSQL orders it last — so an unqualified `ORDER BY` on a nullable sortable column returned a
 different page per engine before this pass. `apply_sort` now always sorts NULLs last on
 ascending and first on descending, on both engines. That's a deliberate, documented behaviour
-change on SQLite for the five nullable whitelisted columns: `deployer_name`, `target_date`,
-`resolved_at`, `provider`, `region`. PostgreSQL's own default already matched, so it is
-unaffected.
+change on SQLite for the seven nullable whitelisted columns: `deployer_name`, `target_date`,
+`resolved_at`, `provider`, `region`, `git_branch`, `build_number`. PostgreSQL's own default
+already matched, so it is unaffected.
 
 ### The nine endpoints
 
@@ -178,10 +178,10 @@ file that does not ship with the repository, so they're recorded here instead �
 
 4. **NULL ordering changed, deliberately, and only on SQLite.** See *Sorting* above: `apply_sort`
    now pins NULLs last on ascending sorts and first on descending, on both engines. PostgreSQL's
-   default already matched; SQLite's did not, so its behaviour changed for the five nullable
-   whitelisted columns (`deployer_name`, `target_date`, `resolved_at`, `provider`, `region`).
-   This is intentional — don't mistake it for a regression if it's noticed during C3's manual
-   testing against a dev SQLite database.
+   default already matched; SQLite's did not, so its behaviour changed for the seven nullable
+   whitelisted columns (`deployer_name`, `target_date`, `resolved_at`, `provider`, `region`,
+   `git_branch`, `build_number`). This is intentional — don't mistake it for a regression if it's
+   noticed during C3's manual testing against a dev SQLite database.
 
 5. **Two enum-storage conventions coexist; check before whitelisting a new one.**
    `EnvironmentStatus` is `Enum(native_enum=False)` **without** `values_callable`, so its column
@@ -194,12 +194,16 @@ file that does not ship with the repository, so they're recorded here instead �
    guarantees. Anyone whitelisting a future enum column, in C3 or elsewhere, must check which
    convention it uses before assuming its sort order matches what the UI displays.
 
-6. **C1 made exactly two behaviour changes; everything else is additive.** Every new query
-   parameter above is optional, and every endpoint's default, unfiltered result is unchanged by
-   C1 — that's what makes the backend half safe to merge ahead of C3. The two exceptions:
-   `GET /builds` is now bounded and gained an `id` tiebreaker it never had (rows with distinct
-   `commit_timestamp`s are unaffected; only true ties gain a defined order — see *Ordering must
-   be total* below), and NULL ordering on SQLite changed for the five columns in point 4.
+6. **C1 made three changes that alter existing behaviour; everything else is additive.** Every
+   new query parameter above is optional, and every endpoint's default, unfiltered result is
+   unchanged by C1 — that's what makes the backend half safe to merge ahead of C3. The three
+   exceptions: `GET /builds` is now bounded and gained an `id` tiebreaker it never had (rows with
+   distinct `commit_timestamp`s are unaffected; only true ties gain a defined order — see
+   *Ordering must be total* below); NULL ordering on SQLite changed for the seven columns in
+   point 4; and `GET /infrastructure-components/`'s existing `search` parameter widened from
+   matching `name` only to `name` **or** `provider` **or** `region` — a change to an existing
+   parameter's semantics, though inert today since no frontend page passes `search` to that
+   endpoint.
 
 ## Bounded so far
 

@@ -504,12 +504,16 @@ async def _tied_systems(db_session, tenant_id, count=25):
 
 @pytest.mark.asyncio
 async def test_systems_sort_precedes_the_tiebreaker_in_the_emitted_sql(db_session, test_tenant):
+    """The service's hardcoded tail is `.order_by(System.name, System.id)` — an
+    implicit-ASC lead on the same column apply_sort would default to. Request
+    DESC instead so only apply_sort, not the tail, could have produced the
+    leading token; see the guard-proof in the C1 final-fixes report."""
     captured = _spy_on_execute(db_session)
     await system_service.list_systems(
-        db_session, test_tenant.id, sort=Sort(column=System.name, descending=False)
+        db_session, test_tenant.id, sort=Sort(column=System.name, descending=True)
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("system.name")
+    assert order_by.startswith("system.name DESC NULLS FIRST")
     assert order_by.rstrip().endswith("system.id")
 
 
@@ -564,6 +568,9 @@ async def _tied_incidents(db_session, tenant_id, count=25):
 async def test_incidents_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant
 ):
+    """The service's hardcoded tail is `.order_by(Incident.detected_at.desc(),
+    Incident.id)`. Request ASC — the leading token's direction and NULLS
+    placement then only match if apply_sort actually ran."""
     captured = _spy_on_execute(db_session)
     await incident_service.list_incidents(
         db_session,
@@ -572,7 +579,7 @@ async def test_incidents_sort_precedes_the_tiebreaker_in_the_emitted_sql(
         sort=Sort(column=Incident.detected_at, descending=False),
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("incident.detected_at")
+    assert order_by.startswith("incident.detected_at ASC NULLS LAST")
     assert order_by.rstrip().endswith("incident.id")
 
 
@@ -621,6 +628,10 @@ async def _tied_change_requests(db_session, tenant_id, count=25):
 async def test_change_requests_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant
 ):
+    """The service's hardcoded tail is
+    `.order_by(ChangeRequest.scheduled_start.desc(), ChangeRequest.id)`. Request
+    ASC — the leading token's direction and NULLS placement then only match if
+    apply_sort actually ran."""
     captured = _spy_on_execute(db_session)
     await change_request_service.list_change_requests(
         db_session,
@@ -628,7 +639,7 @@ async def test_change_requests_sort_precedes_the_tiebreaker_in_the_emitted_sql(
         sort=Sort(column=ChangeRequest.scheduled_start, descending=False),
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("change_request.scheduled_start")
+    assert order_by.startswith("change_request.scheduled_start ASC NULLS LAST")
     assert order_by.rstrip().endswith("change_request.id")
 
 
@@ -701,12 +712,16 @@ async def _tied_bookings(db_session, tenant_id, count=25):
 async def test_bookings_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant
 ):
+    """The service's hardcoded tail is `.order_by(Booking.start_date.asc(),
+    Booking.id)` — the same column AND direction apply_sort would default to.
+    Request DESC instead so only apply_sort could have produced the leading
+    token; see the guard-proof in the C1 final-fixes report."""
     captured = _spy_on_execute(db_session)
     await booking_service.list_bookings(
-        db_session, test_tenant.id, sort=Sort(column=Booking.start_date, descending=False)
+        db_session, test_tenant.id, sort=Sort(column=Booking.start_date, descending=True)
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("booking.start_date")
+    assert order_by.startswith("booking.start_date DESC NULLS FIRST")
     assert order_by.rstrip().endswith("booking.id")
 
 
@@ -780,12 +795,15 @@ async def _tied_releases(db_session, tenant_id, count=25):
 async def test_releases_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant
 ):
+    """The service's hardcoded tail is `.order_by(Release.created_at.desc(),
+    Release.id)`. Request ASC — the leading token's direction and NULLS
+    placement then only match if apply_sort actually ran."""
     captured = _spy_on_execute(db_session)
     await release_service.list_releases(
         db_session, test_tenant.id, sort=Sort(column=Release.created_at, descending=False)
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("release.created_at")
+    assert order_by.startswith("release.created_at ASC NULLS LAST")
     assert order_by.rstrip().endswith("release.id")
 
 
@@ -843,14 +861,19 @@ async def _tied_infrastructure_components(db_session, tenant_id, count=25):
 async def test_infrastructure_components_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant
 ):
+    """The service's hardcoded tail is
+    `.order_by(InfrastructureComponent.name, InfrastructureComponent.id)` — an
+    implicit-ASC lead on the same column apply_sort would default to. Request
+    DESC instead so only apply_sort, not the tail, could have produced the
+    leading token; see the guard-proof in the C1 final-fixes report."""
     captured = _spy_on_execute(db_session)
     await infrastructure_component_service.list_infrastructure_components(
         db_session,
         test_tenant.id,
-        sort=Sort(column=InfrastructureComponent.name, descending=False),
+        sort=Sort(column=InfrastructureComponent.name, descending=True),
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("infrastructure_component.name")
+    assert order_by.startswith("infrastructure_component.name DESC NULLS FIRST")
     assert order_by.rstrip().endswith("infrastructure_component.id")
 
 
@@ -898,6 +921,9 @@ async def _tied_builds(db_session, tenant_id, count=25):
 async def test_builds_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant, test_user
 ):
+    """The endpoint's hardcoded tail is `.order_by(Build.commit_timestamp.desc(),
+    Build.id)`. Request ASC — the leading token's direction and NULLS placement
+    then only match if apply_sort actually ran."""
     test_user.active_tenant_id = test_user.tenant_id
     captured = _spy_on_execute(db_session)
     await builds_api.list_builds(
@@ -914,7 +940,7 @@ async def test_builds_sort_precedes_the_tiebreaker_in_the_emitted_sql(
         current_user=test_user,
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("build.commit_timestamp")
+    assert order_by.startswith("build.commit_timestamp ASC NULLS LAST")
     assert order_by.rstrip().endswith("build.id")
 
 
@@ -990,6 +1016,9 @@ async def _tied_deployments(db_session, tenant_id, count=25):
 async def test_deployments_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     db_session, test_tenant, test_user
 ):
+    """The endpoint's hardcoded tail is `.order_by(Deployment.deployed_at.desc(),
+    Deployment.id)`. Request ASC — the leading token's direction and NULLS
+    placement then only match if apply_sort actually ran."""
     test_user.active_tenant_id = test_user.tenant_id
     captured = _spy_on_execute(db_session)
     await deployments_api.list_deployments(
@@ -1008,7 +1037,7 @@ async def test_deployments_sort_precedes_the_tiebreaker_in_the_emitted_sql(
         current_user=test_user,
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
-    assert order_by.startswith("deployment.deployed_at")
+    assert order_by.startswith("deployment.deployed_at ASC NULLS LAST")
     assert order_by.rstrip().endswith("deployment.id")
 
 
