@@ -15,6 +15,7 @@ which git history alone conveys poorly.
 | [`EnvManager_Requirements_Summary.md`](EnvManager_Requirements_Summary.md) | The first requirements summary | [`../requirements.md`](../requirements.md) |
 | [`phase-3-sub1-smoke-checklist.md`](phase-3-sub1-smoke-checklist.md) | Manual QA walkthrough before merging `feature/phase-3-core-releases` (April 2026) | The automated suite — `backend/tests/integration/test_release_happy_path.py` and the rest |
 | [`phase-3-sub2-smoke-checklist.md`](phase-3-sub2-smoke-checklist.md) | Manual QA walkthrough before merging Enterprise Releases (April 2026) | As above |
+| [`pagination-merge-runbook.md`](pagination-merge-runbook.md) | Merge order for the three stacked pagination PRs (#36–#38), executed 2026-07-31 | Nothing — the merge is done. Kept because its central claim (that GitHub auto-retargets a stacked PR's base) is **false**, and the annotated copy records the recovery |
 
 ## Known contradictions
 
