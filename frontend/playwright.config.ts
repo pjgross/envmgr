@@ -7,7 +7,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Paths resolved relative to this config file (frontend/)
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const BACKEND_DIR = path.join(PROJECT_ROOT, 'backend');
-const SITE_PACKAGES = path.join(PROJECT_ROOT, '.venv/lib/python3.12/site-packages');
+// Backend's own uv-managed venv — NOT the stale foreign `.venv` at the repo
+// root (leftover from before the 2026-07-30 hardening programme's dependency
+// cleanup: it still has `neo4j`/`pika`, which were removed, and is missing
+// packages added since, e.g. `prometheus_client`).
+const SITE_PACKAGES = path.join(BACKEND_DIR, '.venv/lib/python3.12/site-packages');
 
 // uv-managed Python — the real binary (not the XSym shim in .venv/bin)
 const PYTHON =
