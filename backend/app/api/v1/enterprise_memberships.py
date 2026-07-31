@@ -1,11 +1,12 @@
 """Enterprise-release membership API."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.db.models.release import Release
 from app.db.models.release_membership import ReleaseMembership
@@ -109,17 +110,21 @@ async def request_membership(
 )
 async def list_memberships(
     enterprise_id: int,
+    response: Response,
     states: Optional[str] = Query(None, description="CSV of states"),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
     state_list = [s.strip() for s in states.split(",")] if states else None
-    rows = await enterprise_membership_service.list_memberships(
+    rows, total = await enterprise_membership_service.list_memberships(
         db,
         user=user,
         enterprise_id=enterprise_id,
         states=state_list,
+        page=page,
     )
+    set_total_count(response, total)
     return await _hydrate_reads(db, rows)
 
 

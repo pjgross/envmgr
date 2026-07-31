@@ -2,10 +2,11 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page_rows, pagination, set_total_count
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.db.models.build import Build
@@ -48,14 +49,14 @@ def _select_with_joins():
 
 @router.get("", response_model=list[DeploymentRead])
 async def list_deployments(
+    response: Response,
     environment_id: Optional[int] = Query(None),
     release_id: Optional[int] = Query(None),
     build_id: Optional[int] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
-    limit: int = Query(100, le=500),
-    offset: int = Query(0),
+    page: Page = Depends(pagination(default_limit=100, max_limit=500)),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -75,8 +76,9 @@ async def list_deployments(
         q = q.where(Deployment.deployed_at >= date_from)
     if date_to is not None:
         q = q.where(Deployment.deployed_at <= date_to)
-    q = q.order_by(Deployment.deployed_at.desc()).limit(limit).offset(offset)
-    rows = (await db.execute(q)).all()
+    q = q.order_by(Deployment.deployed_at.desc(), Deployment.id)
+    rows, total = await fetch_page_rows(db, q, page)
+    set_total_count(response, total)
     return [
         _deployment_to_read(d, sha, env_name, rel_name, cr_title)
         for d, sha, env_name, rel_name, cr_title in rows

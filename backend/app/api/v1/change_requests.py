@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
+from app.core.pagination import Page, pagination, set_total_count
 from app.services import change_request_service
 from app.api.v1.schemas.change_request import (
     ChangeRequestCreate,
@@ -28,17 +29,19 @@ async def _shape(db: AsyncSession, cr, tenant_id: int) -> dict:
 
 @router.get("", response_model=list[ChangeRequestResponse])
 async def list_change_requests(
+    response: Response,
     environment_id: Optional[int] = Query(None),
     host_id: Optional[int] = Query(None),
     subsystem_id: Optional[int] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     scheduled_from: Optional[datetime] = Query(None),
     scheduled_to: Optional[datetime] = Query(None),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
-    crs = await change_request_service.list_change_requests(
+    crs, total = await change_request_service.list_change_requests(
         db,
         tenant_id,
         environment_id=environment_id,
@@ -47,7 +50,9 @@ async def list_change_requests(
         status_filter=status_filter,
         scheduled_from=scheduled_from,
         scheduled_to=scheduled_to,
+        page=page,
     )
+    set_total_count(response, total)
     return [await _shape(db, cr, tenant_id) for cr in crs]
 
 

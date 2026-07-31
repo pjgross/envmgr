@@ -114,7 +114,9 @@ async def list_incidents(
         conds.append(Incident.detected_at >= filters["date_from"])
     if filters.get("date_to"):
         conds.append(Incident.detected_at <= filters["date_to"])
-    query = select(Incident).where(and_(*conds)).order_by(Incident.detected_at.desc())
+    query = select(Incident).where(and_(*conds)).order_by(
+        Incident.detected_at.desc(), Incident.id
+    )
     return await fetch_page(db, query, page)
 
 

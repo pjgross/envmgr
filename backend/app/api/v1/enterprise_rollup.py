@@ -1,9 +1,10 @@
 """Enterprise rollup and report API endpoints."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.api.v1.schemas.enterprise_rollup import (
@@ -39,6 +40,7 @@ async def systems_rollup(
 )
 async def scope_rollup(
     enterprise_id: int,
+    response: Response,
     change_kind: Optional[str] = None,
     status: Optional[str] = None,
     project_release_id: Optional[int] = None,
@@ -46,12 +48,16 @@ async def scope_rollup(
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
+    page: Page = Depends(pagination()),
 ):
-    return await enterprise_rollup_service.scope_rollup(
+    items, total = await enterprise_rollup_service.scope_rollup(
         db, user=user, enterprise_id=enterprise_id,
         change_kind=change_kind, status=status,
         project_release_id=project_release_id, system_id=system_id, search=search,
+        page=page,
     )
+    set_total_count(response, total)
+    return items
 
 
 @router.get(

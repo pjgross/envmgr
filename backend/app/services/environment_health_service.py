@@ -5,6 +5,7 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.change_request import ChangeRequest, ChangeRequestEnvironment
@@ -71,12 +72,19 @@ def _derive_status(latest: Optional[EnvironmentHealthStatus], now: datetime):
     return latest.status, rec
 
 
-async def health_overview(db: AsyncSession, tenant_id: int, now: Optional[datetime] = None) -> list[dict]:
+async def health_overview(
+    db: AsyncSession,
+    tenant_id: int,
+    now: Optional[datetime] = None,
+    page: Optional[Page] = None,
+) -> tuple[list[dict], int]:
     now = now or datetime.now(timezone.utc)
-    envs = (await db.execute(select(Environment).where(
-        Environment.tenant_id == tenant_id, Environment.deleted_at.is_(None),
+    query = select(Environment).where(
+        Environment.tenant_id == tenant_id,
+        Environment.deleted_at.is_(None),
         Environment.status != "decommissioned",
-    ).order_by(Environment.name.asc()))).scalars().all()
+    ).order_by(Environment.name.asc(), Environment.id)
+    envs, total = await fetch_page(db, query, page)
     rows = []
     for env in envs:
         current, last_at = _derive_status(await _latest(db, tenant_id, env.id), now)
@@ -89,7 +97,7 @@ async def health_overview(db: AsyncSession, tenant_id: int, now: Optional[dateti
             "active_booking": booking is not None, "active_booking_summary": booking,
             "planned_outage": outage, "alert": alert,
         })
-    return rows
+    return rows, total
 
 
 async def _active_booking(db, tenant_id, environment_id, now):

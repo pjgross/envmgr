@@ -25,7 +25,7 @@ router = APIRouter()
 @router.get("/", response_model=list[SystemResponse])
 async def list_systems(
     response: Response,
-    page: Page = Depends(pagination),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):

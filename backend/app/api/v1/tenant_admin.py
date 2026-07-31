@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import require_tenant_admin, get_current_user
 from app.db.models.user import User
@@ -45,10 +46,16 @@ async def update_settings(
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await user_admin_service.list_users(db, current_user.active_tenant_id)
+    rows, total = await user_admin_service.list_users(
+        db, current_user.active_tenant_id, page=page
+    )
+    set_total_count(response, total)
+    return rows
 
 
 @router.get("/users/lite", response_model=list[UserLite])

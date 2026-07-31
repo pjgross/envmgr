@@ -18,7 +18,7 @@ async def list_systems(
     query = (
         select(System)
         .where(System.tenant_id == tenant_id, System.deleted_at.is_(None))
-        .order_by(System.name)
+        .order_by(System.name, System.id)
     )
     return await fetch_page(db, query, page)
 

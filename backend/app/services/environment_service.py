@@ -42,7 +42,7 @@ async def list_environments(
         query = query.where(Environment.status == status_filter)
     if environment_type is not None:
         query = query.where(Environment.environment_type == environment_type)
-    query = query.order_by(Environment.name)
+    query = query.order_by(Environment.name, Environment.id)
     return await fetch_page(db, query, page)
 
 

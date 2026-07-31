@@ -44,7 +44,7 @@ async def list_environments(
     response: Response,
     status: Optional[EnvironmentStatus] = None,
     environment_type: Optional[str] = None,
-    page: Page = Depends(pagination),
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):

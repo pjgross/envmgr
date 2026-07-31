@@ -1,7 +1,8 @@
 """Environment Health API — push (API key) + history + overview (JWT)."""
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user, api_key_auth
 from app.services import environment_health_service as svc
@@ -40,8 +41,12 @@ async def health_history(
 
 @router.get("/health", response_model=list[EnvironmentHealthOverviewRow])
 async def health_overview(
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Return the health overview for all non-decommissioned environments in the tenant (JWT auth)."""
-    return await svc.health_overview(db, current_user.active_tenant_id)
+    rows, total = await svc.health_overview(db, current_user.active_tenant_id, page=page)
+    set_total_count(response, total)
+    return rows

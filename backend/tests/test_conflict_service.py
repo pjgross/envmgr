@@ -52,9 +52,10 @@ async def test_overlap_same_env_open_window(db_session, test_tenant, test_user):
     a = await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2))
     b = await _make_booking(db_session, test_tenant, test_user, env, t0 + timedelta(days=1), t0 + timedelta(days=3))
 
-    conflicts = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
+    conflicts, total = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
     ids = [c.booking.id for c in conflicts]
     assert b.id in ids
+    assert total == len(conflicts)
 
 
 @pytest.mark.asyncio
@@ -65,8 +66,9 @@ async def test_no_overlap_when_terminal(db_session, test_tenant, test_user):
     await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2), status="rejected")
     await _make_booking(db_session, test_tenant, test_user, env, t0, t0 + timedelta(days=2), status="closed")
 
-    conflicts = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
+    conflicts, total = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
     assert conflicts == []
+    assert total == 0
 
 
 @pytest.mark.asyncio
@@ -78,8 +80,9 @@ async def test_no_overlap_different_env(db_session, test_tenant, test_user):
     a = await _make_booking(db_session, test_tenant, test_user, env_a, t0, t0 + timedelta(days=2))
     await _make_booking(db_session, test_tenant, test_user, env_b, t0, t0 + timedelta(days=2))
 
-    conflicts = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
+    conflicts, total = await conflict_service.list_conflicts(db_session, a.id, test_tenant.id)
     assert conflicts == []
+    assert total == 0
 
 
 async def _make_request_with_owner(db_session, test_tenant, test_user, delegates=None) -> BookingRequest:

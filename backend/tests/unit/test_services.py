@@ -55,11 +55,15 @@ async def test_list_tenants_returns_results():
     tenant_a = MagicMock()
     tenant_b = MagicMock()
     db = _make_db(scalars_result=[tenant_a, tenant_b])
+    db.execute.return_value.scalar_one.return_value = 2
 
-    result = await list_tenants(db)
+    rows, total = await list_tenants(db)
 
-    db.execute.assert_awaited_once()
-    assert result == [tenant_a, tenant_b]
+    # page=None: the window is a no-op, so the total is derived from the
+    # fetched rows rather than a separate, now-unnecessary count query.
+    assert db.execute.await_count == 1
+    assert rows == [tenant_a, tenant_b]
+    assert total == 2
 
 
 @pytest.mark.asyncio
@@ -203,11 +207,15 @@ async def test_list_users_filters_by_tenant_id():
     user_a = MagicMock()
     user_b = MagicMock()
     db = _make_db(scalars_result=[user_a, user_b])
+    db.execute.return_value.scalar_one.return_value = 2
 
-    result = await list_users(db, tenant_id=42)
+    rows, total = await list_users(db, tenant_id=42)
 
-    db.execute.assert_awaited_once()
-    assert result == [user_a, user_b]
+    # page=None: the window is a no-op, so the total is derived from the
+    # fetched rows rather than a separate, now-unnecessary count query.
+    assert db.execute.await_count == 1
+    assert rows == [user_a, user_b]
+    assert total == 2
 
 
 @pytest.mark.asyncio

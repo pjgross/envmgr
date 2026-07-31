@@ -42,7 +42,7 @@
 - Keep endpoints thin — delegate to service layer
 - Handle HTTP-specific concerns (status codes, headers)
 - Apply authentication/authorization decorators
-- Take `page: Page = Depends(pagination)` on list endpoints and set `X-Total-Count` (§8)
+- Take `page: Page = Depends(pagination())` on list endpoints and set `X-Total-Count` (§8)
 - **Commit before raising** when a write has to survive the error being returned —
   `get_db()` rolls back on exception, so a rate-limit record or a token revocation
   written on the way to a 4xx is otherwise discarded. Services signal this by raising

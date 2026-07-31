@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
 from app.services import lifecycle_service
@@ -288,7 +289,7 @@ async def list_releases(
     stmt = (
         select(Release)
         .where(*base_where)
-        .order_by(Release.created_at.desc())
+        .order_by(Release.created_at.desc(), Release.id)
         .limit(limit)
         .offset(offset)
     )
@@ -540,3 +541,22 @@ async def get_release_field_permissions(
         active_keys,
         valid_standard,
     )
+
+
+async def list_release_history(
+    db: AsyncSession,
+    release_id: int,
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseStatusHistory], int]:
+    """Lifecycle state-change history for a release, oldest first.
+
+    No tenant predicate: release_status_history has no tenant_id column — it is
+    scoped through its release, and callers must check that with
+    _require_release before calling here.
+    """
+    query = (
+        select(ReleaseStatusHistory)
+        .where(ReleaseStatusHistory.release_id == release_id)
+        .order_by(ReleaseStatusHistory.changed_at.asc(), ReleaseStatusHistory.id)
+    )
+    return await fetch_page(db, query, page)

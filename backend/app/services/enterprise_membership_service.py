@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.core.pagination import Page, fetch_page
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_membership import ReleaseMembership, MembershipState
@@ -328,7 +329,8 @@ async def list_memberships(
     user: User,
     enterprise_id: int,
     states: Optional[list[str]] = None,
-) -> list[ReleaseMembership]:
+    page: Optional[Page] = None,
+) -> tuple[list[ReleaseMembership], int]:
     await _get_release(db, enterprise_id, user.active_tenant_id)
     stmt = select(ReleaseMembership).where(
         ReleaseMembership.enterprise_release_id == enterprise_id,
@@ -336,9 +338,11 @@ async def list_memberships(
     )
     if states:
         stmt = stmt.where(ReleaseMembership.state.in_(states))
-    stmt = stmt.order_by(ReleaseMembership.requested_at.desc())
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    # requested_at is not unique — append id so LIMIT/OFFSET is over a total order
+    stmt = stmt.order_by(
+        ReleaseMembership.requested_at.desc(), ReleaseMembership.id
+    )
+    return await fetch_page(db, stmt, page)
 
 
 async def get_current_membership_for_project(

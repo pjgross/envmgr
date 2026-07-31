@@ -1,17 +1,24 @@
+from typing import Optional
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import Page, fetch_page
 from app.db.models.user import User
 from app.api.v1.schemas import UserAdminCreate, UserAdminUpdate
 from app.core.security import get_password_hash, Role
 
 
-async def list_users(db: AsyncSession, tenant_id: int) -> list[User]:
-    result = await db.execute(
-        select(User).where(User.tenant_id == tenant_id, User.deleted_at.is_(None))
+async def list_users(
+    db: AsyncSession, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[User], int]:
+    query = (
+        select(User)
+        .where(User.tenant_id == tenant_id, User.deleted_at.is_(None))
+        .order_by(User.username, User.id)
     )
-    return list(result.scalars().all())
+    return await fetch_page(db, query, page)
 
 
 async def get_user(db: AsyncSession, user_id: int, tenant_id: int) -> User:

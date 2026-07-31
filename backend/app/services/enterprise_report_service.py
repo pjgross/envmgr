@@ -40,7 +40,7 @@ async def generate_report(
     systems = await enterprise_rollup_service.systems_rollup(
         db, user=user, enterprise_id=enterprise_id
     )
-    scope_items = await enterprise_rollup_service.scope_rollup(
+    scope_items, _ = await enterprise_rollup_service.scope_rollup(
         db, user=user, enterprise_id=enterprise_id
     )
 

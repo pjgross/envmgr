@@ -526,13 +526,14 @@ async def test_list_memberships_filters_by_state(db_session, tenant, user):
     )
 
     # Filter by pending_request — only m2 should appear
-    rows = await enterprise_membership_service.list_memberships(
+    rows, total = await enterprise_membership_service.list_memberships(
         db_session,
         user=user,
         enterprise_id=enterprise.id,
         states=[MembershipState.PENDING_REQUEST.value],
     )
 
+    assert total == 1
     assert len(rows) == 1
     assert rows[0].id == m2.id
     assert rows[0].state == MembershipState.PENDING_REQUEST.value

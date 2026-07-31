@@ -267,12 +267,13 @@ async def test_scope_rollup_lists_accepted_children_only(db_session, tenant, use
     )
     await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
 
-    items = await enterprise_rollup_service.scope_rollup(
+    items, total = await enterprise_rollup_service.scope_rollup(
         db_session, user=user, enterprise_id=ent.id
     )
 
     assert len(items) == 1
     assert items[0].external_key == "SC-1"
+    assert total == 1
 
 
 @pytest.mark.asyncio
@@ -294,16 +295,18 @@ async def test_scope_rollup_filter_by_change_kind(db_session, tenant, user):
     )
     await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
 
-    story_items = await enterprise_rollup_service.scope_rollup(
+    story_items, story_total = await enterprise_rollup_service.scope_rollup(
         db_session, user=user, enterprise_id=ent.id, change_kind="story"
     )
     assert len(story_items) == 1
     assert story_items[0].external_key == "SC-10"
+    assert story_total == 1
 
-    all_items = await enterprise_rollup_service.scope_rollup(
+    all_items, all_total = await enterprise_rollup_service.scope_rollup(
         db_session, user=user, enterprise_id=ent.id
     )
     assert len(all_items) == 2
+    assert all_total == 2
 
 
 @pytest.mark.asyncio
@@ -330,11 +333,12 @@ async def test_scope_rollup_filter_by_project(db_session, tenant, user):
     await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
     await enterprise_membership_service.accept(db_session, user=user, membership_id=m2.id)
 
-    items = await enterprise_rollup_service.scope_rollup(
+    items, total = await enterprise_rollup_service.scope_rollup(
         db_session, user=user, enterprise_id=ent.id, project_release_id=p1.id
     )
     assert len(items) == 1
     assert items[0].external_key == "SC-20"
+    assert total == 1
 
 
 @pytest.mark.asyncio
@@ -356,16 +360,18 @@ async def test_scope_rollup_search(db_session, tenant, user):
     )
     await enterprise_membership_service.accept(db_session, user=user, membership_id=m1.id)
 
-    log_items = await enterprise_rollup_service.scope_rollup(
+    log_items, log_total = await enterprise_rollup_service.scope_rollup(
         db_session, user=user, enterprise_id=ent.id, search="log"
     )
     assert len(log_items) == 2
+    assert log_total == 2
 
-    add_items = await enterprise_rollup_service.scope_rollup(
+    add_items, add_total = await enterprise_rollup_service.scope_rollup(
         db_session, user=user, enterprise_id=ent.id, search="add"
     )
     assert len(add_items) == 1
     assert add_items[0].title == "Add login"
+    assert add_total == 1
 
 
 # ── timeline_rollup helpers ───────────────────────────────────────────────────

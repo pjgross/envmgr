@@ -1,5 +1,11 @@
 """Bounded list results: the shared primitive and the endpoints using it."""
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+import pytest_asyncio
+from fastapi import Depends, FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.core.pagination import (
@@ -8,6 +14,8 @@ from app.core.pagination import (
     TOTAL_COUNT_HEADER,
     Page,
     fetch_page,
+    fetch_page_rows,
+    pagination,
 )
 from app.db.models.environment import Environment
 
@@ -79,6 +87,52 @@ async def test_no_page_returns_everything(db_session, tenant):
     assert len(rows) == 5 == total
 
 
+@pytest.mark.asyncio
+async def test_no_page_issues_no_count_query():
+    """`page=None` must not run `_total_for`'s COUNT query.
+
+    Five internal callers pass `page=None` and discard the total — worst of all,
+    `conflict_service.has_unacknowledged_conflicts` does it once per booking
+    inside the loop backing `GET /bookings/`. A regression here turns one extra
+    `SELECT count(*)` per booking on that hot path. Mirrors the mocked-db idiom
+    in `tests/unit/test_services.py`, which already asserts on `await_count`.
+
+    If the unconditional count is reinstated, `db.execute` is awaited twice
+    (count + windowed query) instead of once, and this test fails.
+    """
+    scalars_result = MagicMock()
+    scalars_result.all.return_value = ["row-a", "row-b"]
+    execute_result = MagicMock()
+    execute_result.scalars.return_value = scalars_result
+
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=execute_result)
+
+    rows, total = await fetch_page(db, select(Environment), None)
+
+    assert db.execute.await_count == 1  # windowed query only, no COUNT
+    assert rows == ["row-a", "row-b"]
+    assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_no_page_issues_no_count_query_rows_variant():
+    """As above, for `fetch_page_rows` — the multi-column select variant."""
+    execute_result = MagicMock()
+    execute_result.all.return_value = [("row-a", 1), ("row-b", 2)]
+
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=execute_result)
+
+    rows, total = await fetch_page_rows(
+        db, select(Environment.id, Environment.name), None
+    )
+
+    assert db.execute.await_count == 1  # windowed query only, no COUNT
+    assert rows == [("row-a", 1), ("row-b", 2)]
+    assert total == 2
+
+
 # ── endpoint behaviour ───────────────────────────────────────────────────────
 
 
@@ -126,3 +180,516 @@ async def test_list_endpoint_defaults_to_a_bounded_page(
     await _make_environments(db_session, test_tenant.id, 3)
     response = await client.get("/api/v1/environments/", headers=auth_headers)
     assert len(response.json()) <= DEFAULT_LIMIT
+
+
+# ── the factory ──────────────────────────────────────────────────────────────
+#
+# Tested against a throwaway app rather than a real endpoint: no endpoint uses
+# per-endpoint overrides until a later task, and the factory's whole contract is
+# visible from one route.
+
+
+def _probe_app(**overrides) -> FastAPI:
+    probe = FastAPI()
+
+    @probe.get("/probe")
+    async def _probe(page: Page = Depends(pagination(**overrides))):
+        return {"limit": page.limit, "offset": page.offset}
+
+    return probe
+
+
+@pytest.mark.asyncio
+async def test_factory_defaults_to_the_shared_window():
+    async with AsyncClient(
+        transport=ASGITransport(app=_probe_app()), base_url="http://probe"
+    ) as ac:
+        assert (await ac.get("/probe")).json() == {"limit": DEFAULT_LIMIT, "offset": 0}
+        assert (await ac.get(f"/probe?limit={MAX_LIMIT}")).status_code == 200
+        assert (await ac.get(f"/probe?limit={MAX_LIMIT + 1}")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_factory_overrides_are_enforced_not_clamped():
+    """A per-endpoint cap is a real 422, so a caller cannot opt out of it."""
+    app_50_200 = _probe_app(default_limit=50, max_limit=200)
+    async with AsyncClient(
+        transport=ASGITransport(app=app_50_200), base_url="http://probe"
+    ) as ac:
+        assert (await ac.get("/probe")).json() == {"limit": 50, "offset": 0}
+        assert (await ac.get("/probe?limit=200")).status_code == 200
+        assert (await ac.get("/probe?limit=201")).status_code == 422
+
+
+# ── the row variant ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rows_returns_tuples_not_scalars(db_session, tenant):
+    await _make_environments(db_session, tenant.id, 4)
+    query = select(Environment.id, Environment.name).order_by(Environment.name)
+
+    rows, total = await fetch_page_rows(db_session, query, Page(limit=2, offset=0))
+
+    assert total == 4
+    assert len(rows) == 2
+    # each row is a tuple of the selected columns, not an entity
+    assert [r[1] for r in rows] == ["env-000", "env-001"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rows_total_ignores_the_window(db_session, tenant):
+    await _make_environments(db_session, tenant.id, 9)
+    query = select(Environment, Environment.name).order_by(Environment.name)
+
+    rows, total = await fetch_page_rows(db_session, query, Page(limit=3, offset=6))
+
+    assert total == 9
+    assert len(rows) == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rows_without_a_page_returns_everything(db_session, tenant):
+    await _make_environments(db_session, tenant.id, 5)
+    rows, total = await fetch_page_rows(
+        db_session, select(Environment.id, Environment.name), None
+    )
+    assert len(rows) == 5 == total
+
+
+# ── conformance sweep ────────────────────────────────────────────────────────
+#
+# Every bounded endpoint must satisfy the same four invariants. All of them hold
+# on an empty tenant — request validation and the count query do not need rows —
+# so this table needs no fixtures.
+#
+# NOTE: this proves *shape*, not that the window is correct. An endpoint whose
+# service filters in Python after the query would pass all four and still return
+# wrong results. That is controlled by reading each service before converting it,
+# not by this test.
+
+BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
+    # (test id, url, max_limit, auth fixture name)
+    ("environments", "/api/v1/environments/", MAX_LIMIT, "auth_headers"),
+    ("systems", "/api/v1/systems/", MAX_LIMIT, "auth_headers"),
+    ("incidents", "/api/v1/incidents", MAX_LIMIT, "auth_headers"),
+    ("bookings", "/api/v1/bookings/", MAX_LIMIT, "auth_headers"),
+    ("change_requests", "/api/v1/change-requests", MAX_LIMIT, "auth_headers"),
+    ("infrastructure_components", "/api/v1/infrastructure-components/", MAX_LIMIT, "auth_headers"),
+    ("environment_health", "/api/v1/environments/health", MAX_LIMIT, "auth_headers"),
+    ("admin_tenants", "/api/v1/admin/tenants", MAX_LIMIT, "master_admin_headers"),
+    ("tenant_users", "/api/v1/tenant/users", MAX_LIMIT, "auth_headers"),
+    # release-changes is a flat endpoint (not a /{release_id}/ sub-resource — see
+    # RELEASE_SUBRESOURCES below for those), so it belongs in this table.
+    ("release_changes_flat", "/api/v1/release-changes", MAX_LIMIT, "auth_headers"),
+    ("releases", "/api/v1/releases", 200, "auth_headers"),
+    ("deployments", "/api/v1/deployments", 500, "auth_headers"),
+    ("booking_requests", "/api/v1/booking-requests", MAX_LIMIT, "auth_headers"),
+]
+
+
+@pytest_asyncio.fixture
+async def master_admin_headers(client, db_session):
+    """Bearer headers for a master admin in the system tenant."""
+    from app.db.models.user import Tenant, User
+    from app.core.security import get_password_hash
+
+    system = Tenant(name="System", slug="system-pagination")
+    db_session.add(system)
+    await db_session.flush()
+    user = User(
+        tenant_id=system.id,
+        username="pagination-masteradmin",
+        email="ma@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Admin",
+        is_active=True,
+        is_master_admin=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    response = await client.post("/api/v1/auth/login", json={
+        "username": user.username,
+        "password": "password123",
+        "tenant_slug": system.slug,
+    })
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url,max_limit,auth_fixture",
+    [(url, cap, fix) for _id, url, cap, fix in BOUNDED_ENDPOINTS],
+    ids=[_id for _id, _url, _cap, _fix in BOUNDED_ENDPOINTS],
+)
+async def test_bounded_endpoint_conformance(
+    client, url, max_limit, auth_fixture, auth_headers, master_admin_headers
+):
+    # `request.getfixturevalue(auth_fixture)` is the natural way to resolve the
+    # table's fixture-name column, but pytest-asyncio (1.4.0, this repo's
+    # pinned version) runs each async test inside its own asyncio.Runner, and
+    # resolving an *async* fixture on demand from inside that already-running
+    # test coroutine tries to nest another Runner.run() call inside it —
+    # `RuntimeError: Runner.run() cannot be called from a running event loop`.
+    # So known auth fixtures are requested directly as parameters (resolved
+    # during setup, before the test coroutine runs) and picked by name here.
+    # A later task adding a second auth fixture (e.g. master-admin) adds it to
+    # this dict and the function signature — table rows still just append.
+    headers = {
+        "auth_headers": auth_headers,
+        "master_admin_headers": master_admin_headers,
+    }[auth_fixture]
+    response = await client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+
+    # 1. still a bare array — no client change was required by this work
+    body = response.json()
+    assert isinstance(body, list)
+
+    # 2. the unwindowed total is advertised
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) >= 0
+
+    # 3. asking past the cap is a 422, not a silent clamp
+    over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
+    assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_booking_requests_still_include_their_bookings(
+    client, auth_headers, test_booking
+):
+    """The eager load must replace the per-row refresh without losing the relation."""
+    response = await client.get("/api/v1/booking-requests", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) >= 1
+    assert "bookings" in body[0]
+    assert len(body[0]["bookings"]) >= 1
+
+
+# ── deployments (row variant) ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_deployments_rows_keep_their_join_columns(
+    client, auth_headers, db_session, test_tenant
+):
+    """The row variant must hand back (Deployment, sha, env, release, cr), not scalars."""
+    import uuid
+    from app.db.models.deployment import Deployment
+    from tests.factories import ensure_build, ensure_change_request, ensure_environment
+
+    env = await ensure_environment(db_session, test_tenant.id)
+    build = await ensure_build(db_session, test_tenant.id)
+    cr = await ensure_change_request(db_session, test_tenant.id)
+
+    db_session.add(Deployment(
+        tenant_id=test_tenant.id,
+        build_id=build.id,
+        environment_id=env.id,
+        change_request_id=cr.id,
+        event_id=str(uuid.uuid4()),
+        status="succeeded",
+        deployed_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    response = await client.get("/api/v1/deployments", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) == 1
+    # environment_name comes from the join, not the Deployment row
+    assert body[0]["environment_name"] == env.name
+
+
+# ── release sub-resources ────────────────────────────────────────────────────
+#
+# `/releases/{release_id}/events|changes|dependencies` are not flat endpoints —
+# each needs a real release id in the URL — so they get their own fixture and
+# their own parametrised test rather than a row in BOUNDED_ENDPOINTS.
+
+RELEASE_SUBRESOURCES: list[tuple[str, str, int, str]] = [
+    # (test id, sub-path under /api/v1/releases/{release_id}/, max_limit, auth fixture name)
+    ("release_events", "events", MAX_LIMIT, "auth_headers"),
+    ("release_changes", "changes", MAX_LIMIT, "auth_headers"),
+    ("release_dependencies", "dependencies", MAX_LIMIT, "auth_headers"),
+    ("release_systems", "systems", MAX_LIMIT, "auth_headers"),
+    ("release_history", "history", MAX_LIMIT, "auth_headers"),
+]
+
+
+@pytest_asyncio.fixture
+async def release_id(db_session, test_tenant, test_user) -> int:
+    """A persisted release. Mirrors the `release` fixture in test_releases_api.py —
+    lifecycle_template_id is NOT nullable, so the template must exist first."""
+    from app.db.models.lifecycle import LifecycleTemplate
+    from app.db.models.release import Release
+
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="release",
+        name="pagination-release-lifecycle",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+
+    release = Release(
+        tenant_id=test_tenant.id,
+        name="pagination-release",
+        release_type="major",
+        release_kind="project",
+        lifecycle_template_id=tpl.id,
+        status="draft",
+        raised_by=test_user.id,
+    )
+    db_session.add(release)
+    await db_session.commit()
+    await db_session.refresh(release)
+    return release.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "subresource,max_limit,auth_fixture",
+    [(sub, cap, fix) for _id, sub, cap, fix in RELEASE_SUBRESOURCES],
+    ids=[_id for _id, _sub, _cap, _fix in RELEASE_SUBRESOURCES],
+)
+async def test_release_subresource_conformance(
+    client, release_id, subresource, max_limit, auth_fixture, auth_headers, master_admin_headers
+):
+    headers = {
+        "auth_headers": auth_headers,
+        "master_admin_headers": master_admin_headers,
+    }[auth_fixture]
+    url = f"/api/v1/releases/{release_id}/{subresource}"
+    response = await client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+
+    # 1. still a bare array — no client change was required by this work
+    body = response.json()
+    assert isinstance(body, list)
+
+    # 2. the unwindowed total is advertised
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) >= 0
+
+    # 3. asking past the cap is a 422, not a silent clamp
+    over = await client.get(f"{url}?limit={max_limit + 1}", headers=headers)
+    assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_release_systems_keep_the_joined_system_name(
+    client, auth_headers, db_session, test_tenant, release_id
+):
+    """`/releases/{id}/systems` goes through fetch_page_rows because System.name
+    is joined in, not a ReleaseSystem column — confirm that enrichment survives
+    the move into release_system_service."""
+    from app.db.models.release_system import ReleaseSystem
+    from app.db.models.system import System
+
+    system = System(tenant_id=test_tenant.id, name="payments")
+    db_session.add(system)
+    await db_session.flush()
+    db_session.add(ReleaseSystem(
+        tenant_id=test_tenant.id,
+        release_id=release_id,
+        system_id=system.id,
+        role="changing",
+    ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/systems", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["system_name"] == "payments"
+
+
+@pytest.mark.asyncio
+async def test_release_history_survives_the_extraction(
+    client, auth_headers, db_session, test_user, release_id
+):
+    from app.db.models.release import ReleaseStatusHistory
+
+    now = datetime.now(timezone.utc)
+    for n, (frm, to) in enumerate([("planned", "in_progress"), ("in_progress", "done")]):
+        db_session.add(ReleaseStatusHistory(
+            release_id=release_id,
+            from_state=frm,
+            to_state=to,
+            changed_by=test_user.id,
+            changed_at=now + timedelta(minutes=n),
+        ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/history", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [row["to_state"] for row in body] == ["in_progress", "done"]  # oldest first
+
+
+# ── conflicts and rollup/scope ────────────────────────────────────────────────
+#
+# Both are nested under a parent id (booking_id, enterprise_id) rather than flat
+# tenant-scoped lists, so they get their own targeted tests instead of a row in
+# BOUNDED_ENDPOINTS or RELEASE_SUBRESOURCES.
+
+
+@pytest.mark.asyncio
+async def test_conflicts_advertises_its_total(
+    client, auth_headers, test_booking, test_conflicting_booking
+):
+    booking_id = test_booking.id
+    response = await client.get(
+        f"/api/v1/bookings/{booking_id}/conflicts", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert TOTAL_COUNT_HEADER in response.headers
+    # test_conflicting_booking overlaps test_booking's window on the same
+    # environment, so this exercises the real windowed query, not just the
+    # terminal-state early return.
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == len(body) == 1
+
+    over = await client.get(
+        f"/api/v1/bookings/{booking_id}/conflicts?limit={MAX_LIMIT + 1}",
+        headers=auth_headers,
+    )
+    assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_scope_rollup_advertises_its_total(client, auth_headers, release_id):
+    """`release_id` is a plain project-kind release with no enterprise memberships,
+    so `scope_rollup` takes its `_accepted_child_ids` early return (`[], 0`). This
+    test only proves that early return carries the tuple/header shape correctly —
+    it does NOT exercise the windowed query path (fetch_page_rows / ORDER BY
+    ReleaseChange.id), which needs an accepted enterprise membership to reach.
+    See tests/integration/test_enterprise_rollup_service.py for coverage of the
+    real query.
+    """
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/rollup/scope", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert body == []
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 0
+
+    over = await client.get(
+        f"/api/v1/releases/{release_id}/rollup/scope?limit={MAX_LIMIT + 1}",
+        headers=auth_headers,
+    )
+    assert over.status_code == 422
+
+
+# ── enterprise memberships ──────────────────────────────────────────────────
+#
+# GET /releases/{enterprise_id}/memberships is not in BOUNDED_ENDPOINTS: an
+# empty tenant has no release with id 1, and `list_memberships` calls
+# `_get_release` first, so the conformance sweep would get a 404, not a 200.
+# This targeted test builds real rows instead. `list_memberships` itself never
+# checks `release_kind` (only `request_membership` does), so the existing
+# `release_id` fixture — a plain project-kind release — stands in as the
+# enterprise-scoped release in the URL.
+
+
+@pytest.mark.asyncio
+async def test_enterprise_memberships_advertises_total_and_bounds_the_page(
+    client, auth_headers, db_session, test_tenant, test_user, release_id
+):
+    from app.db.models.lifecycle import LifecycleTemplate
+    from app.db.models.release import Release
+    from app.db.models.release_membership import MembershipState, ReleaseMembership
+
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="release",
+        name="pagination-membership-lifecycle",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+
+    # Real project releases — never fabricate a foreign key id in a test.
+    project_releases = []
+    for n in range(3):
+        r = Release(
+            tenant_id=test_tenant.id,
+            name=f"pagination-membership-project-{n}",
+            release_type="major",
+            release_kind="project",
+            lifecycle_template_id=tpl.id,
+            status="draft",
+            raised_by=test_user.id,
+        )
+        db_session.add(r)
+        project_releases.append(r)
+    await db_session.flush()
+
+    # Terminal state (rejected) so the partial-unique "one open membership per
+    # project" guard (Postgres only) never comes into play.
+    now = datetime.now(timezone.utc)
+    for n, project in enumerate(project_releases):
+        db_session.add(ReleaseMembership(
+            tenant_id=test_tenant.id,
+            enterprise_release_id=release_id,
+            project_release_id=project.id,
+            state=MembershipState.REJECTED.value,
+            requested_by=test_user.id,
+            requested_at=now + timedelta(minutes=n),
+            late_scope=False,
+        ))
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/releases/{release_id}/memberships", headers=auth_headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert len(body) == 3
+    assert TOTAL_COUNT_HEADER in response.headers
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 3
+
+    limited = await client.get(
+        f"/api/v1/releases/{release_id}/memberships?limit=2", headers=auth_headers
+    )
+    assert limited.status_code == 200, limited.text
+    assert len(limited.json()) == 2
+    assert int(limited.headers[TOTAL_COUNT_HEADER]) == 3
+
+    over = await client.get(
+        f"/api/v1/releases/{release_id}/memberships?limit={MAX_LIMIT + 1}",
+        headers=auth_headers,
+    )
+    assert over.status_code == 422
