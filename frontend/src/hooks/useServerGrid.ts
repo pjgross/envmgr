@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   buildParams,
   resolveSort,
@@ -66,7 +66,8 @@ export function useServerGrid({
   debounceKeys = NO_DEBOUNCE,
   total,
 }: UseServerGridOptions): ServerGrid {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const page = clampInt(searchParams.get('page'), 0, 0, Number.MAX_SAFE_INTEGER);
   const pageSize = clampInt(searchParams.get('page_size'), DEFAULT_PAGE_SIZE, 1, 100);
@@ -128,9 +129,41 @@ export function useServerGrid({
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
+  // A debounced caller (setFilter) closes over whatever `patch` identity
+  // existed when its timer was scheduled. If a second URL change landed
+  // before the timer fired and `patch` rebuilt `next` from a snapshot taken
+  // at closure-creation time, that second change would be silently
+  // discarded when the timer's stale `patch` finally ran.
+  //
+  // react-router-dom's own `setSearchParams` setter does not solve this by
+  // itself: its returned function is a `useCallback` with `searchParams` in
+  // its own dependency array (see node_modules/react-router's
+  // `useSearchParams` — `useCallback((nextInit, opts) => ...nextInit(new
+  // URLSearchParams(searchParams))..., [navigate, searchParams])`). Even
+  // passing it a functional updater, the `prev` it hands back is whatever
+  // `searchParams` was closed over when *that* `setSearchParams` instance
+  // was created — not a live "current URL" the way React's own `useState`
+  // updater guarantees. A quick check confirmed this the hard way: the
+  // straightforward `setSearchParams((prev) => ...)` rewrite still failed
+  // both regression tests below.
+  //
+  // `useNavigate()` does not have this problem: its identity depends on
+  // route matches and pathname, not on the query string, so it stays
+  // referentially stable across query-only navigations (confirmed against
+  // the installed react-router-dom 7.18.2). Pairing it with a ref gives
+  // `patch` one stable identity for the component's lifetime plus a
+  // call-time read of the freshest URL state, no matter how long ago the
+  // closure invoking it was created. The ref is resynced from `searchParams`
+  // on every render (the source of truth for navigation `patch` didn't
+  // cause — back/forward, a pasted link) and also written eagerly inside
+  // `patch` itself (see below — needed so two patches landing in the same
+  // tick still chain instead of both reading one stale snapshot).
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+
   const patch = useCallback(
     (changes: Record<string, string | null>, resetPage: boolean) => {
-      const next = new URLSearchParams(searchParams);
+      const next = new URLSearchParams(searchParamsRef.current);
       Object.entries(changes).forEach(([key, value]) => {
         if (value === null) next.delete(key);
         else next.set(key, value);
@@ -138,9 +171,16 @@ export function useServerGrid({
       // A narrowed result set with a stale offset paints an empty grid over a
       // non-zero total.
       if (resetPage) next.delete('page');
-      setSearchParams(next, { replace: true });
+      // Write the ref eagerly, not just on the next render. Two debounced
+      // keys can both come due in the same macrotask (one `advanceTimersByTime`
+      // firing both timers back-to-back, with no React commit in between) —
+      // without this, the second call would rebuild `next` from the same
+      // pre-first-patch snapshot the first call read, and its write would
+      // stomp the first one right back out.
+      searchParamsRef.current = next;
+      navigate(`?${next.toString()}`, { replace: true });
     },
-    [searchParams, setSearchParams]
+    [navigate]
   );
 
   useEffect(() => {
@@ -152,7 +192,10 @@ export function useServerGrid({
     if (page > lastPage) patch({ page: String(lastPage) }, false);
   }, [total, page, pageSize, patch]);
 
-  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  // One timer per debounced key, not one shared timer — otherwise changing
+  // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
+  // write and it would never happen at all.
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const setFilter = useCallback(
     (key: string, value: string) => {
       if (!debounceKeys.includes(key)) {
@@ -161,13 +204,16 @@ export function useServerGrid({
       }
       // Free-text filters (e.g. search) fire on every keystroke; debounce
       // rather than issuing a request per character.
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => patch({ [key]: value }, true), 300);
+      clearTimeout(debounceTimers.current[key]);
+      debounceTimers.current[key] = setTimeout(() => patch({ [key]: value }, true), 300);
     },
     [debounceKeys, patch]
   );
 
-  useEffect(() => () => clearTimeout(debounceTimer.current), []);
+  useEffect(
+    () => () => Object.values(debounceTimers.current).forEach((timer) => clearTimeout(timer)),
+    []
+  );
 
   return {
     paginationModel: { page, pageSize },

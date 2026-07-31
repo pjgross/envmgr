@@ -129,6 +129,67 @@ describe('useServerGrid resilience', () => {
     vi.useRealTimers();
   });
 
+  it('does not lose an immediate filter set while a debounced filter is pending', () => {
+    // Regression: `patch` used to be rebuilt (new identity) whenever the URL
+    // changed, so the debounce timer's callback closed over a stale `patch`
+    // whose snapshot predated the immediate `status` write. When the timer
+    // fired, it rebuilt the query string from that stale snapshot and
+    // silently reverted `status`.
+    vi.useFakeTimers();
+    const onFetch = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useServerGrid({
+          endpoint: 'releases',
+          filterKeys: ['search', 'status'],
+          debounceKeys: ['search'],
+          onFetch,
+        }),
+      { wrapper: wrapper(['/releases']) }
+    );
+    onFetch.mockClear();
+
+    act(() => result.current.setFilter('search', 'pay'));
+    act(() => result.current.setFilter('status', 'draft'));
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(result.current.filters).toEqual({ search: 'pay', status: 'draft' });
+    expect(onFetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'pay', status: 'draft' })
+    );
+    vi.useRealTimers();
+  });
+
+  it('does not let one debounced key cancel another pending debounced key', () => {
+    // Regression: a single shared timer meant the second `setFilter` call's
+    // `clearTimeout` cancelled the first key's pending write outright, so it
+    // never fired at all — not even the stale-closure result, just silently
+    // dropped.
+    vi.useFakeTimers();
+    const onFetch = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useServerGrid({
+          endpoint: 'releases',
+          filterKeys: ['search', 'notes'],
+          debounceKeys: ['search', 'notes'],
+          onFetch,
+        }),
+      { wrapper: wrapper(['/releases']) }
+    );
+    onFetch.mockClear();
+
+    act(() => result.current.setFilter('search', 'pay'));
+    act(() => result.current.setFilter('notes', 'urgent'));
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(result.current.filters).toEqual({ search: 'pay', notes: 'urgent' });
+    expect(onFetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'pay', notes: 'urgent' })
+    );
+    vi.useRealTimers();
+  });
+
   it('aborts the previous request when the parameters change', () => {
     // The hook does not apply responses — the thunk's fulfilled reducer writes
     // the slice. Noticing a superseded response therefore cannot stop it
