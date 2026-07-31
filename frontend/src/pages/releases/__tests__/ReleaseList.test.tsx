@@ -17,7 +17,7 @@ vi.mock('../../../services/releaseService', () => ({
 
 vi.mock('../../../services/systemService', () => ({
   systemService: {
-    listSystems: vi.fn().mockResolvedValue([]),
+    listSystems: vi.fn().mockResolvedValue([{ id: 7, name: 'Payments' }]),
   },
 }));
 
@@ -55,6 +55,65 @@ describe('ReleaseList status filter wiring', () => {
     await waitFor(() =>
       expect(releaseService.list).toHaveBeenLastCalledWith(
         expect.objectContaining({ status: 'draft', offset: 0 })
+      )
+    );
+  });
+
+  // GAP 4: the Status control above was the only one of the four filter
+  // controls (Status, Type, Kind, System) with any coverage. The other
+  // three are just as prone to being rebound to local state (or to a
+  // `filterKeys` entry the server ignores) without anything failing — the
+  // grid would look filtered and simply not be. Each of these mirrors the
+  // Status test's rigor: start on page 2 (offset 50) so a failure to reset
+  // the page on filter change is observable too.
+  it('dispatches the list fetch with the selected release type and a reset offset', async () => {
+    renderPage('/releases?page=2');
+
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+    vi.mocked(releaseService.list).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Type' }));
+    const option = await screen.findByRole('option', { name: 'hotfix' });
+    await userEvent.click(option);
+
+    await waitFor(() =>
+      expect(releaseService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ release_type: 'hotfix', offset: 0 })
+      )
+    );
+  });
+
+  it('dispatches the list fetch with the selected system id and a reset offset', async () => {
+    renderPage('/releases?page=2');
+
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+    vi.mocked(releaseService.list).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'System' }));
+    const option = await screen.findByRole('option', { name: 'Payments' });
+    await userEvent.click(option);
+
+    await waitFor(() =>
+      expect(releaseService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ system_id: '7', offset: 0 })
+      )
+    );
+  });
+
+  // The Kind control is a ToggleButtonGroup, not a select, so it needs a
+  // click on the target toggle button rather than an open-then-pick-option
+  // interaction.
+  it('dispatches the list fetch with the selected release kind and a reset offset', async () => {
+    renderPage('/releases?page=2');
+
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+    vi.mocked(releaseService.list).mockClear();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Enterprise' }));
+
+    await waitFor(() =>
+      expect(releaseService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ release_kind: 'enterprise', offset: 0 })
       )
     );
   });

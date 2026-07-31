@@ -8,6 +8,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormHelperText,
   MenuItem,
   TextField,
 } from '@mui/material';
@@ -38,6 +39,7 @@ export default function MoveScopeItemDialog({
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const [releases, setReleases] = useState<ReleaseListItemResponse[]>([]);
+  const [releaseTotal, setReleaseTotal] = useState(0);
 
   const [targetReleaseId, setTargetReleaseId] = useState<number | null>(currentReleaseId);
   const [notes, setNotes] = useState('');
@@ -56,9 +58,22 @@ export default function MoveScopeItemDialog({
       setNotes('');
       releaseService
         .list({ limit: 200 })
-        .then(({ rows }) => setReleases(rows))
-        .catch(() => setReleases([]));
+        .then(({ rows, total }) => {
+          setReleases(rows);
+          setReleaseTotal(total);
+        })
+        .catch((err) => {
+          setReleases([]);
+          setReleaseTotal(0);
+          snackbar.error(
+            err instanceof Error ? err.message : 'Failed to load releases'
+          );
+        });
     }
+    // `snackbar` is a fresh object every render (see useSnackbar) — adding
+    // it here would refire this effect, and refetch releases, on every
+    // render rather than only on open/currentReleaseId changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentReleaseId]);
 
   const handleClose = () => {
@@ -113,6 +128,11 @@ export default function MoveScopeItemDialog({
             </MenuItem>
           ))}
         </TextField>
+        {releaseTotal > releases.length && (
+          <FormHelperText sx={{ mt: -1.5, mb: 2 }}>
+            Only the first {releases.length} of {releaseTotal} releases are shown.
+          </FormHelperText>
+        )}
         <TextField
           label="Notes (optional)"
           multiline

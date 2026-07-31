@@ -131,4 +131,37 @@ describe('DataTable server mode', () => {
     );
     expect(screen.getByRole('button', { name: /filters/i })).toBeInTheDocument();
   });
+
+  // Covers: `disableColumnFilter` gates the Filters panel but MUI wires
+  // GridToolbarExport's csv/print export independently — it exports
+  // whatever rows are currently in the grid (one windowed page) while the
+  // footer keeps advertising the server-side `rowCount`. Same "the grid
+  // lies about what it's showing" defect as the Filters panel, just for
+  // export. `slotProps.toolbar.{csvOptions,printOptions}.disableToolbarButton`
+  // must suppress the Export button entirely in server mode.
+  it('offers no export button on a server-mode grid', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-server-export"
+        rows={rows}
+        columns={columns}
+        paginationMode="server"
+        rowCount={317}
+        paginationModel={{ page: 0, pageSize: 25 }}
+        onPaginationModelChange={vi.fn()}
+        showToolbar
+      />
+    );
+    expect(screen.queryByRole('button', { name: /export/i })).not.toBeInTheDocument();
+  });
+
+  // Covers: the server-mode export suppression must not leak backwards onto
+  // client-mode callers — `rows` there already is the whole result set, so
+  // export is correct as-is and must stay offered.
+  it('still offers an export button on a client-mode grid', () => {
+    render(
+      <DataTable storageKey="test-grid-client-export" rows={rows} columns={columns} showToolbar />
+    );
+    expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument();
+  });
 });

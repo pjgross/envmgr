@@ -110,7 +110,23 @@ export default function DataTable<R extends GridValidRowModel>({
         noRowsOverlay: () => <NoRowsOverlay message={emptyMessage} />,
       }}
       slotProps={{
-        toolbar: { showQuickFilter: false },
+        toolbar: {
+          showQuickFilter: false,
+          // Same "the grid lies about what it's showing" hazard as the
+          // Filters panel above, but for export: `GridToolbarExport`'s
+          // csv/print export is wired independently of
+          // `disableColumnFilter` and exports whatever rows are currently
+          // loaded in the grid — one windowed page — while the footer
+          // advertises the full server-side total. Suppress both export
+          // buttons in server mode; client-mode callers already hold their
+          // whole result set in `rows`, so export there is correct as-is.
+          ...(rest.paginationMode === 'server'
+            ? {
+                csvOptions: { disableToolbarButton: true },
+                printOptions: { disableToolbarButton: true },
+              }
+            : {}),
+        },
       }}
     />
   );
