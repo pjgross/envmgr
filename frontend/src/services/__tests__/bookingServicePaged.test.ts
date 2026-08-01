@@ -27,6 +27,16 @@ describe('bookingService.listBookings', () => {
     // `booking_status`, NOT `status` — the page's local state is called
     // statusFilter and the wire name differs, which is where a careless
     // conversion drops the filter silently.
+    //
+    // NOTE: `listBookings` is a pure passthrough — it wraps the params object
+    // it's given in `{ params }` with no mapping layer in between — so the
+    // object below is exactly the object `mockGet` receives; there is no
+    // transformation for this assertion to catch going wrong at runtime. Its
+    // only real guard is TypeScript's excess-property check on the object
+    // literal passed to `listBookings`, which `npx tsc --noEmit` enforces but
+    // `npx vitest run` (esbuild strips types, no type-check) cannot. If a key
+    // here is ever renamed or dropped from `listBookings`'s param type, this
+    // test will keep passing; only `tsc` will fail.
     mockGet.mockResolvedValue({ data: [], headers: { 'x-total-count': '0' } });
 
     await bookingService.listBookings({

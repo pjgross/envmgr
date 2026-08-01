@@ -74,7 +74,7 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 export default function BookingList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { bookings, loading, error } = useSelector((state: RootState) => state.booking);
+  const { bookings, listLoading, error } = useSelector((state: RootState) => state.booking);
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
   );
@@ -265,7 +265,7 @@ export default function BookingList() {
   const columns = [...coreColumns, ...customFieldColumns];
 
   // Only show loading overlay on initial load
-  const isInitialLoading = loading && bookings.length === 0;
+  const isInitialLoading = listLoading && bookings.length === 0;
 
   // Transitions for the currently open menu row
   const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null;
