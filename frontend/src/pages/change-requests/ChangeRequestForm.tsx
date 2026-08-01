@@ -45,6 +45,15 @@ import type { HostImpactEnvironment } from '../../types/infrastructureComponent'
 interface ChangeRequestFormProps {
   open: boolean;
   onClose: () => void;
+  /**
+   * Called after a change request is successfully created. `ChangeRequestForm`
+   * is mounted as a dialog child of `ChangeRequestList`, which is now
+   * server-paged/filtered/sorted; `state.list` no longer means "every change
+   * request" so the slice no longer splices the new row in (see
+   * changeRequestSlice's comment on createChangeRequest.fulfilled). The
+   * parent re-issues its current query instead.
+   */
+  onCreated?: () => void;
 }
 
 const CHANGE_TYPES: { value: ChangeType; label: string }[] = [
@@ -109,7 +118,7 @@ const buildDefaults = (): FormValues => ({
   custom_field_values: {},
 });
 
-export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormProps) {
+export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRequestFormProps) {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const snackbar = useSnackbar();
@@ -302,6 +311,11 @@ export default function ChangeRequestForm({ open, onClose }: ChangeRequestFormPr
       if ('error' in action) {
         throw new Error(action.error.message ?? 'Failed to create change request');
       }
+      // Not a bare dispatch(fetchChangeRequests()): ChangeRequestList's
+      // `state.list` is server-paged/filtered/sorted now, and the slice no
+      // longer splices the new row in itself. The parent knows which
+      // page/sort/filter query is current; re-issue it via onCreated.
+      onCreated?.();
       snackbar.success('Change request created');
       const id = (action.payload as { id: number }).id;
       handleClose();

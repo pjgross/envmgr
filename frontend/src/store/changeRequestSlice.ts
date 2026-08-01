@@ -112,28 +112,40 @@ const changeRequestSlice = createSlice({
         state.error = action.error.message ?? 'Failed to load change request';
       })
 
-      .addCase(createChangeRequest.fulfilled, (state, action) => {
-        state.list.unshift(action.payload);
-      })
+      // No createChangeRequest.fulfilled case: `state.list` is now a single
+      // server-paged/filtered/sorted window, not "every change request", so
+      // there is no correct in-place insertion for a newly created row (it
+      // may not belong on the current page at all, and `state.total` would
+      // go stale either way). ChangeRequestList is where creation is
+      // triggered from (ChangeRequestForm is mounted as its dialog child),
+      // and it re-issues its current query via `grid.refetch()` from an
+      // `onCreated` callback instead — see ChangeRequestForm's `onCreated`
+      // prop.
 
       .addCase(updateChangeRequest.fulfilled, (state, action) => {
-        const idx = state.list.findIndex((c) => c.id === action.payload.id);
-        if (idx !== -1) state.list[idx] = action.payload;
+        // No `state.list` write here (previously an in-place splice by id):
+        // update/transition/delete are only ever dispatched from
+        // ChangeRequestDetail, a separate route from ChangeRequestList, so
+        // the list is unmounted when this fires. Splicing a stale row into a
+        // page it may no longer belong on (a changed status/sort field) or
+        // patching a row that isn't even loaded on the current page is dead
+        // weight at best — ChangeRequestList re-fetches its own page fresh
+        // every time it mounts, which is the only place this state is read.
         if (state.detail && state.detail.id === action.payload.id) {
           state.detail = { ...state.detail, ...action.payload };
         }
       })
 
       .addCase(transitionChangeRequest.fulfilled, (state, action) => {
-        const idx = state.list.findIndex((c) => c.id === action.payload.id);
-        if (idx !== -1) state.list[idx] = action.payload;
+        // Same reasoning as updateChangeRequest.fulfilled above.
         if (state.detail && state.detail.id === action.payload.id) {
           state.detail = { ...state.detail, ...action.payload };
         }
       })
 
       .addCase(deleteChangeRequest.fulfilled, (state, action) => {
-        state.list = state.list.filter((c) => c.id !== action.payload);
+        // Same reasoning as updateChangeRequest.fulfilled above — no
+        // `state.list` filter here.
         if (state.detail && state.detail.id === action.payload) state.detail = null;
       });
   },
