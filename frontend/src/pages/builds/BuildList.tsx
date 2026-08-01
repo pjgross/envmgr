@@ -16,7 +16,7 @@ function latestStepSummary(steps: PipelineStep[]): string {
 export default function BuildList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { items, loading } = useSelector((s: RootState) => s.build);
+  const { items, listLoading } = useSelector((s: RootState) => s.build);
 
   const [subsystem, setSubsystem] = useState('');
   const [branch, setBranch] = useState('');
@@ -96,7 +96,7 @@ export default function BuildList() {
           rows={rows}
           columns={cols}
           autoHeight
-          loading={loading}
+          loading={listLoading}
           onRowClick={(p: GridRowParams) => navigate(`/builds/${p.id}`)}
           disableRowSelectionOnClick
         />
