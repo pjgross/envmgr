@@ -34,4 +34,7 @@ export interface BuildFilters {
   date_to?: string;
   limit?: number;
   offset?: number;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+  subsystem_search?: string;
 }
