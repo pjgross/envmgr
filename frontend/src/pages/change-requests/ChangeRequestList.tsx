@@ -27,7 +27,7 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
 export default function ChangeRequestList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { list, loading } = useSelector((s: RootState) => s.changeRequest);
+  const { list, listLoading } = useSelector((s: RootState) => s.changeRequest);
   const environments = useSelector((s: RootState) => s.environment.environments);
   const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
@@ -221,7 +221,7 @@ export default function ChangeRequestList() {
           userId={currentUserId}
           rows={filteredRows}
           columns={columns}
-          loading={loading}
+          loading={listLoading}
           emptyMessage="No change requests yet"
           onRowClick={(params) => navigate(`/change-requests/${params.row.id}`)}
         />
