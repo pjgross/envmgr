@@ -103,6 +103,14 @@ export default function DeploymentList() {
           rowCount={total}
           paginationMode="server"
           sortingMode="server"
+          // `rows` is one windowed page, not the whole result set. MUI's
+          // column-menu "Filter" item is gated only on this prop / a column's
+          // own `filterable` — not on whether a toolbar is rendered — so
+          // without it every header's menu offers a filter that would
+          // silently filter the loaded page while the footer keeps showing
+          // the true server `rowCount`. See DataTable.tsx's server-mode
+          // default for the same guard.
+          disableColumnFilter
           paginationModel={grid.paginationModel}
           onPaginationModelChange={grid.onPaginationModelChange}
           sortModel={grid.sortModel}

@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -62,5 +62,35 @@ describe('BuildList server-side grid', () => {
     // simply stops working reads as a bug; this one says why.
     const latestStep = buildColumns.find((c) => c.field === 'latest_step');
     expect(latestStep?.renderHeader).toBeDefined();
+  });
+
+  it('offers no column-filter entry point, so the footer total cannot be contradicted by a client-side filter', async () => {
+    // `rows` is only the current windowed page. MUI gates the column menu's
+    // "Filter" item on `disableColumnFilter` / `colDef.filterable` alone —
+    // not on whether a toolbar is rendered — so without it every header's
+    // ⋮ menu would offer a filter that silently filters the loaded page
+    // while the footer keeps showing the true server `rowCount`.
+    //
+    // The menu-icon button is only revealed by CSS on hover in a real
+    // browser, so jsdom's computed style hides it from `getAllByRole`'s
+    // accessible-name matching (an element the name algorithm treats as
+    // hidden resolves to an empty accessible name, which a `name` matcher
+    // can never match) even with `hidden: true`. Find it by its `aria-label`
+    // attribute directly instead — `hidden: true` still gets it into the
+    // query's search space at all, which is what matters here.
+    renderBuildList();
+    await waitFor(() => expect(dispatchedParams()).toBeDefined());
+
+    const menuButtons = screen
+      .getAllByRole('button', { hidden: true })
+      .filter((b) => b.getAttribute('aria-label') === 'Menu');
+    expect(menuButtons.length).toBeGreaterThan(0);
+    fireEvent.click(menuButtons[0]);
+
+    const menu = await screen.findByRole('menu', { hidden: true });
+    const filterItem = within(menu)
+      .getAllByRole('menuitem', { hidden: true })
+      .find((item) => /filter/i.test(item.textContent ?? ''));
+    expect(filterItem).toBeUndefined();
   });
 });

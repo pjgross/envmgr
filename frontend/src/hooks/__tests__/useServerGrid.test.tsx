@@ -399,6 +399,63 @@ describe('useServerGrid resilience', () => {
 
       expect(state.search).toBe('');
     });
+
+    it('drops a stale draft and cancels its pending timer when a no-op patch is followed by external navigation', () => {
+      // THE LEAK. The self-patch marker used to be a boolean cleared only
+      // inside the reconciliation effect below, whose dependencies are
+      // `[searchParams, filters]`. A `patch` that writes a query string
+      // identical to the one already in the URL never changes `searchParams`
+      // (react-router memoises it on `location.search`), so that effect
+      // never runs and the boolean is left `true` indefinitely — through any
+      // number of further no-op patches — until a later, genuinely external
+      // navigation reads it and wrongly takes the self-patched branch: a
+      // stale draft survives and its pending debounce timer is not
+      // cancelled, so it fires later and rewrites the URL of whatever view
+      // the user has since navigated to.
+      //
+      // Concrete repro this reproduces (see docs/pagination.md's PR C3
+      // review notes): commit 'auth', retype 'x' then backspace back to
+      // 'auth' (a no-op patch — the debounce lands on the value already in
+      // the URL, so the effect that would normally clear the flag never
+      // fires), type 'b' (draft 'authb', timer pending), then navigate away
+      // (Back/Forward or an in-page link) before that timer fires.
+      const { Wrapper, state } = locationHarness(['/releases?search=auth']);
+      const onFetch = vi.fn();
+      const { result } = renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['search'],
+            debounceKeys: ['search'],
+            onFetch,
+          }),
+        { wrapper: Wrapper }
+      );
+
+      // The no-op patch: the debounce lands back on 'auth', which the URL
+      // already holds, so this write changes nothing.
+      act(() => result.current.setFilter('search', 'authx'));
+      act(() => result.current.setFilter('search', 'auth'));
+      act(() => vi.advanceTimersByTime(300));
+      expect(state.search).toBe('?search=auth');
+
+      // A further edit, still pending when navigation happens.
+      act(() => result.current.setFilter('search', 'authb'));
+      expect(result.current.filters.search).toBe('authb');
+
+      // Navigation this hook did not cause — e.g. Back/Forward or a link —
+      // landing on a view with no `search` param at all.
+      act(() => state.navigate?.('/releases?page=3'));
+
+      // The stale 'authb' draft must not survive the external navigation.
+      expect(result.current.filters.search).toBeUndefined();
+
+      // ...and its timer must have been cancelled, not merely superseded:
+      // left alone, it would still fire and silently rewrite the URL of the
+      // page the user just navigated to.
+      act(() => vi.advanceTimersByTime(300));
+      expect(state.search).toBe('?page=3');
+    });
   });
 
   // Real timers, not fake ones: `userEvent.type` drives real sequential DOM

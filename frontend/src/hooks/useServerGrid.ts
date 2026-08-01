@@ -169,13 +169,33 @@ export function useServerGrid({
   // below overlays it on top of `filters` for the consumer-facing API.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
-  // Whether the searchParams change about to be observed below was caused by
-  // this hook's own `patch` (a debounce landing, or any other setFilter/sort/
-  // page write) rather than something external — Back/Forward, a pasted
-  // link, or any other navigation this hook didn't initiate. Set eagerly
-  // inside `patch`, right before `navigate`, and consumed by the effect the
-  // very next time `searchParams` changes.
-  const selfPatchedRef = useRef(false);
+  // The exact query string this hook's own `patch` last wrote (a debounce
+  // landing, or any other setFilter/sort/page write) — as opposed to
+  // `undefined` covering both external navigation (Back/Forward, a pasted
+  // link) and "no patch since we last checked". Set eagerly inside `patch`,
+  // right before `navigate`, and consumed by the effect the next time
+  // `searchParams` changes.
+  //
+  // This holds the written *string*, not a boolean "a patch just happened"
+  // flag, because a patch that writes a query string identical to the
+  // current one never fires the reconciliation effect at all: `searchParams`
+  // is memoised on `location.search` (see the JSDoc on `patch` below), so an
+  // unchanged string produces no new object and the effect's dependency
+  // never changes. A boolean set right before that `navigate` call would
+  // then sit `true` indefinitely — through any number of further no-op
+  // patches — until some *later*, genuinely external navigation finally
+  // changes `searchParams` and reads it, wrongly treating that external
+  // change as self-caused: a stale draft would survive and its pending
+  // debounce timer would go uncancelled, so it fires later and rewrites the
+  // URL of whatever view the user has since navigated to. Comparing the
+  // recorded string against the live `searchParams.toString()` instead is
+  // self-correcting regardless of how many effect-skipping no-ops happen in
+  // between: a no-op patch records a string that (by definition) already
+  // equals the current URL, so it's still "correct" the next time it's
+  // read, and the first navigation that actually changes the query string —
+  // self- or externally-caused — is judged against what really changed, not
+  // against a leftover flag from an unrelated write.
+  const patchedSearchRef = useRef<string | null>(null);
 
   // One timer per debounced key, not one shared timer — otherwise changing
   // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
@@ -202,8 +222,8 @@ export function useServerGrid({
   //   with the stale pre-navigation text and silently write it back into the
   //   URL (and the box) of whatever view the user has since navigated to.
   useEffect(() => {
-    const wasSelfPatched = selfPatchedRef.current;
-    selfPatchedRef.current = false;
+    const wasSelfPatched = patchedSearchRef.current === searchParams.toString();
+    patchedSearchRef.current = null;
     setDrafts((current) => {
       if (Object.keys(current).length === 0) return current;
       if (!wasSelfPatched) {
@@ -328,10 +348,13 @@ export function useServerGrid({
       // pre-first-patch snapshot the first call read, and its write would
       // stomp the first one right back out.
       searchParamsRef.current = next;
-      // Set before `navigate` so the reconciliation effect above — which
-      // fires the next time `searchParams` changes — can tell this change
-      // apart from an external navigation it didn't cause.
-      selfPatchedRef.current = true;
+      // Record the exact string being written, before `navigate`, so the
+      // reconciliation effect above can compare it against whatever
+      // `searchParams` turns out to be next time it runs — see the JSDoc on
+      // `patchedSearchRef` for why a plain "a patch just happened" boolean
+      // isn't safe here (a no-op write never triggers that effect run at
+      // all).
+      patchedSearchRef.current = next.toString();
       navigate(`?${next.toString()}`, { replace: true });
     },
     [navigate]
