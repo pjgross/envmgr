@@ -102,6 +102,10 @@ export interface ChangeRequestListFilters {
   status?: string;
   scheduled_from?: string;
   scheduled_to?: string;
+  limit?: number;
+  offset?: number;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
 }
 
 export interface OutageConflictBooking {

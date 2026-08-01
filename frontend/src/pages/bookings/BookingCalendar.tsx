@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
@@ -21,7 +21,6 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { AppDispatch, RootState } from '../../store';
-import { fetchBookings } from '../../store/bookingSlice';
 import { fetchEnvironments } from '../../store/environmentSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingResponse } from '../../types/booking';
@@ -58,7 +57,11 @@ function bookingToEvent(booking: BookingResponse): EventInput {
 export default function BookingCalendar() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { bookings, loading } = useSelector((state: RootState) => state.booking);
+  // NOT from state.booking: that slice is BookingList's current filtered page
+  // since the C3 conversion, and a calendar needs a month of bookings rather
+  // than one grid page. Same fix three release-slice consumers received.
+  const [bookings, setBookings] = useState<BookingResponse[]>([]);
+  const [loading, setLoading] = useState(false);
   const environments = useSelector((state: RootState) => state.environment.environments);
   const bookingCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
@@ -71,15 +74,24 @@ export default function BookingCalendar() {
   const [formOpen, setFormOpen] = useState(false);
   const [envFilter, setEnvFilter] = useState<number | ''>('');
 
+  const loadBookings = useCallback((environmentId?: number) => {
+    setLoading(true);
+    bookingService
+      .listBookings(environmentId !== undefined ? { environment_id: environmentId } : undefined)
+      .then((page) => setBookings(page.rows))
+      .catch(() => setBookings([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   useEffect(() => {
     dispatch(fetchEnvironments());
-    dispatch(fetchBookings());
     dispatch(fetchDefinitions('booking'));
-  }, [dispatch]);
+    loadBookings();
+  }, [dispatch, loadBookings]);
 
   const handleEnvFilter = (envId: number | '') => {
     setEnvFilter(envId);
-    dispatch(fetchBookings(envId !== '' ? { environment_id: envId as number } : undefined));
+    loadBookings(envId === '' ? undefined : envId);
   };
 
   const handleEventClick = async (info: EventClickArg) => {
@@ -106,9 +118,7 @@ export default function BookingCalendar() {
       ]);
       setSelectedBooking(updated);
       setSelectedTransitions(transitions);
-      dispatch(
-        fetchBookings(envFilter !== '' ? { environment_id: envFilter as number } : undefined)
-      );
+      loadBookings(envFilter === '' ? undefined : envFilter);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Transition failed';
       setTransitionError(message);
@@ -312,6 +322,10 @@ export default function BookingCalendar() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         defaultEnvId={envFilter !== '' ? (envFilter as number) : undefined}
+        // This component doesn't read the booking slice at all (see the note
+        // above), so it must supply its own reload — the same one used after
+        // a transition — not a bare dispatch(fetchBookings()).
+        onCreated={() => loadBookings(envFilter === '' ? undefined : envFilter)}
       />
     </Box>
   );

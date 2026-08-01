@@ -15,7 +15,6 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
-import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import {
   fetchBookingTypes,
@@ -39,6 +38,15 @@ interface BookingFormProps {
   /** @deprecated use defaultEnvIds */
   defaultEnvId?: number;
   defaultEnvIds?: number[];
+  /**
+   * Called after a booking is successfully created. `BookingForm` is mounted
+   * as a dialog child of both `BookingList` (server-paged/filtered/sorted)
+   * and `BookingCalendar` (its own month fetch), and a bare
+   * `dispatch(fetchBookings())` here would overwrite whichever slice/state
+   * the parent actually owns with the endpoint's unfiltered page-1 default.
+   * Each parent supplies its own correct refresh instead.
+   */
+  onCreated?: () => void;
 }
 
 const schema = z.object({
@@ -75,6 +83,7 @@ export default function BookingForm({
   onClose,
   defaultEnvId,
   defaultEnvIds,
+  onCreated,
 }: BookingFormProps) {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
@@ -225,7 +234,13 @@ export default function BookingForm({
 
     try {
       const response = await bookingRequestService.create(payload);
-      dispatch(fetchBookings());
+      // Not dispatch(fetchBookings()): the slice this once refreshed now
+      // means "the current server-paged/filtered/sorted view" (BookingList)
+      // or is bypassed entirely (BookingCalendar has its own fetch). A bare
+      // unparameterised dispatch would clobber either with the endpoint's
+      // default page-1, unfiltered, default-sort response. The caller knows
+      // which refresh is correct for its own state.
+      onCreated?.();
       const firstBookingId = response.request.bookings[0]?.id;
       snackbar.success('Booking created');
       handleClose();

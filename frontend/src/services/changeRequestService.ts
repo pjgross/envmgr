@@ -1,4 +1,5 @@
 import api from './api';
+import type { Paged } from '../types/pagination';
 import type {
   AllowedTransition,
   ChangeRequestResponse,
@@ -12,8 +13,11 @@ import type {
 } from '../types/changeRequest';
 
 export const changeRequestService = {
-  list: (filters: ChangeRequestListFilters = {}): Promise<ChangeRequestResponse[]> =>
-    api.get('/change-requests', { params: filters }).then((r) => r.data),
+  list: (filters: ChangeRequestListFilters = {}): Promise<Paged<ChangeRequestResponse>> =>
+    api.get<ChangeRequestResponse[]>('/change-requests', { params: filters }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   get: (id: number): Promise<ChangeRequestDetailResponse> =>
     api.get(`/change-requests/${id}`).then((r) => r.data),

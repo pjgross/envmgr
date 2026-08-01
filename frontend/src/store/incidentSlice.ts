@@ -4,15 +4,25 @@ import type { IncidentListRow, IncidentDetail, IncidentCreate, IncidentUpdate } 
 
 interface IncidentState {
   list: IncidentListRow[];
+  total: number;
   detail: IncidentDetail | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
 }
 
 const initialState: IncidentState = {
   list: [],
+  total: 0,
   detail: null,
   loading: false,
+  listLoading: false,
   error: null,
 };
 
@@ -59,9 +69,22 @@ const incidentSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchIncidents.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(fetchIncidents.fulfilled, (state, action) => { state.loading = false; state.list = action.payload; })
-      .addCase(fetchIncidents.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed to load incidents'; })
+      .addCase(fetchIncidents.pending, (state) => { state.listLoading = true; state.error = null; })
+      .addCase(fetchIncidents.fulfilled, (state, action) => {
+        state.listLoading = false;
+        state.list = action.payload.rows;
+        state.total = action.payload.total;
+      })
+      .addCase(fetchIncidents.rejected, (state, action) => {
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
+        state.error = action.error.message ?? 'Failed to load incidents';
+      })
 
       .addCase(fetchIncident.fulfilled, (state, action) => { state.detail = action.payload; })
 
@@ -71,34 +94,25 @@ const incidentSlice = createSlice({
       })
 
       .addCase(updateIncident.fulfilled, (state, action) => {
+        // No `state.list` write here (previously an in-place splice by id):
+        // update/transition/delete are only ever dispatched from IncidentForm
+        // and IncidentDetail, separate routes from IncidentList, so the list
+        // is unmounted when this fires. Splicing a stale row into a page it
+        // may no longer belong on (a changed status/sort field) or patching a
+        // row that isn't even loaded on the current page is dead weight at
+        // best — IncidentList re-fetches its own page fresh every time it
+        // mounts, which is the only place this state is read.
         state.detail = action.payload;
-        const idx = state.list.findIndex((r) => r.id === action.payload.id);
-        if (idx !== -1) {
-          state.list[idx] = {
-            ...state.list[idx],
-            title: action.payload.title,
-            severity: action.payload.severity,
-            status: action.payload.status,
-            detected_at: action.payload.detected_at,
-            resolved_at: action.payload.resolved_at,
-          };
-        }
       })
 
       .addCase(transitionIncident.fulfilled, (state, action) => {
+        // Same reasoning as updateIncident.fulfilled above.
         state.detail = action.payload;
-        const idx = state.list.findIndex((r) => r.id === action.payload.id);
-        if (idx !== -1) {
-          state.list[idx] = {
-            ...state.list[idx],
-            status: action.payload.status,
-            resolved_at: action.payload.resolved_at,
-          };
-        }
       })
 
       .addCase(deleteIncident.fulfilled, (state, action) => {
-        state.list = state.list.filter((r) => r.id !== action.payload);
+        // Same reasoning as updateIncident.fulfilled above — no `state.list`
+        // filter here.
         if (state.detail?.id === action.payload) state.detail = null;
       });
   },
