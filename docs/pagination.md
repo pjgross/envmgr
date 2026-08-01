@@ -386,6 +386,66 @@ open is marked as such.
   still writes the shared `loading`. This is fixed for the release slice only — it establishes the
   shape the other eight slices copy as each is converted in the rollout, not a repo-wide fix.
 
+## The rollout: PR A (deployments, builds)
+
+Two of the eight pages are converted. **Six remain**: bookings, change-requests, incidents,
+environments, systems, infrastructure-components. `DeploymentList` and `BuildList` went first
+because they are the smallest and already passed some filters server-side, so the pattern could be
+proven to repeat cheaply before the harder six copy it.
+
+### The trap that six more services still have
+
+Both services' `toParams` is a **whitelist**: it copies only the keys it names and silently drops
+everything else. The grid sends `sort_by`, `sort_dir` and the `*_search` params, and left
+unamended those never reach the server. The failure is invisible — the grid renders a sort arrow,
+the user clicks it, rows come back in the server's default order, and nothing errors anywhere.
+
+**Every remaining conversion must add its new params to that service's `toParams`**, and the guard
+is a test asserting the full params object reaches `api.get`. Six services still have this shape.
+
+### Two decisions worth knowing before converting the rest
+
+- **These two pages kept raw `DataGrid`; they were not migrated to `DataTable`.** `DataTable`'s
+  server-mode additions exist to stop a *toolbar* lying — it disables the column filter and
+  suppresses CSV/Print export because those act on the loaded page while the footer shows the true
+  server total. Neither page renders a toolbar, so those guards buy nothing, and migrating would
+  *add* a toolbar as a side effect of a pagination change. The accepted cost is that these two
+  diverge from the six that do use `DataTable`.
+- **`BuildList`'s Branch filter is an exact match, not a search** (`Build.git_branch == branch`).
+  Typing `ma` for `main` returns nothing, before and after. It is now debounced — it used to fire a
+  request per keystroke — but its semantics are unchanged, because turning it into a contains-search
+  is a backend change.
+
+### A shared bug these pages exposed, fixed in `77ffd61`
+
+`ReleaseList` has no text input, so the pilot never exercised one. These two do, and the pattern
+was wrong: the boxes were controlled components bound to the **debounced URL state**, so for 300ms
+after a keystroke `grid.filters[key]` still held the old value and React reset the input to it.
+Typing `comp` left `p`.
+
+`useServerGrid` now keeps a drafts map that `setFilter` writes synchronously and overlays on the
+URL-derived `filters`, so the box shows keystrokes immediately while the URL still drives the
+request. External navigation — Back/Forward or a pasted link — wipes drafts *and cancels the
+pending debounce timer*; without that cancel an abandoned timer fired later and silently rewrote
+the URL back to the stale text.
+
+**No unit test caught the original bug**: they asserted the params *sent*, not the typing
+experience. Opening the page did. That is the second defect in this programme found only by a
+human looking at it, after the case-sensitive sorting in PR #39 — both on pages whose suites were
+entirely green.
+
+### Also found here, fixed separately in PR #42
+
+`GET /deployments` returned **500 for the entire list** whenever any row's `event_id` was not
+UUID-shaped. `DeploymentRead` declared `event_id: UUID` while the column is `String(36)` and
+`deployment_service` stores `str(payload.event_id)`. The response model is applied per row while
+serialising the page, so one unparseable id took out the whole endpoint rather than producing one
+odd-looking cell — which is what made a page of five dev rows permanently empty. The webhook input
+schema still requires a UUID, so the supported ingest path is unchanged.
+
+Unrelated to the conversion, but it had been invisible precisely because the old client-side page
+also rendered an empty grid on a rejected fetch.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a
