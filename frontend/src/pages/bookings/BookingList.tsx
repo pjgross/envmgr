@@ -17,15 +17,18 @@ import {
   DataGrid,
   GridColDef,
   GridColumnVisibilityModel,
+  GridRenderCellParams,
   GridValueGetterParams,
 } from '@mui/x-data-grid';
 import { format } from 'date-fns';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
+import { useServerGrid } from '../../hooks/useServerGrid';
 import type { BookingResponse, BookingStatus } from '../../types/booking';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { bookingService } from '../../services/bookingService';
+import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import { formatApiError } from '../../services/apiError';
 import BookingForm from './BookingForm';
@@ -69,18 +72,134 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
   localStorage.setItem(key, JSON.stringify(model));
 }
 
+// --- Columns -------------------------------------------------------------
+
+// Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
+// "bookings"): start_date, end_date, status. The other columns are joined
+// (project_name, environment_name, booked_by_username), a per-tenant lookup
+// rendered as a chip (booking_type_id), a per-row kebab menu with no backing
+// column (actions), or computed after the page is fetched (conflicts) — none
+// is backed by a single column the database could order by, so none ever was
+// or can be sortable.
+// A plain array export, not a component; co-located here per the C3 pilot's
+// releaseColumns precedent (small enough not to warrant its own file). The
+// `actions` column's renderCell is filled in at render time (see `columns`
+// below) because it needs to close over this component's shared kebab-menu
+// state; everything else here is exactly what's rendered.
+// eslint-disable-next-line react-refresh/only-export-components
+export const bookingColumns: GridColDef<BookingResponse>[] = [
+  {
+    field: 'project_name',
+    headerName: 'Project',
+    flex: 1.5,
+    hideable: false,
+    sortable: false,
+    renderCell: ({ row }) => (
+      <Button
+        variant="text"
+        size="small"
+        component={RouterLink}
+        to={`/bookings/${row.id}`}
+        sx={{ textTransform: 'none', p: 0, minWidth: 0, justifyContent: 'flex-start' }}
+      >
+        {row.project_name}
+      </Button>
+    ),
+  },
+  {
+    field: 'environment_name',
+    headerName: 'Environment',
+    flex: 1,
+    hideable: false,
+    sortable: false,
+    valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+      params.row.environment_name ?? '—',
+  },
+  {
+    field: 'booked_by_username',
+    headerName: 'Booked By',
+    flex: 1,
+    hideable: false,
+    sortable: false,
+    valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+      params.row.booked_by_username ?? '—',
+  },
+  {
+    field: 'start_date',
+    headerName: 'Start',
+    flex: 0.8,
+    hideable: false,
+    valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+      format(new Date(params.row.start_date), 'dd MMM yyyy'),
+  },
+  {
+    field: 'end_date',
+    headerName: 'End',
+    flex: 0.8,
+    hideable: false,
+    valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+      format(new Date(params.row.end_date), 'dd MMM yyyy'),
+  },
+  {
+    field: 'booking_type_id',
+    headerName: 'Type',
+    flex: 0.8,
+    hideable: false,
+    sortable: false,
+    renderCell: ({ row }) => (
+      <Chip label={row.booking_type_id} size="small" color="primary" variant="outlined" />
+    ),
+  },
+  {
+    field: 'status',
+    headerName: 'Status',
+    flex: 0.8,
+    hideable: false,
+    renderCell: ({ row }) => (
+      <Chip label={row.status} size="small" color={STATUS_COLORS[row.status]} />
+    ),
+  },
+  {
+    field: 'conflicts',
+    headerName: 'Conflicts',
+    width: 90,
+    hideable: false,
+    sortable: false,
+    renderHeader: () => <ComputedColumnHeader label="Conflicts" />,
+    renderCell: ({ row }) => (
+      <ConflictIndicator hasUnacknowledged={row.has_unacknowledged_conflicts} />
+    ),
+  },
+  {
+    field: 'actions',
+    headerName: '',
+    width: 48,
+    hideable: false,
+    sortable: false,
+    disableColumnMenu: true,
+  },
+];
+
 // --- Component ---------------------------------------------------------------
 
 export default function BookingList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { bookings, listLoading, error } = useSelector((state: RootState) => state.booking);
+  const { bookings, total, listLoading, error } = useSelector((state: RootState) => state.booking);
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
   );
   const user = useSelector((state: RootState) => state.auth.user);
 
-  const [statusFilter, setStatusFilter] = useState<BookingStatus | 'all'>('all');
+  const grid = useServerGrid({
+    endpoint: 'bookings',
+    // `booking_status`, not `status` — the wire name differs from the label.
+    filterKeys: ['booking_status'],
+    onFetch: (params) => dispatch(fetchBookings(params)),
+    total,
+    totalPending: listLoading,
+  });
+
   const [formOpen, setFormOpen] = useState(false);
   const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
     () => loadColumnModel(user?.id)
@@ -96,14 +215,8 @@ export default function BookingList() {
   const [transitionError, setTransitionError] = useState<string | null>(null);
 
   useEffect(() => {
-    dispatch(fetchBookings());
     dispatch(fetchDefinitions('booking'));
   }, [dispatch]);
-
-  // --- Filtered rows ---
-
-  const filteredBookings =
-    statusFilter === 'all' ? bookings : bookings.filter((b) => b.status === statusFilter);
 
   // --- Kebab menu handlers ---
 
@@ -139,7 +252,10 @@ export default function BookingList() {
     });
     try {
       await bookingService.transitionState(rowId, toState);
-      dispatch(fetchBookings());
+      // Re-issue the *current* page/sort/filter query, not a bare unfiltered
+      // fetch — the grid is now server-paged, and a plain dispatch(fetchBookings())
+      // would silently replace it with the endpoint's defaults.
+      grid.refetch();
     } catch (err: unknown) {
       setTransitionError(formatApiError(err, 'Transition failed'));
     }
@@ -154,115 +270,37 @@ export default function BookingList() {
 
   // --- Columns ---
 
-  const coreColumns: GridColDef<BookingResponse>[] = [
-    {
-      field: 'project_name',
-      headerName: 'Project',
-      flex: 1.5,
-      hideable: false,
-      renderCell: ({ row }) => (
-        <Button
-          variant="text"
-          size="small"
-          component={RouterLink}
-          to={`/bookings/${row.id}`}
-          sx={{ textTransform: 'none', p: 0, minWidth: 0, justifyContent: 'flex-start' }}
-        >
-          {row.project_name}
-        </Button>
-      ),
-    },
-    {
-      field: 'environment_name',
-      headerName: 'Environment',
-      flex: 1,
-      hideable: false,
-      valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-        params.row.environment_name ?? '—',
-    },
-    {
-      field: 'booked_by_username',
-      headerName: 'Booked By',
-      flex: 1,
-      hideable: false,
-      valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-        params.row.booked_by_username ?? '—',
-    },
-    {
-      field: 'start_date',
-      headerName: 'Start',
-      flex: 0.8,
-      hideable: false,
-      valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-        format(new Date(params.row.start_date), 'dd MMM yyyy'),
-    },
-    {
-      field: 'end_date',
-      headerName: 'End',
-      flex: 0.8,
-      hideable: false,
-      valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-        format(new Date(params.row.end_date), 'dd MMM yyyy'),
-    },
-    {
-      field: 'booking_type_id',
-      headerName: 'Type',
-      flex: 0.8,
-      hideable: false,
-      renderCell: ({ row }) => (
-        <Chip label={row.booking_type_id} size="small" color="primary" variant="outlined" />
-      ),
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      flex: 0.8,
-      hideable: false,
-      renderCell: ({ row }) => (
-        <Chip label={row.status} size="small" color={STATUS_COLORS[row.status]} />
-      ),
-    },
-    {
-      field: 'conflicts',
-      headerName: 'Conflicts',
-      width: 90,
-      hideable: false,
-      sortable: false,
-      renderCell: ({ row }) => (
-        <ConflictIndicator hasUnacknowledged={row.has_unacknowledged_conflicts} />
-      ),
-    },
-    {
-      field: 'actions',
-      headerName: '',
-      width: 48,
-      hideable: false,
-      sortable: false,
-      disableColumnMenu: true,
-      renderCell: ({ row }) => (
-        <IconButton
-          size="small"
-          onClick={(e) => handleMenuOpen(e.currentTarget, row.id)}
-          aria-label="row actions"
-        >
-          <MoreVertIcon fontSize="small" />
-        </IconButton>
-      ),
-    },
+  const columns: GridColDef<BookingResponse>[] = [
+    ...bookingColumns.map((col) =>
+      col.field === 'actions'
+        ? {
+            ...col,
+            renderCell: ({ row }: GridRenderCellParams<BookingResponse>) => (
+              <IconButton
+                size="small"
+                onClick={(e) => handleMenuOpen(e.currentTarget, row.id)}
+                aria-label="row actions"
+              >
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+            ),
+          }
+        : col
+    ),
+    ...customFieldDefs.map(
+      (def) =>
+        ({
+          field: def.field_key,
+          headerName: def.label,
+          flex: 1,
+          // Per-tenant custom fields are never in the backend's sort
+          // whitelist — clicking the header would be a 422.
+          sortable: false,
+          valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+            params.row.custom_fields?.[def.field_key] ?? '—',
+        }) as GridColDef<BookingResponse>
+    ),
   ];
-
-  const customFieldColumns: GridColDef<BookingResponse>[] = customFieldDefs.map(
-    (def) =>
-      ({
-        field: def.field_key,
-        headerName: def.label,
-        flex: 1,
-        valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-          params.row.custom_fields?.[def.field_key] ?? '—',
-      }) as GridColDef<BookingResponse>
-  );
-
-  const columns = [...coreColumns, ...customFieldColumns];
 
   // Only show loading overlay on initial load
   const isInitialLoading = listLoading && bookings.length === 0;
@@ -282,9 +320,9 @@ export default function BookingList() {
             key={opt.value}
             label={opt.label}
             clickable
-            color={statusFilter === opt.value ? 'primary' : 'default'}
-            variant={statusFilter === opt.value ? 'filled' : 'outlined'}
-            onClick={() => setStatusFilter(opt.value)}
+            color={(grid.filters.booking_status ?? 'all') === opt.value ? 'primary' : 'default'}
+            variant={(grid.filters.booking_status ?? 'all') === opt.value ? 'filled' : 'outlined'}
+            onClick={() => grid.setFilter('booking_status', opt.value)}
             size="small"
           />
         ))}
@@ -310,13 +348,27 @@ export default function BookingList() {
 
       {/* DataGrid */}
       <DataGrid
-        rows={filteredBookings}
+        rows={bookings}
         columns={columns}
         loading={isInitialLoading}
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={handleColumnVisibilityChange}
-        pageSizeOptions={[25, 50, 100]}
-        initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+        rowCount={total}
+        paginationMode="server"
+        sortingMode="server"
+        // `rows` is one windowed page, not the whole result set. MUI's
+        // column-menu "Filter" item is gated only on this prop / a column's
+        // own `filterable` — not on whether a toolbar is rendered — so
+        // without it every header's menu offers a filter that would
+        // silently filter the loaded page while the footer keeps showing
+        // the true server `rowCount`. See DataTable.tsx's server-mode
+        // default for the same guard.
+        disableColumnFilter
+        paginationModel={grid.paginationModel}
+        onPaginationModelChange={grid.onPaginationModelChange}
+        sortModel={grid.sortModel}
+        onSortModelChange={grid.onSortModelChange}
+        pageSizeOptions={[10, 25, 50, 100]}
         sx={{ border: 1, borderColor: 'divider' }}
         disableRowSelectionOnClick
       />
