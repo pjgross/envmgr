@@ -2,7 +2,7 @@
  * ScopeHistoryDrawer — right-hand drawer showing combined move + status history
  * for a scope item (release change).
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -25,6 +25,7 @@ import {
   fetchReleaseChangeReleaseHistory,
   fetchReleaseChangeStatusHistory,
 } from '../../store/releaseSlice';
+import { releaseService } from '../../services/releaseService';
 
 interface Props {
   open: boolean;
@@ -41,7 +42,12 @@ type HistoryEntry =
 
 export default function ScopeHistoryDrawer({ open, onClose, changeId, itemTitle }: Props) {
   const dispatch = useDispatch<AppDispatch>();
-  const releases = useSelector((s: RootState) => s.release.list);
+  // NOT from state.release.list: that slice is ReleaseList's current filtered
+  // page, so any release outside it would render as "Release #47". A picker
+  // or lookup that wants every release has to ask for them itself. This is
+  // the third component to need this — see MoveScopeItemDialog and
+  // RequestAdmissionDialog for the same fix.
+  const [releases, setReleases] = useState<{ id: number; name: string }[]>([]);
   const releaseHistory = useSelector((s: RootState) => s.release.changeReleaseHistory);
   const statusHistory = useSelector((s: RootState) => s.release.changeStatusHistory);
   const loading = useSelector((s: RootState) => s.release.loading);
@@ -52,6 +58,16 @@ export default function ScopeHistoryDrawer({ open, onClose, changeId, itemTitle 
       dispatch(fetchReleaseChangeStatusHistory(changeId));
     }
   }, [open, changeId, dispatch]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    releaseService
+      .list({ limit: 200 })
+      .then(({ rows }) => { if (!cancelled) setReleases(rows); })
+      .catch(() => { if (!cancelled) setReleases([]); });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const releaseNameById = useMemo(() => {
     const map: Record<number, string> = {};

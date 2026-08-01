@@ -433,6 +433,40 @@ describe('useServerGrid resilience', () => {
     expect(history.index).toBe(startIndex);
   });
 
+  describe('refetch', () => {
+    it('re-issues the current query with identical params', async () => {
+      // A create or delete must be able to re-ask the server, because the
+      // correct next page cannot be computed in the browser: a new row need
+      // not belong on the current page at all.
+      const onFetch = vi.fn();
+      const hook = renderHook(
+        () => useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch }),
+        { wrapper: wrapper(['/releases']) }
+      );
+
+      expect(onFetch).toHaveBeenCalledTimes(1);
+      const first = onFetch.mock.calls[0][0];
+
+      await act(async () => {
+        hook.result.current.refetch();
+      });
+
+      expect(onFetch).toHaveBeenCalledTimes(2);
+      expect(onFetch.mock.calls[1][0]).toEqual(first);
+    });
+
+    it('keeps a stable identity so it can sit in an effect dependency list', () => {
+      const onFetch = vi.fn();
+      const hook = renderHook(
+        () => useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch }),
+        { wrapper: wrapper(['/releases']) }
+      );
+      const before = hook.result.current.refetch;
+      hook.rerender();
+      expect(hook.result.current.refetch).toBe(before);
+    });
+  });
+
   it('clamps to the last valid page when the offset runs past the total', () => {
     const onFetch = vi.fn();
     const { result, rerender } = renderHook(
@@ -447,5 +481,106 @@ describe('useServerGrid resilience', () => {
 
     expect(result.current.paginationModel.page).toBe(1);
     expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25 }));
+  });
+
+  describe('clamping against a stale total', () => {
+    it('does not clamp while the total is unknown', () => {
+      // `undefined` means "no total for this request yet". Clamping on a total
+      // that belongs to a previous view rewrites a legitimate deep link to
+      // page 0 before its real response has even arrived.
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases?page=8']);
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['status'],
+            onFetch,
+            total: undefined,
+          }),
+        { wrapper: Wrapper }
+      );
+
+      expect(state.search).toContain('page=8');
+      expect(onFetch.mock.calls[0][0].offset).toBe(8 * 25);
+    });
+
+    it('clamps once a real total says the page is past the end', () => {
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases?page=8']);
+      renderHook(
+        () =>
+          useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch, total: 30 }),
+        { wrapper: Wrapper }
+      );
+
+      // 30 rows at 25/page is pages 0-1, so page 8 clamps to 1.
+      expect(state.search).toContain('page=1');
+    });
+
+    it('does not clamp against a total that belongs to the previous request', () => {
+      // THE BUG. The slice still holds the previous view's total while the
+      // request for ?page=8 is in flight. Without totalPending the effect
+      // clamps to page 1 on that stale 30 and the deep link is lost before
+      // its own response ever arrives.
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases?page=8']);
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['status'],
+            onFetch,
+            total: 30,
+            totalPending: true,
+          }),
+        { wrapper: Wrapper }
+      );
+
+      expect(state.search).toContain('page=8');
+    });
+  });
+
+  describe('debounceKeys/filterKeys invariant (dev warning)', () => {
+    // debounceKeys does double duty as serverGridParams' textKeys. A key
+    // present in debounceKeys but missing from filterKeys is written to the
+    // URL by setFilter but never read back into `filters` — a silent,
+    // easy-to-copy mistake across the eight upcoming page conversions. This
+    // must warn, not throw: a console warning can't be allowed to take a
+    // page down.
+    it('warns when a debounceKeys entry is missing from filterKeys', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['status'],
+            debounceKeys: ['search'],
+            onFetch: vi.fn(),
+          }),
+        { wrapper: wrapper(['/releases']) }
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('search');
+      warn.mockRestore();
+    });
+
+    it('stays silent when every debounceKeys entry is also in filterKeys', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['search', 'status'],
+            debounceKeys: ['search'],
+            onFetch: vi.fn(),
+          }),
+        { wrapper: wrapper(['/releases']) }
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });

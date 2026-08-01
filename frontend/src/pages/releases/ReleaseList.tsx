@@ -40,7 +40,7 @@ const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
 export default function ReleaseList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { list, total, backlog, loading } = useSelector((s: RootState) => s.release);
+  const { list, total, backlog, loading, listLoading } = useSelector((s: RootState) => s.release);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
   const [tab, setTab] = useState(0);
@@ -54,6 +54,7 @@ export default function ReleaseList() {
     endpoint: 'releases',
     filterKeys: ['status', 'release_type', 'release_kind', 'system_id'],
     total,
+    totalPending: listLoading,
     onFetch: (params) => dispatch(fetchReleases(params)),
   });
 
@@ -207,7 +208,7 @@ export default function ReleaseList() {
               userId={currentUserId}
               rows={list}
               columns={releaseColumns}
-              loading={loading}
+              loading={listLoading}
               emptyMessage="No releases yet"
               onRowClick={(params) => navigate(`/releases/${params.row.id}`)}
               paginationMode="server"

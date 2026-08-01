@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   buildParams,
@@ -48,10 +48,35 @@ export interface UseServerGridOptions {
   filterKeys: string[];
   /** Return the value of `dispatch(thunk(params))` so the hook can cancel it. */
   onFetch: (params: ServerGridParams) => Abortable | void;
-  /** Filter keys whose changes should be debounced — free-text inputs. */
+  /**
+   * Filter keys whose changes should be debounced — free-text inputs.
+   *
+   * This list does double duty: it is also passed straight through to
+   * `buildParams` as `textKeys`, the set of keys for which `'all'` is a real
+   * search term rather than a select's "no selection" sentinel (see
+   * `serverGridParams.ts`). A text filter deliberately left out of this list
+   * — e.g. one that only applies on Enter/blur for a heavy endpoint, rather
+   * than on every keystroke — gets no `'all'` exemption either, and
+   * re-inherits the exact bug this list exists to fix: typing `all` returns
+   * unfiltered results while the box still reads "all".
+   *
+   * INVARIANT: every key listed here must also appear in `filterKeys`.
+   * `filters` (below) is built from `filterKeys` alone, so a key present
+   * only in `debounceKeys` is written to the URL by `setFilter` but never
+   * read back — the URL shows `?search=foo` beside a grid that isn't
+   * actually filtered. Violations are warned about in dev; see the
+   * `import.meta.env.DEV` check below.
+   */
   debounceKeys?: string[];
   /** Latest known total, used to clamp an offset that has run past the end. */
   total?: number;
+  /**
+   * True when we cannot safely assume `total` reflects the current server state.
+   * Clamping the page number against a potentially-stale `total` would rewrite a
+   * legitimate deep link (`?page=8`) back to page 0 before that page's own
+   * response arrives.
+   */
+  totalPending?: boolean;
 }
 
 export interface ServerGrid {
@@ -61,6 +86,8 @@ export interface ServerGrid {
   onSortModelChange: (model: { field: string; sort?: SortDir | null }[]) => void;
   filters: Record<string, string>;
   setFilter: (key: string, value: string) => void;
+  /** Re-issue the current query — after a create or delete changed the set. */
+  refetch: () => void;
 }
 
 /**
@@ -77,6 +104,7 @@ export function useServerGrid({
   onFetch,
   debounceKeys = NO_DEBOUNCE,
   total,
+  totalPending,
 }: UseServerGridOptions): ServerGrid {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -94,6 +122,31 @@ export function useServerGrid({
   // reference every render), so it can't be a useMemo dependency itself
   // without defeating the memo. Key on its stable string form instead.
   const filterKeysKey = filterKeys.join(' ');
+  // debounceKeys is typically an inline array literal at the call site too
+  // (see filterKeysKey above) — key setFilter's memoisation on its stable
+  // string form instead so callers passing a fresh array each render don't
+  // get a new setFilter identity every render.
+  const debounceKeysKey = debounceKeys.join(' ');
+
+  // debounceKeys does double duty as serverGridParams' textKeys (see the
+  // JSDoc on UseServerGridOptions.debounceKeys). A key present only in
+  // debounceKeys is written to the URL by setFilter but never read back into
+  // `filters`, which is built from filterKeys alone — a silent, easy-to-copy
+  // mistake across the eight upcoming page conversions. Warn, don't throw: a
+  // dev console warning must not take a page down.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const missing = debounceKeys.filter((key) => !filterKeys.includes(key));
+    if (missing.length > 0) {
+      console.warn(
+        `useServerGrid: debounceKeys ${JSON.stringify(missing)} missing from filterKeys — ` +
+          'these keys are written to the URL by setFilter but never read back into `filters`, ' +
+          "and lose their 'all' exemption from serverGridParams."
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKeysKey, debounceKeysKey]);
+
   const filters = useMemo(() => {
     const out: Record<string, string> = {};
     filterKeys.forEach((key) => {
@@ -113,8 +166,10 @@ export function useServerGrid({
         sortBy: sort.sort_by,
         sortDir: sort.sort_dir,
         filters,
+        textKeys: debounceKeys,
       }),
-    [endpoint, page, pageSize, sort.sort_by, sort.sort_dir, filters]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [endpoint, page, pageSize, sort.sort_by, sort.sort_dir, filters, debounceKeysKey]
   );
 
   // Key the fetch effect on the *resolved* request, not a hand-maintained
@@ -125,6 +180,12 @@ export function useServerGrid({
   const paramsKey = JSON.stringify(params);
 
   const inFlight = useRef<Abortable | void>();
+
+  // The fetch effect is keyed on the resolved params, so an identical query
+  // cannot re-run on its own. A nonce gives callers an explicit way to ask
+  // for one without inventing a fake param change.
+  const [refetchNonce, setRefetchNonce] = useState(0);
+  const refetch = useCallback(() => setRefetchNonce((n) => n + 1), []);
 
   useEffect(() => {
     // Abort the previous request rather than merely ignoring its reply: the
@@ -137,7 +198,7 @@ export function useServerGrid({
     // fresh object every render too; `paramsKey` is what decides whether a
     // refetch is warranted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramsKey]);
+  }, [paramsKey, refetchNonce]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -199,16 +260,10 @@ export function useServerGrid({
     // A row deleted elsewhere (or a filter narrowing the set) can leave the
     // current offset past the end of the result — clamp back onto the last
     // real page rather than painting an empty grid over a non-zero total.
-    if (total === undefined || total === 0) return;
+    if (totalPending || total === undefined || total === 0) return;
     const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
     if (page > lastPage) patch({ page: String(lastPage) }, false);
-  }, [total, page, pageSize, patch]);
-
-  // debounceKeys is typically an inline array literal at the call site too
-  // (see filterKeysKey above) — key setFilter's memoisation on its stable
-  // string form instead so callers passing a fresh array each render don't
-  // get a new setFilter identity every render.
-  const debounceKeysKey = debounceKeys.join(' ');
+  }, [totalPending, total, page, pageSize, patch]);
 
   // One timer per debounced key, not one shared timer — otherwise changing
   // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
@@ -253,5 +308,6 @@ export function useServerGrid({
     ),
     filters,
     setFilter,
+    refetch,
   };
 }

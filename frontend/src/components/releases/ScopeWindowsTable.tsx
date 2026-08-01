@@ -58,6 +58,7 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
       .list({
         release_kind: kindFilter === 'all' ? undefined : kindFilter,
         system_id: effectiveSystemId,
+        limit: 200,
       })
       .then((paged) => setRows(paged.rows))
       .catch(() => setRows([]))
