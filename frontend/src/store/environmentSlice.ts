@@ -162,8 +162,12 @@ const environmentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(createEnvironment.fulfilled, (state, action) => {
-        state.environments.push(action.payload);
+      .addCase(createEnvironment.fulfilled, (state) => {
+        // `environments` is a server-paged window (see `fetchEnvironments`
+        // above), not the whole result set — pushing the new row here would
+        // edit whatever page happens to be loaded regardless of the active
+        // filter/sort/page, and never touch `total`. EnvironmentList calls
+        // `grid.refetch()` after a successful create instead.
         state.loading = false;
       })
       .addCase(createEnvironment.rejected, (state, action) => {
@@ -176,8 +180,11 @@ const environmentSlice = createSlice({
         state.error = null;
       })
       .addCase(updateEnvironment.fulfilled, (state, action) => {
-        const idx = state.environments.findIndex((e) => e.id === action.payload.id);
-        if (idx !== -1) state.environments[idx] = action.payload;
+        // Same reasoning as createEnvironment.fulfilled above — `environments`
+        // is a server-paged window, not the whole result set, so it is no
+        // longer edited in place here. `currentEnvironment` (EnvironmentDetail's
+        // single-record view) still needs updating regardless — it isn't the
+        // list a picker would silently truncate.
         if (state.currentEnvironment?.id === action.payload.id) {
           state.currentEnvironment = action.payload;
         }
@@ -193,7 +200,10 @@ const environmentSlice = createSlice({
         state.error = null;
       })
       .addCase(deleteEnvironment.fulfilled, (state, action) => {
-        state.environments = state.environments.filter((e) => e.id !== action.payload);
+        // Same reasoning as createEnvironment.fulfilled above — filtering the
+        // deleted row out of `environments` here would edit a 25-row window
+        // regardless of the active filter/sort/page and never adjust `total`.
+        // EnvironmentList calls `grid.refetch()` after a successful delete.
         if (state.currentEnvironment?.id === action.payload) state.currentEnvironment = null;
         state.loading = false;
       })

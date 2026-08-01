@@ -24,6 +24,7 @@ import {
   DataGrid,
   GridColDef,
   GridColumnVisibilityModel,
+  GridRenderCellParams,
   GridValueGetterParams,
 } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
@@ -39,12 +40,14 @@ import {
   deleteEnvironment,
 } from '../../store/environmentSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
+import { useServerGrid } from '../../hooks/useServerGrid';
 import type {
   EnvironmentResponse,
   EnvironmentStatus,
   EnvironmentCreate,
   EnvironmentUpdate,
 } from '../../types/environment';
+import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
 
@@ -97,19 +100,106 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
   }
 }
 
+// Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
+// "environments"): name, environment_type, status, created_at. `actions` has no
+// backing column, and per-tenant custom fields (built separately below, see
+// buildCustomFieldColumns) are never in the backend's sort whitelist — neither
+// ever was or can be sortable.
+// A plain array export, not a component; co-located here per the C3 pilot's
+// releaseColumns precedent (small enough not to warrant its own file). The
+// `actions` column's renderCell is filled in at render time (see `columns`
+// below) because it needs to close over this component's own dialog/state
+// handlers; everything else here is exactly what's rendered.
+// eslint-disable-next-line react-refresh/only-export-components
+export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
+  {
+    field: 'name',
+    headerName: 'Name',
+    flex: 1.5,
+    hideable: false,
+    renderCell: (params) => (
+      <Typography variant="body2" fontWeight="medium">
+        {params.row.name}
+      </Typography>
+    ),
+  },
+  {
+    field: 'environment_type',
+    headerName: 'Type',
+    flex: 1,
+    hideable: false,
+  },
+  {
+    field: 'status',
+    headerName: 'Status',
+    flex: 0.8,
+    hideable: false,
+    renderCell: (params) => (
+      <Chip label={params.row.status} size="small" color={STATUS_COLORS[params.row.status]} />
+    ),
+  },
+  {
+    field: 'created_at',
+    headerName: 'Created',
+    flex: 0.8,
+    hideable: false,
+    valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
+      new Date(params.row.created_at).toLocaleDateString(),
+  },
+  {
+    field: 'actions',
+    headerName: '',
+    width: 100,
+    sortable: false,
+    hideable: false,
+    disableColumnMenu: true,
+  },
+];
+
+// Per-tenant custom-field columns are built at render time (they depend on
+// which fields the tenant has defined), unlike the static `environmentColumns`
+// above — pulled out to a plain function so the `sortable: false` on them is
+// unit-testable the same way, since none of these fields is ever in the
+// backend's sort whitelist (they're tenant-defined, not schema columns).
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildCustomFieldColumns(
+  defs: CustomFieldDefinition[]
+): GridColDef<EnvironmentResponse>[] {
+  return defs.map(
+    (def) =>
+      ({
+        field: def.field_key,
+        headerName: def.label,
+        flex: 1,
+        sortable: false,
+        valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
+          params.row.custom_fields?.[def.field_key] ?? '—',
+      }) as GridColDef<EnvironmentResponse>
+  );
+}
+
 export default function EnvironmentList() {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const navigate = useNavigate();
-  const { environments, loading, listLoading, error } = useSelector(
+  const { environments, total, loading, listLoading, error } = useSelector(
     (state: RootState) => state.environment
   );
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
 
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<EnvironmentStatus | 'all'>('all');
+  const grid = useServerGrid({
+    endpoint: 'environments',
+    filterKeys: ['search', 'status', 'environment_type'],
+    // Free-text keys, and also the 'all'-sentinel exemption list. Every entry
+    // must also appear in filterKeys above — there is a DEV warning if not.
+    debounceKeys: ['search'],
+    onFetch: (params) => dispatch(fetchEnvironments(params)),
+    total,
+    totalPending: listLoading,
+  });
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<EnvironmentResponse | null>(null);
   const [form, setForm] = useState<EnvFormValues>(emptyForm);
@@ -123,19 +213,8 @@ export default function EnvironmentList() {
   );
 
   useEffect(() => {
-    dispatch(fetchEnvironments());
     dispatch(fetchDefinitions('environment'));
   }, [dispatch]);
-
-  const filtered = useMemo(
-    () =>
-      environments.filter((e) => {
-        const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase());
-        const matchesStatus = statusFilter === 'all' || e.status === statusFilter;
-        return matchesSearch && matchesStatus;
-      }),
-    [environments, search, statusFilter]
-  );
 
   const openCreate = useCallback(() => {
     setEditTarget(null);
@@ -158,55 +237,15 @@ export default function EnvironmentList() {
     setDialogOpen(true);
   }, []);
 
-  const coreColumns = useMemo<GridColDef<EnvironmentResponse>[]>(
-    () => [
-      {
-        field: 'name',
-        headerName: 'Name',
-        flex: 1.5,
-        hideable: false,
-        renderCell: (params) => (
-          <Typography variant="body2" fontWeight="medium">
-            {params.row.name}
-          </Typography>
-        ),
-      },
-      {
-        field: 'environment_type',
-        headerName: 'Type',
-        flex: 1,
-        hideable: false,
-      },
-      {
-        field: 'status',
-        headerName: 'Status',
-        flex: 0.8,
-        hideable: false,
-        renderCell: (params) => (
-          <Chip label={params.row.status} size="small" color={STATUS_COLORS[params.row.status]} />
-        ),
-      },
-      {
-        field: 'created_at',
-        headerName: 'Created',
-        flex: 0.8,
-        hideable: false,
-        valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
-          new Date(params.row.created_at).toLocaleDateString(),
-      },
-    ],
-    []
-  );
-
-  const actionsColumn = useMemo<GridColDef<EnvironmentResponse>>(
-    () => ({
-      field: 'actions',
-      headerName: '',
-      width: 100,
-      sortable: false,
-      hideable: false,
-      disableColumnMenu: true,
-      renderCell: (params) => (
+  // environmentColumns ends with the literal `actions` GridColDef (no
+  // renderCell — see its JSDoc above); the per-tenant custom-field columns go
+  // between the static columns and it, matching this page's pre-conversion
+  // layout (custom fields before the action buttons).
+  const columns = useMemo<GridColDef<EnvironmentResponse>[]>(() => {
+    const staticCols = environmentColumns.filter((col) => col.field !== 'actions');
+    const actionsCol: GridColDef<EnvironmentResponse> = {
+      ...(environmentColumns.find((col) => col.field === 'actions') as GridColDef<EnvironmentResponse>),
+      renderCell: (params: GridRenderCellParams<EnvironmentResponse>) => (
         <Box onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Edit">
             <IconButton size="small" onClick={() => openEdit(params.row)}>
@@ -220,29 +259,9 @@ export default function EnvironmentList() {
           </Tooltip>
         </Box>
       ),
-    }),
-    [openEdit, setDeleteTarget]
-  );
-
-  const customFieldColumns = useMemo<GridColDef<EnvironmentResponse>[]>(
-    () =>
-      customFieldDefs.map(
-        (def) =>
-          ({
-            field: def.field_key,
-            headerName: def.label,
-            flex: 1,
-            valueGetter: (params: GridValueGetterParams<EnvironmentResponse>) =>
-              params.row.custom_fields?.[def.field_key] ?? '—',
-          }) as GridColDef<EnvironmentResponse>
-      ),
-    [customFieldDefs]
-  );
-
-  const columns = useMemo(
-    () => [...coreColumns, ...customFieldColumns, actionsColumn],
-    [coreColumns, customFieldColumns, actionsColumn]
-  );
+    };
+    return [...staticCols, ...buildCustomFieldColumns(customFieldDefs), actionsCol];
+  }, [customFieldDefs, openEdit]);
 
   const handleColumnVisibilityChange = useCallback(
     (model: GridColumnVisibilityModel) => {
@@ -281,6 +300,10 @@ export default function EnvironmentList() {
         };
         await dispatch(createEnvironment(data)).unwrap();
       }
+      // Re-issue the current page/sort/filter query — the slice no longer
+      // splices the created/updated row into its list, since that list is
+      // now one server-paged window, not the whole result set.
+      grid.refetch();
       setCustomFieldValues({});
       setDialogOpen(false);
     } catch (err: unknown) {
@@ -293,6 +316,10 @@ export default function EnvironmentList() {
     if (!deleteTarget) return;
     try {
       await dispatch(deleteEnvironment(deleteTarget.id)).unwrap();
+      // Same reason as handleSave above — not a bare dispatch(fetchEnvironments()),
+      // which would clobber the current page/sort/filter with the endpoint's
+      // unfiltered page-1 default.
+      grid.refetch();
       snackbar.success('Environment deleted');
       setDeleteTarget(null);
     } catch (err) {
@@ -310,8 +337,8 @@ export default function EnvironmentList() {
         <TextField
           size="small"
           placeholder="Search environments…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={grid.filters.search ?? ''}
+          onChange={(e) => grid.setFilter('search', e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -332,9 +359,9 @@ export default function EnvironmentList() {
             key={f.value}
             label={f.label}
             clickable
-            color={statusFilter === f.value ? 'primary' : 'default'}
-            variant={statusFilter === f.value ? 'filled' : 'outlined'}
-            onClick={() => setStatusFilter(f.value)}
+            color={(grid.filters.status ?? 'all') === f.value ? 'primary' : 'default'}
+            variant={(grid.filters.status ?? 'all') === f.value ? 'filled' : 'outlined'}
+            onClick={() => grid.setFilter('status', f.value)}
           />
         ))}
       </Box>
@@ -346,14 +373,28 @@ export default function EnvironmentList() {
       )}
 
       <DataGrid
-        rows={filtered}
+        rows={environments}
         columns={columns}
         loading={listLoading && environments.length === 0}
         onRowClick={(params) => navigate(`/environments/${params.row.id}`)}
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={handleColumnVisibilityChange}
-        pageSizeOptions={[25, 50, 100]}
-        initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+        rowCount={total}
+        paginationMode="server"
+        sortingMode="server"
+        // `rows` is one windowed page, not the whole result set. MUI's
+        // column-menu "Filter" item is gated only on this prop / a column's
+        // own `filterable` — not on whether a toolbar is rendered — so
+        // without it every header's menu offers a filter that would
+        // silently filter the loaded page while the footer keeps showing
+        // the true server `rowCount`. See DataTable.tsx's server-mode
+        // default for the same guard.
+        disableColumnFilter
+        paginationModel={grid.paginationModel}
+        onPaginationModelChange={grid.onPaginationModelChange}
+        sortModel={grid.sortModel}
+        onSortModelChange={grid.onSortModelChange}
+        pageSizeOptions={[10, 25, 50, 100]}
         sx={{ border: 1, borderColor: 'divider' }}
         disableRowSelectionOnClick
       />
