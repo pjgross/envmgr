@@ -53,9 +53,10 @@ export interface UseServerGridOptions {
   /** Latest known total, used to clamp an offset that has run past the end. */
   total?: number;
   /**
-   * True while a list request is in flight. `total` then still describes the
-   * PREVIOUS view, and clamping against it rewrites a legitimate deep link
-   * (`?page=8`) back to page 0 before that page's own response arrives.
+   * True when we cannot safely assume `total` reflects the current server state.
+   * Clamping the page number against a potentially-stale `total` would rewrite a
+   * legitimate deep link (`?page=8`) back to page 0 before that page's own
+   * response arrives.
    */
   totalPending?: boolean;
 }
