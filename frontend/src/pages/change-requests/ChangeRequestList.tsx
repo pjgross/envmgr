@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { Box, Button, Chip, MenuItem, TextField, Typography } from '@mui/material';
@@ -8,7 +8,7 @@ import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import { AppDispatch, RootState } from '../../store';
 import { fetchChangeRequests } from '../../store/changeRequestSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
-import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
+import { useAllHosts } from '../../hooks/useAllHosts';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import ChangeRequestForm from './ChangeRequestForm';
 import {
@@ -141,7 +141,10 @@ export default function ChangeRequestList() {
   // the same conversion for EnvironmentList — this filter dropdown wants
   // every environment, not whatever page either grid last loaded.
   const { environments, truncated: environmentsTruncated } = useAllEnvironments();
-  const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
+  // Not the shared component slice: this page's own `state.list` is
+  // server-paged/filtered/sorted, so this filter dropdown wants every host,
+  // not whatever page the grid last loaded.
+  const { hosts, truncated: hostsTruncated } = useAllHosts();
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -153,10 +156,6 @@ export default function ChangeRequestList() {
     total,
     totalPending: listLoading,
   });
-
-  useEffect(() => {
-    dispatch(fetchInfrastructureComponents());
-  }, [dispatch]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -213,6 +212,9 @@ export default function ChangeRequestList() {
           value={grid.filters.host_id ?? 'all'}
           onChange={(e) => grid.setFilter('host_id', e.target.value)}
           sx={{ minWidth: 200 }}
+          helperText={
+            hostsTruncated ? `Only the first ${hosts.length} hosts are shown.` : undefined
+          }
         >
           <MenuItem value="all">All</MenuItem>
           {hosts.map((h) => (

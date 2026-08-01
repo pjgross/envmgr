@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { fetchEnvSubsystems } from '../../store/environmentSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
-import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
+import { useAllHosts } from '../../hooks/useAllHosts';
 import {
   fetchLifecycleTemplates,
   selectTemplatesForEntity,
@@ -129,7 +129,10 @@ export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRe
   // below would silently offer a subset.
   const { environments, truncated: environmentsTruncated } = useAllEnvironments();
   const envSubsystems = useSelector((s: RootState) => s.environment.envSubsystems);
-  const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
+  // Not the shared component slice: since the C3 conversion (a later task)
+  // it will become InfrastructureComponentList's current filtered page, so
+  // the host picker below would silently offer a subset.
+  const { hosts, truncated: hostsTruncated } = useAllHosts();
   const lifecycles = useSelector(selectTemplatesForEntity('change_request'));
   const customFieldDefs = useSelector(
     (s: RootState) => s.customField.definitions['change_request'] ?? []
@@ -163,7 +166,6 @@ export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRe
   const previewHasOutage = useWatch({ control, name: 'has_outage' });
 
   useEffect(() => {
-    dispatch(fetchInfrastructureComponents());
     dispatch(fetchLifecycleTemplates('change_request'));
     dispatch(fetchDefinitions('change_request'));
   }, [dispatch]);
@@ -418,7 +420,11 @@ export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRe
                   {...params}
                   label="Hosts"
                   placeholder="Select one or more hosts"
-                  helperText="Affected environments are derived automatically from host attachments"
+                  helperText={
+                    hostsTruncated
+                      ? `Only the first ${hosts.length} hosts are shown.`
+                      : 'Affected environments are derived automatically from host attachments'
+                  }
                 />
               )}
             />

@@ -21,7 +21,7 @@ import { AppDispatch, RootState } from '../../store';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { updateChangeRequest } from '../../store/changeRequestSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
-import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
+import { useAllHosts } from '../../hooks/useAllHosts';
 import FormDialog from '../../components/form/FormDialog';
 import FormTextField from '../../components/form/FormTextField';
 import FormSelect from '../../components/form/FormSelect';
@@ -101,7 +101,10 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
   // is EnvironmentList's current filtered page, so the environment picker
   // below would silently offer a subset.
   const { environments, truncated: environmentsTruncated } = useAllEnvironments();
-  const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
+  // Not the shared component slice: since the C3 conversion (a later task)
+  // it will become InfrastructureComponentList's current filtered page, so
+  // the host picker below would silently offer a subset.
+  const { hosts, truncated: hostsTruncated } = useAllHosts();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -180,7 +183,6 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
 
   useEffect(() => {
     dispatch(fetchDefinitions('change_request'));
-    dispatch(fetchInfrastructureComponents());
   }, [dispatch]);
 
   useEffect(() => {
@@ -325,7 +327,11 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
                 <TextField
                   {...params}
                   label="Hosts"
-                  helperText="Affected envs derived automatically"
+                  helperText={
+                    hostsTruncated
+                      ? `Only the first ${hosts.length} hosts are shown.`
+                      : 'Affected envs derived automatically'
+                  }
                 />
               )}
             />
