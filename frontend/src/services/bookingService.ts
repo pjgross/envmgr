@@ -2,6 +2,7 @@ import api from './api';
 import type { BookingResponse, BookingCreate, BookingCreateResponse } from '../types/booking';
 import type { BookingStatusHistory, AllowedTransition } from '../types/bookingLifecycle';
 import type { ConflictItem, ConflictAck, ReceivedFeedbackItem } from '../types/conflict';
+import type { Paged } from '../types/pagination';
 
 export const bookingService = {
   listBookings: (params?: {
@@ -9,7 +10,15 @@ export const bookingService = {
     start?: string;
     end?: string;
     booking_status?: string;
-  }): Promise<BookingResponse[]> => api.get('/bookings/', { params }).then((r) => r.data),
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<Paged<BookingResponse>> =>
+    api.get<BookingResponse[]>('/bookings/', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   createBooking: (data: BookingCreate): Promise<BookingCreateResponse> =>
     api.post('/bookings/', data).then((r) => r.data),

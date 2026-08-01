@@ -124,7 +124,7 @@ export default function BookingScheduleGantt({
                 start: windowStart.toISOString(),
                 end: windowEnd.toISOString(),
               })
-              .then((list) => [e.id, list] as const)
+              .then((page) => [e.id, page.rows] as const)
               .catch(() => [e.id, [] as BookingResponse[]] as const)
           )
         );

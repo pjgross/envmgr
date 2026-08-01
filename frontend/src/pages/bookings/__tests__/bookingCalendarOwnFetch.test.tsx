@@ -123,16 +123,19 @@ describe('BookingCalendar own fetch', () => {
     // The slice is about to become BookingList's current 25-row page. A
     // calendar showing a month must not be limited to whatever that page
     // holds, so it has to fetch for itself.
-    mockListBookings.mockResolvedValue([
-      makeBooking({
-        id: 91,
-        project_name: 'Only via own fetch',
-        start_date: '2026-08-03T00:00:00Z',
-        end_date: '2026-08-04T00:00:00Z',
-        status: 'approved',
-        environment_id: 1,
-      }),
-    ]);
+    mockListBookings.mockResolvedValue({
+      rows: [
+        makeBooking({
+          id: 91,
+          project_name: 'Only via own fetch',
+          start_date: '2026-08-03T00:00:00Z',
+          end_date: '2026-08-04T00:00:00Z',
+          status: 'approved',
+          environment_id: 1,
+        }),
+      ],
+      total: 1,
+    });
 
     renderCalendarWithSliceBookings([]); // shared slice deliberately empty
 
@@ -142,7 +145,7 @@ describe('BookingCalendar own fetch', () => {
   it('does not read the shared booking slice', () => {
     // Guards the regression directly: if the component goes back to the
     // slice, a booking present ONLY there would render.
-    mockListBookings.mockResolvedValue([]);
+    mockListBookings.mockResolvedValue({ rows: [], total: 0 });
 
     renderCalendarWithSliceBookings([
       makeBooking({

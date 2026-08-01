@@ -78,7 +78,7 @@ export default function BookingCalendar() {
     setLoading(true);
     bookingService
       .listBookings(environmentId !== undefined ? { environment_id: environmentId } : undefined)
-      .then(setBookings)
+      .then((page) => setBookings(page.rows))
       .catch(() => setBookings([]))
       .finally(() => setLoading(false));
   }, []);

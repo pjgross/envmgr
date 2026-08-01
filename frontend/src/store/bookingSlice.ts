@@ -5,8 +5,16 @@ import type { ConflictItem } from '../types/conflict';
 
 interface BookingState {
   bookings: BookingResponse[];
+  total: number;
   selectedBooking: BookingResponse | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
   overlapWarnings: number[];
   conflicts: Record<number, ConflictItem[]>;
@@ -14,8 +22,10 @@ interface BookingState {
 
 const initialState: BookingState = {
   bookings: [],
+  total: 0,
   selectedBooking: null,
   loading: false,
+  listLoading: false,
   error: null,
   overlapWarnings: [],
   conflicts: {},
@@ -23,8 +33,16 @@ const initialState: BookingState = {
 
 export const fetchBookings = createAsyncThunk(
   'booking/fetchBookings',
-  (params?: { environment_id?: number; start?: string; end?: string; booking_status?: string }) =>
-    bookingService.listBookings(params)
+  (params?: {
+    environment_id?: number;
+    start?: string;
+    end?: string;
+    booking_status?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }) => bookingService.listBookings(params)
 );
 
 export const createBooking = createAsyncThunk('booking/createBooking', (data: BookingCreate) =>
@@ -76,15 +94,22 @@ const bookingSlice = createSlice({
     builder
       // fetchBookings
       .addCase(fetchBookings.pending, (state) => {
-        state.loading = true;
+        state.listLoading = true;
         state.error = null;
       })
       .addCase(fetchBookings.fulfilled, (state, action) => {
-        state.bookings = action.payload;
-        state.loading = false;
+        state.bookings = action.payload.rows;
+        state.total = action.payload.total;
+        state.listLoading = false;
       })
       .addCase(fetchBookings.rejected, (state, action) => {
-        state.loading = false;
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
         state.error = action.error.message ?? 'Failed to fetch bookings';
       })
       // createBooking
