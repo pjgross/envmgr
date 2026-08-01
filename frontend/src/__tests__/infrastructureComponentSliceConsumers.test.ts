@@ -30,7 +30,7 @@ const EXCLUDED_PATHS = new Set([
 // `.infrastructureComponent.components` is specific enough on its own.
 const READS_COMPONENTS_LIST = [
   /\.infrastructureComponent\.components\b/,
-  /\{[^}]*\bcomponents\b[^}]*\}\s*=\s*useSelector\(\s*\([^)]*\)\s*=>\s*(?:s|state)\.infrastructureComponent\s*\)/,
+  /\{[^}]*\bcomponents\b[^}]*\}\s*=\s*useSelector\(\s*\([^)]*\)\s*=>\s*[A-Za-z_$][\w$]*\.infrastructureComponent\s*\)/,
 ];
 
 describe('infrastructure component slice consumers', () => {
