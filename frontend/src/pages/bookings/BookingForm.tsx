@@ -7,6 +7,7 @@ import {
   Box,
   Chip,
   FormControlLabel,
+  FormHelperText,
   MenuItem,
   Switch,
   TextField,
@@ -15,6 +16,7 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import {
   fetchBookingTypes,
@@ -89,7 +91,10 @@ export default function BookingForm({
   const navigate = useNavigate();
   const snackbar = useSnackbar();
 
-  const environments = useSelector((state: RootState) => state.environment.environments);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page, so this picker (mounted from
+  // both BookingList and BookingCalendar) would silently offer a subset.
+  const { environments, truncated: environmentsTruncated } = useAllEnvironments();
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
   );
@@ -282,6 +287,9 @@ export default function BookingForm({
                 onChange={field.onChange}
                 label="Environments *"
               />
+              {environmentsTruncated && (
+                <FormHelperText>Only the first {environments.length} environments are shown.</FormHelperText>
+              )}
               {fieldState.error?.message && (
                 <Box sx={{ color: 'error.main', fontSize: 12, mt: 0.5 }}>
                   {fieldState.error.message}

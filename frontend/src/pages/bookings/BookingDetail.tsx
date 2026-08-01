@@ -13,6 +13,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Paper,
@@ -25,7 +26,7 @@ import { AppDispatch } from '../../store';
 import type { RootState } from '../../store';
 import { fetchBookingTypes, fetchLifecycleTemplates } from '../../store/bookingLifecycleSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
-import { fetchEnvironments } from '../../store/environmentSlice';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { bookingService } from '../../services/bookingService';
 import { bookingRequestService } from '../../services/bookingRequestService';
 import type { BookingResponse } from '../../types/booking';
@@ -64,7 +65,10 @@ export default function BookingDetail() {
   );
   const bookingTypes = useSelector((state: RootState) => state.bookingLifecycle.bookingTypes);
   const currentUser = useSelector((state: RootState) => state.auth.user);
-  const environments = useSelector((state: RootState) => state.environment.environments);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page, so the add-environment picker
+  // below would silently offer a subset.
+  const { environments, truncated: environmentsTruncated } = useAllEnvironments();
 
   // Local state
   const [booking, setBooking] = useState<BookingResponse | null>(null);
@@ -89,7 +93,6 @@ export default function BookingDetail() {
     dispatch(fetchBookingTypes());
     dispatch(fetchLifecycleTemplates('booking'));
     dispatch(fetchDefinitions('booking'));
-    dispatch(fetchEnvironments());
 
     const load = async () => {
       setLoading(true);
@@ -536,6 +539,9 @@ export default function BookingDetail() {
                 </MenuItem>
               ))}
             </Select>
+            {environmentsTruncated && (
+              <FormHelperText>Only the first {environments.length} environments are shown.</FormHelperText>
+            )}
           </FormControl>
           <TextField
             label="Start Date (optional)"

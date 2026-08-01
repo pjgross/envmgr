@@ -7,7 +7,7 @@ import DataTable from '../../components/DataTable';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import { AppDispatch, RootState } from '../../store';
 import { fetchChangeRequests } from '../../store/changeRequestSlice';
-import { fetchEnvironments } from '../../store/environmentSlice';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import ChangeRequestForm from './ChangeRequestForm';
@@ -136,7 +136,11 @@ export default function ChangeRequestList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { list, total, listLoading } = useSelector((s: RootState) => s.changeRequest);
-  const environments = useSelector((s: RootState) => s.environment.environments);
+  // Not the shared environment slice: this page's own `state.list` is
+  // now server-paged/filtered/sorted, and the environment slice went through
+  // the same conversion for EnvironmentList — this filter dropdown wants
+  // every environment, not whatever page either grid last loaded.
+  const { environments, truncated: environmentsTruncated } = useAllEnvironments();
   const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
@@ -151,7 +155,6 @@ export default function ChangeRequestList() {
   });
 
   useEffect(() => {
-    dispatch(fetchEnvironments());
     dispatch(fetchInfrastructureComponents());
   }, [dispatch]);
 
@@ -190,6 +193,11 @@ export default function ChangeRequestList() {
           value={grid.filters.environment_id ?? 'all'}
           onChange={(e) => grid.setFilter('environment_id', e.target.value)}
           sx={{ minWidth: 200 }}
+          helperText={
+            environmentsTruncated
+              ? `Only the first ${environments.length} environments are shown.`
+              : undefined
+          }
         >
           <MenuItem value="all">All</MenuItem>
           {environments.map((e) => (

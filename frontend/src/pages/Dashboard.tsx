@@ -1,16 +1,11 @@
-import { useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
 import { Typography, Container, Box, Paper, Grid } from '@mui/material';
-import type { AppDispatch, RootState } from '../store';
-import { fetchEnvironments } from '../store/environmentSlice';
+import { useAllEnvironments } from '../hooks/useAllEnvironments';
 
 export default function Dashboard() {
-  const dispatch = useDispatch<AppDispatch>();
-  const { environments } = useSelector((state: RootState) => state.environment);
-
-  useEffect(() => {
-    dispatch(fetchEnvironments());
-  }, [dispatch]);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page, which would undercount this
+  // tile the moment the grid's filters narrow it.
+  const { environments } = useAllEnvironments();
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>

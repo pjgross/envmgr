@@ -3,13 +3,13 @@
  * with a conflict preview and a per-environment result summary.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   MenuItem, Stack, TextField,
 } from '@mui/material';
-import { AppDispatch, RootState } from '../../store';
-import { fetchEnvironments } from '../../store/environmentSlice';
+import { RootState } from '../../store';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { releaseService } from '../../services/releaseService';
 import { bookingRequestService } from '../../services/bookingRequestService';
 import { bookingLifecycleService } from '../../services/bookingLifecycleService';
@@ -31,9 +31,12 @@ interface Props {
 export default function BulkBookEnvironmentsDialog({
   open, onClose, releaseId, environmentIds, phases, onCreated,
 }: Props) {
-  const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
-  const environments = useSelector((s: RootState) => s.environment.environments);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page. This dialog only uses the
+  // list to render display names for already-chosen environment ids, but the
+  // same truncation hazard applies — a missing env would fall back to `#id`.
+  const { environments } = useAllEnvironments();
   const releaseName = useSelector((s: RootState) => s.release.detail?.name ?? '');
 
   const [bookingTypes, setBookingTypes] = useState<BookingTypeRecord[]>([]);
@@ -47,9 +50,8 @@ export default function BulkBookEnvironmentsDialog({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    dispatch(fetchEnvironments());
     bookingLifecycleService.listBookingTypes().then(setBookingTypes).catch(() => setBookingTypes([]));
-  }, [dispatch]);
+  }, []);
 
   useEffect(() => {
     if (open) {

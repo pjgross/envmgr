@@ -2,7 +2,7 @@
  * AddPhaseBookingDialog — create a booking linked to a release phase.
  */
 import { useEffect, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import {
   Box,
   Button,
@@ -10,11 +10,12 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormHelperText,
   MenuItem,
   TextField,
 } from '@mui/material';
-import { AppDispatch, RootState } from '../../store';
-import { fetchEnvironments } from '../../store/environmentSlice';
+import { RootState } from '../../store';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { releaseService } from '../../services/releaseService';
 import { bookingLifecycleService } from '../../services/bookingLifecycleService';
 import { phaseBookingDefaults } from './phaseBookingDefaults';
@@ -39,9 +40,11 @@ export default function AddPhaseBookingDialog({
   onCreated,
   initialEnvironmentId,
 }: Props) {
-  const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
-  const environments = useSelector((s: RootState) => s.environment.environments);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page, so this picker would silently
+  // offer a subset. See useAllEnvironments's own doc comment.
+  const { environments, truncated } = useAllEnvironments();
   const releaseName = useSelector((s: RootState) => s.release.detail?.name ?? '');
 
   const [bookingTypes, setBookingTypes] = useState<BookingTypeRecord[]>([]);
@@ -54,12 +57,11 @@ export default function AddPhaseBookingDialog({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    dispatch(fetchEnvironments());
     bookingLifecycleService
       .listBookingTypes()
       .then(setBookingTypes)
       .catch(() => setBookingTypes([]));
-  }, [dispatch]);
+  }, []);
 
   useEffect(() => {
     if (open && initialEnvironmentId != null) {
@@ -149,6 +151,11 @@ export default function AddPhaseBookingDialog({
               </MenuItem>
             ))}
           </TextField>
+          {truncated && (
+            <FormHelperText sx={{ mt: -1.5 }}>
+              Only the first {environments.length} environments are shown.
+            </FormHelperText>
+          )}
 
           <TextField
             select
