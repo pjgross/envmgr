@@ -427,13 +427,16 @@ git commit -m "fix(pagination): give the list query its own loading flag"
 
 Fix at the call site, which is where the knowledge lives: while a list request is in flight, the caller does not yet know the total for it.
 
+**Amended before execution (user-approved).** As first written, this task put the guard in `ReleaseList` as `total={listLoading ? undefined : total}` and its tests passed both before and after — the production change was untested, which contradicts this plan's own Global Constraint. The guard moves into the hook instead, where a hook test reaches it directly. That also matters for the rollout: eight pages will copy this, and a named option cannot be silently inverted the way a ternary can.
+
 **Files:**
+- Modify: `frontend/src/hooks/useServerGrid.ts:46-55,198-205`
 - Modify: `frontend/src/pages/releases/ReleaseList.tsx`
 - Test: `frontend/src/hooks/__tests__/useServerGrid.test.tsx`
 
 **Interfaces:**
 - Consumes: Task 3's `listLoading`.
-- Produces: nothing new. Establishes the `total={listLoading ? undefined : total}` idiom PRs A/B/C copy.
+- Produces: `UseServerGridOptions` gains `totalPending?: boolean`. While true, the clamp effect does not run. Absent, behaviour is exactly as today. PRs A/B/C pass `totalPending: <slice>.listLoading`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -474,29 +477,86 @@ describe('clamping against a stale total', () => {
     // 30 rows at 25/page is pages 0-1, so page 8 clamps to 1.
     expect(state.search).toContain('page=1');
   });
+
+  it('does not clamp against a total that belongs to the previous request', () => {
+    // THE BUG. The slice still holds the previous view's total while the
+    // request for ?page=8 is in flight. Without totalPending the effect
+    // clamps to page 1 on that stale 30 and the deep link is lost before
+    // its own response ever arrives.
+    const onFetch = vi.fn();
+    const { Wrapper, state } = locationHarness(['/releases?page=8']);
+    renderHook(
+      () =>
+        useServerGrid({
+          endpoint: 'releases',
+          filterKeys: ['status'],
+          onFetch,
+          total: 30,
+          totalPending: true,
+        }),
+      { wrapper: Wrapper }
+    );
+
+    expect(state.search).toContain('page=8');
+  });
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails or passes as documented**
+- [ ] **Step 2: Run the tests to verify the third fails**
 
 ```bash
 cd frontend && npx vitest run src/hooks/__tests__/useServerGrid.test.tsx -t "stale total"
 ```
 
-Expected: both PASS against the current hook — the guard `total === undefined` already exists. These tests pin the behaviour the call-site change in Step 3 depends on; if either fails, stop and re-read the clamp effect at `useServerGrid.ts:198-205` before continuing.
+Expected: the first two PASS (they pin the existing `total === undefined` guard, which must survive), the third FAILS — `page` has been rewritten to `1`.
 
-- [ ] **Step 3: Change the call site**
+- [ ] **Step 3: Implement in the hook**
 
-In `frontend/src/pages/releases/ReleaseList.tsx`, find the `useServerGrid({ ... })` call and change the `total` argument:
+In `frontend/src/hooks/useServerGrid.ts`, add to `UseServerGridOptions`:
 
 ```ts
-    // While a list request is in flight the slice's `total` still describes
-    // the previous view. Passing it would clamp a legitimate ?page=8 deep
-    // link to page 0 before the real response lands.
-    total: listLoading ? undefined : total,
+  /**
+   * True while a list request is in flight. `total` then still describes the
+   * PREVIOUS view, and clamping against it rewrites a legitimate deep link
+   * (`?page=8`) back to page 0 before that page's own response arrives.
+   */
+  totalPending?: boolean;
 ```
 
-- [ ] **Step 4: Run the frontend suite**
+Destructure `totalPending` alongside `total` in the parameter list, and guard the clamp effect:
+
+```ts
+  useEffect(() => {
+    // A row deleted elsewhere (or a filter narrowing the set) can leave the
+    // current offset past the end of the result — clamp back onto the last
+    // real page rather than painting an empty grid over a non-zero total.
+    if (totalPending || total === undefined || total === 0) return;
+    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    if (page > lastPage) patch({ page: String(lastPage) }, false);
+  }, [totalPending, total, page, pageSize, patch]);
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+```bash
+cd frontend && npx vitest run src/hooks/__tests__/useServerGrid.test.tsx
+```
+
+Expected: PASS, all tests in the file.
+
+- [ ] **Step 5: Verify the test discriminates**
+
+Temporarily remove `totalPending ||` from the guard and re-run. Expected: `does not clamp against a total that belongs to the previous request` FAILS. Restore it.
+
+- [ ] **Step 6: Wire the call site**
+
+In `frontend/src/pages/releases/ReleaseList.tsx`, add to the `useServerGrid({ ... })` call, beside the existing `total`:
+
+```ts
+    totalPending: listLoading,
+```
+
+- [ ] **Step 7: Run the frontend suite**
 
 ```bash
 cd frontend && npx vitest run
@@ -504,11 +564,11 @@ cd frontend && npx vitest run
 
 Expected: PASS, whole suite.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/src/pages/releases/ReleaseList.tsx frontend/src/hooks/__tests__/useServerGrid.test.tsx
-git commit -m "fix(releases): do not clamp a deep link against a stale total"
+git add frontend/src/hooks/useServerGrid.ts frontend/src/pages/releases/ReleaseList.tsx frontend/src/hooks/__tests__/useServerGrid.test.tsx
+git commit -m "fix(pagination): do not clamp a deep link against a stale total"
 ```
 
 ---
