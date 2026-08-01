@@ -27,8 +27,13 @@ const EXCLUDED_PATHS = new Set([
 // slice (currentEnvironment, environmentSystemsData, envSubsystems, loading,
 // error) for a single environment's detail view, and must keep doing so —
 // none of those is the list a picker would silently truncate.
+// No selector-parameter prefix on the first pattern. Requiring the param to be
+// named `s` or `state` would let `(env: RootState) => env.environment.environments`
+// through, and costs nothing to drop: `.environment.environments` still excludes
+// EnvironmentDetail's bare `state.environment` destructure and ChangeRequestForm's
+// `.environment.envSubsystems`, so widening it adds no false positives.
 const READS_ENVIRONMENTS_LIST = [
-  /(?:\bs|\bstate)\.environment\.environments\b/,
+  /\.environment\.environments\b/,
   /\{[^}]*\benvironments\b[^}]*\}\s*=\s*useSelector\(\s*\([^)]*\)\s*=>\s*(?:s|state)\.environment\s*\)/,
 ];
 
