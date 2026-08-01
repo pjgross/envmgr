@@ -8,15 +8,19 @@ describe('incidentSlice', () => {
     expect(s.list).toEqual([]);
     expect(s.loading).toBe(false);
   });
-  it('stores incidents on fulfilled', () => {
+  it('stores incidents and total on fulfilled', () => {
     const rows = [
       { id: 1, title: 'x', severity: 'P1', status: 'new' },
     ] as unknown as IncidentListRow[];
-    const s = reducer(undefined, { type: fetchIncidents.fulfilled.type, payload: rows });
+    const s = reducer(undefined, {
+      type: fetchIncidents.fulfilled.type,
+      payload: { rows, total: 12 },
+    });
     expect(s.list).toHaveLength(1);
+    expect(s.total).toBe(12);
   });
-  it('sets loading on pending', () => {
+  it('sets listLoading on pending', () => {
     const s = reducer(undefined, { type: fetchIncidents.pending.type });
-    expect(s.loading).toBe(true);
+    expect(s.listLoading).toBe(true);
   });
 });

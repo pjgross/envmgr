@@ -4,15 +4,25 @@ import type { IncidentListRow, IncidentDetail, IncidentCreate, IncidentUpdate } 
 
 interface IncidentState {
   list: IncidentListRow[];
+  total: number;
   detail: IncidentDetail | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
 }
 
 const initialState: IncidentState = {
   list: [],
+  total: 0,
   detail: null,
   loading: false,
+  listLoading: false,
   error: null,
 };
 
@@ -59,9 +69,22 @@ const incidentSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchIncidents.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(fetchIncidents.fulfilled, (state, action) => { state.loading = false; state.list = action.payload; })
-      .addCase(fetchIncidents.rejected, (state, action) => { state.loading = false; state.error = action.error.message ?? 'Failed to load incidents'; })
+      .addCase(fetchIncidents.pending, (state) => { state.listLoading = true; state.error = null; })
+      .addCase(fetchIncidents.fulfilled, (state, action) => {
+        state.listLoading = false;
+        state.list = action.payload.rows;
+        state.total = action.payload.total;
+      })
+      .addCase(fetchIncidents.rejected, (state, action) => {
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
+        state.error = action.error.message ?? 'Failed to load incidents';
+      })
 
       .addCase(fetchIncident.fulfilled, (state, action) => { state.detail = action.payload; })
 

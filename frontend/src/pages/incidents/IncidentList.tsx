@@ -25,7 +25,7 @@ import type { SystemResponse } from '../../types/system';
 export default function IncidentList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { list, loading } = useSelector((s: RootState) => s.incident);
+  const { list, listLoading } = useSelector((s: RootState) => s.incident);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
   const incidentTemplates = useSelector(selectTemplatesForEntity('incident'));
 
@@ -260,7 +260,7 @@ export default function IncidentList() {
           userId={currentUserId}
           rows={filteredRows}
           columns={columns}
-          loading={loading}
+          loading={listLoading}
           emptyMessage="No incidents found"
           onRowClick={(params) => navigate(`/incidents/${params.row.id}`)}
         />
