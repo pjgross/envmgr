@@ -341,14 +341,20 @@ rollout:
   since the new row need not belong on the current page at all. Any rollout page with an inline
   create or delete will hit this; adding a `refetch()` and dropping the list surgery is the real
   fix.
-- **Three sibling pickers are still silently truncated** at the server default of 50:
-  `IncidentForm`, `DoraDashboard` and `ScopeWindowsTable` each call `releaseService.list()` and
-  discard the `total` the pilot made available. They are the same shape as the two dialogs that
-  were fixed.
-- **`ScopeWindowsTable` is a tenth grid with the live bug, and the hardest one.** It fetches ≤50
-  releases and then filters `window_status` and sorts by `days_to_cutoff` in the browser. Both are
-  computed after the query, so unlike the eight pages above it **cannot** be converted by this
-  pattern at all without restructuring those into SQL first.
+- **Three sibling pickers were silently truncated at the server default of 50 — fixed.**
+  `IncidentForm`, `DoraDashboard` and `ScopeWindowsTable` each called `releaseService.list()` and
+  discarded the `total` the pilot made available. They were the same shape as the two dialogs
+  fixed earlier, and now pass `limit: 200` the same way. That is not a full fix: 200 is the
+  endpoint's hard cap (`pagination(default_limit=50, max_limit=200)`), not a page size, so a
+  tenant with more than 200 releases still gets a truncated picker with nothing saying so. The
+  real fix is an autocomplete that queries the server per keystroke instead of pulling a fixed
+  batch up front.
+- **`ScopeWindowsTable` is a tenth grid with the live bug, and the hardest one — still open.** It
+  now fetches up to 200 releases (raised from 50 alongside the other three pickers, above) and
+  then filters `window_status` and sorts by `days_to_cutoff` in the browser. Both are computed
+  after the query, so unlike the eight pages above it **cannot** be converted by this pattern at
+  all without restructuring those into SQL first; that restructure is out of scope here. Its grid
+  can still drop rows past 200 releases, same as the pickers.
 - **One `loading` boolean per slice is the structural weak point.** Each slice has a single flag
   shared by roughly twenty thunks. Abort-based cancellation introduces a thunk that can end
   *without* a successor raising the flag again, which is how the pilot left `loading` stuck true

@@ -32,4 +32,18 @@ describe('releaseService.list', () => {
 
     expect(result.total).toBe(1);
   });
+
+  it('reports a total larger than the returned page', async () => {
+    // The guard for a truncated picker: callers can tell they did not get
+    // everything. Three call sites discarded this and silently showed 50.
+    mockGet.mockResolvedValue({
+      data: [{ id: 1, name: 'a' }],
+      headers: { 'x-total-count': '312' },
+    });
+
+    const result = await releaseService.list({ limit: 200 });
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.total).toBe(312);
+  });
 });

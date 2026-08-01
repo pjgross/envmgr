@@ -110,7 +110,9 @@ export default function DoraDashboard() {
   // Load filter options once
   useEffect(() => {
     environmentService.listEnvironments().then(setEnvironments).catch(() => setEnvironments([]));
-    releaseService.list().then((paged) => setReleases(paged.rows)).catch(() => setReleases([]));
+    // Explicit limit: the server default is 50, which silently omits releases
+    // from a picker with no indication any are missing.
+    releaseService.list({ limit: 200 }).then((paged) => setReleases(paged.rows)).catch(() => setReleases([]));
   }, []);
 
   // Fetch DORA summary whenever filters change
