@@ -36,6 +36,10 @@ export interface DeploymentFilters {
   date_to?: string;
   limit?: number;
   offset?: number;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+  environment_search?: string;
+  release_search?: string;
 }
 
 export interface DeploymentLinkChangeRequest {
