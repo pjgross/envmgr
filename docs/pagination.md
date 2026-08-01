@@ -319,28 +319,37 @@ pinned the *emitted SQL token* (`"system.name DESC NULLS FIRST"`), which is exac
 assertion that stays green while the user-visible ordering is wrong. The guards added with the fix
 assert **rendered row order over mixed-case data** instead, and discriminate on both engines.
 
-### Recorded during the pilot, deliberately not fixed
+### Recorded during the pilot
 
-These were found by review, judged not worth growing the pilot for, and will matter to the
-rollout:
+These were found by review during the pilot. Five of the six are now fixed by this PR; the
+reasoning behind each is kept below because it is exactly what the eight remaining page
+conversions still need to know — why each was a trap, not just that it is gone. The one item still
+open is marked as such.
 
-- **The `'all'` sentinel will eventually eat a real search term.** `buildParams` drops any filter
-  value of `''` or `'all'`, for every key. `ReleaseList` has no text input so it cannot bite yet —
-  but environments, systems and infrastructure-components all gain a `search` parameter in the
-  rollout, and typing `all` into one of those boxes will silently return unfiltered results while
-  the box still reads "all". Fix it when the first text filter lands: exempt the `debounceKeys`,
-  or have the selects delete the parameter instead of writing the string `'all'`.
-- **A stale slice `total` can clamp a legitimate deep link.** The clamp effect trusts whatever
-  `total` is in the store, which need not correspond to the request in flight. A cold load is safe
-  (`total === 0` short-circuits), but arriving at `?page=8` with a narrower total already in the
-  slice rewrites the URL to page 0. Pass `total={loading ? undefined : total}`, or have the hook
-  record which `paramsKey` the total belongs to.
-- **`useServerGrid` has no `refetch()`.** The fetch effect is keyed purely on the resolved params,
-  so nothing can re-run the current query. That is why `createRelease`/`deleteRelease` still
-  perform optimistic surgery on `state.list` — which server-side paging makes structurally wrong,
-  since the new row need not belong on the current page at all. Any rollout page with an inline
-  create or delete will hit this; adding a `refetch()` and dropping the list surgery is the real
-  fix.
+- **The `'all'` sentinel eating a real search term — fixed in `c8caa4e`.** `buildParams` used to
+  drop any filter value of `''` or `'all'`, for every key. That was safe only because `ReleaseList`
+  had no text input — environments, systems and infrastructure-components all gain a `search`
+  parameter in the rollout, and typing `all` into one of those boxes would have silently returned
+  unfiltered results while the box still read "all". `buildParams` now takes an optional
+  `textKeys`, and `'all'` is dropped only for keys outside it; `useServerGrid` passes its
+  `debounceKeys` through as `textKeys`, so the free-text keys are identified by the single list
+  that already means "free-text inputs" rather than a second one that could drift from it. An
+  empty string is still treated as unset everywhere.
+- **A stale slice `total` could clamp a legitimate deep link — fixed in `47ac9d7`.** The clamp
+  effect trusted whatever `total` was in the store, which need not correspond to the request in
+  flight. A cold load was safe (`total === 0` short-circuits), but arriving at `?page=8` with a
+  narrower total already in the slice rewrote the URL back to page 0. `useServerGrid` gained a
+  `totalPending` option — while true, the clamp effect does not run — and `ReleaseList` passes the
+  release slice's `listLoading` (see below) as that flag.
+- **`useServerGrid` had no `refetch()` — added in `ef81e9e`, not yet wired up anywhere.** The
+  fetch effect is keyed purely on the resolved params, so nothing could re-run the current query.
+  The hook now returns a `refetch()`, implemented with a nonce in the fetch effect's dependency
+  array, so an identical query can be re-issued after a create or delete. What is **not** yet
+  done: no slice has actually dropped its optimistic list surgery — `createRelease.fulfilled`
+  still `unshift`s onto `state.list` and `deleteRelease.fulfilled` still filters it back out,
+  which server-side paging makes structurally wrong, since the new or removed row need not belong
+  on the current page at all. The capability exists; the call sites that need it are added in the
+  page PRs, one per rollout page with an inline create or delete.
 - **Three sibling pickers were silently truncated at the server default of 50 — fixed.**
   `IncidentForm`, `DoraDashboard` and `ScopeWindowsTable` each called `releaseService.list()` and
   discarded the `total` the pilot made available. They were the same shape as the two dialogs
@@ -355,12 +364,15 @@ rollout:
   after the query, so unlike the eight pages above it **cannot** be converted by this pattern at
   all without restructuring those into SQL first; that restructure is out of scope here. Its grid
   can still drop rows past 200 releases, same as the pickers.
-- **One `loading` boolean per slice is the structural weak point.** Each slice has a single flag
-  shared by roughly twenty thunks. Abort-based cancellation introduces a thunk that can end
-  *without* a successor raising the flag again, which is how the pilot left `loading` stuck true
-  after an unmount and hung `/releases/calendar` and `/releases/timeline` — both of which had no
-  loading transitions of their own. Every slice converted next inherits that shape; consider a
-  separate `listLoading` on converted slices.
+- **One `loading` boolean per slice was the structural weak point — fixed for the release slice
+  in `547830e`.** Each slice had a single flag shared by roughly twenty thunks. Abort-based
+  cancellation introduces a thunk that can end *without* a successor raising the flag again, which
+  is how the pilot left `loading` stuck true after an unmount and hung `/releases/calendar` and
+  `/releases/timeline` — both of which had no loading transitions of their own. The release slice
+  now has its own `listLoading`, written only by the three `fetchReleases` cases; every other
+  thunk on that slice (`fetchRelease`, the calendar/timeline pair, create/update/transition/delete)
+  still writes the shared `loading`. This is fixed for the release slice only — it establishes the
+  shape the other eight slices copy as each is converted in the rollout, not a repo-wide fix.
 
 ## Bounded so far
 
