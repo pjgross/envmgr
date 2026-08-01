@@ -94,34 +94,25 @@ const incidentSlice = createSlice({
       })
 
       .addCase(updateIncident.fulfilled, (state, action) => {
+        // No `state.list` write here (previously an in-place splice by id):
+        // update/transition/delete are only ever dispatched from IncidentForm
+        // and IncidentDetail, separate routes from IncidentList, so the list
+        // is unmounted when this fires. Splicing a stale row into a page it
+        // may no longer belong on (a changed status/sort field) or patching a
+        // row that isn't even loaded on the current page is dead weight at
+        // best — IncidentList re-fetches its own page fresh every time it
+        // mounts, which is the only place this state is read.
         state.detail = action.payload;
-        const idx = state.list.findIndex((r) => r.id === action.payload.id);
-        if (idx !== -1) {
-          state.list[idx] = {
-            ...state.list[idx],
-            title: action.payload.title,
-            severity: action.payload.severity,
-            status: action.payload.status,
-            detected_at: action.payload.detected_at,
-            resolved_at: action.payload.resolved_at,
-          };
-        }
       })
 
       .addCase(transitionIncident.fulfilled, (state, action) => {
+        // Same reasoning as updateIncident.fulfilled above.
         state.detail = action.payload;
-        const idx = state.list.findIndex((r) => r.id === action.payload.id);
-        if (idx !== -1) {
-          state.list[idx] = {
-            ...state.list[idx],
-            status: action.payload.status,
-            resolved_at: action.payload.resolved_at,
-          };
-        }
       })
 
       .addCase(deleteIncident.fulfilled, (state, action) => {
-        state.list = state.list.filter((r) => r.id !== action.payload);
+        // Same reasoning as updateIncident.fulfilled above — no `state.list`
+        // filter here.
         if (state.detail?.id === action.payload) state.detail = null;
       });
   },
