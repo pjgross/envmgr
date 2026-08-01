@@ -18,7 +18,7 @@ vi.mock('../../../services/releaseService', () => ({
 }));
 
 vi.mock('../../../services/systemService', () => ({
-  systemService: { listSystems: vi.fn().mockResolvedValue([]) },
+  systemService: { listSystems: vi.fn().mockResolvedValue({ rows: [], total: 0 }) },
 }));
 
 import { releaseService } from '../../../services/releaseService';

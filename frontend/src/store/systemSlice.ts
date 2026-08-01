@@ -11,24 +11,41 @@ import type {
 
 interface SystemState {
   systems: SystemResponse[];
+  total: number;
   currentSystem: SystemResponse | null;
   subsystems: SubSystemResponse[];
   currentSubSystem: SubSystemResponse | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
 }
 
 const initialState: SystemState = {
   systems: [],
+  total: 0,
   currentSystem: null,
   subsystems: [],
   currentSubSystem: null,
   loading: false,
+  listLoading: false,
   error: null,
 };
 
-export const fetchSystems = createAsyncThunk('system/fetchSystems', () =>
-  systemService.listSystems()
+export const fetchSystems = createAsyncThunk(
+  'system/fetchSystems',
+  (params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }) => systemService.listSystems(params)
 );
 
 export const fetchSystem = createAsyncThunk('system/fetchSystem', (id: number) =>
@@ -88,15 +105,22 @@ const systemSlice = createSlice({
     builder
       // fetchSystems
       .addCase(fetchSystems.pending, (state) => {
-        state.loading = true;
+        state.listLoading = true;
         state.error = null;
       })
       .addCase(fetchSystems.fulfilled, (state, action) => {
-        state.systems = action.payload;
-        state.loading = false;
+        state.systems = action.payload.rows;
+        state.total = action.payload.total;
+        state.listLoading = false;
       })
       .addCase(fetchSystems.rejected, (state, action) => {
-        state.loading = false;
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
         state.error = action.error.message ?? 'Failed to fetch systems';
       })
       // fetchSystem

@@ -7,16 +7,20 @@ import type {
   SubSystemCreate,
   SubSystemUpdate,
 } from '../types/system';
+import type { Paged } from '../types/pagination';
 
 export const systemService = {
-  // `limit` is optional and unused by any caller yet except `useAllSystems`
-  // (SystemCatalog itself is not converted to server-side paging until Task 3
-  // of the C3 rollout, which is also when this gains `offset`/`search`/sort
-  // params and a `Paged<SystemResponse>` return). Widened now, rather than
-  // left bare, so a picker asking for "every system" states the number it
-  // asked for instead of silently trusting the backend's default.
-  listSystems: (params?: { limit?: number }): Promise<SystemResponse[]> =>
-    api.get('/systems/', { params }).then((r) => r.data),
+  listSystems: (params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<Paged<SystemResponse>> =>
+    api.get<SystemResponse[]>('/systems/', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   getSystem: (id: number): Promise<SystemResponse> => api.get(`/systems/${id}`).then((r) => r.data),
 

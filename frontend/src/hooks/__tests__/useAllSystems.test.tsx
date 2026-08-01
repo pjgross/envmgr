@@ -41,10 +41,13 @@ describe('useAllSystems', () => {
   });
 
   it('fetches once and returns the systems', async () => {
-    mockList.mockResolvedValue([
-      { id: 1, name: 'System A' },
-      { id: 2, name: 'System B' },
-    ] as SystemResponse[]);
+    mockList.mockResolvedValue({
+      rows: [
+        { id: 1, name: 'System A' },
+        { id: 2, name: 'System B' },
+      ] as SystemResponse[],
+      total: 2,
+    });
     const { result } = renderHook(() => useAllSystems());
     await waitFor(() => expect(result.current.systems).toHaveLength(2));
     expect(mockList).toHaveBeenCalledTimes(1);
@@ -53,7 +56,7 @@ describe('useAllSystems', () => {
   it('does not read or write the shared system slice', async () => {
     // The whole point: a later task turns state.system.systems into a 25-row
     // page. A picker must not be limited to it, and must not clobber it either.
-    mockList.mockResolvedValue([{ id: 1, name: 'System A' }] as SystemResponse[]);
+    mockList.mockResolvedValue({ rows: [{ id: 1, name: 'System A' }] as SystemResponse[], total: 1 });
     const store = makeStore({
       system: { systems: [], currentSystem: null, subsystems: [], currentSubSystem: null, loading: false, error: null },
     });
@@ -67,5 +70,28 @@ describe('useAllSystems', () => {
     const { result } = renderHook(() => useAllSystems());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.systems).toEqual([]);
+  });
+
+  it('reports truncated when the server has more rows than were fetched', async () => {
+    mockList.mockResolvedValue({ rows: [{ id: 1, name: 'System A' }] as SystemResponse[], total: 5 });
+    const { result } = renderHook(() => useAllSystems());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.truncated).toBe(true);
+  });
+
+  it('reports not truncated when every row was fetched', async () => {
+    // Discriminates against the rejected `rows.length === LIMIT` proxy: the
+    // row count here doesn't happen to equal the request limit, it equals
+    // the server's total, which is the only thing that should matter.
+    mockList.mockResolvedValue({
+      rows: [
+        { id: 1, name: 'System A' },
+        { id: 2, name: 'System B' },
+      ] as SystemResponse[],
+      total: 2,
+    });
+    const { result } = renderHook(() => useAllSystems());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.truncated).toBe(false);
   });
 });

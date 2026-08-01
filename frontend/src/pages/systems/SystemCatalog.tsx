@@ -67,7 +67,7 @@ export default function SystemCatalog() {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const navigate = useNavigate();
-  const { systems, loading, error } = useSelector((state: RootState) => state.system);
+  const { systems, loading, listLoading, error } = useSelector((state: RootState) => state.system);
 
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['system'] ?? []
@@ -294,7 +294,7 @@ export default function SystemCatalog() {
       <DataGrid
         rows={filtered}
         columns={columns}
-        loading={loading && systems.length === 0}
+        loading={listLoading && systems.length === 0}
         onRowClick={(params) => navigate(`/systems/${params.row.id}`)}
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={handleColumnVisibilityChange}

@@ -15,11 +15,9 @@ const LIMIT = 500;
  * filtered page rather than every system. Six components need this; the
  * shared hook exists so a seventh is not written by copy-paste.
  *
- * `systemService.listSystems` still returns a bare array — no total count —
- * so unlike its `useAllEnvironments`/`useAllHosts` siblings this hook has no
- * honest way to detect truncation yet. `truncated` is hardcoded `false`
- * until that task widens the service to `Paged<SystemResponse>`; do not
- * read `false` here as a claim the list is complete.
+ * `truncated` is true when the server has more than we asked for — a picker
+ * that is quietly missing options is the bug this programme exists to remove,
+ * so callers can say so rather than pretend the list is complete.
  */
 export function useAllSystems(): {
   systems: SystemResponse[];
@@ -27,27 +25,27 @@ export function useAllSystems(): {
   truncated: boolean;
 } {
   const [systems, setSystems] = useState<SystemResponse[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     systemService
       .listSystems({ limit: LIMIT })
-      .then((rows) => {
+      .then(({ rows, total }) => {
         setSystems(rows);
+        setTotal(total);
       })
       .catch(() => {
         setSystems([]);
+        setTotal(0);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  // Hardcoded, not computed: `listSystems` returns a bare array with no
-  // total, so there is nothing honest to compare `systems.length` against.
-  // A `systems.length === LIMIT` proxy was rejected for the same reason it
-  // was rejected in `useAllEnvironments`/`useAllHosts` — wrong the moment a
-  // tenant's count happens to land exactly on the limit.
-  const truncated = false;
+  // Honest, not a proxy: `systems.length === LIMIT` would be wrong the
+  // moment a tenant's count happens to land exactly on the limit.
+  const truncated = systems.length < total;
 
   return { systems, loading, truncated };
 }

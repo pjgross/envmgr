@@ -17,7 +17,7 @@ vi.mock('../../../services/releaseService', () => ({
 
 vi.mock('../../../services/systemService', () => ({
   systemService: {
-    listSystems: vi.fn().mockResolvedValue([{ id: 7, name: 'Payments' }]),
+    listSystems: vi.fn().mockResolvedValue({ rows: [{ id: 7, name: 'Payments' }], total: 1 }),
   },
 }));
 
