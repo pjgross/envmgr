@@ -38,7 +38,10 @@ export default function LinkChangeRequestDialog({
   useEffect(() => {
     if (!open) return;
     // Load CRs without a release filter — the user can pick any
-    changeRequestService.list({}).then(setAllCRs).catch(() => setAllCRs([]));
+    changeRequestService
+      .list({})
+      .then((page) => setAllCRs(page.rows))
+      .catch(() => setAllCRs([]));
   }, [open]);
 
   const handleClose = () => {

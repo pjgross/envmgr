@@ -11,16 +11,26 @@ import { changeRequestService } from '../services/changeRequestService';
 
 interface ChangeRequestState {
   list: ChangeRequestResponse[];
+  total: number;
   detail: ChangeRequestDetailResponse | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
   filters: ChangeRequestListFilters;
 }
 
 const initialState: ChangeRequestState = {
   list: [],
+  total: 0,
   detail: null,
   loading: false,
+  listLoading: false,
   error: null,
   filters: {},
 };
@@ -70,15 +80,22 @@ const changeRequestSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchChangeRequests.pending, (state) => {
-        state.loading = true;
+        state.listLoading = true;
         state.error = null;
       })
       .addCase(fetchChangeRequests.fulfilled, (state, action) => {
-        state.loading = false;
-        state.list = action.payload;
+        state.list = action.payload.rows;
+        state.total = action.payload.total;
+        state.listLoading = false;
       })
       .addCase(fetchChangeRequests.rejected, (state, action) => {
-        state.loading = false;
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
         state.error = action.error.message ?? 'Failed to load change requests';
       })
 
