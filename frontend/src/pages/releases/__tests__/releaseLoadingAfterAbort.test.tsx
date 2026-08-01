@@ -42,7 +42,7 @@ import { releaseService } from '../../../services/releaseService';
 // ReleaseList reads, so `state.release.loading` — what Calendar/Timeline
 // read — is never touched by the aborted list fetch at all.
 describe('release loading regression — abort on unmount must not hang a later page', () => {
-  it('does not leave state.release.loading stuck true after leaving /releases mid-fetch and opening Timeline', async () => {
+  it('keeps state.release.loading and Timeline unaffected by listLoading left stuck true from an aborted list fetch', async () => {
     // Never resolves — the request will still be in flight when we unmount.
     vi.mocked(releaseService.list).mockReturnValue(new Promise(() => {}));
 

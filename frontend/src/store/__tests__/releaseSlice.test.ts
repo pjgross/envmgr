@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import reducer, { fetchReleases, createRelease, deleteRelease } from '../releaseSlice';
+import reducer, {
+  fetchReleases,
+  createRelease,
+  deleteRelease,
+  fetchReleaseCalendar,
+  fetchReleaseTimeline,
+} from '../releaseSlice';
 import type { ReleaseListItemResponse, ReleaseResponse } from '../../types/release';
 
 const listRow = (id: number): ReleaseListItemResponse =>
@@ -114,7 +120,7 @@ describe('releaseSlice — aborted fetches', () => {
   // describe block below) — these assertions were updated from `.loading` to
   // `.listLoading` alongside that change so they keep testing fetchReleases
   // rather than passing vacuously against a field the thunk no longer touches.
-  it('leaves loading and error untouched when a fetch is aborted', () => {
+  it('leaves listLoading and error untouched when a fetch is aborted', () => {
     const midFlight = reducer(undefined, { type: fetchReleases.pending.type });
     expect(midFlight.listLoading).toBe(true);
 
@@ -168,5 +174,37 @@ describe('listLoading', () => {
     expect(state.listLoading).toBe(true);
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
+  });
+});
+
+// Task 3 (`listLoading`) confined the stuck-flag bug to `fetchReleases`, but
+// `state.release.loading` is still shared by ~20 other thunks including
+// these two, and Calendar/Timeline are the pages that were originally hung
+// by it. Pin their pending/fulfilled transitions directly against the
+// reducer so a future edit to these cases can't silently drop them the way
+// releaseLoadingAfterAbort.test.tsx's integration assertions could before
+// this file's coverage was added (that test now starts from `loading: false`
+// throughout, so it can't detect a missing transition on its own).
+describe('calendar/timeline loading transitions', () => {
+  it('raises and clears loading around fetchReleaseTimeline', () => {
+    let state = reducer(undefined, { type: fetchReleaseTimeline.pending.type });
+    expect(state.loading).toBe(true);
+
+    state = reducer(state, {
+      type: fetchReleaseTimeline.fulfilled.type,
+      payload: [],
+    });
+    expect(state.loading).toBe(false);
+  });
+
+  it('raises and clears loading around fetchReleaseCalendar', () => {
+    let state = reducer(undefined, { type: fetchReleaseCalendar.pending.type });
+    expect(state.loading).toBe(true);
+
+    state = reducer(state, {
+      type: fetchReleaseCalendar.fulfilled.type,
+      payload: [],
+    });
+    expect(state.loading).toBe(false);
   });
 });
