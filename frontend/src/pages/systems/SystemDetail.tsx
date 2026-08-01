@@ -12,6 +12,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormHelperText,
   IconButton,
   InputLabel,
   MenuItem,
@@ -44,8 +45,8 @@ import {
   createSubSystem,
   updateSubSystem,
   deleteSubSystem,
-  fetchSystems,
 } from '../../store/systemSlice';
+import { useAllSystems } from '../../hooks/useAllSystems';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
@@ -189,9 +190,13 @@ export default function SystemDetail() {
   const navigate = useNavigate();
   const snackbar = useSnackbar();
 
-  const { currentSystem, subsystems, systems, loading, error } = useSelector(
+  const { currentSystem, subsystems, loading, error } = useSelector(
     (state: RootState) => state.system
   );
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so the dependency
+  // pickers below would silently offer a subset.
+  const { systems, truncated: systemsTruncated } = useAllSystems();
   const { systemDependencies, loading: depLoading } = useSelector(
     (state: RootState) => state.dependency
   );
@@ -294,7 +299,6 @@ export default function SystemDetail() {
     dispatch(fetchSystem(systemId));
     dispatch(fetchSubSystems(systemId));
     dispatch(fetchSystemDependencies(systemId));
-    dispatch(fetchSystems());
     dispatch(fetchDefinitions('subsystem'));
     dispatch(fetchDefinitions('system'));
   }, [dispatch, systemId]);
@@ -1244,6 +1248,9 @@ export default function SystemDetail() {
                 ))
               )}
             </Select>
+            {systemsTruncated && (
+              <FormHelperText>Only the first {systems.length} systems are shown.</FormHelperText>
+            )}
           </FormControl>
           <FormControl fullWidth required>
             <InputLabel>Dependency Type</InputLabel>

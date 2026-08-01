@@ -24,8 +24,7 @@ import type { ReleaseListItemResponse } from '../../types/release';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 import ReleaseForm from './ReleaseForm';
 import MoveScopeItemDialog from '../../components/releases/MoveScopeItemDialog';
-import { systemService } from '../../services/systemService';
-import type { SystemResponse } from '../../types/system';
+import { useAllSystems } from '../../hooks/useAllSystems';
 import { releaseColumns } from './releaseColumns';
 
 const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
@@ -44,7 +43,10 @@ export default function ReleaseList() {
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
   const [tab, setTab] = useState(0);
-  const [systems, setSystems] = useState<SystemResponse[]>([]);
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so this filter
+  // dropdown would silently offer a subset.
+  const { systems, truncated: systemsTruncated } = useAllSystems();
   const [formOpen, setFormOpen] = useState(false);
 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -57,10 +59,6 @@ export default function ReleaseList() {
     totalPending: listLoading,
     onFetch: (params) => dispatch(fetchReleases(params)),
   });
-
-  useEffect(() => {
-    systemService.listSystems().then(setSystems).catch(() => setSystems([]));
-  }, []);
 
   useEffect(() => {
     if (tab === 1) {
@@ -194,6 +192,9 @@ export default function ReleaseList() {
               onChange={(e) => grid.setFilter('system_id', e.target.value)}
               sx={{ minWidth: 180 }}
               disabled={systems.length === 0}
+              helperText={
+                systemsTruncated ? `Only the first ${systems.length} systems are shown.` : undefined
+              }
             >
               <MenuItem value="all">All systems</MenuItem>
               {systems.map((s) => (

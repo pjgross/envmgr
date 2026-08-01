@@ -13,6 +13,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormHelperText,
   IconButton,
   InputLabel,
   MenuItem,
@@ -51,7 +52,7 @@ import {
   removeSystemFromEnvironment,
   updateEnvSubsystem,
 } from '../../store/environmentSlice';
-import { fetchSystems } from '../../store/systemSlice';
+import { useAllSystems } from '../../hooks/useAllSystems';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
 import { recordVersion, updateVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
@@ -105,7 +106,10 @@ export default function EnvironmentDetail() {
   );
   const environmentSystems = environmentSystemsData.systems;
   const missingSystems = environmentSystemsData.missing_systems;
-  const { systems } = useSelector((state: RootState) => state.system);
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so this "Add System"
+  // picker would silently offer a subset.
+  const { systems, truncated: systemsTruncated } = useAllSystems();
   const { verifyResult, loading: verifyLoading } = useSelector(
     (state: RootState) => state.dependency
   );
@@ -160,7 +164,6 @@ export default function EnvironmentDetail() {
   useEffect(() => {
     dispatch(fetchEnvironment(envId));
     dispatch(fetchEnvironmentSystems(envId));
-    dispatch(fetchSystems());
     dispatch(fetchDefinitions('environment'));
     // Clear any previous verify result when env changes
     dispatch(clearVerifyResult());
@@ -1118,6 +1121,9 @@ export default function EnvironmentDetail() {
                 ))
               )}
             </Select>
+            {systemsTruncated && (
+              <FormHelperText>Only the first {systems.length} systems are shown.</FormHelperText>
+            )}
           </FormControl>
         </DialogContent>
         <DialogActions>

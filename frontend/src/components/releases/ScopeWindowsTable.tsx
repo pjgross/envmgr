@@ -8,9 +8,8 @@ import { Box, Chip, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup,
 import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../DataTable';
 import { releaseService } from '../../services/releaseService';
-import { systemService } from '../../services/systemService';
+import { useAllSystems } from '../../hooks/useAllSystems';
 import type { ReleaseListItemResponse } from '../../types/release';
-import type { SystemResponse } from '../../types/system';
 
 const WINDOW_COLORS: Record<string, 'default' | 'success' | 'warning' | 'info'> = {
   open: 'success',
@@ -39,18 +38,15 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
   const navigate = useNavigate();
   const [rows, setRows] = useState<ReleaseListItemResponse[]>([]);
   const [loading, setLoading] = useState(false);
-  const [systems, setSystems] = useState<SystemResponse[]>([]);
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so this filter
+  // dropdown would silently offer a subset.
+  const { systems, truncated: systemsTruncated } = useAllSystems();
   const [selectedSystem, setSelectedSystem] = useState<number | ''>('');
   const [windowFilter, setWindowFilter] = useState<'actionable' | 'all'>('actionable');
   const [kindFilter, setKindFilter] = useState<'project' | 'enterprise' | 'all'>('project');
 
   const effectiveSystemId = systemId ?? (selectedSystem === '' ? undefined : Number(selectedSystem));
-
-  useEffect(() => {
-    if (showSystemFilter && !systemId) {
-      systemService.listSystems().then(setSystems).catch(() => setSystems([]));
-    }
-  }, [showSystemFilter, systemId]);
 
   useEffect(() => {
     setLoading(true);
@@ -171,6 +167,9 @@ export default function ScopeWindowsTable({ systemId, showSystemFilter }: Props)
             value={selectedSystem}
             onChange={(e) => setSelectedSystem(e.target.value === '' ? '' : Number(e.target.value))}
             sx={{ minWidth: 220 }}
+            helperText={
+              systemsTruncated ? `Only the first ${systems.length} systems are shown.` : undefined
+            }
           >
             <MenuItem value="">All systems</MenuItem>
             {systems.map((s) => (
