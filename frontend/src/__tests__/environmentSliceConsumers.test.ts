@@ -34,7 +34,7 @@ const EXCLUDED_PATHS = new Set([
 // `.environment.envSubsystems`, so widening it adds no false positives.
 const READS_ENVIRONMENTS_LIST = [
   /\.environment\.environments\b/,
-  /\{[^}]*\benvironments\b[^}]*\}\s*=\s*useSelector\(\s*\([^)]*\)\s*=>\s*(?:s|state)\.environment\s*\)/,
+  /\{[^}]*\benvironments\b[^}]*\}\s*=\s*useSelector\(\s*\([^)]*\)\s*=>\s*[A-Za-z_$][\w$]*\.environment\s*\)/,
 ];
 
 describe('environment slice consumers', () => {

@@ -23,7 +23,7 @@ vi.mock('../../../services/environmentService', () => ({
 
 vi.mock('../../../services/infrastructureComponentService', () => ({
   infrastructureComponentService: {
-    listComponents: vi.fn().mockResolvedValue([]),
+    listComponents: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
   },
 }));
 

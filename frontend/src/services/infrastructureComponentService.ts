@@ -9,6 +9,7 @@ import type {
   InfrastructureComponentType,
   InfrastructureComponentUpdate,
 } from '../types/infrastructureComponent';
+import type { Paged } from '../types/pagination';
 
 export const infrastructureComponentService = {
   listComponents: (params?: {
@@ -17,8 +18,15 @@ export const infrastructureComponentService = {
     region?: string;
     source?: InfrastructureComponentSource;
     search?: string;
-  }): Promise<InfrastructureComponentResponse[]> =>
-    api.get('/infrastructure-components/', { params }).then((r) => r.data),
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<Paged<InfrastructureComponentResponse>> =>
+    api.get<InfrastructureComponentResponse[]>('/infrastructure-components/', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   getComponent: (id: number): Promise<InfrastructureComponentResponse> =>
     api.get(`/infrastructure-components/${id}`).then((r) => r.data),

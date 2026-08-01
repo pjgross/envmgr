@@ -657,6 +657,43 @@ server as a search term rather than being dropped as the selects' no-selection s
 That fix shipped in the prerequisites PR and **this is the first converted page with a text
 filter able to exercise it**.
 
+## The rollout: PR C2 (infrastructure-components)
+
+Ten of eleven pages converted; **one remains** — systems.
+
+Structurally a repeat of C1 at under half the scale: a `useAllHosts()` hook (copied from
+`useAllEnvironments`), four host pickers moved onto it, then service, slice and page.
+Nothing new went wrong, which is itself the point — the pattern is now routine.
+
+### The first ordinary column that cannot be sorted
+
+`location` is a plain, visible data column that `GET /infrastructure-components/` does not
+whitelist. Every previous page's unsortable columns were obviously computed (`pir_status`,
+`conflicts`, `latest_step`) or joined (`environment_name`) — a reviewer or user could guess
+why the header was inert. This is the first where an entirely ordinary column must carry
+`sortable: false`, and the first where getting it wrong 422s on a header that looks
+completely normal. **Check the whitelist per column; do not infer it from what the column
+looks like.**
+
+### The consumer-scan guards had a hole, now closed in both
+
+The scan tests' second pattern — the destructured whole-slice read — required the selector
+parameter to be named `s` or `state`:
+
+```
+const { components } = useSelector((ic: RootState) => ic.infrastructureComponent)
+```
+
+slipped past **both** patterns, because the first needs a literal `.infrastructureComponent
+.components` chain that the destructured form never produces. Widened to any identifier in
+the infrastructure scan *and* the merged environments one, since the former was ported from
+the latter and leaving one behind puts the hole straight back on the next copy.
+
+That is the **fifth** distinct grep form this programme has tripped over. The full set:
+property read with either param name; destructured read, which may span lines; an aliased
+selector parameter; a writer (`fetchX(`), invisible to any reader grep; and a direct
+service call bypassing the slice.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a

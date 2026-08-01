@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
   Autocomplete,
@@ -10,13 +9,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormHelperText,
   IconButton,
   TextField,
   Typography,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import type { AppDispatch, RootState } from '../store';
-import { fetchInfrastructureComponents } from '../store/infrastructureComponentSlice';
+import { useAllHosts } from '../hooks/useAllHosts';
 import { infrastructureComponentService } from '../services/infrastructureComponentService';
 import type {
   EnvironmentSubSystemHostResponse,
@@ -46,8 +45,10 @@ export default function EnvSubsystemHostsDialog({
   subsystemLabel,
   onSaved,
 }: Props) {
-  const dispatch = useDispatch<AppDispatch>();
-  const allHosts = useSelector((s: RootState) => s.infrastructureComponent.components);
+  // Not the shared component slice: since the C3 conversion (a later task)
+  // it will become InfrastructureComponentList's current filtered page, so
+  // this "add host" picker would silently offer a subset.
+  const { hosts: allHosts, truncated: hostsTruncated } = useAllHosts();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -57,7 +58,6 @@ export default function EnvSubsystemHostsDialog({
 
   useEffect(() => {
     if (!open) return;
-    dispatch(fetchInfrastructureComponents());
     let cancelled = false;
     setLoading(true);
     setError('');
@@ -92,7 +92,7 @@ export default function EnvSubsystemHostsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, envId, subsystemId, dispatch]);
+  }, [open, envId, subsystemId]);
 
   const attachedIds = useMemo(() => new Set(rows.map((r) => r.host.id)), [rows]);
   const availableHosts = useMemo(
@@ -228,6 +228,9 @@ export default function EnvSubsystemHostsDialog({
                 Add
               </Button>
             </Box>
+            {hostsTruncated && (
+              <FormHelperText>Only the first {allHosts.length} hosts are shown.</FormHelperText>
+            )}
           </>
         )}
       </DialogContent>
