@@ -16,6 +16,11 @@ export const environmentService = {
   listEnvironments: (params?: {
     status?: string;
     environment_type?: string;
+    // Task 3 (pagination C3) widens this with offset/sort_by/sort_dir when
+    // the service starts returning Paged<EnvironmentResponse>; `limit` is
+    // added now so a picker can request an explicit window instead of
+    // relying on the endpoint's implicit default.
+    limit?: number;
   }): Promise<EnvironmentResponse[]> => api.get('/environments/', { params }).then((r) => r.data),
 
   getEnvironment: (id: number): Promise<EnvironmentResponse> =>
