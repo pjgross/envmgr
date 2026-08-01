@@ -192,7 +192,20 @@ git commit -m "feat(deployments): return and store a page, not a bare array"
 - Consumes: Task 1's `Paged<Deployment>` service and the slice's `total`/`listLoading`. `useServerGrid` and `isSortable` from `frontend/src/hooks/`.
 - Produces: nothing later tasks depend on.
 
-**Before you start:** grep for every other consumer of `state.deployment`. Converting a page changes what its slice *means* — from "the newest 100 deployments" to "the grid's current filtered page" — without changing its shape, so nothing type-checks to catch a stale reader. A previous PR found three components broken this way on the release slice, each discovered separately. A sweep during planning found no consumers outside `pages/deployments/`, but re-run it: `grep -rn "state\.deployment" frontend/src`. If you find one, report it rather than converting silently.
+**Corrected before execution.** This section originally claimed a planning sweep had found no consumers of `state.deployment` outside `pages/deployments/`. **That was wrong.** The sweep grepped `state\.deployment`, but these selectors are written `(s: RootState) => s.deployment` — the parameter is named `s`, not `state`, so the pattern matched nothing. Grep the slice *name*, not a guessed parameter name.
+
+There are two other consumers, and they are not passive readers:
+
+- `frontend/src/components/releases/ReleaseDeploymentsTab.tsx:18`
+- `frontend/src/pages/environments/EnvironmentDeploymentsTab.tsx:18`
+
+Each dispatches `fetchDeployments({ release_id })` / `({ environment_id })` on mount **and** reads the shared `items`, then client-side filters it by that id. So they write the same array this page is about to page and sort, and they are themselves unconverted client-side-filtering grids sharing a slice with a converted one.
+
+Task 1 already repaired the half of this that was a live regression: both tabs now read `listLoading`, so their spinners work again.
+
+What remains is coupling, not breakage, and this task must **not** try to fix it: each tab refetches on mount and defensively re-filters by id, so the rows it displays stay correct. What changes is that the shared array is now a 25-row sorted page between a tab's mount and its own fetch resolving. Record it in Task 5's docs update as a follow-on — the honest fix is for each tab to hold its own state rather than share the slice, which is the same fix three release-slice consumers received, and it belongs in its own change.
+
+**Still grep before you convert**, with a pattern that will actually match: `grep -rnE "s\.deployment|state\.deployment" frontend/src`. If you find a consumer beyond the two named above, stop and report it rather than converting silently.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -453,7 +466,11 @@ git commit -m "feat(builds): return and store a page, not a bare array"
 - Consumes: Task 3's service and slice; `useServerGrid`; `ComputedColumnHeader` from `frontend/src/components/`.
 - Produces: nothing later tasks depend on.
 
-**Before you start:** `grep -rn "state\.build" frontend/src` for consumers outside `pages/builds/`. A planning sweep found none; confirm rather than assume, and report anything you find instead of converting silently.
+**Before you start:** grep for consumers of the build slice — `grep -rnE "s\.build\b|state\.build\b" frontend/src`. Note the pattern: these selectors are written `(s: RootState) => s.build`, so a grep for `state\.build` alone matches nothing. That mistake is why Task 2's original consumer sweep was wrong.
+
+Re-verified with the corrected pattern, this slice is genuinely clean: the only consumer outside `pages/builds/` is `frontend/src/pages/deployments/DeploymentDetail.tsx:39`, and it reads `s.build.current` — a single fetched build — not the `items` array this task converts. Nothing else shares the list.
+
+Confirm that yourself rather than taking it on trust, and report anything beyond it instead of converting silently.
 
 - [ ] **Step 1: Write the failing tests**
 
