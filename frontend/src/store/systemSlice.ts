@@ -141,8 +141,10 @@ const systemSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(createSystem.fulfilled, (state, action) => {
-        state.systems.push(action.payload);
+      .addCase(createSystem.fulfilled, (state) => {
+        // No longer splices the created row into `state.systems` — that list
+        // is now one server-paged window (current filter/sort/page), not the
+        // whole result set. SystemCatalog calls grid.refetch() itself.
         state.loading = false;
       })
       .addCase(createSystem.rejected, (state, action) => {
@@ -155,8 +157,9 @@ const systemSlice = createSlice({
         state.error = null;
       })
       .addCase(updateSystem.fulfilled, (state, action) => {
-        const idx = state.systems.findIndex((s) => s.id === action.payload.id);
-        if (idx !== -1) state.systems[idx] = action.payload;
+        // No longer splices the updated row into `state.systems` — see the
+        // comment on createSystem.fulfilled above. `currentSystem` (read by
+        // SystemDetail, not the catalog) still needs to reflect the edit.
         if (state.currentSystem?.id === action.payload.id) state.currentSystem = action.payload;
         state.loading = false;
       })
@@ -170,7 +173,8 @@ const systemSlice = createSlice({
         state.error = null;
       })
       .addCase(deleteSystem.fulfilled, (state, action) => {
-        state.systems = state.systems.filter((s) => s.id !== action.payload);
+        // No longer filters the deleted row out of `state.systems` — see the
+        // comment on createSystem.fulfilled above.
         if (state.currentSystem?.id === action.payload) state.currentSystem = null;
         state.loading = false;
       })
