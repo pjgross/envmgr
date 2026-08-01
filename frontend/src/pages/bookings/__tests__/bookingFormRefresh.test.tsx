@@ -4,7 +4,6 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import { fetchEnvironments } from '../../../store/environmentSlice';
 import BookingForm from '../BookingForm';
 import type { EnvironmentResponse } from '../../../types/environment';
 import type { BookingTypeRecord } from '../../../types/bookingLifecycle';
@@ -138,15 +137,14 @@ function fireEventChange(el: HTMLElement, value: string) {
 }
 
 describe('BookingForm create-success refresh', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.mocked(bookingRequestService.create).mockReset().mockResolvedValue(CREATE_RESPONSE);
-    vi.mocked(environmentService.listEnvironments).mockResolvedValue([ENV]);
+    vi.mocked(environmentService.listEnvironments).mockResolvedValue({ rows: [ENV], total: 1 });
     vi.mocked(bookingLifecycleService.listBookingTypes).mockResolvedValue([BOOKING_TYPE]);
 
-    // BookingForm reads state.environment.environments but never dispatches
-    // fetchEnvironments itself (some other ancestor page does) — seed it
-    // directly so the environment picker has an option.
-    await store.dispatch(fetchEnvironments());
+    // BookingForm now sources its environment picker from useAllEnvironments,
+    // which calls environmentService.listEnvironments directly (mocked
+    // above) rather than reading the shared slice — no store seeding needed.
   });
 
   it('calls onCreated instead of dispatching a bare, unparameterised fetchBookings', async () => {

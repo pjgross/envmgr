@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { updateChangeRequest } from '../../store/changeRequestSlice';
-import { fetchEnvironments } from '../../store/environmentSlice';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
 import FormDialog from '../../components/form/FormDialog';
 import FormTextField from '../../components/form/FormTextField';
@@ -97,7 +97,10 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
   const customFieldDefs = useSelector(
     (s: RootState) => s.customField.definitions['change_request'] ?? []
   );
-  const environments = useSelector((s: RootState) => s.environment.environments);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page, so the environment picker
+  // below would silently offer a subset.
+  const { environments, truncated: environmentsTruncated } = useAllEnvironments();
   const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
 
   const form = useForm<FormValues>({
@@ -177,7 +180,6 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
 
   useEffect(() => {
     dispatch(fetchDefinitions('change_request'));
-    dispatch(fetchEnvironments());
     dispatch(fetchInfrastructureComponents());
   }, [dispatch]);
 
@@ -287,7 +289,12 @@ export default function ChangeRequestEditDialog({ open, onClose, changeRequest }
                   {...params}
                   label="Environments"
                   error={!!fieldState.error}
-                  helperText={fieldState.error?.message}
+                  helperText={
+                    fieldState.error?.message ??
+                    (environmentsTruncated
+                      ? `Only the first ${environments.length} environments are shown.`
+                      : undefined)
+                  }
                 />
               )}
             />

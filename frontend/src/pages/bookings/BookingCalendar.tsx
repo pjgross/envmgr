@@ -14,6 +14,7 @@ import {
   Divider,
   Drawer,
   FormControl,
+  FormHelperText,
   InputLabel,
   MenuItem,
   Select,
@@ -21,7 +22,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { AppDispatch, RootState } from '../../store';
-import { fetchEnvironments } from '../../store/environmentSlice';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import type { BookingResponse } from '../../types/booking';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
@@ -62,7 +63,10 @@ export default function BookingCalendar() {
   // than one grid page. Same fix three release-slice consumers received.
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
   const [loading, setLoading] = useState(false);
-  const environments = useSelector((state: RootState) => state.environment.environments);
+  // Not the shared environment slice: same reason as the booking fetch
+  // above — that slice is BookingList's grid page now, not the full list, and
+  // this filter dropdown wants every environment.
+  const { environments, truncated: environmentsTruncated } = useAllEnvironments();
   const bookingCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['booking'] ?? []
   );
@@ -84,7 +88,6 @@ export default function BookingCalendar() {
   }, []);
 
   useEffect(() => {
-    dispatch(fetchEnvironments());
     dispatch(fetchDefinitions('booking'));
     loadBookings();
   }, [dispatch, loadBookings]);
@@ -150,6 +153,9 @@ export default function BookingCalendar() {
               </MenuItem>
             ))}
           </Select>
+          {environmentsTruncated && (
+            <FormHelperText>Only the first {environments.length} environments are shown.</FormHelperText>
+          )}
         </FormControl>
 
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)}>

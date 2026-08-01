@@ -19,7 +19,8 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
-import { fetchEnvironments, fetchEnvSubsystems } from '../../store/environmentSlice';
+import { fetchEnvSubsystems } from '../../store/environmentSlice';
+import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { fetchInfrastructureComponents } from '../../store/infrastructureComponentSlice';
 import {
   fetchLifecycleTemplates,
@@ -123,7 +124,10 @@ export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRe
   const navigate = useNavigate();
   const snackbar = useSnackbar();
 
-  const environments = useSelector((s: RootState) => s.environment.environments);
+  // Not the shared environment slice: since the C3 conversion it
+  // is EnvironmentList's current filtered page, so the environment picker
+  // below would silently offer a subset.
+  const { environments, truncated: environmentsTruncated } = useAllEnvironments();
   const envSubsystems = useSelector((s: RootState) => s.environment.envSubsystems);
   const hosts = useSelector((s: RootState) => s.infrastructureComponent.components);
   const lifecycles = useSelector(selectTemplatesForEntity('change_request'));
@@ -159,7 +163,6 @@ export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRe
   const previewHasOutage = useWatch({ control, name: 'has_outage' });
 
   useEffect(() => {
-    dispatch(fetchEnvironments());
     dispatch(fetchInfrastructureComponents());
     dispatch(fetchLifecycleTemplates('change_request'));
     dispatch(fetchDefinitions('change_request'));
@@ -382,7 +385,12 @@ export default function ChangeRequestForm({ open, onClose, onCreated }: ChangeRe
                   label="Environments"
                   placeholder="Select one or more environments"
                   error={!!fieldState.error}
-                  helperText={fieldState.error?.message}
+                  helperText={
+                    fieldState.error?.message ??
+                    (environmentsTruncated
+                      ? `Only the first ${environments.length} environments are shown.`
+                      : undefined)
+                  }
                 />
               )}
             />

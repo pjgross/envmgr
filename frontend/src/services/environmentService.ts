@@ -11,12 +11,22 @@ import type {
   EnvironmentSystemUpdate,
   EnvironmentTopologyData,
 } from '../types/environment';
+import type { Paged } from '../types/pagination';
 
 export const environmentService = {
   listEnvironments: (params?: {
     status?: string;
     environment_type?: string;
-  }): Promise<EnvironmentResponse[]> => api.get('/environments/', { params }).then((r) => r.data),
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<Paged<EnvironmentResponse>> =>
+    api.get<EnvironmentResponse[]>('/environments/', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   getEnvironment: (id: number): Promise<EnvironmentResponse> =>
     api.get(`/environments/${id}`).then((r) => r.data),

@@ -604,6 +604,59 @@ the assertion to catch going wrong. On change-requests, TypeScript's excess-prop
 guards a dropped key; on incidents, `Record<string, unknown>` means **not even `tsc` catches it**.
 Both tests carry a comment saying so rather than implying protection they do not provide.
 
+## The rollout: PR C1 (environments)
+
+Nine of eleven pages converted; **two remain** — infrastructure-components and systems,
+each with its own plan. Environments was split out because its prerequisite dwarfed the
+conversion.
+
+### The precondition was nine components, and a hook rather than nine copies
+
+`state.environment.environments` had **9 readers and 8 dispatch sites outside its owning
+page**, nearly all dropdown pickers wanting every environment. Three release-slice
+consumers earlier in this programme got the own-fetch fix one at a time, and a review
+noted at three copies that *"a fourth gets written by copy-paste and drifts."* At nine the
+answer is a shared hook: `useAllEnvironments()` — own fetch, local state, no `useSelector`,
+no `dispatch`.
+
+A source-scanning test (`frontend/src/__tests__/environmentSliceConsumers.test.ts`) now
+fails if anything outside `EnvironmentList` reads the list or dispatches its thunk, so a
+tenth consumer cannot be added quietly.
+
+### The consumer counts recorded earlier were wrong, twice over
+
+They were **readers only**, and gathered with a pattern that missed the destructured form.
+The grep that actually matches has to cover all of:
+
+```
+(s|state)\.environment\.environments     property read, either param name
+{ environments } = useSelector(...)      destructured read
+fetchEnvironments(                       a WRITER — invisible to any reader grep
+```
+
+Two consumer sweeps in this programme were wrong because of the first two, and PR B found
+a Critical because of the third.
+
+### This was the first page with both a text filter and inline create/update/delete
+
+Two firsts, both hazards the earlier PRs only prepared for:
+
+- **The search box must bind to `grid.filters`**, which `useServerGrid` returns as
+  `{...filters, ...drafts}` — the draft-aware value. Binding to the raw URL state is what
+  made typing `comp` leave `p` on PR A, and **no unit test asserting params-sent would
+  catch it**.
+- **The slice's optimistic surgery had to go** — `push` on create, index assign on update,
+  `filter` on delete. Once the slice holds a server page that edits a 25-row window
+  regardless of the active filter, sort or page, and never adjusts `total`. All three are
+  replaced by `grid.refetch()`; the reducers carry comments so nobody restores them.
+
+### Verified in a browser, including one thing never checkable before
+
+`?search=all` puts `all` in the box and returns `0–0 of 0` — the literal term reaching the
+server as a search term rather than being dropped as the selects' no-selection sentinel.
+That fix shipped in the prerequisites PR and **this is the first converted page with a text
+filter able to exercise it**.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a
