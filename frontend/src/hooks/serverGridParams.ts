@@ -16,8 +16,8 @@ export type ServerGridParams = {
   sort_dir: SortDir;
 } & Record<string, string | number>;
 
-/** The pages' existing "no filter selected" values. */
-const NO_FILTER = ['', 'all'];
+/** A select's "no selection" value. In a free-text box it is a search term. */
+const SELECT_SENTINEL = 'all';
 
 /**
  * Reserved param names already set from the resolved page/sort. A filter key
@@ -63,8 +63,16 @@ export function buildParams(args: {
   sortBy: string | null;
   sortDir: string | null;
   filters: Record<string, string>;
+  /**
+   * Free-text filter keys, for which `'all'` is a real search term rather
+   * than the selects' "no selection" sentinel. These are the debounced keys —
+   * `useServerGrid` passes its `debounceKeys` straight through, so there is
+   * one list of free-text inputs rather than two that can drift.
+   */
+  textKeys?: string[];
 }): ServerGridParams {
   const { sort_by, sort_dir } = resolveSort(args.endpoint, args.sortBy, args.sortDir);
+  const textKeys = new Set(args.textKeys ?? []);
   const params: ServerGridParams = {
     limit: args.pageSize,
     offset: args.page * args.pageSize,
@@ -72,7 +80,11 @@ export function buildParams(args: {
     sort_dir,
   };
   Object.entries(args.filters).forEach(([key, value]) => {
-    if (!RESERVED.has(key) && !NO_FILTER.includes(value)) params[key] = value;
+    if (RESERVED.has(key)) return;
+    // An empty string means "unset" for both a select and a text box.
+    if (value === '') return;
+    if (value === SELECT_SENTINEL && !textKeys.has(key)) return;
+    params[key] = value;
   });
   return params;
 }

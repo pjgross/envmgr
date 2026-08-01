@@ -97,4 +97,47 @@ describe('buildParams', () => {
     expect(p.sort_dir).toBe('asc');
     expect(p.limit).toBe(25);
   });
+
+  it('keeps the literal text "all" typed into a free-text filter', () => {
+    // The sentinel means "no selection" for a select. In a text box it is a
+    // search term, and dropping it returns unfiltered results while the box
+    // still reads "all" — a wrong answer presented as a filtered one.
+    const p = buildParams({
+      endpoint: 'systems',
+      page: 0,
+      pageSize: 25,
+      sortBy: null,
+      sortDir: null,
+      filters: { search: 'all' },
+      textKeys: ['search'],
+    });
+    expect(p.search).toBe('all');
+  });
+
+  it('still drops "all" from a select on a page that also has a text filter', () => {
+    const p = buildParams({
+      endpoint: 'environments',
+      page: 0,
+      pageSize: 25,
+      sortBy: null,
+      sortDir: null,
+      filters: { status: 'all', search: 'all' },
+      textKeys: ['search'],
+    });
+    expect(p).not.toHaveProperty('status');
+    expect(p.search).toBe('all');
+  });
+
+  it('drops an empty text filter, which means the box is simply empty', () => {
+    const p = buildParams({
+      endpoint: 'systems',
+      page: 0,
+      pageSize: 25,
+      sortBy: null,
+      sortDir: null,
+      filters: { search: '' },
+      textKeys: ['search'],
+    });
+    expect(p).not.toHaveProperty('search');
+  });
 });

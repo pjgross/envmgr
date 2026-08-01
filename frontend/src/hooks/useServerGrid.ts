@@ -94,6 +94,11 @@ export function useServerGrid({
   // reference every render), so it can't be a useMemo dependency itself
   // without defeating the memo. Key on its stable string form instead.
   const filterKeysKey = filterKeys.join(' ');
+  // debounceKeys is typically an inline array literal at the call site too
+  // (see filterKeysKey above) — key setFilter's memoisation on its stable
+  // string form instead so callers passing a fresh array each render don't
+  // get a new setFilter identity every render.
+  const debounceKeysKey = debounceKeys.join(' ');
   const filters = useMemo(() => {
     const out: Record<string, string> = {};
     filterKeys.forEach((key) => {
@@ -113,8 +118,10 @@ export function useServerGrid({
         sortBy: sort.sort_by,
         sortDir: sort.sort_dir,
         filters,
+        textKeys: debounceKeys,
       }),
-    [endpoint, page, pageSize, sort.sort_by, sort.sort_dir, filters]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [endpoint, page, pageSize, sort.sort_by, sort.sort_dir, filters, debounceKeysKey]
   );
 
   // Key the fetch effect on the *resolved* request, not a hand-maintained
@@ -203,12 +210,6 @@ export function useServerGrid({
     const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
     if (page > lastPage) patch({ page: String(lastPage) }, false);
   }, [total, page, pageSize, patch]);
-
-  // debounceKeys is typically an inline array literal at the call site too
-  // (see filterKeysKey above) — key setFilter's memoisation on its stable
-  // string form instead so callers passing a fresh array each render don't
-  // get a new setFilter identity every render.
-  const debounceKeysKey = debounceKeys.join(' ');
 
   // One timer per debounced key, not one shared timer — otherwise changing
   // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
