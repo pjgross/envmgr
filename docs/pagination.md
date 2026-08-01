@@ -365,7 +365,7 @@ open is marked as such.
   all without restructuring those into SQL first; that restructure is out of scope here. Its grid
   can still drop rows past 200 releases, same as the pickers.
 - **One `loading` boolean per slice was the structural weak point — fixed for the release slice
-  in `547830e`.** Each slice had a single flag shared by roughly twenty thunks. Abort-based
+  in `5eed49a`.** Each slice had a single flag shared by roughly twenty thunks. Abort-based
   cancellation introduces a thunk that can end *without* a successor raising the flag again, which
   is how the pilot left `loading` stuck true after an unmount and hung `/releases/calendar` and
   `/releases/timeline` — both of which had no loading transitions of their own. The release slice
