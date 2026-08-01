@@ -28,17 +28,19 @@ import { releaseService } from '../../../services/releaseService';
 // in-flight fetchReleases request when ReleaseList unmounts. That dispatches
 // `fetchReleases.rejected` with `meta.aborted: true`, and the slice's
 // supersession guard (`if (action.meta.aborted) return;`) — correct for a
-// request superseded by a newer one — deliberately leaves `loading`
-// untouched here too, because on unmount there is no successor pending
-// action to have raised it back up. So `state.release.loading` stays stuck
-// at `true` for the rest of the SPA session.
+// request superseded by a newer one — deliberately leaves the list's loading
+// flag untouched here too, because on unmount there is no successor pending
+// action to have raised it back up. So the list's own flag stays stuck at
+// `true` for the rest of the SPA session.
 //
-// That alone isn't directly observable (nothing renders while ReleaseList is
-// unmounted), but it surfaces the moment the user opens Calendar or Timeline
-// next: before this fix, neither thunk touched `state.release.loading` at
-// all, so the stuck `true` from the aborted list fetch just sat there
-// forever — permanent spinner, and Timeline's "No releases with phases
-// found." empty state (gated on `!loading`) could never render.
+// Originally `fetchReleases` shared `state.release.loading` with ~20 other
+// thunks, so that stuck flag was directly observable on Calendar/Timeline —
+// it was patched by giving those two their own loading transitions. Since
+// then, `fetchReleases` was given its own `listLoading` flag (see
+// `releaseSlice.ts`, `describe('listLoading', ...)` in releaseSlice.test.ts):
+// the stuck flag is now structurally confined to `listLoading`, which only
+// ReleaseList reads, so `state.release.loading` — what Calendar/Timeline
+// read — is never touched by the aborted list fetch at all.
 describe('release loading regression — abort on unmount must not hang a later page', () => {
   it('does not leave state.release.loading stuck true after leaving /releases mid-fetch and opening Timeline', async () => {
     // Never resolves — the request will still be in flight when we unmount.
@@ -51,11 +53,16 @@ describe('release loading regression — abort on unmount must not hang a later 
         </MemoryRouter>
       </Provider>
     );
-    await waitFor(() => expect(store.getState().release.loading).toBe(true));
+    await waitFor(() => expect(store.getState().release.listLoading).toBe(true));
+    // The general flag was never touched by the list fetch in the first place.
+    expect(store.getState().release.loading).toBe(false);
 
     // Simulates navigating away from /releases while the fetch is in flight
-    // — useServerGrid's unmount cleanup aborts it.
+    // — useServerGrid's unmount cleanup aborts it. listLoading is now stuck
+    // true (the documented, contained trade-off), but nothing but
+    // ReleaseList reads listLoading, so it can't hang anything else.
     unmount();
+    expect(store.getState().release.listLoading).toBe(true);
 
     // Simulates then clicking Timeline.
     const { getByText } = render(

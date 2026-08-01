@@ -40,6 +40,12 @@ interface ReleaseState {
   total: number;
   detail: ReleaseResponse | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by ~20 thunks, and an
+   * aborted list request on unmount has no successor to clear it — isolating
+   * the list keeps that from hanging every other consumer of the slice.
+   */
+  listLoading: boolean;
   error: string | null;
   filters: ReleaseListFilters;
   phases: TestPhaseResponse[];
@@ -61,6 +67,7 @@ const initialState: ReleaseState = {
   total: 0,
   detail: null,
   loading: false,
+  listLoading: false,
   error: null,
   filters: {},
   phases: [],
@@ -318,9 +325,9 @@ const releaseSlice = createSlice({
   extraReducers: (builder) => {
     builder
       // list
-      .addCase(fetchReleases.pending, (state) => { state.loading = true; state.error = null; })
+      .addCase(fetchReleases.pending, (state) => { state.listLoading = true; state.error = null; })
       .addCase(fetchReleases.fulfilled, (state, action) => {
-        state.loading = false;
+        state.listLoading = false;
         state.list = action.payload.rows;
         state.total = action.payload.total;
       })
@@ -328,11 +335,11 @@ const releaseSlice = createSlice({
         // useServerGrid aborts a superseded request rather than merely
         // ignoring its reply. RTK dispatches `pending` for the new request
         // synchronously, then `rejected` for the aborted one on a
-        // microtask — so without this guard, `loading` would flip back to
+        // microtask — so without this guard, `listLoading` would flip back to
         // false (the grid's spinner flickers off) and `error` would be set
         // to 'Aborted' while the real request is still in flight.
         if (action.meta.aborted) return;
-        state.loading = false;
+        state.listLoading = false;
         state.error = action.error.message ?? 'Failed to load releases';
       })
 

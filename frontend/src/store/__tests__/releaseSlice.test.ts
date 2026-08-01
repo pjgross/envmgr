@@ -107,11 +107,16 @@ describe('releaseSlice — aborted fetches', () => {
   // reply. RTK dispatches `pending` for the new request synchronously, then
   // `rejected` (with `meta.aborted: true`) for the aborted one on a
   // microtask — landing *after* the new request's own `pending`. Without a
-  // guard, that late `rejected` would flip `loading` back to false while the
-  // real request is still in flight, and stamp `error` with 'Aborted'.
+  // guard, that late `rejected` would flip `listLoading` back to false while
+  // the real request is still in flight, and stamp `error` with 'Aborted'.
+  //
+  // fetchReleases writes listLoading, not loading (see the `listLoading`
+  // describe block below) — these assertions were updated from `.loading` to
+  // `.listLoading` alongside that change so they keep testing fetchReleases
+  // rather than passing vacuously against a field the thunk no longer touches.
   it('leaves loading and error untouched when a fetch is aborted', () => {
     const midFlight = reducer(undefined, { type: fetchReleases.pending.type });
-    expect(midFlight.loading).toBe(true);
+    expect(midFlight.listLoading).toBe(true);
 
     const afterAbort = reducer(midFlight, {
       type: fetchReleases.rejected.type,
@@ -119,7 +124,7 @@ describe('releaseSlice — aborted fetches', () => {
       meta: { aborted: true },
     });
 
-    expect(afterAbort.loading).toBe(true);
+    expect(afterAbort.listLoading).toBe(true);
     expect(afterAbort.error).toBeNull();
   });
 
@@ -132,7 +137,36 @@ describe('releaseSlice — aborted fetches', () => {
       meta: { aborted: false },
     });
 
-    expect(afterFailure.loading).toBe(false);
+    expect(afterFailure.listLoading).toBe(false);
     expect(afterFailure.error).toBe('Network error');
+  });
+});
+
+describe('listLoading', () => {
+  it('is raised and cleared by the list thunk alone', () => {
+    let state = reducer(undefined, { type: fetchReleases.pending.type });
+    expect(state.listLoading).toBe(true);
+
+    state = reducer(state, {
+      type: fetchReleases.fulfilled.type,
+      payload: { rows: [], total: 0 },
+    });
+    expect(state.listLoading).toBe(false);
+  });
+
+  it('leaves the general loading flag alone when the list aborts', () => {
+    // An aborted list request has no successor on unmount, so its flag stays
+    // true. Isolating it means calendar and timeline — which read `loading` —
+    // are not hung by a grid the user has already navigated away from.
+    let state = reducer(undefined, { type: fetchReleases.pending.type });
+    state = reducer(state, {
+      type: fetchReleases.rejected.type,
+      meta: { aborted: true },
+      error: { message: 'Aborted' },
+    });
+
+    expect(state.listLoading).toBe(true);
+    expect(state.loading).toBe(false);
+    expect(state.error).toBeNull();
   });
 });
