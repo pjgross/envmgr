@@ -386,6 +386,150 @@ open is marked as such.
   still writes the shared `loading`. This is fixed for the release slice only — it establishes the
   shape the other eight slices copy as each is converted in the rollout, not a repo-wide fix.
 
+## The rollout: PR A (deployments, builds)
+
+Two of the eight pages are converted. **Six remain**: bookings, change-requests, incidents,
+environments, systems, infrastructure-components. `DeploymentList` and `BuildList` went first
+because they are the smallest and already passed some filters server-side, so the pattern could be
+proven to repeat cheaply before the harder six copy it.
+
+### The trap that *was* in six more services — corrected
+
+This section originally claimed every remaining service had a `toParams` whitelist like
+`deploymentService`'s and `buildService`'s, silently dropping any param it didn't name. **That
+claim does not hold**: `grep -rn "toParams" frontend/src/services` now returns only
+`buildService.ts` and `deploymentService.ts` — the two services this PR converts. No other service
+in the codebase ever had this shape. The six remaining services are three different shapes, and
+none of them silently drops a key:
+
+- **`incidentService.list(params: Record<string, unknown> = {})`** — fully permissive pass-through.
+  Whatever the grid sends reaches the server as-is; there is no whitelist to update.
+- **`changeRequestService.list(filters: ChangeRequestListFilters = {})`** — pass-through of a typed
+  filter interface. A new filter needs a new field on that interface, but nothing already flowing
+  through is at risk of being silently dropped.
+- **`bookingService.listBookings(params?: {...})`, `environmentService.listEnvironments(params?: {...})`,
+  `infrastructureComponentService.listComponents(params?: {...})`** — inline literal param object
+  types. An extra key still reaches axios fine at runtime (`api.get(url, { params })` doesn't
+  inspect the object's shape), but the *type* doesn't declare it, so a call site passing an
+  undeclared param fails `tsc`, not silently — the compiler is the guard here, not a test.
+- **`systemService.listSystems()`** — takes **no** params argument at all. Converting
+  `SystemCatalog` means adding a params argument and a `Paged<SystemResponse>` return to this
+  signature from scratch, not widening an existing one.
+
+**The transferable lesson is the opposite of what this section used to say.** The silent-drop
+failure mode was specific to a hand-rolled whitelist function, and it left the codebase with the
+two services this PR converts. What the six remaining conversions actually risk is a *typed*
+hazard the compiler catches at the call site — except `systemService`, which has no existing
+signature to widen and needs one written.
+
+Two of the six filter mappings are not simple pass-throughs and are worth knowing before they're
+hit:
+
+- **`bookingService`'s status filter is `booking_status` on the wire.** `BookingList`'s `status`
+  state must map to that param name; it does not travel through unchanged.
+- **`ChangeRequestList` filters a *collection* client-side**
+  (`cr.environment_ids.includes(envFilter)`) **where the server takes a scalar `environment_id`.**
+  The multi-membership-against-one-selection UX this filter currently offers has no direct
+  server-side equivalent — converting it needs its own decision, not a mechanical param rename.
+
+### Two decisions worth knowing before converting the rest
+
+- **These two pages kept raw `DataGrid`; they were not migrated to `DataTable`.** `DataTable`'s
+  server-mode additions guard two different things, and the toolbar argument for skipping it holds
+  for only one of them. **Export**: `GridToolbarExport`'s CSV/print buttons act on whatever page is
+  currently loaded while the footer advertises the true server total, but that guard only matters
+  when a toolbar is rendered at all — neither page does, so it buys nothing here, and migrating
+  would *add* a toolbar as a side effect of a pagination change. **Column filtering is not the
+  same kind of guard and this reasoning does not extend to it**: MUI gates the column-menu "Filter"
+  item on `disableColumnFilter` (and a column's own `filterable`) alone — not on whether a toolbar
+  exists — so every header's own ⋮ menu offers it regardless of `showToolbar`. Skipping `DataTable`
+  does not skip this hazard; it means the page must set `disableColumnFilter` on its `DataGrid`
+  itself, or every column filters the loaded 25-row page while the footer keeps showing the true
+  server `rowCount` — the exact lie this whole programme exists to stop telling. **Both pages set
+  it explicitly** (see "A regression caught in review" below — it was missing on the first pass).
+  Treat `disableColumnFilter` as a required part of the raw-`DataGrid` route, the same way
+  `DataTable` treats it as a required default for server mode: a page that opts out of `DataTable`
+  inherits none of its guards for free and must set this one by hand, every time.
+- **`BuildList`'s Branch filter is an exact match, not a search** (`Build.git_branch == branch`).
+  Typing `ma` for `main` returns nothing, before and after. It is now debounced — it used to fire a
+  request per keystroke — but its semantics are unchanged, because turning it into a contains-search
+  is a backend change.
+
+### A regression caught in review
+
+Both pages' `DataGrid` shipped without `disableColumnFilter` in this branch's first pass —
+`filterMode` defaults to `'client'`, and every column header's ⋮ menu offered "Filter" regardless,
+which would have filtered only the 25 loaded rows while the footer kept showing the true server
+`rowCount`. The class of bug this whole programme exists to delete, reintroduced on the two pages
+meant to demonstrate the fix. Both pages now set `disableColumnFilter` (see the corrected bullet
+above), and each has a test that opens a column's header menu and asserts no "Filter" item is
+present — a test asserting the prop is merely set would not catch a future change that keeps the
+prop but breaks what it does (e.g. a MUI upgrade regating the item on something else).
+
+### A shared bug these pages exposed, fixed in `77ffd61`
+
+`ReleaseList` has no text input, so the pilot never exercised one. These two do, and the pattern
+was wrong: the boxes were controlled components bound to the **debounced URL state**, so for 300ms
+after a keystroke `grid.filters[key]` still held the old value and React reset the input to it.
+Typing `comp` left `p`.
+
+`useServerGrid` now keeps a drafts map that `setFilter` writes synchronously and overlays on the
+URL-derived `filters`, so the box shows keystrokes immediately while the URL still drives the
+request. External navigation — Back/Forward or a pasted link — wipes drafts *and cancels the
+pending debounce timer*; without that cancel an abandoned timer fired later and silently rewrote
+the URL back to the stale text.
+
+**No unit test caught the original bug**: they asserted the params *sent*, not the typing
+experience. Opening the page did. That is the second defect in this programme found only by a
+human looking at it, after the case-sensitive sorting in PR #39 — both on pages whose suites were
+entirely green.
+
+### Also found here, fixed separately in PR #42
+
+`GET /deployments` returned **500 for the entire list** whenever any row's `event_id` was not
+UUID-shaped. `DeploymentRead` declared `event_id: UUID` while the column is `String(36)` and
+`deployment_service` stores `str(payload.event_id)`. The response model is applied per row while
+serialising the page, so one unparseable id took out the whole endpoint rather than producing one
+odd-looking cell — which is what made a page of five dev rows permanently empty. The webhook input
+schema still requires a UUID, so the supported ingest path is unchanged.
+
+Unrelated to the conversion, but it had been invisible precisely because the old client-side page
+also rendered an empty grid on a rejected fetch.
+
+### Not fixed here: the two deployment tabs still share `state.deployment` with this page
+
+`ReleaseDeploymentsTab` and `EnvironmentDeploymentsTab` each dispatch `fetchDeployments({
+release_id })` / `({ environment_id })` on mount and read the same slice `DeploymentList` now
+pages, sorts and filters — `items`, and, new in this PR, `total`. Each tab defensively re-filters
+`items` by its own id client-side, so the rows it renders stay correct regardless of what else last
+wrote the slice. What neither tab defends against is `total`, which `DeploymentList`'s
+`useServerGrid` reads for the grid's `rowCount` **and** for its page-clamping effect.
+
+Concrete sequence: open an environment's Deployments tab — `total` becomes the count of *that
+environment's* deployments (say 3) — then SPA-navigate to `/deployments?page=5`. `DeploymentList`
+mounts and dispatches its own `fetchDeployments`, but on its first render `useServerGrid`'s clamp
+effect still sees the stale `total` (3) left over from the tab, and `totalPending` still `false`
+(also stale — nothing has told the effect a new answer is coming yet, because the pending action
+from this mount's own dispatch hasn't been reflected back into props by the time this render's
+effects run). The effect duly clamps `?page=5` back to `?page=0` before the real response, and the
+real `total`, ever arrives — silently discarding the deep link.
+
+This is deliberately **not fixed here**: the page conversion's own plan flagged the tabs as a
+follow-on rather than a blocker (each still renders correct rows, just via a slice whose *meaning*
+this PR changed under them — see "the hazard the rollout must not relearn" above), and this entry
+is that follow-on, written down. The honest fix is for each tab to hold its own fetch in local
+state instead of reading the shared slice at all — the same fix `MoveScopeItemDialog` and
+`RequestAdmissionDialog` received against the release slice (above) — and it belongs in its own
+change, not folded into a page conversion.
+
+**The precondition this implies for PR C**: `state.environment.environments` has 8 non-page
+consumers and `state.infrastructureComponent.components` has 4 — larger than deployment's 2, and
+on slices whose owning pages (`EnvironmentList`, `InfrastructureComponentList`) also do inline
+create/update/delete, unlike this PR's read-only pages. **Convert a slice's other consumers off
+the shared list before converting the page that owns it, not after** — converting the page first
+and cleaning up consumers afterward is exactly how this PR ended up with two tabs whose slice
+changed meaning under them without either tab being touched.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a

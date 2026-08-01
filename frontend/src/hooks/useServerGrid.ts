@@ -157,6 +157,103 @@ export function useServerGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, filterKeysKey]);
 
+  // Debounced text filters (search boxes) need to show every keystroke
+  // immediately even though the URL write behind them is delayed 300ms.
+  // `filters` above is a straight readout of the URL, so binding an <input>
+  // to it directly re-renders the box back to the pre-keystroke value on
+  // every render until the debounce finally lands — the next real keystroke
+  // then replaces the box's contents instead of appending to them (a
+  // controlled input always displays exactly its `value` prop). `drafts`
+  // holds the in-progress text for debounced keys only; `setFilter` writes
+  // it synchronously so typing never waits on the URL, and `displayFilters`
+  // below overlays it on top of `filters` for the consumer-facing API.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  // The exact query string this hook's own `patch` last wrote (a debounce
+  // landing, or any other setFilter/sort/page write) — as opposed to
+  // `undefined` covering both external navigation (Back/Forward, a pasted
+  // link) and "no patch since we last checked". Set eagerly inside `patch`,
+  // right before `navigate`, and consumed by the effect the next time
+  // `searchParams` changes.
+  //
+  // This holds the written *string*, not a boolean "a patch just happened"
+  // flag, because a patch that writes a query string identical to the
+  // current one never fires the reconciliation effect at all: `searchParams`
+  // is memoised on `location.search` (see the JSDoc on `patch` below), so an
+  // unchanged string produces no new object and the effect's dependency
+  // never changes. A boolean set right before that `navigate` call would
+  // then sit `true` indefinitely — through any number of further no-op
+  // patches — until some *later*, genuinely external navigation finally
+  // changes `searchParams` and reads it, wrongly treating that external
+  // change as self-caused: a stale draft would survive and its pending
+  // debounce timer would go uncancelled, so it fires later and rewrites the
+  // URL of whatever view the user has since navigated to. Comparing the
+  // recorded string against the live `searchParams.toString()` instead is
+  // self-correcting regardless of how many effect-skipping no-ops happen in
+  // between: a no-op patch records a string that (by definition) already
+  // equals the current URL, so it's still "correct" the next time it's
+  // read, and the first navigation that actually changes the query string —
+  // self- or externally-caused — is judged against what really changed, not
+  // against a leftover flag from an unrelated write.
+  const patchedSearchRef = useRef<string | null>(null);
+
+  // One timer per debounced key, not one shared timer — otherwise changing
+  // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
+  // write and it would never happen at all. Declared up here (rather than
+  // beside `setFilter` below) so the reconciliation effect can also reach it.
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Reconciles `drafts` against the URL every time the URL actually changes.
+  //
+  // - Self-initiated (a patch this hook made, most commonly a debounce
+  //   landing): drop any draft entry whose value now matches the committed
+  //   URL — it has converged, `filters` alone is enough from here. A draft
+  //   for a *different* still-pending key survives untouched.
+  // - External (the flag was never set — Back/Forward, a pasted link, any
+  //   navigation this hook did not cause): abandon every draft outright, so
+  //   the input immediately reflects the new URL. This is deliberately not
+  //   an equality check — the new URL and the old draft coincidentally
+  //   holding the same text is not the same thing as the user's edit having
+  //   been accepted, and an equality check would still show a stale draft
+  //   whenever the new URL happens to differ from it (e.g. it omits the key
+  //   entirely) but a *later* per-key diff never notices because the value
+  //   never changes again. Abandoning a draft this way also cancels its
+  //   pending debounce timer — left alone, that timer would still fire later
+  //   with the stale pre-navigation text and silently write it back into the
+  //   URL (and the box) of whatever view the user has since navigated to.
+  useEffect(() => {
+    const wasSelfPatched = patchedSearchRef.current === searchParams.toString();
+    patchedSearchRef.current = null;
+    setDrafts((current) => {
+      if (Object.keys(current).length === 0) return current;
+      if (!wasSelfPatched) {
+        Object.keys(current).forEach((key) => clearTimeout(debounceTimers.current[key]));
+        return {};
+      }
+      let changed = false;
+      const next: Record<string, string> = {};
+      Object.entries(current).forEach(([key, value]) => {
+        if (filters[key] === value) {
+          changed = true;
+          return;
+        }
+        next[key] = value;
+      });
+      return changed ? next : current;
+    });
+  }, [searchParams, filters]);
+
+  // The consumer-facing `filters`: the URL, with any in-progress draft text
+  // overlaid on top. Only ever differs from `filters` for debounced keys
+  // mid-keystroke, so non-debounced controls (selects, dates) are unaffected
+  // — and when there is no pending draft, this returns `filters` itself
+  // rather than a new object, preserving referential stability across
+  // renders that change nothing.
+  const displayFilters = useMemo(
+    () => (Object.keys(drafts).length === 0 ? filters : { ...filters, ...drafts }),
+    [filters, drafts]
+  );
+
   const params = useMemo(
     () =>
       buildParams({
@@ -251,6 +348,13 @@ export function useServerGrid({
       // pre-first-patch snapshot the first call read, and its write would
       // stomp the first one right back out.
       searchParamsRef.current = next;
+      // Record the exact string being written, before `navigate`, so the
+      // reconciliation effect above can compare it against whatever
+      // `searchParams` turns out to be next time it runs — see the JSDoc on
+      // `patchedSearchRef` for why a plain "a patch just happened" boolean
+      // isn't safe here (a no-op write never triggers that effect run at
+      // all).
+      patchedSearchRef.current = next.toString();
       navigate(`?${next.toString()}`, { replace: true });
     },
     [navigate]
@@ -265,18 +369,18 @@ export function useServerGrid({
     if (page > lastPage) patch({ page: String(lastPage) }, false);
   }, [totalPending, total, page, pageSize, patch]);
 
-  // One timer per debounced key, not one shared timer — otherwise changing
-  // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
-  // write and it would never happen at all.
-  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const setFilter = useCallback(
     (key: string, value: string) => {
       if (!debounceKeys.includes(key)) {
         patch({ [key]: value }, true);
         return;
       }
-      // Free-text filters (e.g. search) fire on every keystroke; debounce
-      // rather than issuing a request per character.
+      // Free-text filters (e.g. search) fire on every keystroke. Show the
+      // keystroke immediately via `drafts` — the controlled input must never
+      // wait on the URL, or the next keystroke replaces rather than appends
+      // to it (see `displayFilters` above) — but still debounce the URL
+      // write itself rather than issuing a request per character.
+      setDrafts((current) => ({ ...current, [key]: value }));
       clearTimeout(debounceTimers.current[key]);
       debounceTimers.current[key] = setTimeout(() => patch({ [key]: value }, true), 300);
     },
@@ -306,7 +410,7 @@ export function useServerGrid({
       },
       [endpoint, patch]
     ),
-    filters,
+    filters: displayFilters,
     setFilter,
     refetch,
   };
