@@ -15,7 +15,7 @@ interface Props {
 export default function ReleaseDeploymentsTab({ releaseId }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { items, loading } = useSelector((s: RootState) => s.deployment);
+  const { items, listLoading } = useSelector((s: RootState) => s.deployment);
 
   useEffect(() => {
     dispatch(fetchDeployments({ release_id: releaseId }));
@@ -51,7 +51,7 @@ export default function ReleaseDeploymentsTab({ releaseId }: Props) {
         rows={rows}
         columns={cols}
         autoHeight
-        loading={loading}
+        loading={listLoading}
         onRowClick={(p: GridRowParams) => navigate(`/deployments/${p.id}`)}
         disableRowSelectionOnClick
       />
