@@ -13,24 +13,43 @@ import type {
 
 interface EnvironmentState {
   environments: EnvironmentResponse[];
+  total: number;
   currentEnvironment: EnvironmentResponse | null;
   environmentSystemsData: EnvironmentSystemsResponse;
   envSubsystems: EnvironmentSubsystemResponse[];
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
 }
 
 const initialState: EnvironmentState = {
   environments: [],
+  total: 0,
   currentEnvironment: null,
   environmentSystemsData: { systems: [], missing_systems: [] },
   envSubsystems: [],
   loading: false,
+  listLoading: false,
   error: null,
 };
 
-export const fetchEnvironments = createAsyncThunk('environment/fetchEnvironments', () =>
-  environmentService.listEnvironments()
+export const fetchEnvironments = createAsyncThunk(
+  'environment/fetchEnvironments',
+  (params?: {
+    status?: string;
+    environment_type?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }) => environmentService.listEnvironments(params)
 );
 
 export const fetchEnvironment = createAsyncThunk('environment/fetchEnvironment', (id: number) =>
@@ -107,15 +126,22 @@ const environmentSlice = createSlice({
     builder
       // fetchEnvironments
       .addCase(fetchEnvironments.pending, (state) => {
-        state.loading = true;
+        state.listLoading = true;
         state.error = null;
       })
       .addCase(fetchEnvironments.fulfilled, (state, action) => {
-        state.environments = action.payload;
-        state.loading = false;
+        state.environments = action.payload.rows;
+        state.total = action.payload.total;
+        state.listLoading = false;
       })
       .addCase(fetchEnvironments.rejected, (state, action) => {
-        state.loading = false;
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
         state.error = action.error.message ?? 'Failed to fetch environments';
       })
       // fetchEnvironment

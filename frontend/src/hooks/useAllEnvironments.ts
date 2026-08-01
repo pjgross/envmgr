@@ -25,23 +25,27 @@ export function useAllEnvironments(): {
   truncated: boolean;
 } {
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     environmentService
       .listEnvironments({ limit: LIMIT })
-      .then((rows) => setEnvironments(rows))
-      .catch(() => setEnvironments([]))
+      .then(({ rows, total }) => {
+        setEnvironments(rows);
+        setTotal(total);
+      })
+      .catch(() => {
+        setEnvironments([]);
+        setTotal(0);
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  // `truncated` cannot be computed until Task 3 makes `listEnvironments`
-  // return a Paged<EnvironmentResponse> carrying `total`. Returning a fixed
-  // `false` rather than a proxy such as `environments.length === LIMIT`,
-  // which would be wrong the moment a tenant's count happens to land exactly
-  // on the limit.
-  const truncated = false;
+  // Honest, not a proxy: `environments.length === LIMIT` would be wrong the
+  // moment a tenant's count happens to land exactly on the limit.
+  const truncated = environments.length < total;
 
   return { environments, loading, truncated };
 }

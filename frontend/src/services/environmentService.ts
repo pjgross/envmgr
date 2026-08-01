@@ -11,17 +11,22 @@ import type {
   EnvironmentSystemUpdate,
   EnvironmentTopologyData,
 } from '../types/environment';
+import type { Paged } from '../types/pagination';
 
 export const environmentService = {
   listEnvironments: (params?: {
     status?: string;
     environment_type?: string;
-    // Task 3 (pagination C3) widens this with offset/sort_by/sort_dir when
-    // the service starts returning Paged<EnvironmentResponse>; `limit` is
-    // added now so a picker can request an explicit window instead of
-    // relying on the endpoint's implicit default.
+    search?: string;
     limit?: number;
-  }): Promise<EnvironmentResponse[]> => api.get('/environments/', { params }).then((r) => r.data),
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<Paged<EnvironmentResponse>> =>
+    api.get<EnvironmentResponse[]>('/environments/', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   getEnvironment: (id: number): Promise<EnvironmentResponse> =>
     api.get(`/environments/${id}`).then((r) => r.data),

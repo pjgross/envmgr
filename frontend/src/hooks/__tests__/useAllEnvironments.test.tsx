@@ -41,10 +41,13 @@ describe('useAllEnvironments', () => {
   });
 
   it('fetches once and returns the environments', async () => {
-    mockList.mockResolvedValue([
-      { id: 1, name: 'SIT' },
-      { id: 2, name: 'UAT' },
-    ] as EnvironmentResponse[]);
+    mockList.mockResolvedValue({
+      rows: [
+        { id: 1, name: 'SIT' },
+        { id: 2, name: 'UAT' },
+      ] as EnvironmentResponse[],
+      total: 2,
+    });
     const { result } = renderHook(() => useAllEnvironments());
     await waitFor(() => expect(result.current.environments).toHaveLength(2));
     expect(mockList).toHaveBeenCalledTimes(1);
@@ -54,7 +57,7 @@ describe('useAllEnvironments', () => {
     // The whole point: EnvironmentList is about to turn state.environment
     // .environments into a 25-row page. A picker must not be limited to it,
     // and must not clobber it either.
-    mockList.mockResolvedValue([{ id: 1, name: 'SIT' }] as EnvironmentResponse[]);
+    mockList.mockResolvedValue({ rows: [{ id: 1, name: 'SIT' }] as EnvironmentResponse[], total: 1 });
     const store = makeStore({ environment: { environments: [], loading: false, error: null } });
     const { result } = renderHook(() => useAllEnvironments(), { wrapper: providerFor(store) });
     await waitFor(() => expect(result.current.environments).toHaveLength(1));
@@ -66,5 +69,28 @@ describe('useAllEnvironments', () => {
     const { result } = renderHook(() => useAllEnvironments());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.environments).toEqual([]);
+  });
+
+  it('reports truncated when the server has more rows than were fetched', async () => {
+    mockList.mockResolvedValue({ rows: [{ id: 1, name: 'SIT' }] as EnvironmentResponse[], total: 5 });
+    const { result } = renderHook(() => useAllEnvironments());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.truncated).toBe(true);
+  });
+
+  it('reports not truncated when every row was fetched', async () => {
+    // Discriminates against the rejected `rows.length === LIMIT` proxy: the
+    // row count here doesn't happen to equal the request limit, it equals
+    // the server's total, which is the only thing that should matter.
+    mockList.mockResolvedValue({
+      rows: [
+        { id: 1, name: 'SIT' },
+        { id: 2, name: 'UAT' },
+      ] as EnvironmentResponse[],
+      total: 2,
+    });
+    const { result } = renderHook(() => useAllEnvironments());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.truncated).toBe(false);
   });
 });

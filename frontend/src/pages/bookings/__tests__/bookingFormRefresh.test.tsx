@@ -139,7 +139,7 @@ function fireEventChange(el: HTMLElement, value: string) {
 describe('BookingForm create-success refresh', () => {
   beforeEach(() => {
     vi.mocked(bookingRequestService.create).mockReset().mockResolvedValue(CREATE_RESPONSE);
-    vi.mocked(environmentService.listEnvironments).mockResolvedValue([ENV]);
+    vi.mocked(environmentService.listEnvironments).mockResolvedValue({ rows: [ENV], total: 1 });
     vi.mocked(bookingLifecycleService.listBookingTypes).mockResolvedValue([BOOKING_TYPE]);
 
     // BookingForm now sources its environment picker from useAllEnvironments,

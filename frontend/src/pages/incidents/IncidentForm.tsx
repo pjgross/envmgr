@@ -109,7 +109,10 @@ export default function IncidentForm() {
   useEffect(() => {
     dispatch(fetchLifecycleTemplates('incident'));
     dispatch(fetchDefinitions('incident'));
-    environmentService.listEnvironments().then(setEnvironments).catch(() => setEnvironments([]));
+    environmentService
+      .listEnvironments()
+      .then((paged) => setEnvironments(paged.rows))
+      .catch(() => setEnvironments([]));
     deploymentService.list().then((paged) => setDeployments(paged.rows)).catch(() => setDeployments([]));
     // Explicit limit: the server default is 50, which silently omits releases
     // from a picker with no indication any are missing.

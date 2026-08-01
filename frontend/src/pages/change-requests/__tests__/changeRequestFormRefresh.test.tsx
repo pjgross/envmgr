@@ -123,7 +123,7 @@ function fireEventChange(el: HTMLElement, value: string) {
 describe('ChangeRequestForm create-success refresh', () => {
   beforeEach(() => {
     vi.mocked(changeRequestService.create).mockReset().mockResolvedValue(CREATE_RESPONSE);
-    vi.mocked(environmentService.listEnvironments).mockResolvedValue([ENV]);
+    vi.mocked(environmentService.listEnvironments).mockResolvedValue({ rows: [ENV], total: 1 });
     vi.mocked(bookingLifecycleService.listTemplates).mockResolvedValue([LIFECYCLE_TEMPLATE]);
   });
 

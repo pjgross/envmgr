@@ -17,7 +17,7 @@ vi.mock('../../../services/changeRequestService', () => ({
 // infrastructure components on mount to populate the filter dropdowns.
 vi.mock('../../../services/environmentService', () => ({
   environmentService: {
-    listEnvironments: vi.fn().mockResolvedValue([]),
+    listEnvironments: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
   },
 }));
 

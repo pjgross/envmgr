@@ -101,7 +101,9 @@ export default function EnvironmentList() {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const navigate = useNavigate();
-  const { environments, loading, error } = useSelector((state: RootState) => state.environment);
+  const { environments, loading, listLoading, error } = useSelector(
+    (state: RootState) => state.environment
+  );
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
@@ -346,7 +348,7 @@ export default function EnvironmentList() {
       <DataGrid
         rows={filtered}
         columns={columns}
-        loading={loading && environments.length === 0}
+        loading={listLoading && environments.length === 0}
         onRowClick={(params) => navigate(`/environments/${params.row.id}`)}
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={handleColumnVisibilityChange}
