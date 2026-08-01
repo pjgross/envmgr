@@ -15,6 +15,10 @@ const LIMIT = 500;
  * becomes its current filtered page, so a dropdown reading it would
  * silently offer a subset. Four components need this; the shared hook
  * exists so a fifth is not written by copy-paste.
+ *
+ * `truncated` is true when the server has more than we asked for — a picker
+ * that is quietly missing options is the bug this programme exists to remove,
+ * so callers can say so rather than pretend the list is complete.
  */
 export function useAllHosts(): {
   hosts: InfrastructureComponentResponse[];
@@ -22,27 +26,27 @@ export function useAllHosts(): {
   truncated: boolean;
 } {
   const [hosts, setHosts] = useState<InfrastructureComponentResponse[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     infrastructureComponentService
       .listComponents({ limit: LIMIT })
-      .then((rows) => {
+      .then(({ rows, total }) => {
         setHosts(rows);
+        setTotal(total);
       })
       .catch(() => {
         setHosts([]);
+        setTotal(0);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  // `listComponents` doesn't return a total yet — the endpoint isn't wired
-  // to `X-Total-Count` from the frontend's side until Task 3 makes the
-  // service return `Paged<InfrastructureComponentResponse>`. Hardcoded
-  // rather than a `hosts.length === LIMIT` proxy: that would be wrong the
-  // moment a tenant's count lands exactly on the limit.
-  const truncated = false;
+  // Honest, not a proxy: `hosts.length === LIMIT` would be wrong the moment
+  // a tenant's count happens to land exactly on the limit.
+  const truncated = hosts.length < total;
 
   return { hosts, loading, truncated };
 }

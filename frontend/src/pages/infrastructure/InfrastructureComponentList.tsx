@@ -66,7 +66,7 @@ const emptyForm: FormValues = {
 
 export default function InfrastructureComponentList() {
   const dispatch = useDispatch<AppDispatch>();
-  const { components, loading, error } = useSelector(
+  const { components, loading, listLoading, error } = useSelector(
     (state: RootState) => state.infrastructureComponent
   );
 
@@ -281,7 +281,7 @@ export default function InfrastructureComponentList() {
       <DataGrid
         rows={filtered}
         columns={columns}
-        loading={loading && components.length === 0}
+        loading={listLoading && components.length === 0}
         pageSizeOptions={[25, 50, 100]}
         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
         sx={{ border: 1, borderColor: 'divider' }}
