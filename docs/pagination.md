@@ -530,6 +530,80 @@ the shared list before converting the page that owns it, not after** — convert
 and cleaning up consumers afterward is exactly how this PR ended up with two tabs whose slice
 changed meaning under them without either tab being touched.
 
+## The rollout: PR B (bookings, change-requests, incidents)
+
+Three more pages converted; **three remain** — environments, systems, infrastructure-components.
+These three were grouped because they filter by select only, have no text input, and do no inline
+create/update/delete from the page itself.
+
+### PR A's precondition was applied here, and it was needed
+
+`BookingCalendar` read `state.booking.bookings` — the array `BookingList` was about to turn into a
+25-row sorted page — and dispatched `fetchBookings()` itself. A calendar renders a month; a page
+of 25 is visibly wrong. It was moved to its own local fetch **before** the list was converted,
+rather than after. That is the ordering PR A recommended after learning it the hard way, and it
+cost one small task instead of a regression.
+
+### The consumer sweep has to look for writers, not just readers
+
+The standing rule — grep every consumer of a slice before converting the page that owns it — finds
+components that **read** the slice. It does not find components that **write** it.
+
+`BookingForm` dispatched a bare `fetchBookings()` (no paging, sort or filter params) after creating
+a booking. Once the slice holds a server page that overwrites it with an endpoint-default page 1,
+and `useServerGrid`'s fetch effect is keyed on the resolved URL params, so it never re-issues the
+correct query and never self-corrects. `BookingForm` is an in-place dialog child of `BookingList`,
+so the list is mounted and reading the slice when it lands.
+
+**Grep `fetchX(` as well as `state.X` / `s.X`.** Note both selector spellings too — these are
+written `(s: RootState) => s.booking` as often as `(state: RootState) => state.booking`, and a grep
+for one form silently finds nothing.
+
+The fix is a callback, not a dispatch: `BookingForm` gained `onCreated`, `BookingList` passes
+`grid.refetch()`, `BookingCalendar` passes its own local reload.
+
+### Optimistic list surgery is now removed on both converted slices
+
+`createChangeRequest.fulfilled` did `state.list.unshift(...)`; `update`/`transition`/`delete` on
+both the change-request and incident slices did index splices and `.filter(...)`. All are
+structurally wrong once the slice holds a server page — they edit a 25-row window regardless of the
+active filter, sort or page, and never adjust `total`.
+
+All were removed. Where the dispatching component turned out to live on a **sibling route** that
+never co-mounts with the list (verified against `App.tsx`, not assumed), the removal is a no-op
+today and was done anyway so the shape stops being available to copy as working precedent.
+
+### A filter that could not reach its own rows
+
+`IncidentList` built its status dropdown from the lifecycle template, with a **fallback deriving
+the options from the currently loaded rows**. Client-side that was harmless. Server-side it would
+offer only statuses present on the current 25-row page — so a user could not filter to a status
+that exists only on page 3. The fallback is gone; the options come from the template alone.
+
+**Worth checking on every remaining conversion**: any control whose options are derived from the
+rows on screen becomes unable to reach the rows it is meant to fetch.
+
+### Where `ComputedColumnHeader` goes, settled across the programme
+
+Scalar name-lookup columns (`system_name`, `environment_name`, `release_name`, `project_name`,
+`subsystem_name`) get `sortable: false` **alone**. Counts, rollups and derived values
+(`latest_step`, `conflicts`, `environments`, `hosts`, `has_outage`, `pir_status`) get
+`sortable: false` **and** the header, because a header that simply stops working reads as a bug
+whereas those need an explanation.
+
+### Two service shapes that are not the PR A shape
+
+Neither of these had the `toParams` whitelist PR A closed, which is why that section above was
+corrected. `changeRequestService.list` is a pure passthrough of a typed interface — widening
+`ChangeRequestListFilters` is the whole change. `incidentService.list` takes
+`Record<string, unknown>` and needed **no type change at all**.
+
+That permissiveness has a cost worth stating: the service tests asserting "the params I passed
+reached axios" **cannot fail at runtime** on either service, because there is no mapping layer for
+the assertion to catch going wrong. On change-requests, TypeScript's excess-property check still
+guards a dropped key; on incidents, `Record<string, unknown>` means **not even `tsc` catches it**.
+Both tests carry a comment saying so rather than implying protection they do not provide.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a
