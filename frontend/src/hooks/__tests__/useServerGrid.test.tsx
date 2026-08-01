@@ -540,4 +540,47 @@ describe('useServerGrid resilience', () => {
       expect(state.search).toContain('page=8');
     });
   });
+
+  describe('debounceKeys/filterKeys invariant (dev warning)', () => {
+    // debounceKeys does double duty as serverGridParams' textKeys. A key
+    // present in debounceKeys but missing from filterKeys is written to the
+    // URL by setFilter but never read back into `filters` — a silent,
+    // easy-to-copy mistake across the eight upcoming page conversions. This
+    // must warn, not throw: a console warning can't be allowed to take a
+    // page down.
+    it('warns when a debounceKeys entry is missing from filterKeys', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['status'],
+            debounceKeys: ['search'],
+            onFetch: vi.fn(),
+          }),
+        { wrapper: wrapper(['/releases']) }
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('search');
+      warn.mockRestore();
+    });
+
+    it('stays silent when every debounceKeys entry is also in filterKeys', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['search', 'status'],
+            debounceKeys: ['search'],
+            onFetch: vi.fn(),
+          }),
+        { wrapper: wrapper(['/releases']) }
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+  });
 });

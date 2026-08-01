@@ -48,7 +48,25 @@ export interface UseServerGridOptions {
   filterKeys: string[];
   /** Return the value of `dispatch(thunk(params))` so the hook can cancel it. */
   onFetch: (params: ServerGridParams) => Abortable | void;
-  /** Filter keys whose changes should be debounced — free-text inputs. */
+  /**
+   * Filter keys whose changes should be debounced — free-text inputs.
+   *
+   * This list does double duty: it is also passed straight through to
+   * `buildParams` as `textKeys`, the set of keys for which `'all'` is a real
+   * search term rather than a select's "no selection" sentinel (see
+   * `serverGridParams.ts`). A text filter deliberately left out of this list
+   * — e.g. one that only applies on Enter/blur for a heavy endpoint, rather
+   * than on every keystroke — gets no `'all'` exemption either, and
+   * re-inherits the exact bug this list exists to fix: typing `all` returns
+   * unfiltered results while the box still reads "all".
+   *
+   * INVARIANT: every key listed here must also appear in `filterKeys`.
+   * `filters` (below) is built from `filterKeys` alone, so a key present
+   * only in `debounceKeys` is written to the URL by `setFilter` but never
+   * read back — the URL shows `?search=foo` beside a grid that isn't
+   * actually filtered. Violations are warned about in dev; see the
+   * `import.meta.env.DEV` check below.
+   */
   debounceKeys?: string[];
   /** Latest known total, used to clamp an offset that has run past the end. */
   total?: number;
@@ -109,6 +127,26 @@ export function useServerGrid({
   // string form instead so callers passing a fresh array each render don't
   // get a new setFilter identity every render.
   const debounceKeysKey = debounceKeys.join(' ');
+
+  // debounceKeys does double duty as serverGridParams' textKeys (see the
+  // JSDoc on UseServerGridOptions.debounceKeys). A key present only in
+  // debounceKeys is written to the URL by setFilter but never read back into
+  // `filters`, which is built from filterKeys alone — a silent, easy-to-copy
+  // mistake across the eight upcoming page conversions. Warn, don't throw: a
+  // dev console warning must not take a page down.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const missing = debounceKeys.filter((key) => !filterKeys.includes(key));
+    if (missing.length > 0) {
+      console.warn(
+        `useServerGrid: debounceKeys ${JSON.stringify(missing)} missing from filterKeys — ` +
+          'these keys are written to the URL by setFilter but never read back into `filters`, ' +
+          "and lose their 'all' exemption from serverGridParams."
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKeysKey, debounceKeysKey]);
+
   const filters = useMemo(() => {
     const out: Record<string, string> = {};
     filterKeys.forEach((key) => {

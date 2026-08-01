@@ -353,11 +353,23 @@ open is marked as such.
 - **Three sibling pickers were silently truncated at the server default of 50 — fixed.**
   `IncidentForm`, `DoraDashboard` and `ScopeWindowsTable` each called `releaseService.list()` and
   discarded the `total` the pilot made available. They were the same shape as the two dialogs
-  fixed earlier, and now pass `limit: 200` the same way. That is not a full fix: 200 is the
+  fixed earlier, and now raise the limit to `200` the same way — but not fixed the *same way*:
+  `MoveScopeItemDialog` and `RequestAdmissionDialog` also capture `total` and raise a snackbar
+  when `rows.length < total`, while these three only raise the limit and still discard the total,
+  so a truncated picker here fails silently. That is not a full fix either way: 200 is the
   endpoint's hard cap (`pagination(default_limit=50, max_limit=200)`), not a page size, so a
   tenant with more than 200 releases still gets a truncated picker with nothing saying so. The
   real fix is an autocomplete that queries the server per keystroke instead of pulling a fixed
   batch up front.
+- **`IncidentForm`'s deployment picker truncates at 100 — not fixed, not previously recorded.**
+  The same form also calls `deploymentService.list()` for its deployment picker, with no `limit`
+  override, so it takes `GET /deployments`'s default of 100
+  (`backend/app/api/v1/deployments.py`, `pagination(default_limit=100, max_limit=500)`) and
+  silently drops the rest — one line below the release picker this branch fixed, in the same
+  file, discovered but not fixed here. Releases (50/200) and deployments (100/500) are the only
+  two endpoints with a low default; `systemService.listSystems()` and
+  `environmentService.listEnvironments()` use the shared `DEFAULT_LIMIT = 500`
+  (`backend/app/core/pagination.py`) and are far less exposed to this class of bug.
 - **`ScopeWindowsTable` is a tenth grid with the live bug, and the hardest one — still open.** It
   now fetches up to 200 releases (raised from 50 alongside the other three pickers, above) and
   then filters `window_status` and sorts by `days_to_cutoff` in the browser. Both are computed

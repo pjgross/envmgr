@@ -132,25 +132,46 @@ discard the `total` the pilot made available. Same shape as the two dialogs alre
 
 The clamp effect trusts whatever `total` is in the store, which need not correspond to the request
 in flight. A cold load is safe (`total === 0` short-circuits), but arriving at `?page=8` with a
-narrower total already in the slice rewrites the URL to page 0. Pass `total={loading ? undefined :
-total}`.
+narrower total already in the slice rewrites the URL to page 0. `useServerGrid` gains a
+`totalPending` option — while true, the clamp effect does not run — and each page passes
+`totalPending: <slice>.listLoading`. (A call-site ternary, `total={loading ? undefined : total}`,
+was the first draft and was rejected: its tests passed both before and after the change, and a
+named option can't be silently inverted the way a ternary can.)
 
 ## The per-page recipe
 
-Applied eight times. Steps 1 and 6 are the ones this repo has already paid for twice.
+Applied eight times. Steps 1 and 7 are the ones this repo has already paid for twice.
 
-1. **Grep every consumer of the slice**, not just the page being converted. See PR 0 item 4.
+1. **Grep every consumer of the slice**, not just the page being converted. See PR 0 item 4. PR
+   C's blast radius is much larger than the pilot's — do not assume it resembles `ReleaseList`.
+   `state.environment.environments` has **8** non-page consumers: `AddPhaseBookingDialog`,
+   `BulkBookEnvironmentsDialog`, `BookingForm`, `BookingCalendar`, `BookingDetail`,
+   `ChangeRequestList`, `ChangeRequestForm`, `ChangeRequestEditDialog`. `state.infrastructureComponent.components`
+   has **4**: `EnvSubsystemHostsDialog`, `ChangeRequestEditDialog`, `ChangeRequestForm`,
+   `ChangeRequestList`. Most dispatch `fetchEnvironments()` / `fetchInfrastructureComponents()`
+   themselves, which is what saves them today — but the moment those thunks take server paging
+   params, they all get a paged default instead of the tenant-wide set. The `/environments/` and
+   `/infrastructure-components/` endpoints' 500 default buys headroom; it does not close the gap.
 2. **Service returns `Paged<T>`** — `{ rows, total }`, reading `x-total-count` with a
    `?? r.data.length` fallback.
 3. **Slice stores `total` and `listLoading`** beside its existing array. Note the array's name
    differs per slice — there is no `state.list` convention to rely on: `bookings`, `environments`,
-   `list`, `systems`, `components`, `list`, `items`, `items` across the eight.
+   `list`, `systems`, `components`, `list`, `items`, `items` across the eight. Wire
+   `totalPending: <slice>.listLoading` at the call site, **never** the slice's shared `loading`.
+   Only the release slice has its own `listLoading` today; every other slice's `loading` is written
+   by roughly twenty thunks, so passing it as `totalPending` would leave an open create dialog
+   silently disabling the page-clamp guard.
 4. **Page calls `useServerGrid`** with its endpoint key and filter keys; the client-side
    `useMemo`/`.filter()` is deleted outright. Nothing falls back to client-side filtering on
    error — a page that quietly filters a truncated set is the bug being removed.
-5. **Columns** take `sortable` from `isSortable()`; columns computed after the query get
+5. **When wiring `refetch()`, delete the slice's create/delete list-and-total mutations** rather
+   than keeping both. `refetch()` exists now, but no slice has dropped its optimistic list surgery
+   yet — `createRelease.fulfilled`/`deleteRelease.fulfilled` still mutate `state.list` and
+   `state.total` directly. Wiring `refetch()` on top of that surgery double-counts the total and
+   shows a duplicated row for one round trip; the mutation has to go, not just gain a neighbour.
+6. **Columns** take `sortable` from `isSortable()`; columns computed after the query get
    `ComputedColumnHeader` with its explanatory tooltip.
-6. **`DataTable` server mode**, which also disables the toolbar's column filter and CSV/Print
+7. **`DataTable` server mode**, which also disables the toolbar's column filter and CSV/Print
    export — both operate on the loaded page only, and doing that while the footer shows the true
    server total would show two different counts under one control.
 
