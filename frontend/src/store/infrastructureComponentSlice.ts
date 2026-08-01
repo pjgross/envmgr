@@ -105,15 +105,16 @@ const slice = createSlice({
         state.listLoading = false;
         state.error = action.error.message ?? 'Failed to fetch hosts';
       })
-      .addCase(createInfrastructureComponent.fulfilled, (state, action) => {
-        state.components.push(action.payload);
+      .addCase(createInfrastructureComponent.fulfilled, () => {
+        // No list surgery — `components` is one server-paged window, not the
+        // whole result set. The page calls `grid.refetch()` after this
+        // thunk resolves instead of splicing the new row in here.
       })
-      .addCase(updateInfrastructureComponent.fulfilled, (state, action) => {
-        const idx = state.components.findIndex((c) => c.id === action.payload.id);
-        if (idx !== -1) state.components[idx] = action.payload;
+      .addCase(updateInfrastructureComponent.fulfilled, () => {
+        // Same reasoning as createInfrastructureComponent.fulfilled above.
       })
-      .addCase(deleteInfrastructureComponent.fulfilled, (state, action) => {
-        state.components = state.components.filter((c) => c.id !== action.payload);
+      .addCase(deleteInfrastructureComponent.fulfilled, () => {
+        // Same reasoning as createInfrastructureComponent.fulfilled above.
       });
   },
 });
