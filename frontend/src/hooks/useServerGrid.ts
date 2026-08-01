@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   buildParams,
@@ -61,6 +61,8 @@ export interface ServerGrid {
   onSortModelChange: (model: { field: string; sort?: SortDir | null }[]) => void;
   filters: Record<string, string>;
   setFilter: (key: string, value: string) => void;
+  /** Re-issue the current query — after a create or delete changed the set. */
+  refetch: () => void;
 }
 
 /**
@@ -133,6 +135,12 @@ export function useServerGrid({
 
   const inFlight = useRef<Abortable | void>();
 
+  // The fetch effect is keyed on the resolved params, so an identical query
+  // cannot re-run on its own. A nonce gives callers an explicit way to ask
+  // for one without inventing a fake param change.
+  const [refetchNonce, setRefetchNonce] = useState(0);
+  const refetch = useCallback(() => setRefetchNonce((n) => n + 1), []);
+
   useEffect(() => {
     // Abort the previous request rather than merely ignoring its reply: the
     // response is applied by the thunk's fulfilled reducer, which this hook
@@ -144,7 +152,7 @@ export function useServerGrid({
     // fresh object every render too; `paramsKey` is what decides whether a
     // refetch is warranted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramsKey]);
+  }, [paramsKey, refetchNonce]);
 
   useEffect(() => () => inFlight.current?.abort(), []);
 
@@ -254,5 +262,6 @@ export function useServerGrid({
     ),
     filters,
     setFilter,
+    refetch,
   };
 }

@@ -433,6 +433,40 @@ describe('useServerGrid resilience', () => {
     expect(history.index).toBe(startIndex);
   });
 
+  describe('refetch', () => {
+    it('re-issues the current query with identical params', async () => {
+      // A create or delete must be able to re-ask the server, because the
+      // correct next page cannot be computed in the browser: a new row need
+      // not belong on the current page at all.
+      const onFetch = vi.fn();
+      const hook = renderHook(
+        () => useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch }),
+        { wrapper: wrapper(['/releases']) }
+      );
+
+      expect(onFetch).toHaveBeenCalledTimes(1);
+      const first = onFetch.mock.calls[0][0];
+
+      await act(async () => {
+        hook.result.current.refetch();
+      });
+
+      expect(onFetch).toHaveBeenCalledTimes(2);
+      expect(onFetch.mock.calls[1][0]).toEqual(first);
+    });
+
+    it('keeps a stable identity so it can sit in an effect dependency list', () => {
+      const onFetch = vi.fn();
+      const hook = renderHook(
+        () => useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch }),
+        { wrapper: wrapper(['/releases']) }
+      );
+      const before = hook.result.current.refetch;
+      hook.rerender();
+      expect(hook.result.current.refetch).toBe(before);
+    });
+  });
+
   it('clamps to the last valid page when the offset runs past the total', () => {
     const onFetch = vi.fn();
     const { result, rerender } = renderHook(
