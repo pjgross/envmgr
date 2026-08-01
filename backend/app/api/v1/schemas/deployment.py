@@ -35,7 +35,15 @@ class DeploymentRead(BaseModel):
     release_name: Optional[str] = None
     change_request_id: int
     change_request_title: Optional[str] = None
-    event_id: UUID
+    # `str`, not `UUID`, because that is what the column can actually hold:
+    # `String(36)`, with `deployment_service` storing and comparing
+    # `str(payload.event_id)`. Declaring UUID here asserted something the
+    # storage layer never enforced, and the response model is applied per row
+    # while serialising the page — so a single row whose id did not parse
+    # returned 500 for the WHOLE list rather than one odd-looking cell.
+    # `DeploymentWebhookPayload.event_id` above is still a UUID, so this does
+    # not loosen what the supported ingest path accepts.
+    event_id: str
     deployer_name: Optional[str]
     deployed_at: datetime
     completed_at: Optional[datetime]
