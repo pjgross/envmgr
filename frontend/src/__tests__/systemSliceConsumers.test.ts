@@ -59,7 +59,12 @@ describe('system slice consumers', () => {
       if (READS_SYSTEMS_LIST.some((re) => re.test(src))) {
         offenders.push(`${rel}: reads the system list`);
       }
-      if (/systemService\.listSystems\(/.test(src)) {
+      // `\s*` around the dot: this codebase formats exactly this call across
+      // lines when it takes an argument — useAllSystems.ts itself writes
+      // `systemService` / `.listSystems({ limit: LIMIT })` on separate lines.
+      // A dot-adjacent pattern misses any re-introduction long enough to be
+      // wrapped, which is exactly what a copy of the hook would look like.
+      if (/systemService\s*\.\s*listSystems\(/.test(src)) {
         offenders.push(`${rel}: calls systemService.listSystems directly`);
       }
     }
