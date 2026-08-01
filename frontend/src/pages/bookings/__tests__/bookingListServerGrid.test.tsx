@@ -3,7 +3,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import BookingList, { bookingColumns } from '../BookingList';
+import BookingList, { bookingColumns, buildCustomFieldColumns } from '../BookingList';
 
 // No HTTP — this test is about the wiring between the URL/filters and the
 // dispatched fetch, not about what the server returns.
@@ -23,6 +23,7 @@ vi.mock('../../../services/customFieldService', () => ({
 }));
 
 import { bookingService } from '../../../services/bookingService';
+import type { CustomFieldDefinition } from '../../../types/customField';
 
 function renderBookingList(url = '/bookings') {
   return render(
@@ -86,5 +87,37 @@ describe('BookingList server-side grid', () => {
       .getAllByRole('menuitem', { hidden: true })
       .find((item) => /filter/i.test(item.textContent ?? ''));
     expect(filterItem).toBeUndefined();
+  });
+
+  it('marks per-tenant custom-field columns unsortable, since none is in the backend whitelist', () => {
+    // Unlike bookingColumns above, these columns are built at render time
+    // from the tenant's custom field definitions, so the static column-list
+    // test above can't see them. @mui/x-data-grid virtualizes columns by
+    // container width, and jsdom reports zero layout width, so a real render
+    // here only ever puts the first few static columns in the DOM — there is
+    // no way to scroll a custom-field column into view to inspect its
+    // header. `buildCustomFieldColumns` is exported from BookingList for
+    // exactly this reason: assert on the GridColDef it produces directly,
+    // the same way the static columns are asserted on above.
+    const def: CustomFieldDefinition = {
+      id: 1,
+      tenant_id: 1,
+      entity_type: 'booking',
+      entity_subtype: null,
+      field_key: 'severity',
+      label: 'Severity',
+      field_type: 'text',
+      required: false,
+      display_order: 1,
+      options: null,
+      lifecycle_states: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    const [column] = buildCustomFieldColumns([def]);
+
+    expect(column.field).toBe('severity');
+    expect(column.sortable).toBe(false);
   });
 });

@@ -322,6 +322,10 @@ export default function BookingCalendar() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         defaultEnvId={envFilter !== '' ? (envFilter as number) : undefined}
+        // This component doesn't read the booking slice at all (see the note
+        // above), so it must supply its own reload — the same one used after
+        // a transition — not a bare dispatch(fetchBookings()).
+        onCreated={() => loadBookings(envFilter === '' ? undefined : envFilter)}
       />
     </Box>
   );

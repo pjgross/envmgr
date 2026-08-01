@@ -26,6 +26,7 @@ import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { BookingResponse, BookingStatus } from '../../types/booking';
+import type { CustomFieldDefinition } from '../../types/customField';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { bookingService } from '../../services/bookingService';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
@@ -180,6 +181,28 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
   },
 ];
 
+// Per-tenant custom-field columns are built at render time (they depend on
+// which fields the tenant has defined), unlike the static `bookingColumns`
+// above — pulled out to a plain function so the `sortable: false` on them is
+// unit-testable the same way, since none of these fields is ever in the
+// backend's sort whitelist (they're tenant-defined, not schema columns).
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildCustomFieldColumns(
+  defs: CustomFieldDefinition[]
+): GridColDef<BookingResponse>[] {
+  return defs.map(
+    (def) =>
+      ({
+        field: def.field_key,
+        headerName: def.label,
+        flex: 1,
+        sortable: false,
+        valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+          params.row.custom_fields?.[def.field_key] ?? '—',
+      }) as GridColDef<BookingResponse>
+  );
+}
+
 // --- Component ---------------------------------------------------------------
 
 export default function BookingList() {
@@ -287,19 +310,7 @@ export default function BookingList() {
           }
         : col
     ),
-    ...customFieldDefs.map(
-      (def) =>
-        ({
-          field: def.field_key,
-          headerName: def.label,
-          flex: 1,
-          // Per-tenant custom fields are never in the backend's sort
-          // whitelist — clicking the header would be a 422.
-          sortable: false,
-          valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
-            params.row.custom_fields?.[def.field_key] ?? '—',
-        }) as GridColDef<BookingResponse>
-    ),
+    ...buildCustomFieldColumns(customFieldDefs),
   ];
 
   // Only show loading overlay on initial load
@@ -389,7 +400,13 @@ export default function BookingList() {
       </Menu>
 
       {/* New Booking dialog */}
-      <BookingForm open={formOpen} onClose={() => setFormOpen(false)} />
+      <BookingForm
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        // Re-issue the current page/sort/filter query on create, same reason
+        // as handleTransition above — not a bare dispatch(fetchBookings()).
+        onCreated={() => grid.refetch()}
+      />
     </Box>
   );
 }
