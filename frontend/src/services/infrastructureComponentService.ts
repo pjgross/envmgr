@@ -17,6 +17,7 @@ export const infrastructureComponentService = {
     region?: string;
     source?: InfrastructureComponentSource;
     search?: string;
+    limit?: number;
   }): Promise<InfrastructureComponentResponse[]> =>
     api.get('/infrastructure-components/', { params }).then((r) => r.data),
 
