@@ -1,4 +1,5 @@
-import { act, render, renderHook } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {
   MemoryRouter,
   UNSAFE_createMemoryHistory,
@@ -9,11 +10,39 @@ import {
 } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useServerGrid } from '../useServerGrid';
+import { useServerGrid, type Abortable } from '../useServerGrid';
 
 function wrapper(initialEntries: string[]) {
   return ({ children }: { children: ReactNode }) => (
     <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+  );
+}
+
+/**
+ * Mounts a real controlled `<input>` bound the same way BuildList/DeploymentList
+ * bind their debounced text filters: `value={grid.filters[key]}` / `onChange={(e)
+ * => grid.setFilter(key, e.target.value)}`. A `renderHook` + manual `setFilter`
+ * call (as the rest of this file uses) hands the hook a whole final string in one
+ * shot and can't reproduce the bug this harness exists for: with a plain
+ * URL-derived `filters`, the debounce leaves the URL (and therefore the `value`
+ * prop) unchanged between keystrokes, so React re-renders the controlled input
+ * back to the stale value and the next real keystroke replaces it instead of
+ * appending — only real, sequential DOM typing via `userEvent` exercises that
+ * controlled-input feedback loop.
+ */
+function DebouncedTextHarness({ onFetch }: { onFetch: (params: unknown) => Abortable | void }) {
+  const grid = useServerGrid({
+    endpoint: 'releases',
+    filterKeys: ['search'],
+    debounceKeys: ['search'],
+    onFetch,
+  });
+  return (
+    <input
+      aria-label="search"
+      value={grid.filters.search ?? ''}
+      onChange={(e) => grid.setFilter('search', e.target.value)}
+    />
   );
 }
 
@@ -370,6 +399,63 @@ describe('useServerGrid resilience', () => {
 
       expect(state.search).toBe('');
     });
+  });
+
+  // Real timers, not fake ones: `userEvent.type` drives real sequential DOM
+  // input events (the only way to reproduce the controlled-input feedback
+  // loop the original bug depended on — see `DebouncedTextHarness` above),
+  // and its internal waiting between keystrokes deadlocks under fake timers
+  // even with `delay: null` / `advanceTimers` configured.
+  describe('debounced text input, end to end', () => {
+    it('leaves the whole typed string in the box and issues one request carrying it, instead of snapping back to the stale debounced URL value between keystrokes', async () => {
+      // THE BUG. `grid.filters.search` used to be a straight readout of the URL,
+      // which the debounce only updates 300ms after the last keystroke. Typing
+      // 'comp' character by character re-rendered the controlled input back to
+      // the (still-empty) URL value after every keystroke, so each new
+      // character replaced the box's contents instead of appending to them —
+      // the box ended up holding just 'p'.
+      const user = userEvent.setup();
+      const onFetch = vi.fn();
+      render(<DebouncedTextHarness onFetch={onFetch} />, { wrapper: wrapper(['/releases']) });
+      onFetch.mockClear();
+
+      const input = screen.getByLabelText('search');
+      await user.type(input, 'comp');
+
+      expect(input).toHaveValue('comp');
+
+      await new Promise((resolve) => setTimeout(resolve, 350));
+
+      expect(onFetch).toHaveBeenCalledTimes(1);
+      expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'comp' }));
+    }, 10000);
+
+    it('shows the URL from an external navigation (Back/Forward, a pasted link) instead of an abandoned draft', async () => {
+      // Requirement 3: external navigation must win over a stale draft. If the
+      // user has typed into the box and then something outside this hook
+      // changes the URL — Back/Forward, or a pasted link — the input must
+      // reflect the new URL, not the characters the user was mid-typing.
+      const user = userEvent.setup();
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases']);
+      render(<DebouncedTextHarness onFetch={onFetch} />, { wrapper: Wrapper });
+
+      const input = screen.getByLabelText('search');
+      await user.type(input, 'co');
+      expect(input).toHaveValue('co');
+
+      // Navigation the hook did not cause, arriving before the debounce fires.
+      act(() => state.navigate?.('/releases?search=urgent'));
+      expect(input).toHaveValue('urgent');
+
+      // The abandoned timer for 'co' must not resurrect the stale draft, or
+      // send a request for it, once it eventually fires.
+      onFetch.mockClear();
+      await new Promise((resolve) => setTimeout(resolve, 350));
+
+      expect(input).toHaveValue('urgent');
+      expect(onFetch).not.toHaveBeenCalledWith(expect.objectContaining({ search: 'co' }));
+    }, 10000);
   });
 
   it('aborts the previous request when the parameters change', () => {
