@@ -54,6 +54,7 @@ export default function ReleaseList() {
     endpoint: 'releases',
     filterKeys: ['status', 'release_type', 'release_kind', 'system_id'],
     total,
+    totalPending: listLoading,
     onFetch: (params) => dispatch(fetchReleases(params)),
   });
 

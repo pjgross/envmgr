@@ -482,4 +482,62 @@ describe('useServerGrid resilience', () => {
     expect(result.current.paginationModel.page).toBe(1);
     expect(onFetch).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25 }));
   });
+
+  describe('clamping against a stale total', () => {
+    it('does not clamp while the total is unknown', () => {
+      // `undefined` means "no total for this request yet". Clamping on a total
+      // that belongs to a previous view rewrites a legitimate deep link to
+      // page 0 before its real response has even arrived.
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases?page=8']);
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['status'],
+            onFetch,
+            total: undefined,
+          }),
+        { wrapper: Wrapper }
+      );
+
+      expect(state.search).toContain('page=8');
+      expect(onFetch.mock.calls[0][0].offset).toBe(8 * 25);
+    });
+
+    it('clamps once a real total says the page is past the end', () => {
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases?page=8']);
+      renderHook(
+        () =>
+          useServerGrid({ endpoint: 'releases', filterKeys: ['status'], onFetch, total: 30 }),
+        { wrapper: Wrapper }
+      );
+
+      // 30 rows at 25/page is pages 0-1, so page 8 clamps to 1.
+      expect(state.search).toContain('page=1');
+    });
+
+    it('does not clamp against a total that belongs to the previous request', () => {
+      // THE BUG. The slice still holds the previous view's total while the
+      // request for ?page=8 is in flight. Without totalPending the effect
+      // clamps to page 1 on that stale 30 and the deep link is lost before
+      // its own response ever arrives.
+      const onFetch = vi.fn();
+      const { Wrapper, state } = locationHarness(['/releases?page=8']);
+      renderHook(
+        () =>
+          useServerGrid({
+            endpoint: 'releases',
+            filterKeys: ['status'],
+            onFetch,
+            total: 30,
+            totalPending: true,
+          }),
+        { wrapper: Wrapper }
+      );
+
+      expect(state.search).toContain('page=8');
+    });
+  });
 });

@@ -52,6 +52,12 @@ export interface UseServerGridOptions {
   debounceKeys?: string[];
   /** Latest known total, used to clamp an offset that has run past the end. */
   total?: number;
+  /**
+   * True while a list request is in flight. `total` then still describes the
+   * PREVIOUS view, and clamping against it rewrites a legitimate deep link
+   * (`?page=8`) back to page 0 before that page's own response arrives.
+   */
+  totalPending?: boolean;
 }
 
 export interface ServerGrid {
@@ -79,6 +85,7 @@ export function useServerGrid({
   onFetch,
   debounceKeys = NO_DEBOUNCE,
   total,
+  totalPending,
 }: UseServerGridOptions): ServerGrid {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -214,10 +221,10 @@ export function useServerGrid({
     // A row deleted elsewhere (or a filter narrowing the set) can leave the
     // current offset past the end of the result — clamp back onto the last
     // real page rather than painting an empty grid over a non-zero total.
-    if (total === undefined || total === 0) return;
+    if (totalPending || total === undefined || total === 0) return;
     const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
     if (page > lastPage) patch({ page: String(lastPage) }, false);
-  }, [total, page, pageSize, patch]);
+  }, [totalPending, total, page, pageSize, patch]);
 
   // One timer per debounced key, not one shared timer — otherwise changing
   // key B (e.g. `notes`) would `clearTimeout` key A's (`search`) still-pending
