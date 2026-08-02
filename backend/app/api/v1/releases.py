@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, status, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import case, func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
@@ -97,6 +97,16 @@ RELEASE_SORTS = {
     "status": Release.status,
     "target_date": Release.target_date,
     "created_at": Release.created_at,
+    # Sorting by the scope-window cutoff. `days_to_cutoff` is computed in
+    # Python after the query so it cannot be sorted on, but it is monotonic
+    # in `scope_deadline` — and NULL exactly when the release is shipped or
+    # has no deadline. Folding "shipped" into NULL here lets apply_sort's
+    # existing NULL pinning reproduce the UI's "shipped and no-cutoff last"
+    # grouping, with no CASE bucket in the ORDER BY and no date arithmetic.
+    "scope_deadline": case(
+        (Release.actual_date.isnot(None), null()),
+        else_=Release.scope_deadline,
+    ),
 }
 
 # ── Additional sub-resource routers mounted at /phases, /gates etc. ──────────

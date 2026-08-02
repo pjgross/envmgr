@@ -14,12 +14,13 @@ the cap; one that reads it can tell there is more and page through with
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Mapping, Optional
+from typing import Callable, Mapping, Optional, Union
 
 from fastapi import HTTPException, Query, Response
 from sqlalchemy import Select, String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import InstrumentedAttribute
+from sqlalchemy.sql.elements import ColumnElement
 
 # Generous enough that no realistic current page truncates, low enough that a
 # pathological tenant cannot take the API down with one request.
@@ -105,14 +106,21 @@ def set_total_count(response: Response, total: int) -> None:
     response.headers[TOTAL_COUNT_HEADER] = str(total)
 
 
+# A sort target is usually a mapped column, but it may be any typed SQL
+# expression — `RELEASE_SORTS["scope_deadline"]` is a CASE that folds a
+# shipped release's deadline into NULL so `apply_sort`'s NULL pinning
+# reproduces the UI's "shipped last" grouping.
+SortTarget = Union[InstrumentedAttribute, ColumnElement]
+
+
 @dataclass(frozen=True)
 class Sort:
-    column: InstrumentedAttribute
+    column: SortTarget
     descending: bool
 
 
 def sorting(
-    allowed: Mapping[str, InstrumentedAttribute],
+    allowed: Mapping[str, SortTarget],
     default: str,
     *,
     default_dir: str = "asc",
@@ -170,7 +178,7 @@ def sorting(
     return _sorting
 
 
-def _sort_key(column: InstrumentedAttribute):
+def _sort_key(column: SortTarget):
     """The expression to order by — case-folded for text columns.
 
     A bare `ORDER BY some.name` delegates ordering to the column's collation,
