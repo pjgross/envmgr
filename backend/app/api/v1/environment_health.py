@@ -1,5 +1,5 @@
 """Environment Health API — push (API key) + history + overview (JWT)."""
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import Page, pagination, set_total_count
@@ -31,12 +31,18 @@ async def push_health(
 @router.get("/{env_id}/health/history", response_model=list[HealthSample])
 async def health_history(
     env_id: int,
-    limit: int = Query(50, ge=1, le=500),
+    response: Response,
+    # Keeps this endpoint's own long-standing contract (50 by default, 500 at
+    # most) rather than adopting the shared 500/1000: a health timeline is read
+    # by a human, and 500 samples is already more than one can take in.
+    page: Page = Depends(pagination(default_limit=50, max_limit=500)),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Return health history for a single environment, newest first (JWT auth)."""
-    return await svc.get_history(db, current_user.active_tenant_id, env_id, limit)
+    rows, total = await svc.get_history(db, current_user.active_tenant_id, env_id, page)
+    set_total_count(response, total)
+    return rows
 
 
 @router.get("/health", response_model=list[EnvironmentHealthOverviewRow])

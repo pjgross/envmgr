@@ -10,9 +10,12 @@ import HealthDashboard from '../HealthDashboard';
 // declarations, so FIXTURE cannot be referenced from an outer const).
 // ---------------------------------------------------------------------------
 
+import { environmentHealthService } from '../../../services/environmentHealthService';
+
 vi.mock('../../../services/environmentHealthService', () => ({
   environmentHealthService: {
-    overview: vi.fn().mockResolvedValue([
+    overview: vi.fn().mockResolvedValue({
+      rows: [
       {
         environment_id: 1,
         environment_name: 'Production-EU',
@@ -37,7 +40,9 @@ vi.mock('../../../services/environmentHealthService', () => ({
         planned_outage: false,
         alert: false,
       },
-    ] satisfies EnvironmentHealthOverviewRow[]),
+      ] satisfies EnvironmentHealthOverviewRow[],
+      total: 2,
+    }),
   },
 }));
 
@@ -79,5 +84,36 @@ describe('HealthDashboard', () => {
   it('names the healthy environment in the grid row', async () => {
     renderDashboard();
     expect(await screen.findByText('Staging-US')).toBeInTheDocument();
+  });
+  it('says so when the overview was truncated, because the alert list is derived from it', async () => {
+    // GET /environments/health is capped server-side. The alert banner is built
+    // by filtering the fetched rows, so a truncated fetch can hide an alerting
+    // environment entirely — presenting that as the whole picture is the bug.
+    vi.mocked(environmentHealthService.overview).mockResolvedValueOnce({
+      rows: [
+        {
+          environment_id: 1,
+          environment_name: 'Production-EU',
+          current_status: 'up',
+          last_recorded_at: '2026-07-27T10:00:00Z',
+          active_booking: false,
+          active_booking_summary: null,
+          planned_outage: false,
+          alert: false,
+        },
+      ] satisfies EnvironmentHealthOverviewRow[],
+      total: 900,
+    });
+
+    renderDashboard();
+
+    expect(await screen.findByText(/Showing 1 of 900 environments/)).toBeInTheDocument();
+    expect(screen.getByText(/899 are not included/)).toBeInTheDocument();
+  });
+
+  it('says nothing about truncation when the whole set was returned', async () => {
+    renderDashboard();
+    await screen.findByText('Production-EU');
+    expect(screen.queryByText(/are not included/)).not.toBeInTheDocument();
   });
 });

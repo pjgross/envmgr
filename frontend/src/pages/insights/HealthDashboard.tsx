@@ -45,6 +45,7 @@ function formatDateTime(iso: string | null): string {
 export default function HealthDashboard() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<EnvironmentHealthOverviewRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -53,12 +54,14 @@ export default function HealthDashboard() {
     setFetchError(null);
     environmentHealthService
       .overview()
-      .then((data) => {
-        setRows(data);
+      .then(({ rows: serverRows, total: serverTotal }) => {
+        setRows(serverRows);
+        setTotal(serverTotal);
         setFetchError(null);
       })
       .catch((err: unknown) => {
         setRows([]);
+        setTotal(0);
         setFetchError(err instanceof Error ? err.message : 'Failed to load environment health data');
       })
       .finally(() => {
@@ -142,6 +145,16 @@ export default function HealthDashboard() {
       {fetchError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {fetchError}
+        </Alert>
+      )}
+
+      {/* The alert list is derived from the fetched rows, so a truncated fetch
+          means environments could be alerting without appearing above. Say so
+          rather than presenting a partial list as the whole picture. */}
+      {!fetchError && rows.length < total && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Showing {rows.length} of {total} environments — any alerts on the remaining{' '}
+          {total - rows.length} are not included below.
         </Alert>
       )}
 

@@ -44,14 +44,35 @@ async def record_sample(db: AsyncSession, tenant_id: int, environment_id: int,
     return row
 
 
-async def get_history(db: AsyncSession, tenant_id: int, environment_id: int, limit: int = 50):
-    limit = max(1, min(limit, 500))
-    return list((await db.execute(
-        select(EnvironmentHealthStatus).where(
-            EnvironmentHealthStatus.tenant_id == tenant_id,
-            EnvironmentHealthStatus.environment_id == environment_id,
-        ).order_by(EnvironmentHealthStatus.recorded_at.desc()).limit(limit)
-    )).scalars().all())
+def history_query(tenant_id: int, environment_id: int):
+    """The history query, exposed so its ORDER BY can be asserted directly.
+
+    Removing the `id` tiebreaker changes nothing observable on either engine —
+    tied rows come back in a stable order in practice — so a behavioural test
+    cannot guard it. This is the seam that lets one be structural instead of
+    tautological.
+    """
+    return select(EnvironmentHealthStatus).where(
+        EnvironmentHealthStatus.tenant_id == tenant_id,
+        EnvironmentHealthStatus.environment_id == environment_id,
+    ).order_by(
+        EnvironmentHealthStatus.recorded_at.desc(),
+        EnvironmentHealthStatus.id.desc(),
+    )
+
+
+async def get_history(
+    db: AsyncSession, tenant_id: int, environment_id: int, page: Page
+) -> tuple[list[EnvironmentHealthStatus], int]:
+    """Health samples for one environment, newest first, with the unwindowed total.
+
+    Ordered by `id` as well as `recorded_at`: samples are machine-pushed and
+    `recorded_at` is supplied by the caller, so ties are ordinary rather than
+    exotic — several sources pushing on the same tick, or a pusher sending a
+    rounded timestamp. Without a unique tiebreaker `LIMIT`/`OFFSET` duplicates
+    and drops rows across pages the moment two samples share a timestamp.
+    """
+    return await fetch_page(db, history_query(tenant_id, environment_id), page)
 
 
 async def _latest(db, tenant_id, environment_id) -> Optional[EnvironmentHealthStatus]:
