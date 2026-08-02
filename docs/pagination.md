@@ -835,10 +835,49 @@ Two things this conversion needed that the other eleven did not, both now shared
 `sortable: false` with `ComputedColumnHeader`. The cutoff ordering lives on the adjacent
 Scope deadline header, which is honest because the two orders are the same.
 
+## The calendar's range was never applied
+
+Recorded here as a `limit=500` truncation. It was that, but the truncation was the smaller
+half: **`GET /releases/calendar` declares `date_from`/`date_to`, and the frontend was
+sending `from`/`to`.** FastAPI drops unknown query parameters, so the range had never been
+applied at all — every month the user navigated to re-fetched the same unranged set, capped
+at 500 and ordered by `created_at desc`.
+
+It looked correct because FullCalendar hides whatever falls outside the visible range. The
+failure only becomes visible past 500 releases, at which point months render blank with
+nothing saying why. Proved against the running dev API before touching anything: a
+1990-only range returned the same entries as no parameters at all, while `date_from`/
+`date_to` returned none.
+
+**A silently-ignored parameter is the worst shape of this bug**, because every layer looks
+healthy: the client sends a range, the server answers 200 with plausible data, and the UI
+renders. Nothing is in an error state. `ReleaseListFilters` had the same latent defect —
+`from_date`/`to_date`, neither of which the API accepts — with no caller yet.
+
+Three further things came out of it:
+
+- **The undated-release filter ran in Python after the query**, which is exactly what makes
+  an endpoint unsafe to bound: the window is applied first, so a page can come back short
+  while the total says otherwise. Now `target_date IS NOT NULL` in SQL.
+- **Both endpoints now emit `X-Total-Count`**, so a client can distinguish a complete
+  calendar from a truncated one. The default limit stays at the 500 they already had.
+- **Applying the range introduced a second bug, caught only by opening the page.** Filtering
+  on `target_date` drops a release that *starts* before the visible month but spans it —
+  June went blank while a release running 01/05 → 29/07 should have been drawn across it. A
+  release occupies `[target_date, COALESCE(actual_date, target_date)]`, and a calendar wants
+  everything *overlapping* the window. That is a calendar-only flag; the list endpoint keeps
+  start-inside-window semantics. Note the `COALESCE` fallback matters: without it an
+  undelivered release would appear in every future month.
+
+`/releases/timeline` still runs three extra queries per release (phases, dependencies,
+gates), so its cost scales with the window. Not fixed here; the range now bounds it in
+practice, which is what made it tolerable to leave.
+
 ## Still open after the programme
 
-- **`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a
-  hardcoded `limit=500` and discard the total.
+- ~~**`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a
+  hardcoded `limit=500` and discard the total.~~ **Fixed — and the truncation turned out to
+  be the smaller half of the problem.** See *The calendar's range was never applied* below.
 - **The endpoints listed under *Not yet bounded*** below.
 - **The `useAllX` hooks have no caching or dedup.** Nesting two consumers duplicates the
   request — `ChangeRequestList` renders `ChangeRequestForm`, so environments and hosts are
