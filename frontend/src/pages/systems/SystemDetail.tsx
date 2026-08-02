@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -314,35 +314,41 @@ export default function SystemDetail() {
     }
   }, [currentSystem]);
 
-  // Load component deps for all subsystems of this system when on tab 3
-  useEffect(() => {
-    if (tab !== 3 || subsystems.length === 0) return;
-    const loadCompDeps = async () => {
-      setCompDepsLoading(true);
-      try {
-        const results = await Promise.all(
-          subsystems.map((sub) =>
-            dependencyService.listComponentDependencies(sub.id).catch(() => [])
-          )
-        );
-        // Merge and deduplicate by id
-        const seen = new Set<number>();
-        const merged: ComponentDependencyResponse[] = [];
-        for (const list of results) {
-          for (const dep of list) {
-            if (!seen.has(dep.id)) {
-              seen.add(dep.id);
-              merged.push(dep);
-            }
+  // Load component deps for all subsystems of this system. Extracted from
+  // the tab-keyed effect below so the create handler can also call it
+  // directly — `setTab(3)` from the Add button (which already lives on tab
+  // 3) is a no-op, since React bails out of state updates that don't change
+  // the value, so the effect below never reran and the list stayed stale.
+  const loadCompDeps = useCallback(async () => {
+    if (subsystems.length === 0) return;
+    setCompDepsLoading(true);
+    try {
+      const results = await Promise.all(
+        subsystems.map((sub) =>
+          dependencyService.listComponentDependencies(sub.id).catch(() => [])
+        )
+      );
+      // Merge and deduplicate by id
+      const seen = new Set<number>();
+      const merged: ComponentDependencyResponse[] = [];
+      for (const list of results) {
+        for (const dep of list) {
+          if (!seen.has(dep.id)) {
+            seen.add(dep.id);
+            merged.push(dep);
           }
         }
-        setAllCompDeps(merged);
-      } finally {
-        setCompDepsLoading(false);
       }
-    };
+      setAllCompDeps(merged);
+    } finally {
+      setCompDepsLoading(false);
+    }
+  }, [subsystems]);
+
+  useEffect(() => {
+    if (tab !== 3) return;
     loadCompDeps();
-  }, [tab, subsystems]);
+  }, [tab, loadCompDeps]);
 
   const handleSysUpdate = async () => {
     if (!sysForm.name.trim()) {
@@ -554,8 +560,10 @@ export default function SystemDetail() {
         })
       ).unwrap();
       setCompDepDialogOpen(false);
-      // Refresh merged list
-      setTab(3);
+      // Refresh merged list. Not `setTab(3)` — the Add button lives on tab 3
+      // already, so that value never changes and the tab-keyed effect never
+      // reruns.
+      await loadCompDeps();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setCompDepFormError(message || 'Failed to create component dependency');
