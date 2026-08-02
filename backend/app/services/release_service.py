@@ -251,6 +251,8 @@ async def list_releases(
     release_kind: Optional[str] = None,
     system_id: Optional[int] = None,
     scope_window: Optional[str] = None,
+    has_target_date: bool = False,
+    date_overlaps_range: bool = False,
     now: Optional[datetime] = None,
     limit: int = 50,
     offset: int = 0,
@@ -277,10 +279,31 @@ async def list_releases(
                 )
             )
         )
-    if date_from is not None:
-        base_where.append(Release.target_date >= date_from)
-    if date_to is not None:
-        base_where.append(Release.target_date <= date_to)
+    if date_overlaps_range:
+        # Calendar semantics. A release occupies the interval
+        # [target_date, COALESCE(actual_date, target_date)], and a calendar
+        # wants everything *overlapping* the visible window — not only what
+        # starts inside it. Filtering on target_date alone makes a release
+        # that began in an earlier month vanish from the months it actually
+        # spans, which is a blank calendar page with no explanation.
+        if date_to is not None:
+            base_where.append(Release.target_date <= date_to)
+        if date_from is not None:
+            base_where.append(
+                func.coalesce(Release.actual_date, Release.target_date) >= date_from
+            )
+    else:
+        if date_from is not None:
+            base_where.append(Release.target_date >= date_from)
+        if date_to is not None:
+            base_where.append(Release.target_date <= date_to)
+    if has_target_date:
+        # The calendar drops undated releases. Doing it here rather than in
+        # Python after the query is what makes the endpoint safe to bound: a
+        # post-query filter would window the set *before* dropping rows, so a
+        # page could come back short — or empty — while the total said
+        # otherwise.
+        base_where.append(Release.target_date.isnot(None))
     if owner_id is not None:
         base_where.append(Release.raised_by == owner_id)
     if search is not None:

@@ -360,25 +360,36 @@ async def create_release(
 
 @router.get("/calendar")
 async def get_releases_calendar(
+    response: Response,
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    page: Page = Depends(pagination(default_limit=500, max_limit=1000)),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Return releases formatted for FullCalendar consumption.
 
     Each entry has: id, title (=name), start (=target_date), status, release_type.
-    Releases without a target_date are omitted.
+    Releases without a target_date are omitted — in SQL, not after the query.
+
+    `date_from`/`date_to` bound `target_date`, so a client that sends the range
+    it is displaying gets only that range. The default limit stays at the 500
+    this endpoint has always used, but the total is now advertised, so a client
+    can tell when it has been truncated instead of silently drawing a partial
+    calendar.
     """
     tenant_id = current_user.active_tenant_id
-    releases, _total = await release_service.list_releases(
+    releases, total = await release_service.list_releases(
         db,
         tenant_id,
         date_from=date_from,
         date_to=date_to,
-        limit=500,
-        offset=0,
+        has_target_date=True,
+        date_overlaps_range=True,
+        limit=page.limit,
+        offset=page.offset,
     )
+    set_total_count(response, total)
     return [
         {
             "id": r.id,
@@ -389,30 +400,36 @@ async def get_releases_calendar(
             "release_type": r.release_type,
         }
         for r in releases
-        if r.target_date is not None
     ]
 
 
 @router.get("/timeline")
 async def get_releases_timeline(
+    response: Response,
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    page: Page = Depends(pagination(default_limit=500, max_limit=1000)),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Return releases with their test phases for Gantt / timeline rendering.
 
     Each entry has: release fields + phases list.
+
+    Note this runs three extra queries per release (phases, dependencies,
+    gates), so the cost scales with the window — another reason a caller
+    should send the range it is actually rendering.
     """
     tenant_id = current_user.active_tenant_id
-    releases, _total = await release_service.list_releases(
+    releases, total = await release_service.list_releases(
         db,
         tenant_id,
         date_from=date_from,
         date_to=date_to,
-        limit=500,
-        offset=0,
+        limit=page.limit,
+        offset=page.offset,
     )
+    set_total_count(response, total)
 
     from app.db.models.release_dependency import ReleaseDependency
 
