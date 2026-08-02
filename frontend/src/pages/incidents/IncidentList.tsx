@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -21,8 +21,7 @@ import {
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { IncidentListRow } from '../../types/incident';
 import { SEVERITY_COLOR, SEVERITIES } from '../../utils/incidentSeverity';
-import { systemService } from '../../services/systemService';
-import type { SystemResponse } from '../../types/system';
+import { useAllSystems } from '../../hooks/useAllSystems';
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "incidents"): title, severity, status, detected_at, resolved_at. system_name,
@@ -154,7 +153,10 @@ export default function IncidentList() {
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
   const incidentTemplates = useSelector(selectTemplatesForEntity('incident'));
 
-  const [systems, setSystems] = useState<SystemResponse[]>([]);
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so this filter
+  // dropdown would silently offer a subset.
+  const { systems, truncated: systemsTruncated } = useAllSystems();
 
   const grid = useServerGrid({
     endpoint: 'incidents',
@@ -178,10 +180,6 @@ export default function IncidentList() {
   useEffect(() => {
     dispatch(fetchLifecycleTemplates('incident'));
   }, [dispatch]);
-
-  useEffect(() => {
-    systemService.listSystems().then(setSystems).catch(() => setSystems([]));
-  }, []);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -233,6 +231,9 @@ export default function IncidentList() {
           onChange={(e) => grid.setFilter('system_id', e.target.value)}
           sx={{ minWidth: 180 }}
           disabled={systems.length === 0}
+          helperText={
+            systemsTruncated ? `Only the first ${systems.length} systems are shown.` : undefined
+          }
         >
           <MenuItem value="all">All systems</MenuItem>
           {systems.map((s) => (

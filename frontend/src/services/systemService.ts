@@ -7,9 +7,20 @@ import type {
   SubSystemCreate,
   SubSystemUpdate,
 } from '../types/system';
+import type { Paged } from '../types/pagination';
 
 export const systemService = {
-  listSystems: (): Promise<SystemResponse[]> => api.get('/systems/').then((r) => r.data),
+  listSystems: (params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }): Promise<Paged<SystemResponse>> =>
+    api.get<SystemResponse[]>('/systems/', { params }).then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
 
   getSystem: (id: number): Promise<SystemResponse> => api.get(`/systems/${id}`).then((r) => r.data),
 

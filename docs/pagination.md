@@ -694,6 +694,94 @@ property read with either param name; destructured read, which may span lines; a
 selector parameter; a writer (`fetchX(`), invisible to any reader grep; and a direct
 service call bypassing the slice.
 
+## The rollout: PR C3 (systems) — complete
+
+**All eleven pages are converted.** No list page fetches a capped page and filters it in
+the browser any more.
+
+### This one was shaped differently from the other ten
+
+Only **one** consumer read the systems slice from outside the owning page. The other
+**five called `systemService.listSystems()` directly**, each hand-rolling
+`.then(setX).catch(() => setX([]))` into local state. So the hook replaced five duplicated
+fetches rather than five slice reads, and the scan test needed a **fourth pattern** —
+`systemService\s*\.\s*listSystems\(` — that no previous slice required.
+
+`listSystems()` also took **no params argument at all**, where every other service just had
+an existing object to widen: it needed a parameter added, a `params` object on the axios
+call, and the `Paged` return.
+
+### The task order mattered, measurably
+
+The five direct callers moved onto the hook **before** the service's return type changed.
+When it changed, `tsc` flagged exactly one file — the hook. The other order would have
+broken all five call sites and earned five `.rows` patches that the next task then deleted.
+
+### Three of four columns lost sorting
+
+`GET /systems/` whitelists `name` alone. `description` and `github_repository_url` are
+ordinary data columns, the same shape as `location` on the hosts page: nothing about them
+looks unsortable, and marking one sortable 422s on first click.
+
+## The rules this programme produced
+
+Written down because each cost at least one review round, and several cost a shipped bug.
+
+**1. Converting a page changes what its slice *means* without changing its shape.** Nothing
+type-checks to catch a stale consumer. Sweep before converting — and the sweep must cover
+**five** distinct forms, each of which has been missed at least once here:
+
+```
+(s|state)\.slice\.list          property read, either parameter name
+{ list } = useSelector(...)      destructured read — MAY SPAN LINES
+(alias: RootState) => alias...   an aliased selector parameter
+fetchX(                          a WRITER, invisible to any reader grep
+service\.listX(                  a direct service call, bypassing the slice entirely
+```
+
+Source-scanning guard tests now enforce this for the three slices with many consumers.
+Each keeps a vacuity guard (`files.length > 100`), prefix-free patterns, and
+newline-crossing `\s*` — a single-line pattern found *nothing at all* on the systems slice,
+where both readers use the multi-line form.
+
+**2. A picker must never read a paged slice.** Nine components on environments, four on
+hosts, six on systems. Past three copies of the own-fetch fix, use a shared hook
+(`useAllEnvironments`, `useAllHosts`, `useAllSystems`).
+
+**3. Bind text filters to the hook's draft-aware value**, not the debounced URL state.
+Typing `comp` once left `p`, and **no unit test asserting params-sent catches it**.
+
+**4. Check the sort whitelist per column.** Do not infer from appearance: `location`,
+`description` and `github_repository_url` are ordinary data columns that 422 if marked
+sortable.
+
+**5. Raw `DataGrid` needs `disableColumnFilter` explicitly.** MUI gates the column-menu
+Filter item on that prop alone, not on whether a toolbar is rendered. `DataTable` sets it
+in server mode; raw grids do not.
+
+**6. Optimistic list surgery is wrong once a slice holds a server page.** It edits a 25-row
+window regardless of the active filter, sort or page, and never adjusts `total`. Replace it
+with `refetch()`.
+
+**7. Open the page.** Five defects in this programme were found only by looking at it, every
+one with a fully green suite: case-sensitive sorting, `Release #47`, keystroke clobbering, a
+column filter contradicting its own footer, and a status dropdown that could not reach its
+own rows.
+
+## Still open after the programme
+
+- **`ScopeWindowsTable`** — a twelfth grid with the same client-side-filtering bug, and the
+  one this pattern cannot convert: it filters `window_status` and sorts `days_to_cutoff`,
+  both computed in Python after the query. Needs those restructured into SQL first.
+- **`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a
+  hardcoded `limit=500` and discard the total.
+- **The endpoints listed under *Not yet bounded*** below.
+- **The `useAllX` hooks have no caching or dedup.** Nesting two consumers duplicates the
+  request — `ChangeRequestList` renders `ChangeRequestForm`, so environments and hosts are
+  each fetched twice per page load. Correct, wasteful. An `enabled` argument would be the
+  cheap fix.
+- **Truncation copy is duplicated** across the picker call sites rather than shared.
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a

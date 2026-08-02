@@ -11,24 +11,41 @@ import type {
 
 interface SystemState {
   systems: SystemResponse[];
+  total: number;
   currentSystem: SystemResponse | null;
   subsystems: SubSystemResponse[];
   currentSubSystem: SubSystemResponse | null;
   loading: boolean;
+  /**
+   * The list query's own flag. `loading` is shared by the other thunks, and
+   * an aborted list request on unmount has no successor to clear it —
+   * isolating the list keeps that from hanging every other consumer of the
+   * slice.
+   */
+  listLoading: boolean;
   error: string | null;
 }
 
 const initialState: SystemState = {
   systems: [],
+  total: 0,
   currentSystem: null,
   subsystems: [],
   currentSubSystem: null,
   loading: false,
+  listLoading: false,
   error: null,
 };
 
-export const fetchSystems = createAsyncThunk('system/fetchSystems', () =>
-  systemService.listSystems()
+export const fetchSystems = createAsyncThunk(
+  'system/fetchSystems',
+  (params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: 'asc' | 'desc';
+  }) => systemService.listSystems(params)
 );
 
 export const fetchSystem = createAsyncThunk('system/fetchSystem', (id: number) =>
@@ -88,15 +105,22 @@ const systemSlice = createSlice({
     builder
       // fetchSystems
       .addCase(fetchSystems.pending, (state) => {
-        state.loading = true;
+        state.listLoading = true;
         state.error = null;
       })
       .addCase(fetchSystems.fulfilled, (state, action) => {
-        state.systems = action.payload;
-        state.loading = false;
+        state.systems = action.payload.rows;
+        state.total = action.payload.total;
+        state.listLoading = false;
       })
       .addCase(fetchSystems.rejected, (state, action) => {
-        state.loading = false;
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the spinner flickers off and `error` is set to 'Aborted'
+        // while the real request is still in flight.
+        if (action.meta.aborted) return;
+        state.listLoading = false;
         state.error = action.error.message ?? 'Failed to fetch systems';
       })
       // fetchSystem
@@ -117,8 +141,10 @@ const systemSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(createSystem.fulfilled, (state, action) => {
-        state.systems.push(action.payload);
+      .addCase(createSystem.fulfilled, (state) => {
+        // No longer splices the created row into `state.systems` — that list
+        // is now one server-paged window (current filter/sort/page), not the
+        // whole result set. SystemCatalog calls grid.refetch() itself.
         state.loading = false;
       })
       .addCase(createSystem.rejected, (state, action) => {
@@ -131,8 +157,9 @@ const systemSlice = createSlice({
         state.error = null;
       })
       .addCase(updateSystem.fulfilled, (state, action) => {
-        const idx = state.systems.findIndex((s) => s.id === action.payload.id);
-        if (idx !== -1) state.systems[idx] = action.payload;
+        // No longer splices the updated row into `state.systems` — see the
+        // comment on createSystem.fulfilled above. `currentSystem` (read by
+        // SystemDetail, not the catalog) still needs to reflect the edit.
         if (state.currentSystem?.id === action.payload.id) state.currentSystem = action.payload;
         state.loading = false;
       })
@@ -146,7 +173,8 @@ const systemSlice = createSlice({
         state.error = null;
       })
       .addCase(deleteSystem.fulfilled, (state, action) => {
-        state.systems = state.systems.filter((s) => s.id !== action.payload);
+        // No longer filters the deleted row out of `state.systems` — see the
+        // comment on createSystem.fulfilled above.
         if (state.currentSystem?.id === action.payload) state.currentSystem = null;
         state.loading = false;
       })

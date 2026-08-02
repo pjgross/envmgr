@@ -39,10 +39,11 @@ import { environmentService } from '../../services/environmentService';
 import { deploymentService } from '../../services/deploymentService';
 import { releaseService } from '../../services/releaseService';
 import { systemService } from '../../services/systemService';
+import { useAllSystems } from '../../hooks/useAllSystems';
 import type { EnvironmentResponse } from '../../types/environment';
 import type { Deployment } from '../../types/deployment';
 import type { ReleaseListItemResponse } from '../../types/release';
-import type { SystemResponse, SubSystemResponse } from '../../types/system';
+import type { SubSystemResponse } from '../../types/system';
 import type { IncidentCreate, IncidentUpdate } from '../../types/incident';
 
 // ─── helper ────────────────────────────────────────────────────────────────
@@ -99,7 +100,10 @@ export default function IncidentForm() {
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [releases, setReleases] = useState<ReleaseListItemResponse[]>([]);
-  const [systems, setSystems] = useState<SystemResponse[]>([]);
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so this picker would
+  // silently offer a subset.
+  const { systems, truncated: systemsTruncated } = useAllSystems();
   const [subsystems, setSubsystems] = useState<SubSystemResponse[]>([]);
 
   // loading state for initial fetch on edit
@@ -117,7 +121,6 @@ export default function IncidentForm() {
     // Explicit limit: the server default is 50, which silently omits releases
     // from a picker with no indication any are missing.
     releaseService.list({ limit: 200 }).then((paged) => setReleases(paged.rows)).catch(() => setReleases([]));
-    systemService.listSystems().then(setSystems).catch(() => setSystems([]));
   }, [dispatch]);
 
   // fetch subsystems when system changes
@@ -422,7 +425,14 @@ export default function IncidentForm() {
             }}
             isOptionEqualToValue={(o, v) => o.id === v.id}
             renderInput={(params) => (
-              <TextField {...params} label="Affected system" size="small" />
+              <TextField
+                {...params}
+                label="Affected system"
+                size="small"
+                helperText={
+                  systemsTruncated ? `Only the first ${systems.length} systems are shown.` : undefined
+                }
+              />
             )}
           />
 

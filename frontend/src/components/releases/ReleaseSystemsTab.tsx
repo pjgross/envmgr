@@ -11,11 +11,10 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { releaseService } from '../../services/releaseService';
-import { systemService } from '../../services/systemService';
+import { useAllSystems } from '../../hooks/useAllSystems';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import type { ReleaseSystemResponse } from '../../types/release';
-import type { SystemResponse } from '../../types/system';
 import {
   RELEASE_SYSTEM_ROLE_LABELS,
   RELEASE_SYSTEM_ROLE_COLORS,
@@ -40,7 +39,10 @@ export default function ReleaseSystemsTab({ releaseId }: Props) {
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [rows, setRows] = useState<ReleaseSystemResponse[]>([]);
-  const [allSystems, setAllSystems] = useState<SystemResponse[]>([]);
+  // Not the shared systems slice: since the C3 conversion (a later task) it
+  // will become SystemCatalog's current filtered page, so this add-system
+  // dropdown would silently offer a subset.
+  const { systems: allSystems, truncated: systemsTruncated } = useAllSystems();
   const [loading, setLoading] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
@@ -59,7 +61,6 @@ export default function ReleaseSystemsTab({ releaseId }: Props) {
 
   useEffect(() => {
     load();
-    systemService.listSystems().then(setAllSystems).catch(() => setAllSystems([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [releaseId]);
 
@@ -171,6 +172,9 @@ export default function ReleaseSystemsTab({ releaseId }: Props) {
             <TextField
               select label="System" fullWidth value={systemId}
               onChange={(e) => setSystemId(e.target.value === '' ? '' : Number(e.target.value))}
+              helperText={
+                systemsTruncated ? `Only the first ${allSystems.length} systems are shown.` : undefined
+              }
             >
               {availableSystems.map((s) => (
                 <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>
