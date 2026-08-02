@@ -1,6 +1,6 @@
 {
   "releases": {
-    "sortable": ["name", "release_type", "release_kind", "status", "target_date", "created_at"],
+    "sortable": ["name", "release_type", "release_kind", "status", "target_date", "created_at", "scope_deadline"],
     "default": "created_at",
     "default_dir": "desc"
   },

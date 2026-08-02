@@ -10,11 +10,11 @@ Field-permissions contract (GET/PUT/transition on a single release):
   The dedicated /lifecycle endpoint remains available for clients that need the
   full state-machine definition (e.g. to drive transition UIs).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, status, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import case, func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
@@ -97,6 +97,16 @@ RELEASE_SORTS = {
     "status": Release.status,
     "target_date": Release.target_date,
     "created_at": Release.created_at,
+    # Sorting by the scope-window cutoff. `days_to_cutoff` is computed in
+    # Python after the query so it cannot be sorted on, but it is monotonic
+    # in `scope_deadline` — and NULL exactly when the release is shipped or
+    # has no deadline. Folding "shipped" into NULL here lets apply_sort's
+    # existing NULL pinning reproduce the UI's "shipped and no-cutoff last"
+    # grouping, with no CASE bucket in the ORDER BY and no date arithmetic.
+    "scope_deadline": case(
+        (Release.actual_date.isnot(None), null()),
+        else_=Release.scope_deadline,
+    ),
 }
 
 # ── Additional sub-resource routers mounted at /phases, /gates etc. ──────────
@@ -163,12 +173,14 @@ async def list_releases(
     search: Optional[str] = Query(None),
     release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
     system_id: Optional[int] = Query(None),
+    scope_window: Optional[str] = Query(None, pattern="^(actionable|all)$"),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
+    now = datetime.now(timezone.utc)
     releases, total = await release_service.list_releases(
         db,
         tenant_id,
@@ -180,6 +192,8 @@ async def list_releases(
         search=search,
         release_kind=release_kind,
         system_id=system_id,
+        scope_window=scope_window,
+        now=now,
         limit=page.limit,
         offset=page.offset,
         sort=sort,
@@ -230,9 +244,7 @@ async def list_releases(
     gate_counts = {row.release_id: row.cnt for row in gate_rows}
 
     # Overdue criterion counts per release
-    from datetime import datetime, timezone
     from app.db.models.gate_criterion import GateCriterion
-    now = datetime.now(timezone.utc)
     overdue_rows = (
         await db.execute(
             select(ReleaseGate.release_id, func.count(GateCriterion.id).label("cnt"))

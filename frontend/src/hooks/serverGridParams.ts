@@ -44,15 +44,27 @@ export function isSortable(endpoint: EndpointKey, field: string): boolean {
  * it to "desc" — so a first click on a header that omitted the direction would
  * render descending.
  */
+export interface DefaultSort {
+  field: string;
+  dir: SortDir;
+}
+
 export function resolveSort(
   endpoint: EndpointKey,
   sortBy: string | null,
-  sortDir: string | null
+  sortDir: string | null,
+  defaultSort?: DefaultSort
 ): { sort_by: string; sort_dir: SortDir } {
   const wl = whitelistFor(endpoint);
+  // A page default only applies when the URL is silent, and is validated
+  // against the whitelist exactly like a URL-supplied sort_by — an unknown
+  // field is a 422 at the server, so it must never leave the browser.
+  const pageDefault =
+    defaultSort && wl.sortable.includes(defaultSort.field) ? defaultSort : undefined;
   return {
-    sort_by: sortBy && wl.sortable.includes(sortBy) ? sortBy : wl.default,
-    sort_dir: sortDir === 'asc' || sortDir === 'desc' ? sortDir : wl.default_dir,
+    sort_by: sortBy && wl.sortable.includes(sortBy) ? sortBy : pageDefault?.field ?? wl.default,
+    sort_dir:
+      sortDir === 'asc' || sortDir === 'desc' ? sortDir : pageDefault?.dir ?? wl.default_dir,
   };
 }
 
@@ -70,8 +82,15 @@ export function buildParams(args: {
    * one list of free-text inputs rather than two that can drift.
    */
   textKeys?: string[];
+  /** Applied only when the URL carries no sort; whitelist-validated. */
+  defaultSort?: DefaultSort;
 }): ServerGridParams {
-  const { sort_by, sort_dir } = resolveSort(args.endpoint, args.sortBy, args.sortDir);
+  const { sort_by, sort_dir } = resolveSort(
+    args.endpoint,
+    args.sortBy,
+    args.sortDir,
+    args.defaultSort
+  );
   const textKeys = new Set(args.textKeys ?? []);
   const params: ServerGridParams = {
     limit: args.pageSize,

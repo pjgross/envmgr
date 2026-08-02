@@ -250,6 +250,8 @@ async def list_releases(
     search: Optional[str] = None,
     release_kind: Optional[str] = None,
     system_id: Optional[int] = None,
+    scope_window: Optional[str] = None,
+    now: Optional[datetime] = None,
     limit: int = 50,
     offset: int = 0,
     sort: Optional[Sort] = None,
@@ -283,6 +285,16 @@ async def list_releases(
         base_where.append(Release.raised_by == owner_id)
     if search is not None:
         base_where.append(Release.name.ilike(f"%{search}%"))
+    if scope_window == "actionable":
+        # `open` or `closing_soon` — both mean the cutoff has not passed.
+        # `closed` is now >= scope_deadline; `shipped` and `no_cutoff` are
+        # excluded by the two null checks. CLOSING_SOON_DAYS never enters
+        # SQL, so there is no date arithmetic here and nothing that differs
+        # between PostgreSQL and SQLite.
+        cutoff = now if now is not None else datetime.now(timezone.utc)
+        base_where.append(Release.actual_date.is_(None))
+        base_where.append(Release.scope_deadline.isnot(None))
+        base_where.append(Release.scope_deadline > cutoff)
 
     count_stmt = select(func.count()).select_from(Release).where(*base_where)
     total = (await db.execute(count_stmt)).scalar_one()

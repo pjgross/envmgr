@@ -376,6 +376,8 @@ open is marked as such.
   after the query, so unlike the eight pages above it **cannot** be converted by this pattern at
   all without restructuring those into SQL first; that restructure is out of scope here. Its grid
   can still drop rows past 200 releases, same as the pickers.
+  **This assessment was wrong, and the table was converted after all — see
+  *The twelfth grid* below.** No restructure into SQL was needed.
 - **One `loading` boolean per slice was the structural weak point — fixed for the release slice
   in `5eed49a`.** Each slice had a single flag shared by roughly twenty thunks. Abort-based
   cancellation introduces a thunk that can end *without* a successor raising the flag again, which
@@ -763,16 +765,78 @@ in server mode; raw grids do not.
 window regardless of the active filter, sort or page, and never adjusts `total`. Replace it
 with `refetch()`.
 
-**7. Open the page.** Five defects in this programme were found only by looking at it, every
+**7. Open the page.** Six defects in this programme were found only by looking at it, every
 one with a fully green suite: case-sensitive sorting, `Release #47`, keystroke clobbering, a
-column filter contradicting its own footer, and a status dropdown that could not reach its
-own rows.
+column filter contradicting its own footer, a status dropdown that could not reach its
+own rows, and a component-dependency tab that did not refresh after a create. The last was
+found by the user, not by us.
+
+## The twelfth grid: `ScopeWindowsTable`
+
+This table was twice recorded here as unconvertible — it filters `window_status` and sorts
+`days_to_cutoff`, both computed in Python after the query, and the note said it needed a
+`CASE` expression and a date diff with dual-engine date-arithmetic risk.
+
+**That was wrong, and the way it was wrong is the transferable part: nobody had read the
+function.** `backend/app/services/scope_window.py` is a pure function of `(scope_deadline,
+actual_date, now)`, and reading it collapses both problems.
+
+**The filter is a comparison, not a computation.** "Actionable" means `window_status` is
+`open` or `closing_soon`. Working back through `compute_scope_window`, both mean exactly:
+
+```
+actual_date IS NULL AND scope_deadline IS NOT NULL AND scope_deadline > :now
+```
+
+`closed` is `now >= scope_deadline`; `shipped` and `no_cutoff` are excluded by the two null
+checks; and the `open`/`closing_soon` split is irrelevant because both are actionable, so
+`CLOSING_SOON_DAYS` never enters the SQL. One bound parameter, three comparisons, no
+`EXTRACT`, no `julianday`, no dialect divergence.
+
+**Sorting by `days_to_cutoff` is sorting by `scope_deadline`.** `days_to_cutoff` is
+`(scope_deadline - now).days` for a fixed `now`, so it is monotonic in the deadline —
+ordering by one is ordering by the other. This is not merely convenient, it dodges a real
+bug: Python's `timedelta.days` **floors** toward negative infinity while PostgreSQL's
+`EXTRACT` and SQLite's `CAST(julianday(...) AS INTEGER)` both truncate toward zero, so a
+literal port would have silently changed the value for every past deadline.
+
+**Null-ness carries the grouping.** The old order was "soonest cutoff first, shipped and
+no-cutoff last", which held because `days_to_cutoff` is `NULL` for both. Rather than
+reproduce that with a `CASE` bucket in the `ORDER BY` — which `apply_sort` cannot express —
+the whitelist entry maps to an expression that is null exactly when `days_to_cutoff` is:
+
+```python
+"scope_deadline": case((Release.actual_date.isnot(None), null()), else_=Release.scope_deadline)
+```
+
+`apply_sort` already pins NULLs last ascending and first descending, so the two groups fall
+to the end automatically, with no ordering code this page alone would carry. The grouping
+the UI wants *is* null-ordering, once "shipped" is folded into the null. `apply_sort` infers
+`DateTime` from the `else_` branch, so `_sort_key` does not wrap it in `lower()`.
+
+Two things this conversion needed that the other eleven did not, both now shared:
+
+- **`useServerGrid` gained `defaultSort`.** This is the first page whose default order
+  differs from its endpoint's — `GET /releases` declares `created_at`/`desc`, the table
+  opens on cutoff-ascending. It applies only when the URL is silent, so a shared link always
+  wins, and it is whitelist-validated exactly like a URL-supplied `sort_by`. It is passed to
+  **both** `resolveSort` call sites: without the one in `onSortModelChange`, clearing the
+  sort on a third header click would jump to the endpoint default rather than the page's.
+- **A filter whose value collides with the sentinel.** `buildParams` drops the literal
+  `'all'` as a select's "no selection" value. The window toggle's two states are
+  "actionable" and "all", so routing the second through the URL as `all` made both states
+  build **byte-identical params** — and the fetch effect keys on the resolved params, so the
+  grid would never have refetched. The URL spells it `any` and the API's `all` is restored
+  at the fetch boundary. **Any future filter whose vocabulary includes `all` as a real value
+  hits this**; the alternative is `buildParams`' `textKeys` escape hatch, which today is fed
+  from `debounceKeys` and so implies debouncing.
+
+`window_status` and `days_to_cutoff` remain computed in Python and are now marked
+`sortable: false` with `ComputedColumnHeader`. The cutoff ordering lives on the adjacent
+Scope deadline header, which is honest because the two orders are the same.
 
 ## Still open after the programme
 
-- **`ScopeWindowsTable`** — a twelfth grid with the same client-side-filtering bug, and the
-  one this pattern cannot convert: it filters `window_status` and sorts `days_to_cutoff`,
-  both computed in Python after the query. Needs those restructured into SQL first.
 - **`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a
   hardcoded `limit=500` and discard the total.
 - **The endpoints listed under *Not yet bounded*** below.
