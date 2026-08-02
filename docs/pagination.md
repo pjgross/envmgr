@@ -873,16 +873,51 @@ Three further things came out of it:
 gates), so its cost scales with the window. Not fixed here; the range now bounds it in
 practice, which is what made it tolerable to leave.
 
+## Coalescing the picker fetches
+
+`useAllSystems` / `useAllEnvironments` / `useAllHosts` were byte-for-byte identical apart
+from the service each called, and every mounted consumer fired its own request. The shared
+half now lives in `useSharedList`.
+
+**The recorded count was wrong.** This doc said environments and hosts were "each fetched
+twice per page load" on `/change-requests`. Measured in the browser with coalescing
+switched off, it was **four each — eight requests**, because the page mounts three
+consumers (`ChangeRequestList`, `ChangeRequestForm`, `ChangeRequestEditDialog`; the dialogs
+take `open` as a prop rather than being conditionally mounted) and React's development
+double-invoke doubles that again. After: **two requests.** Both numbers came from the
+network panel, not from reading the code — the estimate in the code-reading was half the
+truth.
+
+**It coalesces in-flight requests; it is deliberately not a cache.** The map entry is
+erased the moment the request settles, so a consumer mounting later always re-fetches. A
+picker that keeps serving a list from before the user created a row is the exact bug
+reported here against the component-dependency tab, and a cache would have reintroduced it
+across every picker at once. Only requests overlapping in time are collapsed — which is the
+whole of the actual defect.
+
+Two implementation notes worth keeping:
+
+- **The shared promise never rejects.** The failure is folded into its value at the point of
+  creation, where exactly one handler is guaranteed. If the shared promise could reject,
+  whether every subscriber attached a handler before it settled would be a timing question,
+  and losing that race is an unhandled rejection. Attaching the handler once removes the
+  race rather than making it unlikely.
+- **The entry clears on failure as well as success**, so one failed fetch cannot poison the
+  key for the rest of the session. There is a test for exactly that, because the natural
+  implementation — clearing in `.then` — passes every other test in the file.
+
+`load` must be a module-level constant, not an inline closure: it is deliberately excluded
+from the effect's dependencies, since a fresh closure each render would re-fire the fetch on
+every render. All three hooks define theirs at module scope.
+
 ## Still open after the programme
 
 - ~~**`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a
   hardcoded `limit=500` and discard the total.~~ **Fixed — and the truncation turned out to
   be the smaller half of the problem.** See *The calendar's range was never applied* below.
 - **The endpoints listed under *Not yet bounded*** below.
-- **The `useAllX` hooks have no caching or dedup.** Nesting two consumers duplicates the
-  request — `ChangeRequestList` renders `ChangeRequestForm`, so environments and hosts are
-  each fetched twice per page load. Correct, wasteful. An `enabled` argument would be the
-  cheap fix.
+- ~~**The `useAllX` hooks have no caching or dedup.**~~ **Fixed** — see *Coalescing the
+  picker fetches* below. The recorded count was wrong: it was four each, not two.
 - **Truncation copy is duplicated** across the picker call sites rather than shared.
 
 ## Bounded so far
