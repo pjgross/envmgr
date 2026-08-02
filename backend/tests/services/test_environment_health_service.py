@@ -1,4 +1,6 @@
 import pytest
+from app.core.pagination import Page
+from app.db.models.environment_health import EnvironmentHealthStatus
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from sqlalchemy import select as _sel
@@ -123,8 +125,75 @@ async def test_history_newest_first(db_session, tenant):
     t0 = datetime(2026, 6, 1, tzinfo=UTC)
     await svc.record_sample(db_session, tenant.id, env.id, "up", "x", recorded_at=t0)
     await svc.record_sample(db_session, tenant.id, env.id, "down", "x", recorded_at=t0 + timedelta(minutes=5))
-    hist = await svc.get_history(db_session, tenant.id, env.id)
+    hist, total = await svc.get_history(db_session, tenant.id, env.id, Page(limit=50, offset=0))
     assert [h.status for h in hist] == ["down", "up"]
+    assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_history_pages_tile_exactly_over_tied_samples(db_session, tenant):
+    """Paging over rows that all share a `recorded_at` returns each exactly once.
+
+    Note on what this does NOT prove: removing the `id` tiebreaker from the
+    query leaves this test green on **both** engines. Tied rows come back in a
+    stable order in practice, so the duplicate-and-drop failure cannot be forced
+    from a test — it is unspecified behaviour that happens to be well-behaved
+    here, not guaranteed behaviour. The structural assertion below is what
+    actually guards the tiebreaker; this one guards the tiling property.
+    """
+    env = await _env(db_session, tenant.id)
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    for i in range(6):
+        await svc.record_sample(db_session, tenant.id, env.id, "up", f"src-{i}", recorded_at=t0)
+
+    seen = []
+    for offset in (0, 2, 4):
+        rows, total = await svc.get_history(
+            db_session, tenant.id, env.id, Page(limit=2, offset=offset)
+        )
+        assert total == 6
+        seen.extend(r.id for r in rows)
+
+    assert len(seen) == 6
+    assert len(set(seen)) == 6, "a sample appeared on two pages"
+
+
+def test_history_orders_by_a_unique_key():
+    """A structural assertion, deliberately.
+
+    `recorded_at` is supplied by whatever pushes the sample, so ties are
+    ordinary — several sources pushing on the same tick, or a pusher sending a
+    rounded timestamp. Without a unique tiebreaker, LIMIT/OFFSET is free to
+    duplicate rows across pages and drop others.
+
+    This repo's standing guidance is to assert rendered behaviour rather than
+    emitted SQL, because a SQL-token assertion can stay green while users see
+    the wrong thing. That warning applies to behaviour a test *can* observe.
+    Here it cannot: see the test above, where removing the tiebreaker changes
+    nothing observable on either engine. So the clause itself is the only thing
+    left to assert, and asserting it is better than pretending the test above
+    covers it.
+    """
+    # The service's OWN query, not one rebuilt here — rebuilding it would
+    # assert only that the test wrote a tiebreaker, which is a tautology.
+    compiled = str(svc.history_query(tenant_id=1, environment_id=1))
+    assert "recorded_at DESC" in compiled
+    assert "id DESC" in compiled, "the ORDER BY must end in a unique key"
+
+
+@pytest.mark.asyncio
+async def test_history_total_describes_the_whole_history_not_the_page(db_session, tenant):
+    env = await _env(db_session, tenant.id)
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    for i in range(5):
+        await svc.record_sample(
+            db_session, tenant.id, env.id, "up", "x", recorded_at=t0 + timedelta(minutes=i)
+        )
+
+    rows, total = await svc.get_history(db_session, tenant.id, env.id, Page(limit=2, offset=0))
+
+    assert len(rows) == 2
+    assert total == 5
 
 
 @pytest.mark.asyncio

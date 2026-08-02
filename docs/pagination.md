@@ -910,6 +910,45 @@ Two implementation notes worth keeping:
 from the effect's dependencies, since a fresh closure each render would re-fire the fetch on
 every render. All three hooks define theirs at module scope.
 
+## Wiring the last hand-rolled limit
+
+`GET /environments/{env_id}/health/history` was recorded here as "one `fetch_page` /
+`set_total_count` swap away". It was — but two things came out of it that the description
+did not contain, and both are the interesting part.
+
+**The ordering had no unique tiebreaker.** The query ordered by `recorded_at DESC` alone.
+Samples are machine-pushed and `recorded_at` is supplied by the *caller*, so ties are
+ordinary rather than exotic: several sources pushing on the same tick, or a pusher sending a
+rounded timestamp. Adding `OFFSET` to that would have been actively wrong. The standing rule
+already covers this; what it does not say is that adding pagination to an existing
+hand-rolled limit is exactly when the rule starts to bite, because `LIMIT` alone never
+exposed it.
+
+**A behavioural test for that tiebreaker is not possible here, and pretending otherwise
+would have shipped a test that guards nothing.** Removing the `id` tiebreaker leaves a
+paging test green on *both* engines — tied rows come back in a stable order in practice.
+That is unspecified behaviour that happens to be well-behaved, not a guarantee. So the guard
+is structural: `history_query()` is exposed and the test asserts its compiled `ORDER BY`
+ends in a unique key.
+
+This is a deliberate exception to this repo's rule against asserting emitted SQL, and the
+distinction is worth keeping straight. That rule exists because a SQL-token assertion can
+stay green while users see the wrong order — it was written after exactly that happened with
+case-folding. It applies to behaviour a test **can** observe. Here it cannot, so the choice
+is a structural assertion or no coverage at all.
+
+The first attempt at that structural test rebuilt the query inside the test and asserted the
+`ORDER BY` on the copy — which asserts only that the test author wrote a tiebreaker. It
+passed with the tiebreaker removed from the service. **Exposing the real query builder is
+what turned a tautology into a guard**; the mutation now fails as it should.
+
+Two consumers also discarded the total, and one of them mattered: `HealthDashboard` fetched
+the capped overview, dropped `X-Total-Count`, then derived its alert banner by filtering the
+rows client-side. Past the cap, environments could be alerting without appearing in the
+banner — the same client-side-filtering shape the eleven grids were converted out of, in a
+page nobody had looked at because it is not a list page. Both consumers now say when their
+answer is partial.
+
 ## Still open after the programme
 
 - ~~**`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a
@@ -1115,13 +1154,13 @@ missed it. `GET /builds` used to be the other member of this group — it took i
 `limit: int = Query(100, le=500)` with every filter running in SQL before the `LIMIT`, so it
 windowed correctly but never learned about `X-Total-Count` — until sub-project C1 wired it onto
 `pagination(default_limit=100, max_limit=500)` and moved it into the bounded table above. It's
-kept as the model for what "wiring, not a query restructure" looks like for the one endpoint
-still in this group:
+kept as the model for what "wiring, not a query restructure" looks like.
 
-- `GET /environments/{env_id}/health/history` (`environment_health.py`) — takes
-  `limit: int = Query(50, ge=1, le=500)`. Correctly windowed, no total exposed. One
-  `fetch_page`/`set_total_count` swap away from the shared primitive, exactly as `GET /builds`
-  was before this pass.
+**This group is now empty.** `GET /environments/{env_id}/health/history` was its last member
+and has been wired onto `pagination(default_limit=50, max_limit=500)` — keeping its own
+contract rather than adopting the shared 500/1000, since a health timeline is read by a
+human. Two things it turned up that "just wiring" did not predict, both written up under
+*Wiring the last hand-rolled limit* below.
 
 **Growth-bearing, not yet bounded.** Unlike the groups above, nothing caps these structurally, and
 unlike the "blocked" group, there is no Python filtering standing in the way — every one does its

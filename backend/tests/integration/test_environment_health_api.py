@@ -166,3 +166,52 @@ async def test_overview_tenant_scoped(authed_client, other_tenant_environment_wi
     ov = await authed_client.get("/api/v1/environments/health")
     assert ov.status_code == 200
     assert all(r["environment_id"] != other_tenant_environment_with_down_sample for r in ov.json())
+
+
+@pytest.mark.asyncio
+async def test_history_advertises_the_total_and_honours_the_window(
+    authed_client, health_api_key, demo_environment_id
+):
+    """The endpoint used to take a bare `limit` and return no total, so a client
+    holding a partial history had no way to know it was partial."""
+    for i in range(4):
+        await authed_client.post(
+            f"/api/v1/environments/{demo_environment_id}/health",
+            json={"status": "up", "source": f"src-{i}"},
+            headers={"X-Api-Key": health_api_key},
+        )
+
+    windowed = await authed_client.get(
+        f"/api/v1/environments/{demo_environment_id}/health/history",
+        params={"limit": 2},
+    )
+    assert windowed.status_code == 200
+    body = windowed.json()
+    assert len(body) == 2
+    total = int(windowed.headers["X-Total-Count"])
+    # The total must describe the whole history, not the page just returned —
+    # returning len(rows) here would satisfy a test that only checked presence.
+    assert total >= 4
+    assert total > len(body)
+
+    # And the second page continues rather than repeating the first.
+    second = await authed_client.get(
+        f"/api/v1/environments/{demo_environment_id}/health/history",
+        params={"limit": 2, "offset": 2},
+    )
+    assert second.status_code == 200
+    assert {r["id"] for r in second.json()}.isdisjoint({r["id"] for r in body})
+
+
+@pytest.mark.asyncio
+async def test_history_rejects_a_limit_beyond_its_own_cap(
+    authed_client, demo_environment_id
+):
+    """This endpoint keeps its own 500 cap rather than the shared 1000. A
+    rejected value is a 422, never a silent clamp — the same contract the
+    pagination primitive applies everywhere else."""
+    r = await authed_client.get(
+        f"/api/v1/environments/{demo_environment_id}/health/history",
+        params={"limit": 501},
+    )
+    assert r.status_code == 422

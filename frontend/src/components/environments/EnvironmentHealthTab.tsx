@@ -74,6 +74,7 @@ interface Props {
 
 export default function EnvironmentHealthTab({ envId }: Props) {
   const [samples, setSamples] = useState<HealthSample[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -82,16 +83,18 @@ export default function EnvironmentHealthTab({ envId }: Props) {
     setFetchError(null);
     environmentHealthService
       .history(envId)
-      .then((data) => {
-        // Ensure newest-first order (the API returns newest-first, but guard just in case)
-        const sorted = [...data].sort(
-          (a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()
-        );
-        setSamples(sorted);
+      .then(({ rows, total: serverTotal }) => {
+        // Rendered in the order the server returned. The previous re-sort by
+        // recorded_at alone is now actively wrong: the query orders by
+        // (recorded_at, id), so re-sorting on the timestamp can shuffle tied
+        // samples into an order the paging does not share.
+        setSamples(rows);
+        setTotal(serverTotal);
         setFetchError(null);
       })
       .catch((err: unknown) => {
         setSamples([]);
+        setTotal(0);
         setFetchError(err instanceof Error ? err.message : 'Failed to load health data');
       })
       .finally(() => {
@@ -154,6 +157,11 @@ export default function EnvironmentHealthTab({ envId }: Props) {
         <Typography variant="h6" sx={{ mb: 1 }}>
           Status History
         </Typography>
+        {samples.length < total && (
+          <Typography variant="caption" color="text.secondary">
+            Showing the {samples.length} most recent of {total} samples.
+          </Typography>
+        )}
         <Divider sx={{ mb: 1.5 }} />
 
         {samples.length === 0 ? (
