@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
 import { environmentService } from '../services/environmentService';
+import { useSharedList } from './useSharedList';
 import type { EnvironmentResponse } from '../types/environment';
 
 // `GET /environments/` defaults to 500 server-side; asked for explicitly so
 // the number a picker can see is visible at this call site rather than
 // implicit in the endpoint.
 const LIMIT = 500;
+
+// Module-level, so `useSharedList` can safely keep it out of its effect deps.
+const load = () => environmentService.listEnvironments({ limit: LIMIT });
 
 /**
  * Every environment, for a picker.
@@ -14,6 +17,9 @@ const LIMIT = 500;
  * `EnvironmentList`'s current filtered page, so a dropdown reading it would
  * silently offer a subset. Nine components needed this; the shared hook exists
  * so a tenth is not written by copy-paste.
+ *
+ * Consumers mounting in the same commit share one request — see
+ * `useSharedList`, which coalesces in-flight fetches without caching them.
  *
  * `truncated` is true when the server has more than we asked for — a picker
  * that is quietly missing options is the bug this programme exists to remove,
@@ -24,28 +30,6 @@ export function useAllEnvironments(): {
   loading: boolean;
   truncated: boolean;
 } {
-  const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    environmentService
-      .listEnvironments({ limit: LIMIT })
-      .then(({ rows, total }) => {
-        setEnvironments(rows);
-        setTotal(total);
-      })
-      .catch(() => {
-        setEnvironments([]);
-        setTotal(0);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  // Honest, not a proxy: `environments.length === LIMIT` would be wrong the
-  // moment a tenant's count happens to land exactly on the limit.
-  const truncated = environments.length < total;
-
-  return { environments, loading, truncated };
+  const { rows, loading, truncated } = useSharedList<EnvironmentResponse>('environments', load);
+  return { environments: rows, loading, truncated };
 }
