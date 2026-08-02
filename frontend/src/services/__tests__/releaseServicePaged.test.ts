@@ -47,3 +47,22 @@ describe('releaseService.list', () => {
     expect(result.total).toBe(312);
   });
 });
+
+describe('releaseService.listCalendar', () => {
+  beforeEach(() => mockGet.mockReset());
+
+  it("sends the range as date_from/date_to — the names the endpoint declares", async () => {
+    // This shipped as `from`/`to`, which FastAPI ignores. The calendar re-fetched
+    // on every month navigation and got the same unranged set back every time;
+    // it looked correct only because FullCalendar hides what falls outside the
+    // visible range. A test asserting merely that a GET happened would have
+    // stayed green throughout.
+    mockGet.mockResolvedValue({ data: [], headers: {} });
+
+    await releaseService.listCalendar('2026-06-01', '2026-07-31');
+
+    expect(mockGet).toHaveBeenCalledWith('/releases/calendar', {
+      params: { date_from: '2026-06-01', date_to: '2026-07-31' },
+    });
+  });
+});

@@ -147,8 +147,8 @@ export interface ReleaseListFilters {
   status?: string;
   release_type?: string;
   release_kind?: ReleaseKind;
-  from_date?: string;
-  to_date?: string;
+  date_from?: string;
+  date_to?: string;
   system_id?: number | string;
   search?: string;
   /**

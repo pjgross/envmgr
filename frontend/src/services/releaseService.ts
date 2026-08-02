@@ -77,8 +77,12 @@ export const releaseService = {
     api.get(`/releases/${id}/lifecycle`).then((r) => r.data),
 
   // --- Calendar / Timeline ---
+  // The endpoint's parameters are date_from/date_to. Sending from/to meant
+  // FastAPI ignored them and every month the user navigated to re-fetched the
+  // same unranged set, which looked correct only because FullCalendar hides
+  // what falls outside the visible range.
   listCalendar: (from: string, to: string): Promise<ReleaseCalendarEntry[]> =>
-    api.get('/releases/calendar', { params: { from, to } }).then((r) => r.data),
+    api.get('/releases/calendar', { params: { date_from: from, date_to: to } }).then((r) => r.data),
 
   listTimeline: (filters: ReleaseListFilters = {}): Promise<ReleaseTimelineEntry[]> =>
     api.get('/releases/timeline', { params: filters }).then((r) => r.data),
