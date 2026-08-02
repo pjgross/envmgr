@@ -10,7 +10,7 @@ Field-permissions contract (GET/PUT/transition on a single release):
   The dedicated /lifecycle endpoint remains available for clients that need the
   full state-machine definition (e.g. to drive transition UIs).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, status, UploadFile
@@ -173,12 +173,14 @@ async def list_releases(
     search: Optional[str] = Query(None),
     release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
     system_id: Optional[int] = Query(None),
+    scope_window: Optional[str] = Query(None, pattern="^(actionable|all)$"),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
+    now = datetime.now(timezone.utc)
     releases, total = await release_service.list_releases(
         db,
         tenant_id,
@@ -190,6 +192,8 @@ async def list_releases(
         search=search,
         release_kind=release_kind,
         system_id=system_id,
+        scope_window=scope_window,
+        now=now,
         limit=page.limit,
         offset=page.offset,
         sort=sort,
@@ -240,9 +244,7 @@ async def list_releases(
     gate_counts = {row.release_id: row.cnt for row in gate_rows}
 
     # Overdue criterion counts per release
-    from datetime import datetime, timezone
     from app.db.models.gate_criterion import GateCriterion
-    now = datetime.now(timezone.utc)
     overdue_rows = (
         await db.execute(
             select(ReleaseGate.release_id, func.count(GateCriterion.id).label("cnt"))
