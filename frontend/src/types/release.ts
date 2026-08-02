@@ -151,6 +151,11 @@ export interface ReleaseListFilters {
   to_date?: string;
   system_id?: number | string;
   search?: string;
+  /**
+   * `actionable` narrows to releases whose scope window is open or closing
+   * soon. `all` (and omitting it) applies no window filter.
+   */
+  scope_window?: 'actionable' | 'all';
   limit?: number;
   offset?: number;
   sort_by?: string;
