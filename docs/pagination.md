@@ -949,6 +949,64 @@ banner — the same client-side-filtering shape the eleven grids were converted 
 page nobody had looked at because it is not a list page. Both consumers now say when their
 answer is partial.
 
+## The client-side-filtering sweep
+
+The C3 rollout swept **list pages**. `HealthDashboard` was caught later, in the health-history
+work, doing exactly what those eleven grids did — filtering a capped, total-discarding fetch
+— and it survived the sweep only because it is not a list page. That prompted this sweep of
+everything else.
+
+**The pattern is not "filtering" specifically.** Three different operations degrade silently
+when applied to a capped collection, and only the first was being looked for:
+
+| Operation | How it fails past the cap |
+|---|---|
+| `.filter()` | rows silently absent; a count that looks plausible |
+| `.find()` by id | the entity renders as `—` or blank — **information lost, not just hidden** |
+| `.length` | a wrong number presented as a fact |
+
+The `.find()` case is the worst and was the one nobody had considered: a truncation banner
+cannot fix it, because the user is not choosing from a list, they are looking at a value that
+has quietly become an em dash.
+
+### Findings
+
+Verified against the endpoint caps, in severity order:
+
+1. **The shared tenant-users collection** (`/tenant/users`, capped 500) feeds three
+   consumers. `RaidTab` resolved an item's owner name from it — so past 500 users, owners
+   rendered as `—`. `BookingForm` filters it to *active* users, so the number of visible
+   options bears no relation to the cap; `RaidItemDialog` offers it whole. This is the one
+   most likely to be hit in a real tenant, because it is tenant-wide rather than per-entity.
+   **Fixed.**
+2. **`RaidTab` tab-splitting** — `items.filter(item_type)` over `/releases/{id}/raid`
+   (capped 500). Per-release, so it needs a very large RAID log. **Recorded, not fixed.**
+3. **`ScopeTable` project filter** — `changes.filter(project_code)` over
+   `/releases/{id}/changes` (capped 500). Most plausible for an enterprise release
+   aggregating many projects. **Recorded, not fixed.**
+4. **`MembersTab` three-way split** — `rows.filter(state)` over enterprise memberships
+   (capped 500). **Recorded, not fixed.**
+5. **`IncidentForm` / `ChangeRequestEditDialog` id lookups** into the `useAllX` collections.
+   Those hooks do expose `truncated`, so the information exists; these call sites do not use
+   it. **Recorded, not fixed.**
+
+Everything else the greps turned up filters tenant configuration (custom-field definitions,
+lifecycle states, booking types) or one entity's own children — bounded by structure, not by
+growth.
+
+### What was fixed, and how
+
+The owner name now travels **with the RAID row** (`owner_username`), the way
+`ReleaseSystemRead` already carries `system_name`, rather than being resolved in the browser
+against a capped collection. That removes the dependency instead of papering over it, which
+is the only real fix available for the `.find()` shape. The two pickers that offer the users
+collection say when it is partial.
+
+Note the discrimination pass caught two holes in the first version of those tests: with a
+single owner in the fixture, a mapper handing **every** row the first name it found passed,
+and nothing covered the tenant filter on the lookup. Both now have tests that fail when
+mutated.
+
 ## Still open after the programme
 
 - ~~**`GET /releases/calendar` and `/releases/timeline`** still call `list_releases` with a

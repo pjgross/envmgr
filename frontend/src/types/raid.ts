@@ -18,6 +18,8 @@ export interface RaidItemResponse {
   description: string | null;
   status: string;
   owner_id: number | null;
+  /** Sent with the row, so display never depends on the capped users collection. */
+  owner_username: string | null;
   raised_by: number;
   raised_at: string;
   target_date: string | null;

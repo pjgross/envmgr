@@ -96,13 +96,37 @@ def _config_dict(config) -> dict:
     }
 
 
-def to_read(item: RaidItem, config) -> RaidItemRead:
+def to_read(item: RaidItem, config, owner_username: Optional[str] = None) -> RaidItemRead:
     cfg = _config_dict(config)
     read = RaidItemRead.model_validate(item)
     read.ref_code = ref_code(item)
     read.severity = severity(item.probability, item.impact)
     read.rag = rag(read.severity, cfg)
+    read.owner_username = owner_username
     return read
+
+
+async def owner_usernames(
+    db: AsyncSession, items: list[RaidItem], tenant_id: int
+) -> dict[int, str]:
+    """Usernames for the owners of `items`, in one query.
+
+    The owner name used to be resolved in the browser against the shared
+    tenant-users collection, which is capped server-side — so past the cap an
+    item's owner rendered as an em dash, losing information rather than merely
+    hiding an option. Sending the name with the row removes the dependency on
+    that collection entirely, the same way ReleaseSystemRead carries
+    `system_name`.
+    """
+    owner_ids = {i.owner_id for i in items if i.owner_id is not None}
+    if not owner_ids:
+        return {}
+    rows = (await db.execute(
+        select(User.id, User.username).where(
+            User.id.in_(owner_ids), User.tenant_id == tenant_id
+        )
+    )).all()
+    return {uid: username for uid, username in rows}
 
 
 async def _validate_owner(db: AsyncSession, owner_id, tenant_id: int) -> None:

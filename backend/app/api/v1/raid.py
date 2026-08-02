@@ -45,7 +45,8 @@ async def list_raid(
         db, release_id, tenant_id, item_type=item_type, status=status_filter,
         owner_id=owner_id, rag=rag, overdue=overdue, config=cfg, page=page)
     set_total_count(response, total)
-    return [raid_service.to_read(i, cfg) for i in items]
+    names = await raid_service.owner_usernames(db, items, tenant_id)
+    return [raid_service.to_read(i, cfg, names.get(i.owner_id)) for i in items]
 
 
 @router.post("/{release_id}/raid", response_model=RaidItemRead, status_code=status.HTTP_201_CREATED)
@@ -58,7 +59,8 @@ async def create_raid(
     tenant_id = current_user.active_tenant_id
     item = await raid_service.create_item(db, release_id, data, tenant_id, current_user.id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
-    return raid_service.to_read(item, cfg)
+    names = await raid_service.owner_usernames(db, [item], tenant_id)
+    return raid_service.to_read(item, cfg, names.get(item.owner_id))
 
 
 @router.get("/{release_id}/raid/summary", response_model=RaidSummaryRead)
@@ -81,7 +83,8 @@ async def get_raid(
     item = await raid_service.get_item(db, item_id, tenant_id)
     _assert_in_release(item, release_id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
-    return raid_service.to_read(item, cfg)
+    names = await raid_service.owner_usernames(db, [item], tenant_id)
+    return raid_service.to_read(item, cfg, names.get(item.owner_id))
 
 
 @router.patch("/{release_id}/raid/{item_id}", response_model=RaidItemRead)
@@ -96,7 +99,8 @@ async def update_raid(
     _assert_in_release(item, release_id)
     item = await raid_service.update_item(db, item_id, data, tenant_id, current_user.id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
-    return raid_service.to_read(item, cfg)
+    names = await raid_service.owner_usernames(db, [item], tenant_id)
+    return raid_service.to_read(item, cfg, names.get(item.owner_id))
 
 
 @router.post("/{release_id}/raid/{item_id}/promote", response_model=RaidItemRead,
@@ -110,7 +114,8 @@ async def promote_raid(
     await _require_release(db, release_id, tenant_id)
     new = await raid_service.promote_item(db, release_id, item_id, data.target_type, tenant_id, current_user.id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
-    return raid_service.to_read(new, cfg)
+    names = await raid_service.owner_usernames(db, [new], tenant_id)
+    return raid_service.to_read(new, cfg, names.get(new.owner_id))
 
 
 @router.delete("/{release_id}/raid/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

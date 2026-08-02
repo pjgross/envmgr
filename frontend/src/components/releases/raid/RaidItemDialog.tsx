@@ -74,6 +74,7 @@ export default function RaidItemDialog({ open, onClose, releaseId, item, default
   const itemType: RaidItemType = item?.item_type ?? defaultType;
 
   const users = useSelector((s: RootState) => s.tenantAdmin.users);
+  const usersTotal = useSelector((s: RootState) => s.tenantAdmin.usersTotal);
   const allItems = useSelector((s: RootState) => s.raid.items);
 
   const [title, setTitle] = useState('');
@@ -300,6 +301,11 @@ export default function RaidItemDialog({ open, onClose, releaseId, item, default
               value={ownerId}
               onChange={(e) => setOwnerId(e.target.value)}
               fullWidth
+              helperText={
+                users.length < usersTotal
+                  ? `Only the first ${users.length} of ${usersTotal} users are shown.`
+                  : undefined
+              }
             >
               <MenuItem value="">Unassigned</MenuItem>
               {users.map((u) => (

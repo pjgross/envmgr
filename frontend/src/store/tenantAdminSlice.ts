@@ -4,6 +4,8 @@ import type { TenantResponse, UserResponse } from '../types';
 
 interface TenantAdminState {
   users: UserResponse[];
+  /** Server-side total for `users`; greater than users.length means truncated. */
+  usersTotal: number;
   settings: TenantResponse | null;
   loading: boolean;
   error: string | null;
@@ -42,7 +44,7 @@ export const reactivateUser = createAsyncThunk('tenantAdmin/reactivateUser', (id
 
 const tenantAdminSlice = createSlice({
   name: 'tenantAdmin',
-  initialState: { users: [], settings: null, loading: false, error: null } as TenantAdminState,
+  initialState: { users: [], usersTotal: 0, settings: null, loading: false, error: null } as TenantAdminState,
   reducers: {},
   extraReducers: (builder) => {
     builder
@@ -71,7 +73,8 @@ const tenantAdminSlice = createSlice({
         state.error = action.error.message ?? 'Failed';
       })
       .addCase(fetchUsers.fulfilled, (state, action) => {
-        state.users = action.payload;
+        state.users = action.payload.rows;
+        state.usersTotal = action.payload.total;
         state.loading = false;
       })
       .addCase(fetchUsers.pending, (state) => {
