@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   MemoryRouter,
@@ -200,6 +200,26 @@ describe('useServerGrid', () => {
     const first = result.current.setFilter;
     rerender();
     expect(result.current.setFilter).toBe(first);
+  });
+
+  it('opens on the page default sort without the URL saying so', async () => {
+    const onFetch = vi.fn();
+    renderHook(
+      () =>
+        useServerGrid({
+          endpoint: 'releases',
+          filterKeys: ['scope_window'],
+          onFetch,
+          defaultSort: { field: 'scope_deadline', dir: 'asc' },
+        }),
+      { wrapper: wrapper(['/releases/scope-windows']) }
+    );
+
+    await waitFor(() => expect(onFetch).toHaveBeenCalled());
+    expect(onFetch.mock.calls[0][0]).toMatchObject({
+      sort_by: 'scope_deadline',
+      sort_dir: 'asc',
+    });
   });
 });
 

@@ -30,6 +30,25 @@ describe('resolveSort', () => {
   it('ignores a junk direction', () => {
     expect(resolveSort('releases', 'name', 'sideways').sort_dir).toBe('desc');
   });
+
+  it('uses a page default when the URL is silent', () => {
+    // GET /releases declares created_at/desc, but the scope-windows table
+    // opens on cutoff-ascending.
+    expect(resolveSort('releases', null, null, { field: 'scope_deadline', dir: 'asc' }))
+      .toEqual({ sort_by: 'scope_deadline', sort_dir: 'asc' });
+  });
+
+  it('lets an explicit URL sort beat the page default', () => {
+    expect(resolveSort('releases', 'name', 'desc', { field: 'scope_deadline', dir: 'asc' }))
+      .toEqual({ sort_by: 'name', sort_dir: 'desc' });
+  });
+
+  it('falls back to the endpoint default when the page default is not whitelisted', () => {
+    // Same contract as an unknown sort_by from the URL: never send a field
+    // the server answers with a 422.
+    expect(resolveSort('releases', null, null, { field: 'not_a_column', dir: 'asc' }))
+      .toEqual({ sort_by: 'created_at', sort_dir: 'desc' });
+  });
 });
 
 describe('isSortable', () => {

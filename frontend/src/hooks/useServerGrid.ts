@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   buildParams,
   resolveSort,
+  type DefaultSort,
   type EndpointKey,
   type ServerGridParams,
   type SortDir,
@@ -48,6 +49,14 @@ export interface UseServerGridOptions {
   filterKeys: string[];
   /** Return the value of `dispatch(thunk(params))` so the hook can cancel it. */
   onFetch: (params: ServerGridParams) => Abortable | void;
+  /**
+   * The order this page opens in, when its endpoint's declared default is not
+   * the right one for this view. Applied only when the URL carries no sort, so
+   * a shared link always wins, and validated against the same whitelist as a
+   * URL-supplied `sort_by` — an unknown field falls back to the endpoint
+   * default rather than reaching the server and earning a 422.
+   */
+  defaultSort?: DefaultSort;
   /**
    * Filter keys whose changes should be debounced — free-text inputs.
    *
@@ -105,6 +114,7 @@ export function useServerGrid({
   debounceKeys = NO_DEBOUNCE,
   total,
   totalPending,
+  defaultSort,
 }: UseServerGridOptions): ServerGrid {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -116,7 +126,7 @@ export function useServerGrid({
   // `buildParams` below re-resolves sort_by/sort_dir itself rather than taking
   // this value directly; that's fine because `resolveSort` is pure and
   // idempotent, so the two calls are always consistent with each other.
-  const sort = resolveSort(endpoint, rawSortBy, rawSortDir);
+  const sort = resolveSort(endpoint, rawSortBy, rawSortDir, defaultSort);
 
   // filterKeys is typically an inline array literal at the call site (a new
   // reference every render), so it can't be a useMemo dependency itself
@@ -264,9 +274,20 @@ export function useServerGrid({
         sortDir: sort.sort_dir,
         filters,
         textKeys: debounceKeys,
+        defaultSort,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [endpoint, page, pageSize, sort.sort_by, sort.sort_dir, filters, debounceKeysKey]
+    [
+      endpoint,
+      page,
+      pageSize,
+      sort.sort_by,
+      sort.sort_dir,
+      filters,
+      debounceKeysKey,
+      defaultSort?.field,
+      defaultSort?.dir,
+    ]
   );
 
   // Key the fetch effect on the *resolved* request, not a hand-maintained
@@ -403,12 +424,18 @@ export function useServerGrid({
     onSortModelChange: useCallback(
       (model) => {
         const first = model[0];
-        // The grid clears its sort model on a third header click; the endpoint
-        // default is the honest answer, and it still travels with a direction.
-        const resolved = resolveSort(endpoint, first?.field ?? null, first?.sort ?? null);
+        // The grid clears its sort model on a third header click. The honest
+        // answer is wherever the page opened — its own default if it declared
+        // one, the endpoint's otherwise — and it still travels with a direction.
+        const resolved = resolveSort(
+          endpoint,
+          first?.field ?? null,
+          first?.sort ?? null,
+          defaultSort
+        );
         patch({ sort_by: resolved.sort_by, sort_dir: resolved.sort_dir }, true);
       },
-      [endpoint, patch]
+      [endpoint, patch, defaultSort]
     ),
     filters: displayFilters,
     setFilter,
