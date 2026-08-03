@@ -24,6 +24,10 @@ resource "aws_lambda_function" "worker" {
 variable "region" {
   default = "eu-west-2"
 }
+
+variable "tags" {
+  default = { env = "prod" }
+}
 """
 
 
@@ -37,9 +41,19 @@ def test_resource_blocks_become_declared_subsystems_addressed_as_terraform_does(
 
 
 def test_non_resource_blocks_are_not_inventoried():
-    """variable, output, provider and locals are not infrastructure."""
+    """variable, output, provider and locals are not infrastructure.
+
+    The `tags` variable in the fixture is what makes this discriminate. hcl2
+    parses every block into the same {key: {name: body}} shape, so a variable
+    whose default is a MAP is structurally indistinguishable from a resource —
+    it would be inventoried as `tags.default` with no warning at all. A
+    variable with a scalar default cannot show that: its body is a string, so
+    it trips the missing-name-label guard by accident and the test passes for
+    a reason unrelated to what it claims to check.
+    """
     declared = parse_terraform_hcl(HCL, "infra/main.tf")
     assert not any("region" in s.name for s in declared.subsystems)
+    assert not any("tags" in s.name for s in declared.subsystems)
 
 
 def test_hcl_declares_no_edges():
