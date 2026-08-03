@@ -63,3 +63,25 @@ def test_warnings_survive_addition():
     a = DetectorResult(warnings=["a"])
     b = DetectorResult(warnings=["b"])
     assert (a + b).warnings == ["a", "b"]
+
+
+def test_terraform_claims_tf_files_only():
+    from app.services.scanning.detectors.terraform_hcl import TERRAFORM_HCL
+
+    assert TERRAFORM_HCL.matches("main.tf") is True
+    assert TERRAFORM_HCL.matches("infra/modules/vpc/main.tf") is True
+    assert TERRAFORM_HCL.matches("terraform.tfstate") is False
+    assert TERRAFORM_HCL.matches("notes.txt") is False
+    # .tfvars is configuration, not resource declarations.
+    assert TERRAFORM_HCL.matches("prod.tfvars") is False
+
+
+def test_adding_a_detector_did_not_disturb_the_existing_one():
+    """The extensibility claim, asserted rather than assumed."""
+    from app.services.scanning.detectors import DETECTORS
+
+    names = [d.name for d in DETECTORS]
+    assert "docker_compose" in names and "terraform_hcl" in names
+    compose = next(d for d in DETECTORS if d.name == "docker_compose")
+    assert compose.matches("docker-compose.yml") is True
+    assert compose.matches("main.tf") is False
