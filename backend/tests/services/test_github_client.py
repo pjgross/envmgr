@@ -253,6 +253,18 @@ async def test_a_tree_response_without_truncated_defaults_to_false():
 
 
 @pytest.mark.asyncio
+async def test_a_transport_failure_is_a_typed_error():
+    """A timeout or refused connection must not reach the caller as a bare 500."""
+    from app.services.github_client import GitHubUnavailable
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(GitHubUnavailable):
+        await _client(handler).get_tree("o", "r", "main")
+
+
+@pytest.mark.asyncio
 async def test_a_json_body_that_is_not_an_object_is_typed():
     from app.services.github_client import GitHubUnexpectedResponse
 

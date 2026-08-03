@@ -92,12 +92,19 @@ async def scan_repository(
                     report = reports[detector.name]
                     report.paths.append(path)
                     try:
-                        report.result = report.result + await detector.parse(
-                            ParseContext(
-                                content=content, path=path, system_id=system_id,
-                                tenant_id=tenant_id, db=db, fetch=fetch,
+                        # Each detector writes inside its own SAVEPOINT. Without this a
+                        # failed flush — an IntegrityError from a duplicate name, say —
+                        # marks the whole session for rollback, and the NEXT use of the
+                        # session raises PendingRollbackError: one detector's failure
+                        # would erase every other detector's results at commit time.
+                        async with db.begin_nested():
+                            parsed = await detector.parse(
+                                ParseContext(
+                                    content=content, path=path, system_id=system_id,
+                                    tenant_id=tenant_id, db=db, fetch=fetch,
+                                )
                             )
-                        )
+                        report.result = report.result + parsed
                     except Exception as exc:
                         # One detector failing must not take the others with it.
                         report.errors.append(f"{path}: {exc}")
@@ -124,6 +131,12 @@ async def scan_repository(
             # GitHubClient holds one pooled httpx client for its lifetime; a
             # scan that raises must still release it, or every failed scan
             # leaks a connection pool.
-            await client.aclose()
+            try:
+                await client.aclose()
+            except Exception:
+                # Never let a close failure replace the exception that is
+                # already propagating: the endpoint dispatches on that type,
+                # and losing it means a revoked token is never cleared.
+                pass
     finally:
         _in_flight.discard(key)

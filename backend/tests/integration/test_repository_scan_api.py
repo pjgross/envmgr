@@ -132,6 +132,43 @@ async def test_a_detector_that_raises_does_not_stop_the_others(
 
 
 @pytest.mark.asyncio
+async def test_a_detector_whose_database_write_fails_does_not_poison_the_others(
+    client, auth_headers, connected_system, monkeypatch
+):
+    """The realistic failure: a constraint violation, not a bare RuntimeError.
+
+    A failed flush marks the session for rollback; without a savepoint per
+    detector the next detector's write — or the request's own commit — raises
+    PendingRollbackError and every successful detector's results are lost.
+    """
+    from app.services.scanning import scanner
+    from app.services.scanning.registry import Detector, DetectorResult
+    from app.services.scanning.detectors import DOCKER_COMPOSE
+    from app.db.models.system import SubSystem
+
+    async def _bad_write(ctx):
+        # tenant_id is NOT NULL — this flush fails inside the detector.
+        ctx.db.add(SubSystem(tenant_id=None, system_id=ctx.system_id, name="bad"))
+        await ctx.db.flush()
+        return DetectorResult(subsystems_created=1)
+
+    broken = Detector(name="bad_writer", matches=lambda p: p.endswith(".yml"),
+                      parse=_bad_write)
+    monkeypatch.setattr(scanner, "get_detectors", lambda: [broken, DOCKER_COMPOSE])
+    monkeypatch.setattr(scanner, "_transport", lambda: _github(["docker-compose.yml"]))
+
+    resp = await client.post(
+        f"/api/v1/systems/{connected_system.id}/github/scan", headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    by_name = {d["detector"]: d for d in resp.json()["detectors"]}
+    assert by_name["bad_writer"]["errors"], "the failing detector must be recorded"
+    assert not by_name["docker_compose"]["errors"], (
+        "the healthy detector's results must survive the other's failed write"
+    )
+
+
+@pytest.mark.asyncio
 async def test_scanning_without_a_connection_is_409(
     client, auth_headers, db_session, test_tenant
 ):

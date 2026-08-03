@@ -111,7 +111,10 @@ class GitHubClient:
 
     async def get_default_branch(self, owner: str, repo: str) -> str:
         client = self._client()
-        response = await client.get(f"{_API}/repos/{owner}/{repo}")
+        try:
+            response = await client.get(f"{_API}/repos/{owner}/{repo}")
+        except httpx.TransportError as exc:
+            raise GitHubUnavailable(f"could not reach GitHub: {exc}") from exc
         self._raise_for_status(response)
         try:
             return response.json()["default_branch"]
@@ -122,10 +125,13 @@ class GitHubClient:
 
     async def get_tree(self, owner: str, repo: str, ref: str) -> TreeResult:
         client = self._client()
-        response = await client.get(
-            f"{_API}/repos/{owner}/{repo}/git/trees/{ref}",
-            params={"recursive": "1"},
-        )
+        try:
+            response = await client.get(
+                f"{_API}/repos/{owner}/{repo}/git/trees/{ref}",
+                params={"recursive": "1"},
+            )
+        except httpx.TransportError as exc:
+            raise GitHubUnavailable(f"could not reach GitHub: {exc}") from exc
         self._raise_for_status(response)
         try:
             payload = response.json()
@@ -146,9 +152,12 @@ class GitHubClient:
 
     async def get_blob(self, owner: str, repo: str, path: str, ref: str) -> bytes:
         client = self._client()
-        response = await client.get(
-            f"{_API}/repos/{owner}/{repo}/contents/{path}", params={"ref": ref}
-        )
+        try:
+            response = await client.get(
+                f"{_API}/repos/{owner}/{repo}/contents/{path}", params={"ref": ref}
+            )
+        except httpx.TransportError as exc:
+            raise GitHubUnavailable(f"could not reach GitHub: {exc}") from exc
         self._raise_for_status(response)
         try:
             payload = response.json()
