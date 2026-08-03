@@ -93,6 +93,37 @@ describe('DriftDialog', () => {
     expect(screen.queryByText(/no longer in the code/i)).not.toBeInTheDocument();
   });
 
+  it('does not announce success while drift is listed', async () => {
+    // Mutation-proven gap: the dialog-level success alert ("No drift found —
+    // the catalogue matches the code.") must only render when has_drift is
+    // false. Nothing previously asserted its ABSENCE, so a dialog that both
+    // lists a missing subsystem and announces success would pass every
+    // existing test — a page contradicting itself is worse than one that
+    // reports nothing. Assert against the dialog-level alert text only; the
+    // per-detector "No drift detected by this detector." text is a distinct
+    // string and must not be confused with it.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        subsystems: {
+          missing_in_catalogue: [{
+            name: 'payments-api', component_type: 'web_service',
+            technology: 'nginx', source_path: 'docker-compose.yml',
+          }],
+          missing_in_code: [],
+          changed: [],
+        },
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(await screen.findByText('payments-api')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no drift found.*catalogue matches the code/i),
+    ).not.toBeInTheDocument();
+  });
+
   it('shows both values for a changed field', async () => {
     vi.mocked(githubIntegrationService.drift).mockResolvedValue(
       result([detector({
