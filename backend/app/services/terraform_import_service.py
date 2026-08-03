@@ -1,7 +1,7 @@
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.db.models.system import SubSystem
+
+from app.services.scanning.declared import DeclaredState, DeclaredSubsystem
 
 
 TF_TYPE_MAP = {
@@ -46,16 +46,10 @@ def infer_component_type(resource_type: str) -> str:
     return TF_TYPE_MAP.get(resource_type, 'other')
 
 
-async def import_terraform(
-    system_id: int,
-    tenant_id: int,
-    content: bytes,
-    db: AsyncSession,
-) -> dict[str, int]:
-    """
-    Parse a .tfstate JSON file and upsert SubSystems from Terraform resources.
-    Dependencies are NOT created (tfstate has no explicit dependency graph).
-    Returns counts.
+def parse_tfstate(content: bytes, path: str) -> DeclaredState:
+    """Read a .tfstate JSON file into the resources it records. Pure.
+
+    Dependencies are not produced: tfstate carries no explicit dependency graph.
     """
     try:
         state = json.loads(content)
@@ -66,53 +60,45 @@ async def import_terraform(
     if not isinstance(resources, list):
         raise ValueError("Invalid tfstate format: 'resources' must be a list")
 
-    # Filter to managed resources only (skip data sources, which have mode='data')
-    managed = [r for r in resources if isinstance(r, dict) and r.get('mode') == 'managed']
-
-    # Load existing subsystems for upsert by name
-    result = await db.execute(
-        select(SubSystem).where(
-            SubSystem.system_id == system_id,
-            SubSystem.tenant_id == tenant_id,
-            SubSystem.deleted_at.is_(None),
-        )
-    )
-    existing = {s.name: s for s in result.scalars().all()}
-
-    subsystems_created = 0
-    subsystems_updated = 0
-
-    for resource in managed:
+    declared = DeclaredState()
+    for resource in resources:
+        if not isinstance(resource, dict) or resource.get('mode') != 'managed':
+            # mode='data' is something Terraform reads, not something it manages.
+            continue
         resource_type = resource.get('type', '')
         resource_name = resource.get('name', '')
         if not isinstance(resource_type, str) or not isinstance(resource_name, str):
             continue
         if not resource_type or not resource_name:
             continue
+        declared.subsystems.append(DeclaredSubsystem(
+            name=f"{resource_type}.{resource_name}"[:200],
+            component_type=infer_component_type(resource_type),
+            technology=resource_type[:100],
+            source_path=path[:500],
+        ))
+    return declared
 
-        # Use "{type}.{name}" as the SubSystem name for uniqueness
-        subsystem_name = f"{resource_type}.{resource_name}"[:200]
-        component_type = infer_component_type(resource_type)
-        technology = resource_type[:100]
 
-        if subsystem_name in existing:
-            sub = existing[subsystem_name]
-            sub.component_type = component_type
-            sub.technology = technology
-            subsystems_updated += 1
-        else:
-            sub = SubSystem(
-                name=subsystem_name,
-                system_id=system_id,
-                tenant_id=tenant_id,
-                component_type=component_type,
-                technology=technology,
-            )
-            db.add(sub)
-            subsystems_created += 1
+async def import_terraform(
+    system_id: int,
+    tenant_id: int,
+    content: bytes,
+    db: AsyncSession,
+    path: str = "terraform.tfstate",
+) -> dict[str, int]:
+    """Parse a .tfstate file and write what it records."""
+    from app.db.models.system import SubSystemSource
+    from app.services.scanning import reconcile
 
-    await db.flush()
+    declared = parse_tfstate(content, path)
+    result = await reconcile.apply(
+        db, system_id=system_id, tenant_id=tenant_id,
+        source=SubSystemSource.TERRAFORM,
+        edge_source=None,
+        declared=declared,
+    )
     return {
-        'subsystems_created': subsystems_created,
-        'subsystems_updated': subsystems_updated,
+        'subsystems_created': result.subsystems_created,
+        'subsystems_updated': result.subsystems_updated,
     }
