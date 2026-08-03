@@ -33,6 +33,12 @@ async def catalogue(
     Name is the match key both halves use — the same key the importers have
     always upserted on, so the writer and the differ cannot disagree about
     identity.
+
+    Caveat: there is no database-level unique constraint on
+    (name, system_id, tenant_id) — `system_service.create_subsystem`'s
+    uniqueness check is application-level and racy. Two live subsystems that
+    ended up sharing a name within one system collapse into a single dict
+    entry here, silently: the loser is invisible to `apply()` and to `diff()`.
     """
     rows = (await db.execute(
         select(SubSystem).where(
@@ -58,9 +64,17 @@ async def apply(
     Never deletes a subsystem: a resource removed from the code stays in the
     catalogue, which is precisely the drift the report exists to surface.
 
-    `edge_source=None` means this source declares no dependency edges, and so
-    none may be deleted on its behalf — otherwise scanning a .tf file would
-    wipe every compose edge in the system.
+    `edge_source=None` means this source declares no dependency edges. It must
+    only be paired with a `declared` that carries none: the delete below keys
+    on `ComponentDependency.source == edge_source`, and since that column is
+    NOT NULL, `source IS NULL` can never match a row, so a `None` edge_source
+    can never clean up edges it wrote. If edges were written anyway, each row
+    would go in stamped `source=DependencySource.MANUAL` — SQLAlchemy applies
+    a column's Python-side `default=` whenever the assigned value is `None`,
+    even assigned explicitly — silently mislabelling a scan-written edge as
+    hand-entered, and a re-scan would then raise `IntegrityError` on
+    `uq_component_dep` because the dead delete never removed the first run's
+    rows. Raise instead of writing edges no one will ever be able to reconcile.
     """
     existing = await catalogue(db, system_id=system_id, tenant_id=tenant_id)
     result = ApplyResult()
@@ -93,6 +107,12 @@ async def apply(
         declared_ids[sub.name] = row.id
 
     if edge_source is None:
+        if declared.edges:
+            raise ValueError(
+                "a source that declares dependency edges must supply an "
+                "edge_source; got edge_source=None with "
+                f"{len(declared.edges)} edge(s) to write"
+            )
         await db.flush()
         return result
 

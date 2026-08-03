@@ -193,6 +193,63 @@ async def test_edges_are_left_alone_when_the_source_declares_none(
 
 
 @pytest.mark.asyncio
+async def test_a_self_referencing_edge_is_skipped(db_session, test_tenant, system):
+    """A subsystem cannot depend on itself; from_id == to_id must be dropped
+    same as an edge to an undeclared endpoint, or a scan could write a
+    self-loop into the catalogue."""
+    declared = DeclaredState(
+        subsystems=[DeclaredSubsystem("api", "web_service", None, "c.yml")],
+        edges=[DeclaredEdge("api", "api", None, "c.yml")],
+    )
+
+    result = await _apply(
+        db_session, system, test_tenant.id, declared,
+        edge_source=DependencySource.DOCKER_COMPOSE,
+    )
+
+    assert result.dependencies_written == 0
+    surviving = (await db_session.execute(select(ComponentDependency))).scalars().all()
+    assert surviving == []
+
+
+@pytest.mark.asyncio
+async def test_edge_source_none_with_declared_edges_raises(
+    db_session, test_tenant, system
+):
+    """edge_source=None promises 'this source declares no edges'. A caller
+    that breaks that promise must be stopped loudly: writing the edges
+    anyway would stamp them source=MANUAL (SQLAlchemy's Python-side default
+    kicks in for an explicit None) and a re-scan would then hit
+    IntegrityError on uq_component_dep, since the None-keyed delete can never
+    clean the mislabelled rows back up."""
+    declared = DeclaredState(
+        subsystems=[
+            DeclaredSubsystem("api", "web_service", None, "main.tf"),
+            DeclaredSubsystem("db", "database", None, "main.tf"),
+        ],
+        edges=[DeclaredEdge("api", "db", None, "main.tf")],
+    )
+
+    with pytest.raises(ValueError):
+        await _apply(db_session, system, test_tenant.id, declared, edge_source=None)
+
+
+@pytest.mark.asyncio
+async def test_edge_source_none_with_no_edges_returns_quietly(
+    db_session, test_tenant, system
+):
+    """The normal Terraform case: no edges declared, edge_source=None, no
+    exception — only a DeclaredState carrying edges should raise."""
+    declared = DeclaredState(subsystems=[
+        DeclaredSubsystem("aws_db_instance.main", "database", "aws_db_instance", "main.tf"),
+    ])
+
+    result = await _apply(db_session, system, test_tenant.id, declared, edge_source=None)
+
+    assert (result.subsystems_created, result.subsystems_updated) == (1, 0)
+
+
+@pytest.mark.asyncio
 async def test_reapplying_the_same_edges_does_not_accumulate_duplicates(
     db_session, test_tenant, system
 ):
