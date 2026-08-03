@@ -1,3 +1,8 @@
+> **STATUS 2026-08-03: shipped.** The checkboxes below were never ticked, which made this
+> look outstanding for weeks — it was listed as the next topology task in `phase-6.md` and in
+> the roadmap. Verified in the browser: the System/Host toggle renders in the topology
+> toolbar and Host mode regroups the diagram into host buckets with edges preserved.
+
 # Group-by-System / Group-by-Host Toggle (SP4) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
