@@ -213,12 +213,73 @@ async def test_disconnect_removes_the_token(
         db_session, test_tenant.id, "github_oauth_token", "gho_abc",
         created_by=test_user.id,
     )
+    await tenant_secret_service.put_secret(
+        db_session, test_tenant.id, "github_login", "octocat",
+        created_by=test_user.id,
+    )
+    await tenant_secret_service.put_secret(
+        db_session, test_tenant.id, "github_device_pending", "handle:devicecode",
+        created_by=test_user.id,
+    )
     await db_session.commit()
 
     resp = await client.delete("/api/v1/integrations/github", headers=auth_headers)
     assert resp.status_code == 200
     assert await tenant_secret_service.get_secret(
         db_session, test_tenant.id, "github_oauth_token") is None
+    assert await tenant_secret_service.get_secret(
+        db_session, test_tenant.id, "github_login") is None
+    assert await tenant_secret_service.get_secret(
+        db_session, test_tenant.id, "github_device_pending") is None
+
+
+@pytest.mark.asyncio
+async def test_an_unmodelled_device_flow_error_is_502_not_500(
+    client, auth_headers, monkeypatch
+):
+    """device_flow_disabled, incorrect_client_credentials, unsupported_grant_type
+    and friends are real GitHub error strings this flow does not act on. Falling
+    through to `payload["access_token"]` for one of these is a bare KeyError —
+    an unhandled 500 that tells the user nothing, instead of the 502 that
+    correctly blames GitHub rather than the request.
+    """
+    from app.services import github_oauth_service
+
+    def device_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "device_code": "D", "user_code": "U",
+            "verification_uri": "https://github.com/login/device",
+            "expires_in": 900, "interval": 5,
+        })
+
+    monkeypatch.setattr(github_oauth_service, "_transport", lambda: _transport(device_handler))
+    handle = (await client.post(
+        "/api/v1/integrations/github/connect", headers=auth_headers)).json()["handle"]
+
+    def unmodelled_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"error": "device_flow_disabled"})
+
+    monkeypatch.setattr(github_oauth_service, "_transport", lambda: _transport(unmodelled_handler))
+    polled = await client.post(
+        f"/api/v1/integrations/github/connect/{handle}/poll", headers=auth_headers
+    )
+    assert polled.status_code == 502, polled.text
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_device_code_response_is_502_not_500(
+    client, auth_headers, monkeypatch
+):
+    """A 200 whose body has none of the fields this flow requires — the other
+    half of the same discipline, on the /connect leg rather than /poll."""
+    from app.services import github_oauth_service
+
+    def malformed_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": "shape"})
+
+    monkeypatch.setattr(github_oauth_service, "_transport", lambda: _transport(malformed_handler))
+    resp = await client.post("/api/v1/integrations/github/connect", headers=auth_headers)
+    assert resp.status_code == 502, resp.text
 
 
 @pytest.mark.asyncio

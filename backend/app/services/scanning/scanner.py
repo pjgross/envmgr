@@ -7,7 +7,12 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.services.github_client import GitHubClient
+from app.services.github_client import (
+    GitHubClient,
+    GitHubNotFound,
+    GitHubUnavailable,
+    GitHubUnexpectedResponse,
+)
 from app.services.scanning.registry import Detector, DetectorResult, ParseContext
 
 _REPO_URL = re.compile(r"github\.com[:/]+([^/]+)/([^/.]+)")
@@ -29,6 +34,14 @@ class DetectorReport:
     paths: list[str] = field(default_factory=list)
     result: DetectorResult = field(default_factory=DetectorResult)
     errors: list[str] = field(default_factory=list)
+    #: Paths this detector claimed that the file cap dropped before the fetch
+    #: loop ever reached them. Without this, a detector starved by the cap
+    #: looks identical to one that read everything and found nothing: e.g.
+    #: 300 .tf files ahead of docker-compose.yml in tree order means Compose
+    #: is never fetched, yet its report is all zeros with no error. A path
+    #: whose *fetch* fails (as opposed to being dropped by the cap) is
+    #: recorded in `errors` instead — see the per-path try/except below.
+    paths_unread: int = 0
 
 
 def parse_repo_url(url: Optional[str]) -> tuple[str, str]:
@@ -78,7 +91,13 @@ async def scan_repository(
                     claimed.append((path, wanted))
 
             stopped_early = len(claimed) > settings.MAX_SCAN_FILES
-            claimed = claimed[: settings.MAX_SCAN_FILES]
+            dropped, claimed = (
+                claimed[settings.MAX_SCAN_FILES:],
+                claimed[: settings.MAX_SCAN_FILES],
+            )
+            for _, wanted in dropped:
+                for detector in wanted:
+                    reports[detector.name].paths_unread += 1
 
             async def fetch(path: str) -> Optional[bytes]:
                 try:
@@ -87,7 +106,28 @@ async def scan_repository(
                     return None
 
             for path, wanted in claimed:
-                content = await client.get_blob(owner, repo, path, ref)
+                try:
+                    content = await client.get_blob(owner, repo, path, ref)
+                except (GitHubNotFound, GitHubUnavailable, GitHubUnexpectedResponse) as exc:
+                    # A transient 5xx, a 404 (the file existed in the tree but
+                    # is gone by the time it's fetched), or a malformed body on
+                    # ONE file must not abort the whole scan — that discards
+                    # every write earlier detectors already made (the request
+                    # rolls back) and blames "repository not found, or the
+                    # token cannot see it" on a single-file hiccup. Record it
+                    # against every detector that claimed this path and move
+                    # on to the next one.
+                    #
+                    # GitHubAuthError and GitHubRateLimited are deliberately
+                    # NOT caught here: a 401 means the token is dead for every
+                    # remaining file too (not just this one) and must still
+                    # reach the endpoint's cleanup in systems.py, and a 429
+                    # means every subsequent call would fail the same way —
+                    # continuing would just burn through the rest of the tree
+                    # collecting the same error per path.
+                    for detector in wanted:
+                        reports[detector.name].errors.append(f"{path}: {exc}")
+                    continue
                 for detector in wanted:
                     report = reports[detector.name]
                     report.paths.append(path)
@@ -123,6 +163,7 @@ async def scan_repository(
                         "dependencies_written": r.result.dependencies_written,
                         "warnings": r.result.warnings,
                         "errors": r.errors,
+                        "paths_unread": r.paths_unread,
                     }
                     for r in reports.values()
                 ],

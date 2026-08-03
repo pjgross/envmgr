@@ -166,6 +166,10 @@ export default function GitHubIntegration() {
             >
               Connect GitHub
             </Button>
+            <Typography variant="body2" color="text.secondary">
+              EnvManager requests the <code>repo</code> scope, which is the narrowest OAuth App
+              scope that can read private repositories. It only ever reads.
+            </Typography>
           </Stack>
         )}
 

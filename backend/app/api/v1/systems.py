@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.base import get_db
+from app.db.base import get_db, AsyncSessionLocal
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.system import System
 from app.services import system_service, tenant_secret_service
@@ -14,6 +14,7 @@ from app.services.github_client import (
     GitHubUnavailable,
     GitHubUnexpectedResponse,
 )
+from app.services.github_oauth_service import TOKEN_KIND, LOGIN_KIND
 from app.services.scanning import scanner
 from app.services.scanning.scanner import ScanAlreadyRunning
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
@@ -102,7 +103,7 @@ async def scan_system_repository(
     tenant_id = current_user.active_tenant_id
     system = await system_service.get_system(db, system_id, tenant_id)
 
-    token = await tenant_secret_service.get_secret(db, tenant_id, "github_oauth_token")
+    token = await tenant_secret_service.get_secret(db, tenant_id, TOKEN_KIND)
     if token is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -121,8 +122,18 @@ async def scan_system_repository(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     except GitHubAuthError:
         # Clear it so the UI stops claiming "connected" with a dead token.
-        await tenant_secret_service.delete_secret(db, tenant_id, "github_oauth_token")
-        await tenant_secret_service.delete_secret(db, tenant_id, "github_login")
+        #
+        # This must happen in its own session: get_db commits on success and
+        # rolls back on any exception (see app/db/base.py), and this branch
+        # raises HTTPException on its way out. A delete on `db` here would be
+        # silently discarded by that rollback, leaving the dead token in
+        # place forever — every future scan would 401 again with the UI still
+        # reporting "connected". Following the same pattern as
+        # app/workers/event_publisher.py for a write that must survive.
+        async with AsyncSessionLocal() as cleanup:
+            await tenant_secret_service.delete_secret(cleanup, tenant_id, TOKEN_KIND)
+            await tenant_secret_service.delete_secret(cleanup, tenant_id, LOGIN_KIND)
+            await cleanup.commit()
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "GitHub rejected the stored token. Reconnect the integration.",

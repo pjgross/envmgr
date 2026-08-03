@@ -125,3 +125,81 @@ async def test_a_well_formed_file_reports_no_warnings(db_session, test_tenant, s
     )
     assert result["subsystems_created"] == 2
     assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_component_type_is_inferred_like_the_tfstate_sibling(
+    db_session, test_tenant, system
+):
+    """Unlike terraform_import_service (.tfstate), this importer used to leave
+    every SubSystem at the default component_type with no technology. Reuse
+    the same TF_TYPE_MAP-backed inference so an HCL-imported database reads
+    as a database, not as an undifferentiated 'other'."""
+    result = await svc.import_terraform_hcl(
+        system_id=system.id, tenant_id=test_tenant.id, content=TF, db=db_session
+    )
+    assert result["subsystems_created"] == 2
+
+    from sqlalchemy import select
+    rows = {s.name: s for s in (await db_session.execute(
+        select(SubSystem).where(SubSystem.system_id == system.id)
+    )).scalars().all()}
+
+    assert rows["aws_db_instance.main"].component_type == "database"
+    assert rows["aws_db_instance.main"].technology == "aws_db_instance"
+    # aws_instance has no entry in TF_TYPE_MAP — infer_component_type's
+    # documented fallback is 'other', not left unset.
+    assert rows["aws_instance.api"].component_type == "other"
+    assert rows["aws_instance.api"].technology == "aws_instance"
+
+
+@pytest.mark.asyncio
+async def test_reimporting_refreshes_component_type_too(db_session, test_tenant, system):
+    """The tfstate importer updates component_type/technology on every
+    reimport, not just on first creation; this importer must match."""
+    await svc.import_terraform_hcl(
+        system_id=system.id, tenant_id=test_tenant.id, content=TF, db=db_session
+    )
+    second = await svc.import_terraform_hcl(
+        system_id=system.id, tenant_id=test_tenant.id, content=TF, db=db_session
+    )
+    assert second["subsystems_updated"] == 2
+
+    from sqlalchemy import select
+    row = (await db_session.execute(
+        select(SubSystem).where(
+            SubSystem.system_id == system.id, SubSystem.name == "aws_db_instance.main"
+        )
+    )).scalar_one()
+    assert row.component_type == "database"
+
+
+@pytest.mark.asyncio
+async def test_a_resource_address_longer_than_200_chars_is_truncated(
+    db_session, test_tenant, system
+):
+    """SubSystem.name is String(200). PostgreSQL raises on an over-length
+    value where SQLite silently stores it — a long Terraform address (a
+    deeply-nested module instance, say) is a dual-engine failure waiting to
+    happen without the same [:200] terraform_import_service already applies.
+    Must pass on both engines: run this file against SQLite and again with
+    TEST_DATABASE_URL pointed at PostgreSQL.
+    """
+    long_name = "x" * 250
+    tf = f'''
+resource "aws_instance" "{long_name}" {{
+  ami = "ami-123"
+}}
+'''.encode()
+
+    result = await svc.import_terraform_hcl(
+        system_id=system.id, tenant_id=test_tenant.id, content=tf, db=db_session
+    )
+    assert result["subsystems_created"] == 1
+
+    from sqlalchemy import select
+    row = (await db_session.execute(
+        select(SubSystem).where(SubSystem.system_id == system.id)
+    )).scalar_one()
+    assert len(row.name) <= 200
+    assert row.name == f"aws_instance.{long_name}"[:200]

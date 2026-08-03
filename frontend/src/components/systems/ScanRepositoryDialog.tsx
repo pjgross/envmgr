@@ -84,6 +84,13 @@ export default function ScanRepositoryDialog({ open, systemId, onClose }: Props)
                     {d.subsystems_created} subsystems created, {d.subsystems_updated} updated,{' '}
                     {d.dependencies_written} dependencies
                   </Typography>
+                  {d.paths_unread > 0 && (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      {d.paths_unread} matching file{d.paths_unread === 1 ? '' : 's'} could not
+                      be read because the scan hit its file limit before reaching{' '}
+                      {d.paths_unread === 1 ? 'it' : 'them'}. Results above may be incomplete.
+                    </Alert>
+                  )}
                   {d.warnings.map((w) => (
                     <Alert key={w} severity="warning" sx={{ mt: 1 }}>
                       {w}

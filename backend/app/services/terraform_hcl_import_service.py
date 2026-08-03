@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.system import SubSystem
+from app.services.terraform_import_service import infer_component_type
 
 
 async def import_terraform_hcl(
@@ -28,7 +29,11 @@ async def import_terraform_hcl(
     # Only `resource` blocks are infrastructure to inventory; variable,
     # output, provider and locals are not. hcl2.load returns parsed["resource"]
     # as a list of single-key dicts: {resource_type: {resource_name: {...body}}}.
-    addresses: list[str] = []
+    #
+    # Each entry keeps resource_type alongside the address: infer_component_type
+    # (shared with terraform_import_service, the .tfstate sibling) needs the
+    # bare type, not "<type>.<name>".
+    entries: list[tuple[str, str]] = []
     warnings: list[str] = []
     for block in parsed.get("resource", []) or []:
         if not isinstance(block, dict):
@@ -50,7 +55,7 @@ async def import_terraform_hcl(
                         "its name label"
                     )
                     continue
-                addresses.append(f"{resource_type}.{name}")
+                entries.append((resource_type, f"{resource_type}.{name}"))
 
     existing = {
         s.name: s
@@ -64,11 +69,24 @@ async def import_terraform_hcl(
     }
 
     created = updated = 0
-    for address in addresses:
-        if address in existing:
+    for resource_type, address in entries:
+        # SubSystem.name is String(200): PostgreSQL raises on an over-length
+        # value where SQLite silently stores it, so a long Terraform address
+        # is a dual-engine failure waiting to happen without this truncation
+        # — the same [:200] terraform_import_service applies to .tfstate names.
+        name = address[:200]
+        component_type = infer_component_type(resource_type)
+        technology = resource_type[:100]
+        if name in existing:
+            sub = existing[name]
+            sub.component_type = component_type
+            sub.technology = technology
             updated += 1
             continue
-        db.add(SubSystem(tenant_id=tenant_id, system_id=system_id, name=address))
+        db.add(SubSystem(
+            tenant_id=tenant_id, system_id=system_id, name=name,
+            component_type=component_type, technology=technology,
+        ))
         created += 1
     await db.flush()
     return {

@@ -16,7 +16,8 @@ const RESULT = {
   stopped_early: false,
   detectors: [
     { detector: 'docker_compose', paths: ['docker-compose.yml'], subsystems_created: 3,
-      subsystems_updated: 0, dependencies_written: 2, warnings: [], errors: [] },
+      subsystems_updated: 0, dependencies_written: 2, warnings: [], errors: [],
+      paths_unread: 0 },
   ],
 };
 
@@ -61,7 +62,7 @@ describe('ScanRepositoryDialog', () => {
         ...RESULT.detectors,
         { detector: 'terraform_hcl', paths: ['main.tf'], subsystems_created: 0,
           subsystems_updated: 0, dependencies_written: 0, warnings: [],
-          errors: ['main.tf: Invalid Terraform HCL'] },
+          errors: ['main.tf: Invalid Terraform HCL'], paths_unread: 0 },
       ],
     });
     render(<ScanRepositoryDialog open systemId={1} onClose={() => {}} />);
@@ -70,5 +71,25 @@ describe('ScanRepositoryDialog', () => {
 
     expect(await screen.findByText(/Invalid Terraform HCL/)).toBeInTheDocument();
     expect(screen.getByText(/3 subsystems created/i)).toBeInTheDocument();
+  });
+
+  it('warns when the file cap starved a detector of every file it claimed', async () => {
+    // Otherwise a detector that never got to read anything looks identical
+    // to one that read everything and legitimately found nothing.
+    vi.mocked(githubIntegrationService.scan).mockResolvedValue({
+      ...RESULT,
+      stopped_early: true,
+      detectors: [
+        ...RESULT.detectors,
+        { detector: 'terraform_hcl', paths: [], subsystems_created: 0,
+          subsystems_updated: 0, dependencies_written: 0, warnings: [], errors: [],
+          paths_unread: 4 },
+      ],
+    });
+    render(<ScanRepositoryDialog open systemId={1} onClose={() => {}} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /scan/i }));
+
+    expect(await screen.findByText(/4 matching files could not be read/i)).toBeInTheDocument();
   });
 });

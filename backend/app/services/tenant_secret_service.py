@@ -64,6 +64,21 @@ async def get_secret(db: AsyncSession, tenant_id: int, kind: str) -> Optional[st
     return decrypt(row.ciphertext, row.key_version)
 
 
+async def get_created_at(db: AsyncSession, tenant_id: int, kind: str) -> Optional[datetime]:
+    """The row's created_at, or None if absent.
+
+    Separate from get_secret because a caller wanting only the connection
+    date (e.g. `connected_at` in a status endpoint) has no reason to decrypt
+    the secret or bump last_used_at.
+    """
+    row = (await db.execute(
+        select(TenantSecret).where(
+            TenantSecret.tenant_id == tenant_id, TenantSecret.kind == kind
+        )
+    )).scalar_one_or_none()
+    return row.created_at if row is not None else None
+
+
 async def delete_secret(db: AsyncSession, tenant_id: int, kind: str) -> bool:
     """True if a row was removed."""
     result = await db.execute(

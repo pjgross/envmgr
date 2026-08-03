@@ -28,6 +28,8 @@ export interface DetectorReport {
   dependencies_written: number;
   warnings: string[];
   errors: string[];
+  /** Paths this detector claimed that the file cap dropped before they were read. */
+  paths_unread: number;
 }
 
 export interface ScanResult {

@@ -407,35 +407,9 @@ async def test_replay_revokes_the_family_durably(client: AsyncClient, test_tenan
 #
 # The shared `client` fixture overrides get_db with a bare yield, so writes made
 # on the way to an error are never rolled back and anything that depends on
-# get_db's real commit/rollback looks fine when it isn't. These tests use a client
-# whose override mirrors production.
+# get_db's real commit/rollback looks fine when it isn't. These tests use
+# `realistic_client` (see conftest.py), whose override mirrors production.
 # ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture
-async def realistic_client(db_engine):
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-    from httpx import ASGITransport
-    from app.db.base import get_db
-    from app.main import app
-
-    Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
-
-    async def override_get_db():
-        async with Session() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_db] = override_get_db
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        yield ac
-    app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio
