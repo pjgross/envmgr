@@ -124,3 +124,55 @@ async def test_the_token_is_sent_as_a_bearer_header():
 
     await _client(handler).get_default_branch("o", "r")
     assert seen["auth"] == "Bearer gho_test"
+
+
+@pytest.mark.asyncio
+async def test_a_500_is_a_typed_error_not_a_raw_httpx_error():
+    """A caller written against this client's exceptions must be able to catch
+    everything it raises."""
+    from app.services.github_client import GitHubError, GitHubUnavailable
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"message": "Server Error"})
+
+    with pytest.raises(GitHubUnavailable) as excinfo:
+        await _client(handler).get_tree("o", "r", "main")
+    assert isinstance(excinfo.value, GitHubError)
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_body_is_a_typed_error_not_a_key_error():
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": "shape"})
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_default_branch("o", "r")
+
+
+@pytest.mark.asyncio
+async def test_a_file_too_large_for_the_contents_api_is_an_error_not_empty_bytes():
+    """GitHub returns encoding "none" with empty content above ~1MB. Returning
+    b"" would hand a detector an empty file and look like a successful parse."""
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"content": "", "encoding": "none"})
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_blob("o", "r", "big.tf", "main")
+
+
+@pytest.mark.asyncio
+async def test_the_same_http_client_is_reused_across_calls():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"default_branch": "main"})
+
+    client = _client(handler)
+    await client.get_default_branch("o", "r")
+    first = client._http
+    await client.get_default_branch("o", "r")
+    assert client._http is first
+    await client.aclose()
+    assert client._http is None
