@@ -8,7 +8,9 @@ paths it claimed.
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.models.dependency import DependencySource
+from app.db.models.system import SubSystemSource
+from app.services.scanning.declared import DeclaredState
 
 
 @dataclass
@@ -31,9 +33,6 @@ class DetectorResult:
 class ParseContext:
     content: bytes
     path: str
-    system_id: int
-    tenant_id: int
-    db: AsyncSession
     #: Fetch another file from the same repository. A Helm or Kustomize
     #: detector needs a companion file (values.yaml, an .env beside a compose
     #: file); without this it would have to own the walk.
@@ -44,4 +43,12 @@ class ParseContext:
 class Detector:
     name: str
     matches: Callable[[str], bool]
-    parse: Callable[[ParseContext], Awaitable[DetectorResult]]
+    #: Pure: parses content into a value, touching no database. That is what
+    #: lets one walk serve both the scan and the drift report.
+    parse: Callable[[ParseContext], Awaitable[DeclaredState]]
+    #: Provenance stamped on subsystems this detector declares, and the source
+    #: whose catalogue rows it is compared against.
+    subsystem_source: SubSystemSource
+    #: The dependency source this detector owns, or None if it declares no
+    #: edges. apply() deletes on this, so None means "never delete edges here".
+    edge_source: DependencySource | None = None

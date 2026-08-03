@@ -76,6 +76,43 @@ async def test_a_scan_reports_per_detector_results(
 
 
 @pytest.mark.asyncio
+async def test_a_path_claimed_by_several_detectors_goes_to_all_of_them(
+    client, auth_headers, connected_system, monkeypatch
+):
+    """"First match wins" would make behaviour depend on registry order.
+
+    Two fake detectors both claim the same path here; both must see it,
+    regardless of which one the registry happens to list first.
+    """
+    from app.services.scanning import scanner
+    from app.services.scanning.registry import Detector
+    from app.services.scanning.declared import DeclaredState
+    from app.db.models.system import SubSystemSource
+
+    async def _parse(ctx):
+        return DeclaredState()
+
+    first = Detector(
+        name="first", matches=lambda p: p.endswith(".yml"), parse=_parse,
+        subsystem_source=SubSystemSource.MANUAL,
+    )
+    second = Detector(
+        name="second", matches=lambda p: p.endswith(".yml"), parse=_parse,
+        subsystem_source=SubSystemSource.MANUAL,
+    )
+    monkeypatch.setattr(scanner, "get_detectors", lambda: [first, second])
+    monkeypatch.setattr(scanner, "_transport", lambda: _github(["docker-compose.yml"]))
+
+    resp = await client.post(
+        f"/api/v1/systems/{connected_system.id}/github/scan", headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    by_name = {d["detector"]: d for d in resp.json()["detectors"]}
+    assert by_name["first"]["paths"] == ["docker-compose.yml"]
+    assert by_name["second"]["paths"] == ["docker-compose.yml"]
+
+
+@pytest.mark.asyncio
 async def test_a_truncated_tree_is_reported(
     client, auth_headers, connected_system, monkeypatch
 ):
@@ -188,13 +225,17 @@ async def test_a_detector_that_raises_does_not_stop_the_others(
 ):
     """A new detector must not be able to break the ones already working."""
     from app.services.scanning import scanner
-    from app.services.scanning.registry import Detector, DetectorResult
+    from app.services.scanning.registry import Detector
     from app.services.scanning.detectors import DOCKER_COMPOSE
+    from app.db.models.system import SubSystemSource
 
     async def _boom(ctx):
         raise RuntimeError("detector exploded")
 
-    broken = Detector(name="broken", matches=lambda p: p.endswith(".yml"), parse=_boom)
+    broken = Detector(
+        name="broken", matches=lambda p: p.endswith(".yml"), parse=_boom,
+        subsystem_source=SubSystemSource.MANUAL,
+    )
     monkeypatch.setattr(scanner, "get_detectors", lambda: [broken, DOCKER_COMPOSE])
     monkeypatch.setattr(scanner, "_transport", lambda: _github(["docker-compose.yml"]))
 
@@ -216,20 +257,29 @@ async def test_a_detector_whose_database_write_fails_does_not_poison_the_others(
     A failed flush marks the session for rollback; without a savepoint per
     detector the next detector's write — or the request's own commit — raises
     PendingRollbackError and every successful detector's results are lost.
+
+    Parsing is pure now, so a detector cannot fail its own write from inside
+    `parse` any more — the write happens in `reconcile.apply`. What a broken
+    detector *can* still do is declare a value `apply` cannot persist: `name`
+    is NOT NULL on `subsystem`, so a declaration with `name=None` fails the
+    flush inside `apply`'s own SAVEPOINT with a real `IntegrityError`.
     """
     from app.services.scanning import scanner
-    from app.services.scanning.registry import Detector, DetectorResult
+    from app.services.scanning.registry import Detector
+    from app.services.scanning.declared import DeclaredState, DeclaredSubsystem
     from app.services.scanning.detectors import DOCKER_COMPOSE
-    from app.db.models.system import SubSystem
+    from app.db.models.system import SubSystemSource
 
-    async def _bad_write(ctx):
-        # tenant_id is NOT NULL — this flush fails inside the detector.
-        ctx.db.add(SubSystem(tenant_id=None, system_id=ctx.system_id, name="bad"))
-        await ctx.db.flush()
-        return DetectorResult(subsystems_created=1)
+    async def _bad_parse(ctx):
+        return DeclaredState(subsystems=[DeclaredSubsystem(
+            name=None, component_type="service",
+            technology=None, source_path=ctx.path,
+        )])
 
-    broken = Detector(name="bad_writer", matches=lambda p: p.endswith(".yml"),
-                      parse=_bad_write)
+    broken = Detector(
+        name="bad_writer", matches=lambda p: p.endswith(".yml"), parse=_bad_parse,
+        subsystem_source=SubSystemSource.MANUAL,
+    )
     monkeypatch.setattr(scanner, "get_detectors", lambda: [broken, DOCKER_COMPOSE])
     monkeypatch.setattr(scanner, "_transport", lambda: _github(["docker-compose.yml"]))
 
@@ -387,7 +437,9 @@ async def test_the_scan_arms_the_in_flight_marker_itself(
     from inside a real, unseeded scan.
     """
     from app.services.scanning import scanner
-    from app.services.scanning.registry import Detector, DetectorResult
+    from app.services.scanning.registry import Detector
+    from app.services.scanning.declared import DeclaredState
+    from app.db.models.system import SubSystemSource
 
     key = (connected_system.tenant_id, connected_system.id)
     assert key not in scanner._in_flight, "test isolation bug: marker was already set"
@@ -395,9 +447,12 @@ async def test_the_scan_arms_the_in_flight_marker_itself(
 
     async def _observe(ctx):
         seen_armed.append(key in scanner._in_flight)
-        return DetectorResult()
+        return DeclaredState()
 
-    watcher = Detector(name="watcher", matches=lambda p: p.endswith(".yml"), parse=_observe)
+    watcher = Detector(
+        name="watcher", matches=lambda p: p.endswith(".yml"), parse=_observe,
+        subsystem_source=SubSystemSource.MANUAL,
+    )
     monkeypatch.setattr(scanner, "get_detectors", lambda: [watcher])
     monkeypatch.setattr(scanner, "_transport", lambda: _github(["docker-compose.yml"]))
 

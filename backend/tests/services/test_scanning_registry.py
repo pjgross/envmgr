@@ -85,3 +85,40 @@ def test_adding_a_detector_did_not_disturb_the_existing_one():
     compose = next(d for d in DETECTORS if d.name == "docker_compose")
     assert compose.matches("docker-compose.yml") is True
     assert compose.matches("main.tf") is False
+
+
+def test_every_detector_declares_the_provenance_it_writes():
+    """diff() compares catalogue rows to the detector that owns their source.
+    A detector without one would silently compare against nothing."""
+    from app.db.models.system import SubSystemSource
+    from app.services.scanning.detectors import DETECTORS
+
+    for detector in DETECTORS:
+        assert isinstance(detector.subsystem_source, SubSystemSource), detector.name
+
+
+def test_only_detectors_that_declare_edges_may_delete_them():
+    """edge_source is what apply() deletes on. A detector that parses no edges
+    must pass None, or scanning a .tf file would wipe every compose edge."""
+    from app.services.scanning.detectors import DETECTORS
+
+    by_name = {d.name: d for d in DETECTORS}
+    assert by_name["docker_compose"].edge_source is not None
+    assert by_name["terraform_hcl"].edge_source is None
+
+
+@pytest.mark.asyncio
+async def test_a_detector_parses_without_a_database():
+    """The refactor's whole point: parsing is pure, so it needs no session."""
+    from app.services.scanning.registry import ParseContext
+
+    async def _never_called(path):
+        raise AssertionError("fetch should not be needed here")
+
+    declared = await DOCKER_COMPOSE.parse(ParseContext(
+        content=b"services:\n  api:\n    image: nginx\n",
+        path="docker-compose.yml",
+        fetch=_never_called,
+    ))
+
+    assert [s.name for s in declared.subsystems] == ["api"]
