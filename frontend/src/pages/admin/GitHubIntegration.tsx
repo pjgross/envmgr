@@ -60,8 +60,12 @@ export default function GitHubIntegration() {
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    // Persists across ticks: GitHub's `slow_down` applies to every subsequent
+    // request, not just the next one. Recomputing from `pending.interval` each
+    // tick would discard the backoff the server asked for.
+    let intervalSeconds = pending.interval;
 
-    const tick = async (delaySeconds: number) => {
+    const tick = () => {
       timer = setTimeout(async () => {
         if (cancelled) return;
         try {
@@ -69,7 +73,9 @@ export default function GitHubIntegration() {
           if (cancelled) return;
           if (result.status === 'connected') {
             setPending(null);
-            setStatus(await githubIntegrationService.status());
+            const next = await githubIntegrationService.status();
+            if (cancelled) return;
+            setStatus(next);
             return;
           }
           if (result.status === 'denied' || result.status === 'expired') {
@@ -81,18 +87,22 @@ export default function GitHubIntegration() {
             );
             return;
           }
-          // pending, or slow_down with a longer interval GitHub chose.
-          tick(result.interval ?? pending.interval);
+          if (result.status === 'slow_down') {
+            // Honour the server's number when it gives one; otherwise follow
+            // the device-flow convention of adding five seconds.
+            intervalSeconds = result.interval ?? intervalSeconds + 5;
+          }
+          tick();
         } catch {
           if (!cancelled) {
             setPending(null);
             setError('Lost contact with GitHub while waiting for authorisation.');
           }
         }
-      }, delaySeconds * 1000);
+      }, intervalSeconds * 1000);
     };
 
-    tick(pending.interval);
+    tick();
     return () => {
       cancelled = true;
       clearTimeout(timer);
