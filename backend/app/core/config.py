@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     SECRETS_ENCRYPTION_KEY: str = ""
 
+    # OAuth App client id for the GitHub device flow. Device flow needs no
+    # client secret, which is a large part of why it was chosen.
+    GITHUB_OAUTH_CLIENT_ID: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     
