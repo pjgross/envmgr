@@ -165,6 +165,54 @@ async def test_a_file_too_large_for_the_contents_api_is_an_error_not_empty_bytes
 
 
 @pytest.mark.asyncio
+async def test_a_non_json_tree_body_is_typed():
+    """The previous fix covered get_default_branch and left this open."""
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_tree("o", "r", "main")
+
+
+@pytest.mark.asyncio
+async def test_a_non_json_blob_body_is_typed():
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_blob("o", "r", "a.tf", "main")
+
+
+@pytest.mark.asyncio
+async def test_corrupt_base64_content_is_typed_not_a_decode_error():
+    """binascii.Error would otherwise reach the scanner untyped."""
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"content": "!!!not base64!!!",
+                                         "encoding": "base64"})
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_blob("o", "r", "a.tf", "main")
+
+
+@pytest.mark.asyncio
+async def test_the_encoding_message_survives_the_wrapper():
+    """The bare re-raise keeps the specific message instead of the generic one."""
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"content": "", "encoding": "none"})
+
+    with pytest.raises(GitHubUnexpectedResponse, match="unexpected content encoding"):
+        await _client(handler).get_blob("o", "r", "big.tf", "main")
+
+
+@pytest.mark.asyncio
 async def test_the_same_http_client_is_reused_across_calls():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"default_branch": "main"})

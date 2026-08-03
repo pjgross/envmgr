@@ -54,6 +54,13 @@ class TreeResult:
 
 
 class GitHubClient:
+    """Thin GitHub REST client.
+
+    Holds one pooled httpx client for its lifetime, so **the caller must call
+    `aclose()`** when finished — typically in a `finally`. A scan that forgets
+    leaks a connection pool per run.
+    """
+
     def __init__(self, token: str, transport: Optional[httpx.BaseTransport] = None) -> None:
         self._token = token
         self._transport = transport
@@ -120,16 +127,21 @@ class GitHubClient:
             params={"recursive": "1"},
         )
         self._raise_for_status(response)
-        payload = response.json()
         try:
-            return TreeResult(
-                paths=[e["path"] for e in payload["tree"] if e.get("type") == "blob"],
-                truncated=bool(payload.get("truncated", False)),
-            )
-        except (KeyError, TypeError) as exc:
+            payload = response.json()
+            paths = [
+                entry["path"]
+                for entry in payload.get("tree", [])
+                if entry.get("type") == "blob"
+            ]
+            truncated = bool(payload.get("truncated", False))
+        except (KeyError, ValueError, TypeError) as exc:
+            # ValueError covers json.JSONDecodeError; TypeError covers a
+            # payload whose shape is right at the top level and wrong inside.
             raise GitHubUnexpectedResponse(
-                "tree response had no tree, or an entry had no path"
+                "tree response was not shaped as expected"
             ) from exc
+        return TreeResult(paths=paths, truncated=truncated)
 
     async def get_blob(self, owner: str, repo: str, path: str, ref: str) -> bytes:
         client = self._client()
@@ -137,14 +149,18 @@ class GitHubClient:
             f"{_API}/repos/{owner}/{repo}/contents/{path}", params={"ref": ref}
         )
         self._raise_for_status(response)
-        payload = response.json()
-        if payload.get("encoding") != "base64":
-            raise GitHubUnexpectedResponse(
-                f"unexpected content encoding: {payload.get('encoding')}"
-            )
         try:
+            payload = response.json()
+            if payload.get("encoding") != "base64":
+                raise GitHubUnexpectedResponse(
+                    f"unexpected content encoding: {payload.get('encoding')}"
+                )
             return base64.b64decode(payload["content"])
-        except KeyError as exc:
+        except GitHubUnexpectedResponse:
+            raise
+        except (KeyError, ValueError, TypeError) as exc:
+            # binascii.Error subclasses ValueError, so corrupt base64 lands here
+            # rather than escaping as an untyped decode failure.
             raise GitHubUnexpectedResponse(
-                f"unexpected content encoding: {payload.get('encoding')}"
+                f"could not read blob content for {path}"
             ) from exc
