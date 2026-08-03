@@ -207,6 +207,23 @@ async def test_an_edge_to_an_undeclared_endpoint_is_not_reported(
 
 
 @pytest.mark.asyncio
+async def test_a_self_referencing_edge_is_not_reported(db_session, test_tenant, system):
+    """apply() drops a self-loop (from_id == to_id) rather than writing it, so
+    diff() must skip it too — otherwise it would report a self-loop as
+    missing-in-catalogue forever, since apply() can never write one to close
+    the gap."""
+    declared = DeclaredState(
+        subsystems=[DeclaredSubsystem("api", "web_service", None, "c.yml")],
+        edges=[DeclaredEdge("api", "api", None, "c.yml")],
+    )
+
+    report = await _diff(db_session, system, test_tenant.id, declared,
+                         edge_source=DependencySource.DOCKER_COMPOSE)
+
+    assert report.edges_missing_in_catalogue == []
+
+
+@pytest.mark.asyncio
 async def test_a_changed_port_is_reported(db_session, test_tenant, system):
     api_sub = SubSystem(tenant_id=test_tenant.id, system_id=system.id, name="api",
                         component_type="web_service", source=SubSystemSource.DOCKER_COMPOSE)

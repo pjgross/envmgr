@@ -160,6 +160,38 @@ async def test_a_duplicate_edge_pair_is_written_once(db_session, test_tenant, sy
 
 
 @pytest.mark.asyncio
+async def test_a_repeated_edge_pair_with_different_ports_keeps_the_last(
+    db_session, test_tenant, system
+):
+    """Last-wins is the agreed tie-break for a repeated (from, to) pair — it
+    matches how subsystems already resolve (both apply() and diff() overwrite
+    on a repeat), matches diff()'s own duplicate-declaration warning ("only
+    the last is kept"), and matches the Compose importer's pre-existing
+    delete-then-recreate-per-file behaviour, where a later file's edge wins.
+    First-wins here would silently disagree with diff(), which always keeps
+    the last value it sees for a (from, to) key."""
+    declared = DeclaredState(
+        subsystems=[
+            DeclaredSubsystem("api", "web_service", None, "c.yml"),
+            DeclaredSubsystem("db", "database", None, "c.yml"),
+        ],
+        edges=[
+            DeclaredEdge("api", "db", 5432, "a.yml"),
+            DeclaredEdge("api", "db", 6432, "b.yml"),
+        ],
+    )
+
+    result = await _apply(
+        db_session, system, test_tenant.id, declared,
+        edge_source=DependencySource.DOCKER_COMPOSE,
+    )
+
+    assert result.dependencies_written == 1
+    edge = (await db_session.execute(select(ComponentDependency))).scalar_one()
+    assert edge.port == 6432
+
+
+@pytest.mark.asyncio
 async def test_edges_are_left_alone_when_the_source_declares_none(
     db_session, test_tenant, system
 ):

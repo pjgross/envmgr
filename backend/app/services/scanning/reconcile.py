@@ -129,7 +129,21 @@ async def apply(
             )
         )
 
-    written: set[tuple[int, int]] = set()
+    # Resolve to one edge per (from, to) pair before writing, keeping the LAST
+    # declared occurrence of a repeat. This must agree with diff(), which
+    # builds `declared_edges[(from, to)] = edge` and so always keeps the last
+    # value it sees too — last-wins on both sides, not "diff() first-wins to
+    # match apply()", because: (1) subsystems already resolve last-wins on
+    # both sides (this loop overwrites component_type/technology on a repeat,
+    # and diff()'s declared_by_name does the same), so first-wins on edges
+    # would leave two different tie-break rules inside one function; (2)
+    # diff()'s duplicate-declaration warning already tells the user "only the
+    # last is kept" — first-wins on edges would make that message a lie; and
+    # (3) the Compose importer has always deleted and recreated its edges once
+    # per file, so a later file's version of a repeated edge won — last-wins
+    # preserves that. Also still enforces the uq_component_dep (from, to,
+    # tenant) uniqueness: a dict can hold only one entry per key.
+    resolved_edges: dict[tuple[int, int], DeclaredEdge] = {}
     for edge in declared.edges:
         from_id = declared_ids.get(edge.from_name)
         to_id = declared_ids.get(edge.to_name)
@@ -137,11 +151,9 @@ async def apply(
         # diff() skips the same edges, or the round-trip guarantee breaks.
         if from_id is None or to_id is None or from_id == to_id:
             continue
-        if (from_id, to_id) in written:
-            # uq_component_dep is (from, to, tenant): a repeat would raise
-            # IntegrityError and cost this detector its whole savepoint.
-            continue
-        written.add((from_id, to_id))
+        resolved_edges[(from_id, to_id)] = edge
+
+    for (from_id, to_id), edge in resolved_edges.items():
         db.add(ComponentDependency(
             tenant_id=tenant_id,
             from_subsystem_id=from_id,
