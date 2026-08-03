@@ -105,6 +105,10 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
           <Typography variant="subtitle2" sx={{ mt: 1 }}>
             Dependencies in EnvManager, no longer in the code
           </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Scanning will remove these — unlike subsystems, dependency edges
+            are deleted and rewritten from what the code declares on every scan.
+          </Typography>
           <List dense disablePadding>
             {edges.missing_in_code.map((e) => (
               <ListItem key={`${e.from_name}-${e.to_name}`} disableGutters>
@@ -171,6 +175,12 @@ export default function DriftDialog({ open, systemId, onClose }: Props) {
     onClose();
   };
 
+  // has_drift is computed only from the categories each detector managed to
+  // compute; a null absence category contributes nothing to it. The
+  // unqualified success banner is only honest when every detector's absence
+  // WAS computed.
+  const allAbsenceComputed = result?.detectors.every((d) => d.absence_computed) ?? true;
+
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Repository drift</DialogTitle>
@@ -190,9 +200,22 @@ export default function DriftDialog({ open, systemId, onClose }: Props) {
                 {result.files_scanned === 1 ? '' : 's'} read.
               </Typography>
 
-              {!result.has_drift && (
+              {!result.has_drift && allAbsenceComputed && (
                 <Alert severity="success">
                   No drift found — the catalogue matches the code.
+                </Alert>
+              )}
+
+              {/* has_drift is computed only from the categories that WERE
+                  computed, so a partial read with nothing concretely
+                  different still yields has_drift=false. The success banner
+                  above must not appear then — it would sit directly above a
+                  truncation warning, claiming a clean bill of health in the
+                  same breath as saying it couldn't check. */}
+              {!result.has_drift && !allAbsenceComputed && (
+                <Alert severity="warning">
+                  No differences found in the parts of the repository that
+                  could be read — this is not a clean bill of health.
                 </Alert>
               )}
 
