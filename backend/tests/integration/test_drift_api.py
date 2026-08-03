@@ -210,3 +210,83 @@ async def test_drift_requires_a_connected_github_account(
 
     assert resp.status_code == 409
     assert "not connected" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_a_401_from_github_clears_the_stored_token_on_drift(
+    realistic_client, db_engine, monkeypatch
+):
+    """Otherwise the UI keeps claiming 'connected' with a dead token.
+
+    Must use `realistic_client`, not the shared `client` fixture: `client`
+    shares one never-rolled-back session with the test body, so a deletion
+    made on the way to the 401 stays visible in-process even if get_db's real
+    rollback would have discarded it — which is exactly the bug this guards
+    against. See app/db/base.py's get_db, and
+    test_a_401_from_github_clears_the_stored_token in
+    test_repository_scan_api.py, which this mirrors for the sibling (drift)
+    endpoint's own AsyncSessionLocal cleanup session.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from app.core.security import get_password_hash
+    from app.db.models.user import Tenant, User
+    from app.services.scanning import scanner
+    from app.api.v1 import systems as systems_api
+
+    Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    # The endpoint's cleanup session uses the module-level AsyncSessionLocal —
+    # bound to settings.DATABASE_URL, the real dev/prod database — so it has
+    # to be repointed at this test's engine or the deletion would (attempt to)
+    # land in a database this test never touches. This mirrors how
+    # tests/unit/test_event_publisher.py handles the same module-level import.
+    monkeypatch.setattr(systems_api, "AsyncSessionLocal", Session)
+
+    async with Session() as setup:
+        tenant = Tenant(name="Revoke Org Drift", slug="revoke-org-drift")
+        setup.add(tenant)
+        await setup.flush()
+        user = User(
+            tenant_id=tenant.id,
+            username="revokeadmin2",
+            email="revoke2@test.com",
+            password_hash=get_password_hash("password123"),
+            role="Admin",
+            is_active=True,
+        )
+        setup.add(user)
+        system = System(
+            tenant_id=tenant.id, name="Payments",
+            github_repository_url="https://github.com/acme/payments",
+        )
+        setup.add(system)
+        await setup.flush()
+        await tenant_secret_service.put_secret(
+            setup, tenant.id, "github_oauth_token", "gho_abc", created_by=user.id,
+        )
+        await setup.commit()
+        tenant_id, system_id = tenant.id, system.id
+
+    login = await realistic_client.post("/api/v1/auth/login", json={
+        "username": "revokeadmin2", "password": "password123",
+        "tenant_slug": "revoke-org-drift",
+    })
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"message": "Bad credentials"})
+
+    monkeypatch.setattr(scanner, "_transport", lambda: httpx.MockTransport(handler))
+
+    resp = await realistic_client.get(
+        f"/api/v1/systems/{system_id}/github/drift", headers=headers
+    )
+    assert resp.status_code == 401
+
+    # Fresh session, opened after the request completed: this is what proves
+    # the deletion survived get_db's rollback-on-exception rather than having
+    # only ever lived in a session the test happened to share.
+    async with Session() as verify:
+        assert await tenant_secret_service.get_secret(
+            verify, tenant_id, "github_oauth_token") is None
