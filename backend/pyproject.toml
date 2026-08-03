@@ -35,7 +35,7 @@ dependencies = [
     # Fernet for symmetric encryption of stored third-party credentials.
     # Deliberately NOT reusing SECRET_KEY (JWT signing) — different blast
     # radius, different rotation schedule.
-    "cryptography==43.0.1",
+    "cryptography==50.0.0",
     # Parses Terraform .tf source. The existing terraform_import_service reads
     # .tfstate, which is normally not committed — a repository scanner needs
     # the source form.
