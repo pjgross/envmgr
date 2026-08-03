@@ -16,7 +16,7 @@
 | 3 | Releases, Templates, Enterprise Release, Jira | ✅ Sub-1 merged 2026-04-20/21 (MRs !4–!13); ✅ Sub-2 (Enterprise Releases) merged 2026-04-23 (MR !15, `64c52e3`); ✅ follow-ups MR !17 (gate due dates + timeline diamonds, `a2f55de`) + MR !18 (tenant-configurable change kinds, `0fa2eb5`) on 2026-04-23. Sub-3 (Jira) deferred. | 6–8 weeks | [phases/phase-3.md](phases/phase-3.md) |
 | 4 | Build Tracking + CI/CD Deployment Tracking | ✅ Complete — Sub-1 (MR !20), Sub-2 (MR !21, `d802797`), Sub-3 (`can-deploy` preflight + required `build_number`) all merged | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ✅ Complete + in-app verified (2026-07-29) — SP1 Incidents (#20), SP2 DORA (#21), SP3 Env Health (#22), SP4 PIR, SP5b release/conflict metrics, SP5a operating hours + utilisation | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
-| 6 | Infrastructure Topology **+ Environment Drift** | 🟡 Model pulled forward — Terraform/React Flow + drift-vs-Production still pending | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
+| 6 | Infrastructure Topology **+ Environment Drift** | 🟡 Substantially shipped — both IaC parsers, topology API + React Flow, and **environment comparison** (2026-08-03) are done. Remaining: drift detection, GitHub scanning, env-topology SP4 | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
 | 7 | Multi-Project Coordination **+ Environment Lifecycle & Governance** | ⏳ Planned (expanded 2026-07-16) | 6–8 weeks | [phases/phase-7.md](phases/phase-7.md) |
 | 8 | *(reserved — parked AI Copilot / AI-driven Integrations)* | ⏸ Parked | — | — |
 | 9 | Release Governance & Deployment Safety | ⏳ Planned (2026-07-16) | 6–8 weeks | — |
@@ -114,6 +114,11 @@ See [phases/phase-5.md](phases/phase-5.md).
 See [phases/phase-6.md](phases/phase-6.md).
 
 **Objectives**: GitHub integration for repository scanning, Terraform and Docker Compose parsers, infrastructure component modeling, React Flow visualization, environment comparison tool.
+
+**Corrected 2026-08-03**: all but three of these are already shipped — the parsers, the
+topology API, the React Flow visualisation and the environment comparison tool. What
+remains is drift detection, GitHub App/OAuth + repository scanning, and the env-topology
+group-by toggle. See [phases/phase-6.md](phases/phase-6.md).
 
 ---
 
