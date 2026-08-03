@@ -1,16 +1,10 @@
 from typing import Any
 
 import yaml
-from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dependency import (
-    ComponentDependency,
-    DependencyDirection,
-    DependencySource,
-    DependencyType,
-)
-from app.db.models.system import SubSystem
+from app.db.models.dependency import DependencySource
+from app.services.scanning.declared import DeclaredEdge, DeclaredState, DeclaredSubsystem
 
 IMAGE_TYPE_MAP = {
     'postgres': 'database',
@@ -39,15 +33,11 @@ def infer_component_type(image: str | None) -> str:
     return 'web_service'
 
 
-async def import_docker_compose(
-    system_id: int,
-    tenant_id: int,
-    content: bytes,
-    db: AsyncSession,
-) -> dict[str, int]:
-    """
-    Parse a docker-compose.yml and upsert subsystems + component dependencies.
-    Returns counts of created/updated subsystems and created dependencies.
+def parse_docker_compose(content: bytes, path: str) -> DeclaredState:
+    """Read a compose file into the services and edges it declares.
+
+    Pure: no database, no ids. Values are truncated to their column widths here
+    so a stored row compares equal to the declaration it came from.
     """
     try:
         compose = yaml.safe_load(content)
@@ -55,78 +45,34 @@ async def import_docker_compose(
         raise ValueError(f"Invalid YAML: {e}")
 
     if not isinstance(compose, dict):
-        raise ValueError("Invalid docker-compose file: expected a YAML mapping at the top level")
+        raise ValueError(
+            "Invalid docker-compose file: expected a YAML mapping at the top level"
+        )
 
     services: dict[str, Any] = compose.get('services', {})
     if not isinstance(services, dict) or not services:
         raise ValueError("No services found in docker-compose file")
 
-    # Load existing subsystems for this system (match by name for upsert)
-    result = await db.execute(
-        select(SubSystem).where(
-            SubSystem.system_id == system_id,
-            SubSystem.tenant_id == tenant_id,
-            SubSystem.deleted_at.is_(None),
-        )
-    )
-    existing = {s.name: s for s in result.scalars().all()}
-
-    subsystems_created = 0
-    subsystems_updated = 0
-    name_to_id: dict[str, int] = {}
-
+    declared = DeclaredState()
     for service_name, service_config in services.items():
         if not isinstance(service_name, str):
             continue
         service_config = service_config or {}
         image = service_config.get('image')
-        component_type = infer_component_type(image)
-        technology = image.split(':')[0] if image else None  # strip tag
-        technology = technology[:100] if technology else None
+        technology = image.split(':')[0][:100] if image else None
+        declared.subsystems.append(DeclaredSubsystem(
+            name=service_name[:200],
+            component_type=infer_component_type(image),
+            technology=technology,
+            source_path=path[:500],
+        ))
 
-        if service_name in existing:
-            # Update existing subsystem
-            sub = existing[service_name]
-            sub.component_type = component_type
-            sub.technology = technology
-            await db.flush()
-            name_to_id[service_name] = sub.id
-            subsystems_updated += 1
-        else:
-            # Create new subsystem
-            sub = SubSystem(
-                name=service_name,
-                system_id=system_id,
-                tenant_id=tenant_id,
-                component_type=component_type,
-                technology=technology,
-            )
-            db.add(sub)
-            await db.flush()  # get the id
-            name_to_id[service_name] = sub.id
-            subsystems_created += 1
-
-    # Delete existing docker_compose dependencies for this system's subsystems
-    all_subsystem_ids = list(name_to_id.values()) + [
-        s.id for s in existing.values() if s.name not in name_to_id
-    ]
-    if all_subsystem_ids:
-        await db.execute(
-            delete(ComponentDependency).where(
-                ComponentDependency.tenant_id == tenant_id,
-                ComponentDependency.from_subsystem_id.in_(all_subsystem_ids),
-                ComponentDependency.source == DependencySource.DOCKER_COMPOSE,
-            )
-        )
-
-    dependencies_created = 0
     for service_name, service_config in services.items():
         if not isinstance(service_name, str):
             continue
         service_config = service_config or {}
         depends_on = service_config.get('depends_on', {})
-
-        # depends_on can be a list of strings or a dict with condition keys
+        # depends_on is either a list of names or a mapping of name -> condition.
         if isinstance(depends_on, list):
             dep_names = depends_on
         elif isinstance(depends_on, dict):
@@ -134,39 +80,55 @@ async def import_docker_compose(
         else:
             dep_names = []
 
-        from_id = name_to_id.get(service_name)
-        if not from_id:
-            continue
-
         ports = service_config.get('ports', [])
         port = None
         if ports:
-            # ports can be "host:container" strings or integers
-            first_port = str(ports[0])
+            # ports are "host:container" strings or bare integers.
             try:
-                port = int(first_port.split(':')[-1])
+                port = int(str(ports[0]).split(':')[-1])
             except (ValueError, IndexError):
                 port = None
 
         for dep_name in dep_names:
-            to_id = name_to_id.get(dep_name)
-            if not to_id or to_id == from_id:
+            if not isinstance(dep_name, str):
                 continue
-            dep = ComponentDependency(
-                from_subsystem_id=from_id,
-                to_subsystem_id=to_id,
-                dependency_type=DependencyType.API_CALL,
-                direction=DependencyDirection.ONE_WAY,
-                source=DependencySource.DOCKER_COMPOSE,
+            declared.edges.append(DeclaredEdge(
+                from_name=service_name[:200],
+                to_name=dep_name[:200],
                 port=port,
-                tenant_id=tenant_id,
-            )
-            db.add(dep)
-            dependencies_created += 1
+                source_path=path[:500],
+            ))
 
-    await db.flush()
+    return declared
+
+
+async def import_docker_compose(
+    system_id: int,
+    tenant_id: int,
+    content: bytes,
+    db: AsyncSession,
+    path: str = "docker-compose.yml",
+) -> dict[str, int]:
+    """Parse a compose file and write what it declares.
+
+    Kept for the direct-upload endpoint in api/v1/import_routes.py. The scan
+    path does not use this — it parses once per file, accumulates, and applies
+    the total, so two compose files no longer wipe each other's edges.
+    """
+    from app.db.models.system import SubSystemSource
+    from app.services.scanning import reconcile
+
+    declared = parse_docker_compose(content, path)
+    result = await reconcile.apply(
+        db,
+        system_id=system_id,
+        tenant_id=tenant_id,
+        source=SubSystemSource.DOCKER_COMPOSE,
+        edge_source=DependencySource.DOCKER_COMPOSE,
+        declared=declared,
+    )
     return {
-        'subsystems_created': subsystems_created,
-        'subsystems_updated': subsystems_updated,
-        'dependencies_created': dependencies_created,
+        'subsystems_created': result.subsystems_created,
+        'subsystems_updated': result.subsystems_updated,
+        'dependencies_created': result.dependencies_written,
     }
