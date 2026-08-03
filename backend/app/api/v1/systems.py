@@ -1,12 +1,22 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.base import get_db
+from app.db.base import get_db, AsyncSessionLocal
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.system import System
-from app.services import system_service
+from app.services import system_service, tenant_secret_service
+from app.services.github_client import (
+    GitHubAuthError,
+    GitHubNotFound,
+    GitHubRateLimited,
+    GitHubUnavailable,
+    GitHubUnexpectedResponse,
+)
+from app.services.github_oauth_service import TOKEN_KIND, LOGIN_KIND
+from app.services.scanning import scanner
+from app.services.scanning.scanner import ScanAlreadyRunning
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.api.v1.schemas.system import (
     SystemCreate,
@@ -81,6 +91,65 @@ async def delete_system(
     current_user=Depends(require_tenant_admin()),
 ):
     await system_service.delete_system(db, system_id, current_user.active_tenant_id)
+
+
+@router.post("/{system_id}/github/scan")
+async def scan_system_repository(
+    system_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    """Scan the system's GitHub repository and import what the detectors find."""
+    tenant_id = current_user.active_tenant_id
+    system = await system_service.get_system(db, system_id, tenant_id)
+
+    token = await tenant_secret_service.get_secret(db, tenant_id, TOKEN_KIND)
+    if token is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "GitHub is not connected for this tenant. Connect it under "
+            "Administration → GitHub Integration.",
+        )
+
+    try:
+        return await scanner.scan_repository(
+            db, token=token, system_id=system_id, tenant_id=tenant_id,
+            repo_url=system.github_repository_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+    except ScanAlreadyRunning as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    except GitHubAuthError:
+        # Clear it so the UI stops claiming "connected" with a dead token.
+        #
+        # This must happen in its own session: get_db commits on success and
+        # rolls back on any exception (see app/db/base.py), and this branch
+        # raises HTTPException on its way out. A delete on `db` here would be
+        # silently discarded by that rollback, leaving the dead token in
+        # place forever — every future scan would 401 again with the UI still
+        # reporting "connected". Following the same pattern as
+        # app/workers/event_publisher.py for a write that must survive.
+        async with AsyncSessionLocal() as cleanup:
+            await tenant_secret_service.delete_secret(cleanup, tenant_id, TOKEN_KIND)
+            await tenant_secret_service.delete_secret(cleanup, tenant_id, LOGIN_KIND)
+            await cleanup.commit()
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "GitHub rejected the stored token. Reconnect the integration.",
+        )
+    except GitHubRateLimited as exc:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"GitHub API rate limit exceeded. Resets at {exc.reset_at}.",
+        )
+    except GitHubNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    except (GitHubUnavailable, GitHubUnexpectedResponse) as exc:
+        # Neither is the caller's fault or fixable by retrying the same
+        # request immediately — 502 says "the upstream (GitHub) misbehaved",
+        # not "your request was wrong" or "try again in a bit" (429).
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
 
 
 # ---------------------------------------------------------------------------

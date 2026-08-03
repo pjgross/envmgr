@@ -23,6 +23,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import InsightsIcon from '@mui/icons-material/Insights';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
+import GitHubIcon from '@mui/icons-material/GitHub';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -105,6 +106,7 @@ export const navGroups: NavItem[] = [
       { label: 'Change Config', path: '/admin/config/booking', icon: <TuneIcon />, requires: 'admin' },
       { label: 'RAID Settings', path: '/tenant/raid-settings', icon: <WarningAmberIcon />, requires: 'admin' },
       { label: 'API Keys', path: '/tenant/api-keys', icon: <VpnKeyIcon />, requires: 'admin' },
+      { label: 'GitHub Integration', path: '/admin/github', icon: <GitHubIcon />, requires: 'admin' },
       { label: 'Platform Admin', path: '/admin/tenants', icon: <AdminPanelSettingsIcon />, requires: 'masterAdmin' },
     ],
   },

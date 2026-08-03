@@ -146,6 +146,36 @@ async def client(db_session):
 
 
 @pytest_asyncio.fixture(scope="function")
+async def realistic_client(db_engine):
+    """An HTTP test client whose get_db override mirrors production: commit on
+    success, rollback on exception. Each request gets its own session, backed
+    by the same engine as the rest of the test's fixtures.
+
+    Use this — not `client` — whenever the behaviour under test depends on a
+    write surviving (or not surviving) a request that raises. `client` shares
+    one session with the test body and never rolls back, so it cannot catch a
+    write that only get_db's real rollback would discard.
+    """
+    Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def override_get_db():
+        async with Session() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = override_get_db
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(scope="function")
 async def test_tenant(db_session) -> Tenant:
     """A persisted test tenant."""
     tenant = Tenant(name="Test Org", slug="test-org")

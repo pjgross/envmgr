@@ -69,6 +69,7 @@ import type {
   SubSystemUpdate,
 } from '../../types/system';
 import SystemTopologyDiagram from './SystemTopologyDiagram';
+import ScanRepositoryDialog from '../../components/systems/ScanRepositoryDialog';
 import ScopeWindowsTable from '../../components/releases/ScopeWindowsTable';
 import type {
   DependencyType,
@@ -294,6 +295,9 @@ export default function SystemDetail() {
     subsystems_created: number;
     subsystems_updated: number;
   } | null>(null);
+
+  // GitHub repository scan dialog state
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
 
   useEffect(() => {
     dispatch(fetchSystem(systemId));
@@ -848,19 +852,39 @@ export default function SystemDetail() {
                 <Typography variant="overline" color="text.secondary">
                   GitHub Repository
                 </Typography>
-                <Typography>
-                  {currentSystem?.github_repository_url ? (
-                    <Link
-                      href={currentSystem.github_repository_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {currentSystem.github_repository_url}
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Typography>
+                    {currentSystem?.github_repository_url ? (
+                      <Link
+                        href={currentSystem.github_repository_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {currentSystem.github_repository_url}
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
+                  </Typography>
+                  <Tooltip
+                    title={
+                      currentSystem?.github_repository_url
+                        ? ''
+                        : 'Set a GitHub Repository URL to enable scanning'
+                    }
+                  >
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setScanDialogOpen(true)}
+                        disabled={!currentSystem?.github_repository_url}
+                      >
+                        Scan repository
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </Box>
               </Box>
               {sysCustomFieldDefs.length > 0 && (
                 <>
@@ -1830,6 +1854,15 @@ export default function SystemDetail() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* GitHub Repository Scan Dialog */}
+      {currentSystem && (
+        <ScanRepositoryDialog
+          open={scanDialogOpen}
+          systemId={currentSystem.id}
+          onClose={() => setScanDialogOpen(false)}
+        />
+      )}
     </Box>
   );
 }

@@ -93,3 +93,26 @@ unreachable RSC issue. Revisit once a release above 8.2.0 ships.
   unchanged and still verify; a test pins a passlib-era hash to prove it.
 - ~~**`neo4j` 5.16.0 and `pika` 1.3.2**~~ — both **removed** 2026-07-30; neither was imported by
   any backend module. See [decisions/2026-07-30-drop-neo4j.md](decisions/2026-07-30-drop-neo4j.md).
+
+---
+
+## Added 2026-08-03 — GitHub repository scanning
+
+- **`cryptography` 50.0.0** — Fernet, encrypting third-party credentials at rest in
+  `tenant_secret`. This app had no reversible secret storage before; `api_key` stores a
+  one-way hash, which is right for verifying inbound keys and useless for a token that must
+  be replayed outbound.
+
+  **Pinned at 50.0.0 rather than the 43.0.1 the plan first specified**, because 43.0.1 fails
+  `scripts/audit_dependencies.py` on four advisories — CVE-2024-12797, CVE-2026-26007,
+  CVE-2026-34073 and GHSA-537c-gmf6-5ccf. The audit gate caught this before CI did, which is
+  what it is for. 50.0.0 reports no unaccepted advisories.
+
+- **`python-hcl2` 7.3.1** — parses Terraform `.tf` source for the repository scanner. The
+  pre-existing `terraform_import_service` parses `.tfstate` **JSON**, which is normally not
+  committed to a repository (it contains secrets; best practice is remote state), so a
+  scanner expecting it would find nothing. Clean on the audit gate.
+
+  Note the two parsers are not interchangeable: HCL gives *declared* resources — no computed
+  values, no resource ids — so scanning `.tf` and importing `.tfstate` for the same
+  infrastructure will not produce identical rows.

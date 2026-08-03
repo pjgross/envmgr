@@ -186,3 +186,7 @@ app.include_router(incidents_router.router, prefix="/api/v1")
 from app.api.v1 import metrics as metrics_router
 
 app.include_router(metrics_router.router, prefix="/api/v1")
+
+from app.api.v1 import integrations_github as integrations_github_router
+
+app.include_router(integrations_github_router.router, prefix="/api/v1")

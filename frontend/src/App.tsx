@@ -31,6 +31,7 @@ const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
 const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
+const GitHubIntegration = lazy(() => import('./pages/admin/GitHubIntegration'));
 const HealthDashboard = lazy(() => import('./pages/insights/HealthDashboard'));
 const ImportPage = lazy(() => import('./pages/import/ImportPage'));
 const IncidentDetail = lazy(() => import('./pages/incidents/IncidentDetail'));
@@ -232,6 +233,16 @@ function App() {
               }
             >
               <Route index element={<RaidSettings />} />
+            </Route>
+            <Route
+              path="/admin/github"
+              element={
+                <PrivateRoute requiredRole="Admin">
+                  <AdminLayout />
+                </PrivateRoute>
+              }
+            >
+              <Route index element={<GitHubIntegration />} />
             </Route>
           </Route>
           <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />
