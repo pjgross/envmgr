@@ -44,7 +44,15 @@ def difference_kinds(
     if presence != "both":
         return ["presence"]
 
-    assert left is not None and right is not None
+    if left is None or right is None:
+        # Not an assert: asserts vanish under `python -O`, and this invariant
+        # is what stops a caller passing presence="both" with an absent side
+        # and getting a TypeError from deep inside the comparison instead.
+        raise ValueError(
+            'presence="both" requires both sides; '
+            f"got left={'None' if left is None else 'present'}, "
+            f"right={'None' if right is None else 'present'}"
+        )
     differing = {
         "mocked": left["is_mocked"] != right["is_mocked"],
         # None == None is not a difference: a subsystem nobody has recorded a

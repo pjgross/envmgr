@@ -87,3 +87,16 @@ def test_several_differences_are_all_reported_in_a_stable_order():
     left = _side(mocked=True, version="1.0")
     right = _side(mocked=False, version="2.0")
     assert difference_kinds("both", left, right) == ["mocked", "version"]
+
+
+def test_all_three_kinds_can_differ_at_once():
+    left = _side(mocked=True, version="1.0", shape=host_shape([("server", "primary")]))
+    right = _side(mocked=False, version="2.0", shape=[])
+    assert difference_kinds("both", left, right) == ["mocked", "version", "host_shape"]
+
+
+def test_both_sides_are_required_when_presence_is_both():
+    import pytest
+
+    with pytest.raises(ValueError, match="requires both sides"):
+        difference_kinds("both", _side(), None)
