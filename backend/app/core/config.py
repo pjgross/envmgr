@@ -52,7 +52,12 @@ class Settings(BaseSettings):
     
     # File Upload
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
-    
+
+    # A repository with hundreds of .tf files would otherwise mean hundreds of
+    # sequential API calls against a rate limit. Hitting this cap is reported,
+    # never silent.
+    MAX_SCAN_FILES: int = 200
+
     @model_validator(mode="after")
     def _reject_insecure_secret_key(self) -> "Settings":
         if not self.DEBUG and self.SECRET_KEY == INSECURE_DEV_SECRET_KEY:
