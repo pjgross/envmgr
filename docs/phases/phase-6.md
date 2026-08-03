@@ -33,7 +33,7 @@ The task list below was two-thirds wrong. Verified against the code, not the roa
 | GitHub repo link on System detail | **Shipped** — the field exists and renders |
 | Neo4j sync consumer | **Obsolete** — Neo4j removed, see [decisions/2026-07-30-drop-neo4j.md](../decisions/2026-07-30-drop-neo4j.md) |
 
-The remainder is four independent sub-projects, each getting its own spec:
+The remainder is **two** independent sub-projects, each getting its own spec. (Two of the four originally listed here are done: environment comparison, and env-topology SP4 — which was already shipped before this correction.)
 
 ### 1. Environment comparison — ✅ shipped 2026-08-03
 
@@ -65,13 +65,20 @@ Automated repository scanning to replace today's manual file upload. App registr
 OAuth, a background worker, scheduling and credential storage. The largest piece, and it
 unlocks 2.
 
-### 4. env-topology SP4 — group-by-system/host toggle, not started
+### 4. env-topology SP4 — group-by-system/host toggle — ✅ **already shipped**
 
-**The machinery is already complete**: both groupings (`bySystem`, `byHost`), the host graph
-transform and the edge resolver all exist, and
-`frontend/src/pages/environments/EnvironmentTopologyDiagram.tsx` already holds
-`const [groupBy, setGroupBy] = useState<'system' | 'host'>('system')`. `setGroupBy` is never
-called — only the UI control is missing. Small.
+**Corrected 2026-08-03. An earlier version of this file said `setGroupBy` was dead code and
+only the UI control was missing. That was wrong.** The toggle exists in full: a System/Host
+`ToggleButtonGroup` in `EnvironmentTopologyDiagram.tsx`, wired to `setGroupBy` and passed to
+`TopologyCanvas` as `headerControls`. Verified in the browser — Host mode regroups the
+diagram into host buckets (`UNASSIGNED`, `EXTERNAL`, and the named hosts) with dependency
+edges preserved.
+
+The false claim came from a **case-sensitive** `grep` for `groupBy`, which does not match
+`setGroupBy`. Its spec and plan are
+[../superpowers/specs/2026-07-27-topology-group-by-host-design.md](../superpowers/specs/2026-07-27-topology-group-by-host-design.md)
+and [../superpowers/plans/2026-07-27-topology-group-by-host.md](../superpowers/plans/2026-07-27-topology-group-by-host.md);
+the plan's checkboxes were never ticked, which is what made it look outstanding.
 
 ## Notes
 
