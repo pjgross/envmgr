@@ -224,6 +224,74 @@ async def test_a_self_referencing_edge_is_not_reported(db_session, test_tenant, 
 
 
 @pytest.mark.asyncio
+async def test_a_hand_made_edge_for_a_declared_pair_is_a_conflict_not_a_creation(
+    db_session, test_tenant, system
+):
+    """uq_component_dep is (from_subsystem_id, to_subsystem_id, tenant_id) — it
+    does NOT include source, so at most one ComponentDependency row can ever
+    exist for a given pair, regardless of provenance. A hand-made (manual)
+    edge for a pair the code also declares is therefore not something a scan
+    could ever create: apply() would try to INSERT into a row that already
+    exists under a different source and raise IntegrityError, which (per the
+    per-detector SAVEPOINT in scanner.py) rolls back and loses that
+    detector's other writes too. Reporting it as missing_in_catalogue tells
+    the user Scan will create it, which is false — it must be reported as a
+    conflict instead."""
+    api_sub = SubSystem(tenant_id=test_tenant.id, system_id=system.id, name="api",
+                        component_type="web_service", source=SubSystemSource.DOCKER_COMPOSE)
+    db_sub = SubSystem(tenant_id=test_tenant.id, system_id=system.id, name="db",
+                       component_type="database", source=SubSystemSource.DOCKER_COMPOSE)
+    db_session.add_all([api_sub, db_sub])
+    await db_session.flush()
+    db_session.add(ComponentDependency(
+        tenant_id=test_tenant.id, from_subsystem_id=api_sub.id, to_subsystem_id=db_sub.id,
+        dependency_type=DependencyType.API_CALL,
+        source=DependencySource.MANUAL,
+    ))
+    await db_session.flush()
+
+    declared = DeclaredState(
+        subsystems=[
+            DeclaredSubsystem("api", "web_service", None, "c.yml"),
+            DeclaredSubsystem("db", "database", None, "c.yml"),
+        ],
+        edges=[DeclaredEdge("api", "db", 5432, "c.yml")],
+    )
+    report = await _diff(db_session, system, test_tenant.id, declared,
+                         edge_source=DependencySource.DOCKER_COMPOSE)
+
+    assert report.edges_missing_in_catalogue == []
+    assert len(report.edges_conflicting_source) == 1
+    conflict = report.edges_conflicting_source[0]
+    assert (conflict.from_name, conflict.to_name) == ("api", "db")
+    assert conflict.catalogue_source == "manual"
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_absent_edge_is_still_reported_missing_in_catalogue(
+    db_session, test_tenant, system
+):
+    """The negative control for the conflict category above: when the
+    catalogue has no row at all for the pair (under any source), the existing
+    missing_in_catalogue behaviour is unchanged."""
+    declared = DeclaredState(
+        subsystems=[
+            DeclaredSubsystem("api", "web_service", None, "c.yml"),
+            DeclaredSubsystem("db", "database", None, "c.yml"),
+        ],
+        edges=[DeclaredEdge("api", "db", 5432, "c.yml")],
+    )
+
+    report = await _diff(db_session, system, test_tenant.id, declared,
+                         edge_source=DependencySource.DOCKER_COMPOSE)
+
+    assert [(e.from_name, e.to_name) for e in report.edges_missing_in_catalogue] == [
+        ("api", "db")
+    ]
+    assert report.edges_conflicting_source == []
+
+
+@pytest.mark.asyncio
 async def test_a_changed_port_is_reported(db_session, test_tenant, system):
     api_sub = SubSystem(tenant_id=test_tenant.id, system_id=system.id, name="api",
                         component_type="web_service", source=SubSystemSource.DOCKER_COMPOSE)

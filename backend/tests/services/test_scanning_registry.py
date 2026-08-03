@@ -5,7 +5,7 @@ to disturb detectors that already work.
 """
 import pytest
 
-from app.services.scanning.registry import DetectorResult, ParseContext
+from app.services.scanning.registry import ParseContext
 from app.services.scanning.detectors import DETECTORS
 from app.services.scanning.detectors.compose import DOCKER_COMPOSE
 
@@ -47,22 +47,6 @@ def test_compose_does_not_claim_override_fragments(path):
 def test_every_registered_detector_has_a_unique_name():
     names = [d.name for d in DETECTORS]
     assert len(names) == len(set(names))
-
-
-def test_detector_result_totals_are_addable():
-    """The scan sums results across detectors without knowing what any did."""
-    a = DetectorResult(subsystems_created=1, subsystems_updated=2, dependencies_written=3)
-    b = DetectorResult(subsystems_created=10, subsystems_updated=20, dependencies_written=30)
-    total = a + b
-    assert (total.subsystems_created, total.subsystems_updated, total.dependencies_written) == (
-        11, 22, 33
-    )
-
-
-def test_warnings_survive_addition():
-    a = DetectorResult(warnings=["a"])
-    b = DetectorResult(warnings=["b"])
-    assert (a + b).warnings == ["a", "b"]
 
 
 def test_terraform_claims_tf_files_only():

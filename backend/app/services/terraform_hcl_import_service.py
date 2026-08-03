@@ -64,7 +64,13 @@ async def import_terraform_hcl(
     system_id: int, tenant_id: int, content: bytes, db: AsyncSession,
     path: str = "main.tf",
 ) -> dict:
-    """Parse .tf source and write what it declares."""
+    """Parse .tf source and write what it declares.
+
+    No production caller today — import_routes.py wires up its siblings
+    import_docker_compose and import_terraform (the .tfstate importer) but
+    not this one. Kept anyway: it is the symmetric third of that trio, for
+    an upload-based HCL path someone will want later.
+    """
     from app.db.models.system import SubSystemSource
     from app.services.scanning import reconcile
 

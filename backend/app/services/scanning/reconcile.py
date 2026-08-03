@@ -34,11 +34,17 @@ async def catalogue(
     always upserted on, so the writer and the differ cannot disagree about
     identity.
 
-    Caveat: there is no database-level unique constraint on
-    (name, system_id, tenant_id) — `system_service.create_subsystem`'s
-    uniqueness check is application-level and racy. Two live subsystems that
-    ended up sharing a name within one system collapse into a single dict
-    entry here, silently: the loser is invisible to `apply()` and to `diff()`.
+    Caveat: on the SQLite test engine there is no database-level unique
+    constraint on (system_id, name) — that engine recreates the schema via
+    Base.metadata and never applies migration `nameuniqguard`, so
+    `system_service.create_subsystem`'s uniqueness check is application-level
+    and racy there. Two live subsystems that ended up sharing a name within
+    one system collapse into a single dict entry here, silently: the loser is
+    invisible to `apply()` and to `diff()`. In PRODUCTION this cannot happen
+    the same way: migration `nameuniqguard` creates a partial unique index
+    `uq_subsystem_system_name (system_id, name) WHERE deleted_at IS NULL` on
+    PostgreSQL, so a second live row with the same name raises an
+    `IntegrityError` at insert time instead of silently colliding here.
     """
     rows = (await db.execute(
         select(SubSystem).where(
@@ -194,6 +200,26 @@ class ChangedEdge:
     source_path: str
 
 
+@dataclass(frozen=True)
+class ConflictingEdge:
+    """The code declares this edge, but the catalogue already has a row for
+    the same (from, to) pair under a DIFFERENT source — e.g. a hand-made
+    (manual) dependency the code also happens to declare.
+
+    `uq_component_dep` is (from_subsystem_id, to_subsystem_id, tenant_id) —
+    it does NOT include `source`, so at most one ComponentDependency row can
+    ever exist for a pair, regardless of provenance. That row cannot be
+    created by a scan: `apply()`'s insert for this pair would collide with
+    the existing row and raise IntegrityError. This is therefore never
+    reported as `missing_in_catalogue` — the dialog must not tell the user
+    Scan will create it, because it can't."""
+    from_name: str
+    to_name: str
+    port: int | None
+    source_path: str
+    catalogue_source: str
+
+
 @dataclass
 class DriftReport:
     subsystems_missing_in_catalogue: list[DeclaredSubsystem]
@@ -202,6 +228,7 @@ class DriftReport:
     edges_missing_in_catalogue: list[DeclaredEdge]
     edges_missing_in_code: list[EdgeRef] | None
     edges_changed: list[ChangedEdge]
+    edges_conflicting_source: list[ConflictingEdge]
     absence_computed: bool
     absence_reason: str | None
     warnings: list[str]
@@ -215,6 +242,7 @@ class DriftReport:
             or self.edges_missing_in_catalogue
             or self.edges_missing_in_code
             or self.edges_changed
+            or self.edges_conflicting_source
         )
 
 
@@ -284,23 +312,40 @@ async def diff(
 
     edges_missing_in_catalogue: list[DeclaredEdge] = []
     edges_changed: list[ChangedEdge] = []
+    edges_conflicting_source: list[ConflictingEdge] = []
     edges_missing_in_code: list[EdgeRef] | None = None
 
     if edge_source is not None:
         name_by_id = {row.id: name for name, row in existing.items()}
         rows = []
         if name_by_id:
+            # Not filtered by source: uq_component_dep is
+            # (from_subsystem_id, to_subsystem_id, tenant_id) — it does NOT
+            # include source, so at most one row can ever exist per pair,
+            # regardless of provenance. Filtering this query to
+            # source == edge_source would make a hand-made edge for a pair
+            # the code also declares invisible here, while apply()'s insert
+            # for that same pair still collides with it in the database —
+            # exactly the bug this whole rework closes.
             rows = (await db.execute(
                 select(ComponentDependency).where(
                     ComponentDependency.tenant_id == tenant_id,
-                    ComponentDependency.source == edge_source,
                     ComponentDependency.from_subsystem_id.in_(list(name_by_id)),
                     ComponentDependency.to_subsystem_id.in_(list(name_by_id)),
                 )
             )).scalars().all()
-        catalogue_edges = {
+        catalogue_edges_by_pair = {
             (name_by_id[row.from_subsystem_id], name_by_id[row.to_subsystem_id]): row
             for row in rows
+        }
+        # The per-source view: what apply() itself deletes-and-recreates on a
+        # scan, and therefore the only rows that can ever be "changed" or
+        # "missing_in_code" for THIS source. Since at most one row exists per
+        # pair (see above), this is just catalogue_edges_by_pair filtered to
+        # the rows this source owns.
+        catalogue_edges = {
+            key: row for key, row in catalogue_edges_by_pair.items()
+            if _column_value(row.source) == edge_source.value
         }
 
         declared_edges: dict[tuple[str, str], DeclaredEdge] = {}
@@ -314,9 +359,18 @@ async def diff(
             declared_edges[(edge.from_name, edge.to_name)] = edge
 
         for key, edge in declared_edges.items():
-            row = catalogue_edges.get(key)
+            row = catalogue_edges_by_pair.get(key)
             if row is None:
                 edges_missing_in_catalogue.append(edge)
+            elif _column_value(row.source) != edge_source.value:
+                # The pair exists, but under different provenance. apply()
+                # cannot write this — it isn't a creation, it's a collision —
+                # so it must never be reported as missing_in_catalogue.
+                edges_conflicting_source.append(ConflictingEdge(
+                    from_name=key[0], to_name=key[1], port=edge.port,
+                    source_path=edge.source_path,
+                    catalogue_source=_column_value(row.source),
+                ))
             elif row.port != edge.port:
                 edges_changed.append(ChangedEdge(
                     from_name=key[0], to_name=key[1], catalogue_port=row.port,
@@ -340,6 +394,7 @@ async def diff(
         edges_missing_in_catalogue=edges_missing_in_catalogue,
         edges_missing_in_code=edges_missing_in_code,
         edges_changed=edges_changed,
+        edges_conflicting_source=edges_conflicting_source,
         absence_computed=absence_computed,
         absence_reason=absence_reason,
         warnings=warnings,

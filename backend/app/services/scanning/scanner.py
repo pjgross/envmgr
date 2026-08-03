@@ -22,6 +22,22 @@ from app.services.scanning.registry import Detector, ParseContext
 _REPO_URL = re.compile(r"github\.com[:/]+([^/]+)/([^/.]+)")
 
 
+def _format_apply_error(detector_name: str, exc: Exception) -> str:
+    """Class name + a short message, `detector: Class: message` — matching
+    the `path: message` shape walk errors use just below, so the two error
+    kinds in a scan response read consistently instead of one being a plain
+    path and the other a bare `str(exc)`.
+
+    Never str(exc) alone: a SQLAlchemy IntegrityError's __str__ embeds the
+    full failing SQL statement and every bound parameter. Those values are
+    the tenant's own data, not a secret, but they are still noise — and
+    schema-shape exposure — in a user-facing scan response.
+    """
+    message = str(exc).splitlines()[0] if str(exc) else ""
+    return f"{detector_name}: {type(exc).__name__}: {message}" if message \
+        else f"{detector_name}: {type(exc).__name__}"
+
+
 def _transport() -> Optional[httpx.BaseTransport]:
     """Seam for tests; None means the real network."""
     return None
@@ -185,11 +201,16 @@ async def _locked_scan(*, system_id: int, tenant_id: int) -> AsyncIterator[None]
     A marker released as soon as the walk returns would let a second request
     pass the in-flight check while the first request's database writes are
     still in progress: two `reconcile.apply` calls are check-then-act over
-    `catalogue()`, and there is no unique constraint on
-    (name, system_id, tenant_id) to catch them interleaving — the loser
-    silently disappears from both `apply()` and `diff()`. The forthcoming
-    drift report needs this too: comparing against a catalogue a concurrent
-    scan is mutating reports differences that exist on neither side.
+    `catalogue()`, racing to insert the same (system_id, name). On the
+    SQLite test engine there is no unique constraint to catch that — the
+    loser silently disappears from both `apply()` and `diff()`. In
+    PRODUCTION, migration `nameuniqguard`'s partial unique index
+    `uq_subsystem_system_name (system_id, name) WHERE deleted_at IS NULL`
+    turns the same race into an `IntegrityError` instead of a silent loss —
+    still a failure, just a noisy one instead of a quiet one, and this lock
+    is what prevents either outcome. The forthcoming drift report needs this
+    too: comparing against a catalogue a concurrent scan is mutating reports
+    differences that exist on neither side.
     """
     key = (tenant_id, system_id)
     if key in _in_flight:
@@ -250,7 +271,7 @@ async def scan_repository(
                             declared=walk.declared,
                         )
                 except Exception as exc:
-                    errors.append(str(exc))
+                    errors.append(_format_apply_error(walk.detector.name, exc))
             detectors_out.append({
                 "detector": walk.detector.name,
                 "paths": walk.paths,
@@ -345,6 +366,22 @@ async def drift_repository(
                     "missing_in_code": None if report.edges_missing_in_code is None else [
                         {"from_name": e.from_name, "to_name": e.to_name, "port": e.port}
                         for e in report.edges_missing_in_code
+                    ],
+                    # The code declares this edge, but the catalogue already
+                    # holds a row for the same pair under a different source
+                    # (e.g. hand-made). apply() cannot create this — it would
+                    # collide with the existing row on uq_component_dep — so
+                    # it is never mixed into missing_in_catalogue, which the
+                    # UI reads as "Scan will create this".
+                    "conflicting_source": [
+                        {
+                            "from_name": e.from_name,
+                            "to_name": e.to_name,
+                            "port": e.port,
+                            "source_path": e.source_path,
+                            "catalogue_source": e.catalogue_source,
+                        }
+                        for e in report.edges_conflicting_source
                     ],
                     "changed": [
                         {
