@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../services/environmentComparisonService', () => ({
   environmentComparisonService: { compare: vi.fn() },
@@ -47,6 +47,20 @@ describe('EnvironmentCompare', () => {
     vi.mocked(environmentComparisonService.compare).mockClear();
   });
 
+  // `mockReturnValue` (not `Once`) sticks around across renders within a test, but
+  // that also means it leaks into every test that runs after this one unless something
+  // puts the default back — restore it here rather than relying on call order.
+  afterEach(() => {
+    vi.mocked(useAllEnvironments).mockReturnValue({
+      environments: [
+        { id: 2, name: 'SIT' },
+        { id: 3, name: 'UAT' },
+      ],
+      loading: false,
+      truncated: false,
+    } as ReturnType<typeof useAllEnvironments>);
+  });
+
   it('reads both environments from the URL and fetches that pair', async () => {
     vi.mocked(environmentComparisonService.compare).mockResolvedValue(EMPTY);
     renderPage();
@@ -83,7 +97,10 @@ describe('EnvironmentCompare', () => {
   });
 
   it('surfaces a truncated environment list, because a picker missing options is silent', async () => {
-    vi.mocked(useAllEnvironments).mockReturnValueOnce({
+    // `mockReturnValueOnce` is consumed per-call, not per-test: a re-render within
+    // this test would fall back to the describe-level default and silently stop
+    // exercising `truncated`. Use `mockReturnValue` and restore it in `afterEach`.
+    vi.mocked(useAllEnvironments).mockReturnValue({
       environments: [{ id: 2, name: 'SIT' }],
       loading: false,
       truncated: true,
@@ -150,5 +167,32 @@ describe('EnvironmentCompare', () => {
     expect(screen.getByText('api')).toBeInTheDocument();
     // One row shown, and the summary said one differing.
     expect(screen.getByText(/1 of 2 subsystems differ/i)).toBeInTheDocument();
+  });
+
+  it('does not claim a match when only a system differs', async () => {
+    // `summary.differing` counts subsystems only, so a system-level gap would
+    // otherwise render "they match" while the systems alert contradicts it.
+    vi.mocked(environmentComparisonService.compare).mockResolvedValue({
+      ...EMPTY,
+      systems: [{ system_id: 10, name: 'Reporting', presence: 'right_only' }],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/Reporting \(only in UAT\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/match on all four dimensions/i)).not.toBeInTheDocument();
+  });
+
+  it('changing the reference relabels without issuing another request', async () => {
+    // The API response is symmetric — the reference is presentation. If this
+    // ever refetches, that design claim is false.
+    vi.mocked(environmentComparisonService.compare).mockResolvedValue(EMPTY);
+    renderPage('/environments/compare?left=2&right=3');
+    await waitFor(() => expect(environmentComparisonService.compare).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByRole('combobox', { name: /reference/i }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Left' }));
+
+    expect(environmentComparisonService.compare).toHaveBeenCalledTimes(1);
   });
 });

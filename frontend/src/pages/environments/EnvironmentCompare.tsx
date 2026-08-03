@@ -15,7 +15,7 @@ import {
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { environmentComparisonService } from '../../services/environmentComparisonService';
-import type { EnvironmentComparison } from '../../types/environmentComparison';
+import type { DifferenceKind, EnvironmentComparison } from '../../types/environmentComparison';
 import ComparisonTable, { KIND_LABEL } from '../../components/environments/ComparisonTable';
 
 export default function EnvironmentCompare() {
@@ -44,7 +44,13 @@ export default function EnvironmentCompare() {
       })
       .catch((err: unknown) => {
         setComparison(null);
-        setError(err instanceof Error ? err.message : 'Failed to compare environments');
+        // The API's `detail` says what actually went wrong; axios's own message
+        // is only ever "Request failed with status code N".
+        const detail =
+          typeof err === 'object' && err !== null
+            ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+            : undefined;
+        setError(detail ?? (err instanceof Error ? err.message : 'Failed to compare environments'));
       })
       .finally(() => setLoading(false));
   }, [left, right]);
@@ -67,6 +73,8 @@ export default function EnvironmentCompare() {
     else next.delete('left');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, left, right]);
+
+  const systemGaps = comparison?.systems.filter((s) => s.presence !== 'both') ?? [];
 
   const diffOnly = searchParams.get('diff_only') === '1';
   const reference = (searchParams.get('reference') as 'left' | 'right' | null) ?? null;
@@ -99,9 +107,11 @@ export default function EnvironmentCompare() {
               : undefined
           }
         >
-          {environments.map((env) => (
-            <MenuItem key={env.id} value={String(env.id)}>{env.name}</MenuItem>
-          ))}
+          {environments
+            .filter((env) => String(env.id) !== right)
+            .map((env) => (
+              <MenuItem key={env.id} value={String(env.id)}>{env.name}</MenuItem>
+            ))}
         </TextField>
 
         <Button onClick={swap} startIcon={<SwapHorizIcon />} sx={{ mt: 0.5 }}>Swap</Button>
@@ -110,9 +120,11 @@ export default function EnvironmentCompare() {
           select size="small" label="Right" value={right ?? ''} sx={{ minWidth: 200 }}
           onChange={(e) => setSide('right', e.target.value)}
         >
-          {environments.map((env) => (
-            <MenuItem key={env.id} value={String(env.id)}>{env.name}</MenuItem>
-          ))}
+          {environments
+            .filter((env) => String(env.id) !== left)
+            .map((env) => (
+              <MenuItem key={env.id} value={String(env.id)}>{env.name}</MenuItem>
+            ))}
         </TextField>
 
         <TextField
@@ -150,13 +162,24 @@ export default function EnvironmentCompare() {
               {comparison.summary.differing} of {comparison.summary.compared} subsystems differ
             </Typography>
             <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-              {(['presence', 'mocked', 'version', 'host_shape'] as const).map((kind) => (
+              {(Object.keys(KIND_LABEL) as DifferenceKind[]).map((kind) => (
                 <Chip key={kind} size="small"
                       label={`${KIND_LABEL[kind]}: ${comparison.summary.by_kind[kind]}`} />
               ))}
             </Stack>
           </Paper>
-          {comparison.summary.differing === 0 ? (
+          {systemGaps.length > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {systemGaps.length === 1 ? 'One system is' : `${systemGaps.length} systems are`}{' '}
+              present in only one environment:{' '}
+              {systemGaps
+                .map((s) => `${s.name} (only in ${s.presence === 'left_only'
+                  ? comparison.left.name : comparison.right.name})`)
+                .join(', ')}
+              .
+            </Alert>
+          )}
+          {comparison.summary.differing === 0 && systemGaps.length === 0 ? (
             <Alert severity="success">
               {comparison.left.name} and {comparison.right.name} match on all four dimensions.
             </Alert>

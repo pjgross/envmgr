@@ -13,6 +13,7 @@ import {
 import type {
   DifferenceKind, HostShapeEntry, SubsystemComparison,
 } from '../../types/environmentComparison';
+import { COMPONENT_TYPE_OPTIONS } from '../../types/infrastructureComponent';
 
 // Exported: the page's summary strip labels the same kinds, and two copies
 // would drift.
@@ -29,7 +30,14 @@ export const KIND_LABEL: Record<DifferenceKind, string> = {
 export function formatHostShape(shape: HostShapeEntry[]): string {
   if (shape.length === 0) return '—';
   return shape
-    .map((e) => `${e.count} × ${e.component_type}${e.role ? ` (${e.role})` : ''}`)
+    .map((e) => {
+      // The same label map the Hosts page uses — the spec requires component
+      // types to render by name, and "load_balancer" is not a name.
+      const label =
+        COMPONENT_TYPE_OPTIONS.find((o) => o.value === e.component_type)?.label ??
+        e.component_type;
+      return `${e.count} × ${label}${e.role ? ` (${e.role})` : ''}`;
+    })
     .join(', ');
 }
 

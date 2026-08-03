@@ -19,12 +19,12 @@ describe('formatHostShape', () => {
   it('renders count, type and role rather than host names', () => {
     expect(
       formatHostShape([{ component_type: 'server', role: 'primary', count: 2 }])
-    ).toBe('2 × server (primary)');
+    ).toBe('2 × Server / VM (primary)');
   });
 
   it('omits the role when there is none', () => {
     expect(formatHostShape([{ component_type: 'cache', role: null, count: 1 }])).toBe(
-      '1 × cache'
+      '1 × Cache'
     );
   });
 
