@@ -44,10 +44,20 @@ function missingLabel(
   row: SubsystemComparison, leftName: string, rightName: string,
   reference: 'left' | 'right' | null
 ): string {
-  const absentFrom = row.presence === 'left_only' ? rightName : leftName;
-  if (reference === null) return `Not in ${absentFrom}`;
   const presentSide = row.presence === 'left_only' ? 'left' : 'right';
-  return presentSide === reference ? 'Missing from reference' : 'Extra vs reference';
+  const presentName = row.presence === 'left_only' ? leftName : rightName;
+  const absentName = row.presence === 'left_only' ? rightName : leftName;
+
+  if (reference === null) return `Not in ${absentName}`;
+
+  // With a reference nominated, the gap is described from the reference's
+  // point of view. Present in the reference and absent elsewhere is a
+  // shortfall in that other environment; present only outside the reference
+  // is something that environment carries in addition. Both name the
+  // environment rather than saying "reference", so the label stands on its own.
+  return presentSide === reference
+    ? `Missing from ${absentName}`
+    : `Extra in ${presentName}`;
 }
 
 function Side({ side }: { side: SubsystemComparison['left'] }) {
@@ -67,11 +77,11 @@ function Side({ side }: { side: SubsystemComparison['left'] }) {
 }
 
 export default function ComparisonTable({ rows, leftName, rightName, reference }: Props) {
-  const bySystem = new Map<string, SubsystemComparison[]>();
+  const bySystem = new Map<number, { name: string; rows: SubsystemComparison[] }>();
   rows.forEach((row) => {
-    const list = bySystem.get(row.system_name) ?? [];
-    list.push(row);
-    bySystem.set(row.system_name, list);
+    const group = bySystem.get(row.system_id) ?? { name: row.system_name, rows: [] };
+    group.rows.push(row);
+    bySystem.set(row.system_id, group);
   });
 
   return (
@@ -85,16 +95,16 @@ export default function ComparisonTable({ rows, leftName, rightName, reference }
         </TableRow>
       </TableHead>
       <TableBody>
-        {[...bySystem.entries()].map(([systemName, systemRows]) => (
+        {[...bySystem.entries()].map(([systemId, group]) => (
           // A keyed Fragment, not `<>`: the shorthand cannot take a key, and
           // React warns on every group without one.
-          <Fragment key={systemName}>
+          <Fragment key={systemId}>
             <TableRow>
               <TableCell colSpan={4} sx={{ bgcolor: 'action.hover' }}>
-                <Typography variant="subtitle2">{systemName}</Typography>
+                <Typography variant="subtitle2">{group.name}</Typography>
               </TableCell>
             </TableRow>
-            {systemRows.map((row) => (
+            {group.rows.map((row) => (
               <TableRow key={row.subsystem_id}>
                 <TableCell>{row.name}</TableCell>
                 <TableCell><Side side={row.left} /></TableCell>

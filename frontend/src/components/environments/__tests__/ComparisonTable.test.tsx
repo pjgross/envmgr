@@ -50,16 +50,31 @@ describe('ComparisonTable', () => {
     expect(screen.getByText(/not in UAT/i)).toBeInTheDocument();
   });
 
-  it('reframes a gap as risk when a reference is nominated', () => {
-    // Same data, different label — proving the reference is presentation.
-    render(
-      <ComparisonTable
-        rows={[bothSides({ presence: 'right_only', left: null, differences: ['presence'] })]}
-        leftName="SIT" rightName="UAT" reference="left"
-      />
-    );
-    expect(screen.getByText(/extra vs reference/i)).toBeInTheDocument();
-  });
+  it.each([
+    ['left_only', 'left', /Missing from UAT/i],
+    ['left_only', 'right', /Extra in SIT/i],
+    ['right_only', 'right', /Missing from SIT/i],
+    ['right_only', 'left', /Extra in UAT/i],
+  ] as const)(
+    'labels a %s gap correctly when %s is the reference',
+    (presence, reference, expected) => {
+      // All four combinations, because the two branches are easy to write
+      // backwards and only one of them was covered before — the inverted
+      // version shipped review with three of these four cases untested.
+      render(
+        <ComparisonTable
+          rows={[bothSides({
+            presence,
+            left: presence === 'left_only' ? bothSides().left : null,
+            right: presence === 'right_only' ? bothSides().right : null,
+            differences: ['presence'],
+          })]}
+          leftName="SIT" rightName="UAT" reference={reference}
+        />
+      );
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    }
+  );
 
   it('shows mock notes without treating them as a difference', () => {
     render(
