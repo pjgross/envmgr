@@ -193,6 +193,119 @@ describe('DriftDialog', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('renders non-empty missing_in_code groups by name, with the not-deleted/will-be-removed captions', async () => {
+    // The one category this report exists for — reversion drift — had never
+    // been rendered non-empty in a test; every prior test exercised
+    // missing_in_code as empty or null. Assert both the subsystem and edge
+    // groups render their entities BY NAME, and that the two captions keep
+    // their (counter-intuitive) meanings: subsystems are never deleted by a
+    // scan, dependency edges are deleted and rewritten on every scan.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        subsystems: {
+          missing_in_catalogue: [],
+          missing_in_code: ['legacy-worker', 'old-cache'],
+          changed: [],
+        },
+        edges: {
+          missing_in_catalogue: [],
+          missing_in_code: [
+            { from_name: 'api', to_name: 'legacy-worker', port: 6379, source_path: 'docker-compose.yml' },
+          ],
+          changed: [],
+        },
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(await screen.findByText('legacy-worker')).toBeInTheDocument();
+    expect(screen.getByText('old-cache')).toBeInTheDocument();
+    expect(screen.getByText('api → legacy-worker')).toBeInTheDocument();
+
+    expect(
+      screen.getByText(/scanning will not remove these — the scanner never deletes/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/scanning will remove these.*deleted and rewritten/i),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the edge port and source_path as context, when present', async () => {
+    // port is the only comparable edge attribute — the sole thing that can
+    // make an edge "changed" — and source_path is the same context the
+    // subsystem groups already show. Both were computed and returned by the
+    // backend but silently dropped by this component.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        edges: {
+          missing_in_catalogue: [
+            { from_name: 'api', to_name: 'redis', port: 6379, source_path: 'docker-compose.yml' },
+          ],
+          missing_in_code: [],
+          changed: [],
+        },
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(await screen.findByText('api → redis')).toBeInTheDocument();
+    expect(screen.getByText('port 6379 · docker-compose.yml')).toBeInTheDocument();
+  });
+
+  it('clears the stale report when a re-check fails', async () => {
+    // handleCheck used to set `error` without clearing `result`, so a second
+    // check that fails renders the red banner above the PREVIOUS report,
+    // which a user reads as still-current.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValueOnce(
+      result([detector({
+        subsystems: {
+          missing_in_catalogue: [{
+            name: 'payments-api', component_type: 'web_service',
+            technology: 'nginx', source_path: 'docker-compose.yml',
+          }],
+          missing_in_code: [],
+          changed: [],
+        },
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+    expect(await screen.findByText('payments-api')).toBeInTheDocument();
+
+    vi.mocked(githubIntegrationService.drift).mockRejectedValueOnce(new Error('upstream 502'));
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(await screen.findByText(/upstream 502/i)).toBeInTheDocument();
+    expect(screen.queryByText('payments-api')).not.toBeInTheDocument();
+  });
+
+  it('names each detector\'s duplicate warnings without a key collision', async () => {
+    // parse_terraform_hcl emits the identical warning string for different
+    // files — two occurrences keyed on the message alone collide as React
+    // keys. This doesn't assert on React's internals directly, but confirms
+    // both instances of the duplicate message actually render.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        warnings: [
+          'skipped a resource block that was not a mapping',
+          'skipped a resource block that was not a mapping',
+        ],
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(
+      await screen.findAllByText('skipped a resource block that was not a mapping'),
+    ).toHaveLength(2);
+  });
+
   it('shows both values for a changed field', async () => {
     vi.mocked(githubIntegrationService.drift).mockResolvedValue(
       result([detector({

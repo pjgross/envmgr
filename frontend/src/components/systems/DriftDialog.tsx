@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import { githubIntegrationService } from '../../services/githubIntegrationService';
 import { formatApiError } from '../../services/apiError';
-import type { DriftDetectorReport, DriftResult } from '../../types/githubIntegration';
+import type { DriftDetectorReport, DriftEdge, DriftResult } from '../../types/githubIntegration';
 
 interface Props {
   open: boolean;
@@ -13,8 +13,30 @@ interface Props {
   onClose: () => void;
 }
 
+// port is the only comparable edge attribute — the sole thing that can make
+// an edge "changed" — so it belongs alongside the from/to names, not dropped.
+// source_path is shown for the same reason it's shown for subsystems: as
+// context for where the claim came from.
+function edgeContext(e: DriftEdge): string | undefined {
+  const parts: string[] = [];
+  if (e.port != null) parts.push(`port ${e.port}`);
+  if (e.source_path) parts.push(e.source_path);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
 function DetectorSection({ report }: { report: DriftDetectorReport }) {
   const { subsystems, edges } = report;
+
+  // The compose detector deliberately never claims override/fragment files
+  // (docker-compose.override.yml, .prod.yml, ...) — parsing one alone would
+  // import a partial service list as the whole application. But a system can
+  // be seeded from one of those files by a separate import, so this detector
+  // can read every path it claimed, compute absence, and still be asserting
+  // "gone from the code" against a repository it never looked at for that
+  // path. Name what was actually read rather than say "the code" in general.
+  const readBasis = report.paths.length > 0
+    ? `no longer in ${report.paths.join(', ')}`
+    : 'not found — but this check read no files';
 
   return (
     <Box>
@@ -54,7 +76,7 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
       {subsystems.missing_in_code && subsystems.missing_in_code.length > 0 && (
         <>
           <Typography variant="subtitle2" sx={{ mt: 1 }}>
-            In EnvManager, no longer in the code
+            In EnvManager, {readBasis}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Scanning will not remove these — the scanner never deletes.
@@ -77,7 +99,7 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
               <ListItem key={`${c.name}-${c.field}`} disableGutters>
                 <ListItemText
                   primary={c.name}
-                  secondary={`${c.field}: ${c.catalogue ?? '—'} → ${c.declared ?? '—'}`}
+                  secondary={`${c.field}: ${c.catalogue ?? '—'} → ${c.declared ?? '—'} · ${c.source_path}`}
                 />
               </ListItem>
             ))}
@@ -91,9 +113,12 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
             Dependencies declared in the code, not in EnvManager
           </Typography>
           <List dense disablePadding>
-            {edges.missing_in_catalogue.map((e) => (
-              <ListItem key={`${e.from_name}-${e.to_name}`} disableGutters>
-                <ListItemText primary={`${e.from_name} → ${e.to_name}`} />
+            {edges.missing_in_catalogue.map((e, i) => (
+              <ListItem key={`${i}-${e.from_name}-${e.to_name}`} disableGutters>
+                <ListItemText
+                  primary={`${e.from_name} → ${e.to_name}`}
+                  secondary={edgeContext(e)}
+                />
               </ListItem>
             ))}
           </List>
@@ -103,16 +128,19 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
       {edges.missing_in_code && edges.missing_in_code.length > 0 && (
         <>
           <Typography variant="subtitle2" sx={{ mt: 1 }}>
-            Dependencies in EnvManager, no longer in the code
+            Dependencies in EnvManager, {readBasis}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Scanning will remove these — unlike subsystems, dependency edges
             are deleted and rewritten from what the code declares on every scan.
           </Typography>
           <List dense disablePadding>
-            {edges.missing_in_code.map((e) => (
-              <ListItem key={`${e.from_name}-${e.to_name}`} disableGutters>
-                <ListItemText primary={`${e.from_name} → ${e.to_name}`} />
+            {edges.missing_in_code.map((e, i) => (
+              <ListItem key={`${i}-${e.from_name}-${e.to_name}`} disableGutters>
+                <ListItemText
+                  primary={`${e.from_name} → ${e.to_name}`}
+                  secondary={edgeContext(e)}
+                />
               </ListItem>
             ))}
           </List>
@@ -127,7 +155,7 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
               <ListItem key={`${c.from_name}-${c.to_name}`} disableGutters>
                 <ListItemText
                   primary={`${c.from_name} → ${c.to_name}`}
-                  secondary={`port: ${c.catalogue_port ?? '—'} → ${c.declared_port ?? '—'}`}
+                  secondary={`port: ${c.catalogue_port ?? '—'} → ${c.declared_port ?? '—'} · ${c.source_path}`}
                 />
               </ListItem>
             ))}
@@ -141,11 +169,13 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
         </Typography>
       )}
 
-      {report.warnings.map((w) => (
-        <Alert key={w} severity="warning" sx={{ mt: 1 }}>{w}</Alert>
+      {report.warnings.map((w, i) => (
+        // Keyed by index, not message: parse_terraform_hcl (and others) can
+        // emit the identical warning string for two different files.
+        <Alert key={`warning-${i}`} severity="warning" sx={{ mt: 1 }}>{w}</Alert>
       ))}
-      {report.errors.map((e) => (
-        <Alert key={e} severity="error" sx={{ mt: 1 }}>{e}</Alert>
+      {report.errors.map((e, i) => (
+        <Alert key={`error-${i}`} severity="error" sx={{ mt: 1 }}>{e}</Alert>
       ))}
     </Box>
   );
@@ -163,6 +193,9 @@ export default function DriftDialog({ open, systemId, onClose }: Props) {
       setResult(await githubIntegrationService.drift(systemId));
     } catch (err) {
       setError(formatApiError(err, 'Drift check failed'));
+      // A failed re-check must not leave the previous report on screen under
+      // the new error banner — that reads as a current, verified result.
+      setResult(null);
     } finally {
       setChecking(false);
     }
