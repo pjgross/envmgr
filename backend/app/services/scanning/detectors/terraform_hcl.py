@@ -17,6 +17,7 @@ async def _parse(ctx: ParseContext) -> DetectorResult:
     return DetectorResult(
         subsystems_created=result["subsystems_created"],
         subsystems_updated=result["subsystems_updated"],
+        warnings=result.get("warnings", []),
     )
 
 

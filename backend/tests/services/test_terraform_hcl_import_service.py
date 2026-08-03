@@ -86,3 +86,42 @@ async def test_an_empty_file_creates_nothing(db_session, test_tenant, system):
         system_id=system.id, tenant_id=test_tenant.id, content=b"", db=db_session
     )
     assert result["subsystems_created"] == 0
+
+
+MALFORMED = b"""
+resource "aws_instance" {
+  ami           = "ami-123"
+  instance_type = "t3.micro"
+}
+"""
+
+
+@pytest.mark.asyncio
+async def test_a_resource_missing_its_name_label_creates_nothing(
+    db_session, test_tenant, system
+):
+    """Grammatically valid HCL, invalid Terraform. The attributes sit where the
+    resource name should be, so taking those keys as names fabricates one bogus
+    subsystem per attribute — and reports success while doing it."""
+    result = await svc.import_terraform_hcl(
+        system_id=system.id, tenant_id=test_tenant.id, content=MALFORMED, db=db_session
+    )
+    assert result["subsystems_created"] == 0
+    assert result["warnings"], "a skipped block must be reported, not silently dropped"
+
+    from sqlalchemy import select
+    names = {s.name for s in (await db_session.execute(
+        select(SubSystem).where(SubSystem.system_id == system.id)
+    )).scalars().all()}
+    assert names == set()
+    assert "aws_instance.ami" not in names
+
+
+@pytest.mark.asyncio
+async def test_a_well_formed_file_reports_no_warnings(db_session, test_tenant, system):
+    """Positive control: the guard must not fire on valid input."""
+    result = await svc.import_terraform_hcl(
+        system_id=system.id, tenant_id=test_tenant.id, content=TF, db=db_session
+    )
+    assert result["subsystems_created"] == 2
+    assert result["warnings"] == []
