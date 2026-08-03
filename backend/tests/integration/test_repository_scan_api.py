@@ -482,6 +482,201 @@ async def test_the_in_flight_marker_is_released_after_a_failure(
 
 
 @pytest.mark.asyncio
+async def test_the_in_flight_marker_is_still_held_while_apply_runs(
+    client, auth_headers, connected_system, monkeypatch
+):
+    """`_with_repository` used to release `_in_flight` in its own `finally`
+    as soon as `_walk` returned — BEFORE `scan_repository`'s apply loop ran.
+    A second click that arrives after the network-bound walk finishes but
+    before the first request's writes commit would then pass the in-flight
+    check and run `reconcile.apply` concurrently with it: two check-then-act
+    writes over `catalogue()`, which has no unique constraint on
+    (name, system_id, tenant_id) to catch the collision — the loser
+    silently disappears from both `apply()` and `diff()`.
+
+    Observed from inside `reconcile.apply` itself — the only vantage point
+    that actually proves the marker is held for the *write*, not merely for
+    the walk. (test_a_second_concurrent_scan_is_rejected and
+    test_the_scan_arms_the_in_flight_marker_itself both stop at the walk;
+    neither would catch the marker being released early.)
+    """
+    from app.services.scanning import scanner, reconcile
+
+    key = (connected_system.tenant_id, connected_system.id)
+    seen_armed = []
+    original_apply = reconcile.apply
+
+    async def _observing_apply(db, **kwargs):
+        seen_armed.append(key in scanner._in_flight)
+        return await original_apply(db, **kwargs)
+
+    monkeypatch.setattr(reconcile, "apply", _observing_apply)
+    monkeypatch.setattr(scanner, "_transport", lambda: _github(["docker-compose.yml"]))
+
+    resp = await client.post(
+        f"/api/v1/systems/{connected_system.id}/github/scan", headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert seen_armed, "reconcile.apply was never invoked — test setup bug"
+    assert all(seen_armed), (
+        "the in-flight marker must still be held while reconcile.apply runs, "
+        "not released as soon as the walk itself returns"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_401_from_a_blob_fetch_partway_through_the_walk_still_clears_the_token(
+    realistic_client, db_engine, monkeypatch
+):
+    """GitHubAuthError and GitHubRateLimited are deliberately NOT caught by
+    the walk's per-file except tuple: a 401 is dead for every remaining
+    file and must reach the endpoint's token cleanup, not be swallowed as a
+    per-file detector error and returned as a 200 with the dead token still
+    in place.
+
+    Unlike test_a_401_from_github_clears_the_stored_token — which 401s on
+    every call, including get_default_branch, and so never actually reaches
+    the fetch loop — this returns 200 for the branch and tree calls and
+    only 401s on the blob fetch, exercising the fetch loop's exception
+    handling specifically.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from app.core.security import get_password_hash
+    from app.db.models.user import Tenant, User
+    from app.db.models.system import System
+    from app.services.scanning import scanner
+    from app.api.v1 import systems as systems_api
+
+    Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(systems_api, "AsyncSessionLocal", Session)
+
+    async with Session() as setup:
+        tenant = Tenant(name="Revoke Org 2", slug="revoke-org-2")
+        setup.add(tenant)
+        await setup.flush()
+        user = User(
+            tenant_id=tenant.id,
+            username="revokeadmin2",
+            email="revoke2@test.com",
+            password_hash=get_password_hash("password123"),
+            role="Admin",
+            is_active=True,
+        )
+        setup.add(user)
+        system = System(
+            tenant_id=tenant.id, name="Payments",
+            github_repository_url="https://github.com/acme/payments",
+        )
+        setup.add(system)
+        await setup.flush()
+        await tenant_secret_service.put_secret(
+            setup, tenant.id, "github_oauth_token", "gho_abc", created_by=user.id,
+        )
+        await setup.commit()
+        tenant_id, system_id = tenant.id, system.id
+
+    login = await realistic_client.post("/api/v1/auth/login", json={
+        "username": "revokeadmin2", "password": "password123", "tenant_slug": "revoke-org-2",
+    })
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "/contents/" in url:
+            return httpx.Response(401, json={"message": "Bad credentials"})
+        if "/git/trees/" in url:
+            return httpx.Response(200, json={
+                "tree": [{"path": "docker-compose.yml", "type": "blob"}],
+                "truncated": False,
+            })
+        return httpx.Response(200, json={"default_branch": "main"})
+
+    monkeypatch.setattr(scanner, "_transport", lambda: httpx.MockTransport(handler))
+
+    resp = await realistic_client.post(
+        f"/api/v1/systems/{system_id}/github/scan", headers=headers
+    )
+    assert resp.status_code == 401, resp.text
+
+    async with Session() as verify:
+        assert await tenant_secret_service.get_secret(
+            verify, tenant_id, "github_oauth_token") is None
+
+
+@pytest.mark.asyncio
+async def test_a_close_failure_does_not_replace_a_propagating_auth_error(
+    realistic_client, db_engine, monkeypatch
+):
+    """If `aclose()` raises while a GitHubAuthError is propagating and that
+    close failure is allowed to replace it, the endpoint's
+    `except GitHubAuthError` never runs: the caller gets a 500 instead of a
+    401 and the revoked token is never cleared — the UI keeps claiming
+    'connected' forever.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from app.core.security import get_password_hash
+    from app.db.models.user import Tenant, User
+    from app.db.models.system import System
+    from app.services.scanning import scanner
+    from app.services.github_client import GitHubClient
+    from app.api.v1 import systems as systems_api
+
+    Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(systems_api, "AsyncSessionLocal", Session)
+
+    async def _boom_aclose(self):
+        raise RuntimeError("connection pool close failed")
+
+    monkeypatch.setattr(GitHubClient, "aclose", _boom_aclose)
+
+    async with Session() as setup:
+        tenant = Tenant(name="Revoke Org 3", slug="revoke-org-3")
+        setup.add(tenant)
+        await setup.flush()
+        user = User(
+            tenant_id=tenant.id,
+            username="revokeadmin3",
+            email="revoke3@test.com",
+            password_hash=get_password_hash("password123"),
+            role="Admin",
+            is_active=True,
+        )
+        setup.add(user)
+        system = System(
+            tenant_id=tenant.id, name="Payments",
+            github_repository_url="https://github.com/acme/payments",
+        )
+        setup.add(system)
+        await setup.flush()
+        await tenant_secret_service.put_secret(
+            setup, tenant.id, "github_oauth_token", "gho_abc", created_by=user.id,
+        )
+        await setup.commit()
+        tenant_id, system_id = tenant.id, system.id
+
+    login = await realistic_client.post("/api/v1/auth/login", json={
+        "username": "revokeadmin3", "password": "password123", "tenant_slug": "revoke-org-3",
+    })
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"message": "Bad credentials"})
+
+    monkeypatch.setattr(scanner, "_transport", lambda: httpx.MockTransport(handler))
+
+    resp = await realistic_client.post(
+        f"/api/v1/systems/{system_id}/github/scan", headers=headers
+    )
+    assert resp.status_code == 401, resp.text
+
+    async with Session() as verify:
+        assert await tenant_secret_service.get_secret(
+            verify, tenant_id, "github_oauth_token") is None
+
+
+@pytest.mark.asyncio
 async def test_aclose_is_called_even_when_the_scan_raises(
     client, auth_headers, connected_system, monkeypatch
 ):

@@ -1,7 +1,8 @@
 """Walk a repository once, hand matched files to the detectors that claimed them."""
 import re
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -174,81 +175,96 @@ async def _walk(client: GitHubClient, owner: str, repo: str) -> WalkResult:
     )
 
 
-async def _with_repository(
-    *, token: str, system_id: int, tenant_id: int, repo_url: str
-) -> WalkResult:
-    """Run the shared walk under the per-system lock, releasing the client.
+@asynccontextmanager
+async def _locked_scan(*, system_id: int, tenant_id: int) -> AsyncIterator[None]:
+    """Hold the per-system in-flight marker for an entire scan or drift
+    report — the network-bound walk AND whatever the caller does with its
+    result — not just the walk.
 
-    Takes no session: the walk reads GitHub and parses, nothing more. The
-    database only enters once a caller applies or diffs the result.
+    A marker released as soon as the walk returns would let a second request
+    pass the in-flight check while the first request's database writes are
+    still in progress: two `reconcile.apply` calls are check-then-act over
+    `catalogue()`, and there is no unique constraint on
+    (name, system_id, tenant_id) to catch them interleaving — the loser
+    silently disappears from both `apply()` and `diff()`. The forthcoming
+    drift report needs this too: comparing against a catalogue a concurrent
+    scan is mutating reports differences that exist on neither side.
     """
-    owner, repo = parse_repo_url(repo_url)
-
     key = (tenant_id, system_id)
     if key in _in_flight:
         raise ScanAlreadyRunning("a scan of this system is already running")
     _in_flight.add(key)
     try:
-        client = GitHubClient(token=token, transport=_transport())
-        try:
-            return await _walk(client, owner, repo)
-        finally:
-            # GitHubClient holds one pooled httpx client for its lifetime; a
-            # walk that raises must still release it, or every failure leaks a
-            # connection pool. Never let a close failure replace the exception
-            # already propagating — the endpoint dispatches on that type, and
-            # losing it means a revoked token is never cleared.
-            try:
-                await client.aclose()
-            except Exception:
-                pass
+        yield
     finally:
         _in_flight.discard(key)
+
+
+async def _walk_repository(*, token: str, repo_url: str) -> WalkResult:
+    """Open a GitHubClient, run the shared walk, and close the client.
+
+    Takes no lock and no session: callers hold `_locked_scan` around this and
+    do their own thing — apply, diff — with the result.
+    """
+    owner, repo = parse_repo_url(repo_url)
+    client = GitHubClient(token=token, transport=_transport())
+    try:
+        return await _walk(client, owner, repo)
+    finally:
+        # GitHubClient holds one pooled httpx client for its lifetime; a walk
+        # that raises must still release it, or every failure leaks a
+        # connection pool. Never let a close failure replace the exception
+        # already propagating — the endpoint dispatches on that type, and
+        # losing it means a revoked token is never cleared.
+        try:
+            await client.aclose()
+        except Exception:
+            pass
 
 
 async def scan_repository(
     db: AsyncSession, *, token: str, system_id: int, tenant_id: int, repo_url: str
 ) -> dict:
-    walk_result = await _with_repository(
-        token=token, system_id=system_id, tenant_id=tenant_id, repo_url=repo_url
-    )
+    async with _locked_scan(system_id=system_id, tenant_id=tenant_id):
+        walk_result = await _walk_repository(token=token, repo_url=repo_url)
 
-    detectors_out = []
-    for walk in walk_result.walks:
-        applied = ApplyResult()
-        errors = list(walk.errors)
-        if walk.declared.subsystems or walk.declared.edges:
-            try:
-                # Each detector writes inside its own SAVEPOINT. Without it a
-                # failed flush marks the whole session for rollback, and the
-                # next use raises PendingRollbackError: one detector's failure
-                # would erase every other detector's results at commit time.
-                async with db.begin_nested():
-                    applied = await reconcile.apply(
-                        db,
-                        system_id=system_id,
-                        tenant_id=tenant_id,
-                        source=walk.detector.subsystem_source,
-                        edge_source=walk.detector.edge_source,
-                        declared=walk.declared,
-                    )
-            except Exception as exc:
-                errors.append(str(exc))
-        detectors_out.append({
-            "detector": walk.detector.name,
-            "paths": walk.paths,
-            "subsystems_created": applied.subsystems_created,
-            "subsystems_updated": applied.subsystems_updated,
-            "dependencies_written": applied.dependencies_written,
-            "warnings": walk.declared.warnings,
-            "errors": errors,
-            "paths_unread": walk.paths_unread,
-        })
+        detectors_out = []
+        for walk in walk_result.walks:
+            applied = ApplyResult()
+            errors = list(walk.errors)
+            if walk.declared.subsystems or walk.declared.edges:
+                try:
+                    # Each detector writes inside its own SAVEPOINT. Without it
+                    # a failed flush marks the whole session for rollback, and
+                    # the next use raises PendingRollbackError: one detector's
+                    # failure would erase every other detector's results at
+                    # commit time.
+                    async with db.begin_nested():
+                        applied = await reconcile.apply(
+                            db,
+                            system_id=system_id,
+                            tenant_id=tenant_id,
+                            source=walk.detector.subsystem_source,
+                            edge_source=walk.detector.edge_source,
+                            declared=walk.declared,
+                        )
+                except Exception as exc:
+                    errors.append(str(exc))
+            detectors_out.append({
+                "detector": walk.detector.name,
+                "paths": walk.paths,
+                "subsystems_created": applied.subsystems_created,
+                "subsystems_updated": applied.subsystems_updated,
+                "dependencies_written": applied.dependencies_written,
+                "warnings": walk.declared.warnings,
+                "errors": errors,
+                "paths_unread": walk.paths_unread,
+            })
 
-    return {
-        "ref": walk_result.ref,
-        "files_scanned": walk_result.files_scanned,
-        "truncated": walk_result.truncated,
-        "stopped_early": walk_result.stopped_early,
-        "detectors": detectors_out,
-    }
+        return {
+            "ref": walk_result.ref,
+            "files_scanned": walk_result.files_scanned,
+            "truncated": walk_result.truncated,
+            "stopped_early": walk_result.stopped_early,
+            "detectors": detectors_out,
+        }
