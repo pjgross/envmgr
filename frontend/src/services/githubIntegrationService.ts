@@ -1,6 +1,6 @@
 import api from './api';
 import type {
-  DeviceFlowStarted, GitHubStatus, PollResult, ScanResult,
+  DeviceFlowStarted, DriftResult, GitHubStatus, PollResult, ScanResult,
 } from '../types/githubIntegration';
 
 export const githubIntegrationService = {
@@ -18,4 +18,7 @@ export const githubIntegrationService = {
 
   scan: (systemId: number): Promise<ScanResult> =>
     api.post(`/systems/${systemId}/github/scan`).then((r) => r.data),
+
+  drift: (systemId: number): Promise<DriftResult> =>
+    api.get(`/systems/${systemId}/github/drift`).then((r) => r.data),
 };
