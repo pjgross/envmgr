@@ -33,6 +33,17 @@ def test_compose_does_not_claim_unrelated_files(path):
     assert DOCKER_COMPOSE.matches(path) is False
 
 
+@pytest.mark.parametrize("path", [
+    "docker-compose.override.yml",
+    "docker-compose.prod.yml",
+    "compose.override.yaml",
+])
+def test_compose_does_not_claim_override_fragments(path):
+    """Not an oversight: an override merges onto a base file, and parsing it
+    alone would import a partial service list as the whole application."""
+    assert DOCKER_COMPOSE.matches(path) is False
+
+
 def test_every_registered_detector_has_a_unique_name():
     names = [d.name for d in DETECTORS]
     assert len(names) == len(set(names))

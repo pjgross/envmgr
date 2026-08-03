@@ -8,7 +8,12 @@ import re
 from app.services import docker_compose_import_service
 from app.services.scanning.registry import Detector, DetectorResult, ParseContext
 
-# Any depth; the filename must be exactly one of the four Compose spellings.
+# Base Compose files only. `docker-compose.override.yml`, `docker-compose.prod.yml`
+# and friends are deliberately NOT claimed: an override is a fragment that
+# merges onto a base file, and parsing one alone would import a partial
+# service list as though it were the whole application. Supporting them means
+# merging base + override before parsing, which the importer cannot do —
+# claiming them without that would be confidently wrong rather than silent.
 _PATTERN = re.compile(r"(?:^|/)(?:docker-compose|compose)\.ya?ml$")
 
 
