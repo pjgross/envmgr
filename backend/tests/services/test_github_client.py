@@ -224,3 +224,40 @@ async def test_the_same_http_client_is_reused_across_calls():
     assert client._http is first
     await client.aclose()
     assert client._http is None
+
+
+@pytest.mark.asyncio
+async def test_a_tree_response_without_a_tree_key_is_an_error_not_an_empty_repo():
+    """`.get("tree", [])` would report a malformed body as a repository with
+    nothing in it — a successful scan that saw nothing."""
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"truncated": False})
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_tree("o", "r", "main")
+
+
+@pytest.mark.asyncio
+async def test_a_tree_response_without_truncated_defaults_to_false():
+    """GitHub omits `truncated` when it is false — absence is normal here."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "tree": [{"path": "a.tf", "type": "blob"}]
+        })
+
+    result = await _client(handler).get_tree("o", "r", "main")
+    assert result.paths == ["a.tf"]
+    assert result.truncated is False
+
+
+@pytest.mark.asyncio
+async def test_a_json_body_that_is_not_an_object_is_typed():
+    from app.services.github_client import GitHubUnexpectedResponse
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["not", "a", "dict"])
+
+    with pytest.raises(GitHubUnexpectedResponse):
+        await _client(handler).get_default_branch("o", "r")

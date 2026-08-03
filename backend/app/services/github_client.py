@@ -115,7 +115,7 @@ class GitHubClient:
         self._raise_for_status(response)
         try:
             return response.json()["default_branch"]
-        except (KeyError, ValueError) as exc:
+        except (KeyError, ValueError, TypeError) as exc:
             raise GitHubUnexpectedResponse(
                 "repository response had no default_branch"
             ) from exc
@@ -129,15 +129,16 @@ class GitHubClient:
         self._raise_for_status(response)
         try:
             payload = response.json()
+            # Required, not `.get(..., [])`: a body without `tree` is a
+            # malformed response, and defaulting to empty would report it as a
+            # repository with nothing in it — a successful scan that saw
+            # nothing, which is the failure this client exists to prevent.
+            entries = payload["tree"]
             paths = [
-                entry["path"]
-                for entry in payload.get("tree", [])
-                if entry.get("type") == "blob"
+                entry["path"] for entry in entries if entry.get("type") == "blob"
             ]
             truncated = bool(payload.get("truncated", False))
         except (KeyError, ValueError, TypeError) as exc:
-            # ValueError covers json.JSONDecodeError; TypeError covers a
-            # payload whose shape is right at the top level and wrong inside.
             raise GitHubUnexpectedResponse(
                 "tree response was not shaped as expected"
             ) from exc
