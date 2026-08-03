@@ -341,3 +341,33 @@ async def test_another_tenants_rows_never_leak_into_a_comparison(
         db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
 
     assert all(r["name"] != "foreign-api" for r in result["subsystems"])
+
+
+@pytest.mark.asyncio
+async def test_a_foreign_subsystem_under_our_own_system_is_excluded(
+    db_session, test_tenant, fixture_pair, second_tenant_factory
+):
+    """Isolates SubSystem.tenant_id specifically.
+
+    The sibling cross-tenant test puts the foreign subsystem under a foreign
+    system, so System.tenant_id alone blocks it and the subsystem filter is
+    never exercised. Here the parent system is ours, so only the subsystem's
+    own tenant filter can keep this row out.
+    """
+    other, _admin = await second_tenant_factory()
+    foreign_sub = SubSystem(
+        tenant_id=other.id,
+        system_id=fixture_pair["system"].id,   # our system, their subsystem
+        name="foreign-under-our-system",
+    )
+    db_session.add(foreign_sub)
+    await db_session.flush()
+    db_session.add(EnvironmentSubSystem(
+        tenant_id=test_tenant.id, environment_id=fixture_pair["left"].id,
+        subsystem_id=foreign_sub.id, is_mocked=False))
+    await db_session.flush()
+
+    result = await svc.compare_environments(
+        db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
+
+    assert all(r["name"] != "foreign-under-our-system" for r in result["subsystems"])
