@@ -1,0 +1,67 @@
+"""Pure comparison logic for environment diffs — no database access.
+
+Kept separate from the service so the rules that decide what counts as a
+difference can be tested exhaustively without fixtures.
+"""
+from collections import Counter
+from typing import Optional
+
+# Order is fixed so `differences` arrays compare equal regardless of how they
+# were built, and so the UI can render chips in a stable order.
+_KIND_ORDER = ("mocked", "version", "host_shape")
+
+
+def host_shape(attachments: list[tuple[str, Optional[str]]]) -> list[dict]:
+    """Normalise a subsystem's host attachments into a comparable shape.
+
+    `attachments` is (component_type, role) per host. Host *names* differ
+    between environments by design, so identity is never compared — what
+    matters is how many hosts of what type and role a subsystem runs on.
+
+    Sorted, so equality is a plain structural comparison rather than a set
+    intersection. `role` is nullable, hence the `or ""` in the sort key.
+    """
+    counts = Counter(attachments)
+    return sorted(
+        (
+            {"component_type": component_type, "role": role, "count": count}
+            for (component_type, role), count in counts.items()
+        ),
+        # `role is None` participates in the key so a null role and an empty
+        # string cannot tie: tied entries would fall back to Counter insertion
+        # order, and two identical environments could then report a spurious
+        # host_shape difference.
+        key=lambda entry: (entry["component_type"], entry["role"] is None, entry["role"] or ""),
+    )
+
+
+def difference_kinds(
+    presence: str, left: Optional[dict], right: Optional[dict]
+) -> list[str]:
+    """Which dimensions differ between the two sides.
+
+    A subsystem present on only one side is exactly one difference —
+    "presence" — and never also a version/mocked/host difference. The absent
+    side has no values to compare, so reporting four differences for one
+    missing subsystem would inflate every count in the summary.
+    """
+    if presence != "both":
+        return ["presence"]
+
+    if left is None or right is None:
+        # Not an assert: asserts vanish under `python -O`, and this invariant
+        # is what stops a caller passing presence="both" with an absent side
+        # and getting a TypeError from deep inside the comparison instead.
+        raise ValueError(
+            'presence="both" requires both sides; '
+            f"got left={'None' if left is None else 'present'}, "
+            f"right={'None' if right is None else 'present'}"
+        )
+    differing = {
+        "mocked": left["is_mocked"] != right["is_mocked"],
+        # None == None is not a difference: a subsystem nobody has recorded a
+        # version for on either side is consistent, not divergent.
+        "version": left["version"] != right["version"],
+        "host_shape": left["host_shape"] != right["host_shape"],
+    }
+    return [kind for kind in _KIND_ORDER if differing[kind]]

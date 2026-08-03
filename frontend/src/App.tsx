@@ -28,6 +28,7 @@ const DeploymentDetail = lazy(() => import('./pages/deployments/DeploymentDetail
 const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
 const DoraDashboard = lazy(() => import('./pages/insights/DoraDashboard'));
 const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
+const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
 const HealthDashboard = lazy(() => import('./pages/insights/HealthDashboard'));
@@ -151,6 +152,7 @@ function App() {
             <Route path="/systems" element={<SystemCatalog />} />
             <Route path="/systems/:id" element={<SystemDetail />} />
             <Route path="/environments" element={<EnvironmentList />} />
+            <Route path="/environments/compare" element={<EnvironmentCompare />} />
             <Route path="/environments/:id" element={<EnvironmentDetail />} />
             <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
             <Route path="/bookings/calendar" element={<BookingCalendar />} />

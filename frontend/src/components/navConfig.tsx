@@ -3,6 +3,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import ComputerIcon from '@mui/icons-material/Computer';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import StorageIcon from '@mui/icons-material/Storage';
 import UploadIcon from '@mui/icons-material/Upload';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
@@ -59,6 +60,7 @@ export const navGroups: NavItem[] = [
     children: [
       { label: 'Systems', path: '/systems', icon: <AccountTreeIcon /> },
       { label: 'Environments', path: '/environments', icon: <ComputerIcon /> },
+      { label: 'Compare Environments', path: '/environments/compare', icon: <CompareArrowsIcon /> },
       { label: 'Hosts', path: '/infrastructure/hosts', icon: <StorageIcon /> },
       { label: 'Import', path: '/import', icon: <UploadIcon /> },
     ],

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Response, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -30,6 +30,8 @@ from app.api.v1.schemas.infrastructure_component import (
     EnvironmentSubSystemHostsResponse,
     HostAttachment,
 )
+from app.api.v1.schemas.environment_comparison import EnvironmentComparisonResponse
+from app.services import environment_comparison_service
 
 router = APIRouter()
 
@@ -78,6 +80,32 @@ async def create_environment(
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_service.create_environment(db, data, current_user.active_tenant_id)
+
+
+# MUST stay above `/{env_id}`: declared after it, FastAPI matches "compare"
+# against the int path parameter and answers 422 without ever reaching here.
+@router.get("/compare", response_model=EnvironmentComparisonResponse)
+async def compare_environments_endpoint(
+    left: int = Query(..., description="Left-hand environment id"),
+    right: int = Query(..., description="Right-hand environment id"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Symmetric diff of two environments.
+
+    There is no `reference` parameter by design: nominating a reference
+    environment reframes the same differences as risk, which is presentation.
+    Keeping it out of the API means one response serves both the triage and
+    fidelity views.
+    """
+    if left == right:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "left and right must be different environments",
+        )
+    return await environment_comparison_service.compare_environments(
+        db, left, right, current_user.active_tenant_id
+    )
 
 
 @router.get("/{env_id}", response_model=EnvironmentResponse)
