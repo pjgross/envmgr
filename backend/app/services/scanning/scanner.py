@@ -87,8 +87,9 @@ def absence_is_computable(
     """
     if truncated:
         return False, (
-            "GitHub returned only part of this repository's file tree, so files "
-            "it never listed cannot be told apart from deleted ones."
+            "GitHub returned only a partial listing of this repository's file "
+            "tree, so files it never listed cannot be told apart from deleted "
+            "ones."
         )
     if stopped_early:
         return False, (
@@ -266,5 +267,103 @@ async def scan_repository(
             "files_scanned": walk_result.files_scanned,
             "truncated": walk_result.truncated,
             "stopped_early": walk_result.stopped_early,
+            "detectors": detectors_out,
+        }
+
+
+async def drift_repository(
+    db: AsyncSession, *, token: str, system_id: int, tenant_id: int, repo_url: str
+) -> dict:
+    """Report where the catalogue and the repository disagree. Writes nothing.
+
+    Shares the scan's lock: comparing against a catalogue a concurrent scan is
+    mutating would report differences that exist on neither side.
+    """
+    async with _locked_scan(system_id=system_id, tenant_id=tenant_id):
+        walk_result = await _walk_repository(token=token, repo_url=repo_url)
+
+        detectors_out = []
+        for walk in walk_result.walks:
+            absence_computed, absence_reason = absence_is_computable(
+                walk,
+                truncated=walk_result.truncated,
+                stopped_early=walk_result.stopped_early,
+            )
+            report = await reconcile.diff(
+                db,
+                system_id=system_id,
+                tenant_id=tenant_id,
+                source=walk.detector.subsystem_source,
+                edge_source=walk.detector.edge_source,
+                declared=walk.declared,
+                absence_computed=absence_computed,
+                absence_reason=absence_reason,
+            )
+            detectors_out.append({
+                "detector": walk.detector.name,
+                "paths": walk.paths,
+                "paths_unread": walk.paths_unread,
+                "errors": walk.errors,
+                "warnings": report.warnings,
+                "absence_computed": report.absence_computed,
+                "absence_reason": report.absence_reason,
+                "has_drift": report.has_drift,
+                "subsystems": {
+                    "missing_in_catalogue": [
+                        {
+                            "name": s.name,
+                            "component_type": s.component_type,
+                            "technology": s.technology,
+                            "source_path": s.source_path,
+                        }
+                        for s in report.subsystems_missing_in_catalogue
+                    ],
+                    # None, never [] — "we checked and found nothing missing" and
+                    # "we could not check" are opposite conclusions.
+                    "missing_in_code": report.subsystems_missing_in_code,
+                    "changed": [
+                        {
+                            "name": c.name,
+                            "field": c.field,
+                            "catalogue": c.catalogue,
+                            "declared": c.declared,
+                            "source_path": c.source_path,
+                        }
+                        for c in report.subsystems_changed
+                    ],
+                },
+                "edges": {
+                    "missing_in_catalogue": [
+                        {
+                            "from_name": e.from_name,
+                            "to_name": e.to_name,
+                            "port": e.port,
+                            "source_path": e.source_path,
+                        }
+                        for e in report.edges_missing_in_catalogue
+                    ],
+                    "missing_in_code": None if report.edges_missing_in_code is None else [
+                        {"from_name": e.from_name, "to_name": e.to_name, "port": e.port}
+                        for e in report.edges_missing_in_code
+                    ],
+                    "changed": [
+                        {
+                            "from_name": c.from_name,
+                            "to_name": c.to_name,
+                            "catalogue_port": c.catalogue_port,
+                            "declared_port": c.declared_port,
+                            "source_path": c.source_path,
+                        }
+                        for c in report.edges_changed
+                    ],
+                },
+            })
+
+        return {
+            "ref": walk_result.ref,
+            "files_scanned": walk_result.files_scanned,
+            "truncated": walk_result.truncated,
+            "stopped_early": walk_result.stopped_early,
+            "has_drift": any(d["has_drift"] for d in detectors_out),
             "detectors": detectors_out,
         }

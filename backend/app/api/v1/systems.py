@@ -152,6 +152,61 @@ async def scan_system_repository(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
 
 
+@router.get("/{system_id}/github/drift")
+async def system_repository_drift(
+    system_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    """Report where the subsystem catalogue and the repository disagree.
+
+    Read-only. Gated the same as the scan: it reads repository contents through
+    the tenant's stored token, so it must not be looser than the write that
+    does the same thing.
+    """
+    tenant_id = current_user.active_tenant_id
+    system = await system_service.get_system(db, system_id, tenant_id)
+
+    token = await tenant_secret_service.get_secret(db, tenant_id, TOKEN_KIND)
+    if token is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "GitHub is not connected for this tenant. Connect it under "
+            "Administration → GitHub Integration.",
+        )
+
+    try:
+        return await scanner.drift_repository(
+            db, token=token, system_id=system_id, tenant_id=tenant_id,
+            repo_url=system.github_repository_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+    except ScanAlreadyRunning as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    except GitHubAuthError:
+        # Its own session: get_db rolls back on the HTTPException raised below,
+        # which would silently discard a delete on `db` and leave the dead
+        # token in place forever. Same reasoning as the scan endpoint above.
+        async with AsyncSessionLocal() as cleanup:
+            await tenant_secret_service.delete_secret(cleanup, tenant_id, TOKEN_KIND)
+            await tenant_secret_service.delete_secret(cleanup, tenant_id, LOGIN_KIND)
+            await cleanup.commit()
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "GitHub rejected the stored token. Reconnect the integration.",
+        )
+    except GitHubRateLimited as exc:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"GitHub API rate limit exceeded. Resets at {exc.reset_at}.",
+        )
+    except GitHubNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    except (GitHubUnavailable, GitHubUnexpectedResponse) as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
+
+
 # ---------------------------------------------------------------------------
 # SubSystem endpoints
 # ---------------------------------------------------------------------------
