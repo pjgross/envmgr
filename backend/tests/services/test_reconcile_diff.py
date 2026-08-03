@@ -255,6 +255,40 @@ async def test_a_changed_port_is_reported(db_session, test_tenant, system):
 
 
 @pytest.mark.asyncio
+async def test_an_edge_removed_from_the_code_then_diffing_finds_it(
+    db_session, test_tenant, system
+):
+    """The negative control for edges_missing_in_code. Without it, a diff()
+    hard-coded to always return [] here would still pass every other test in
+    this suite — see test_removing_a_service_from_the_code_then_diffing_finds_it
+    for the subsystem equivalent this mirrors."""
+    declared = DeclaredState(
+        subsystems=[
+            DeclaredSubsystem("api", "web_service", None, "c.yml"),
+            DeclaredSubsystem("db", "database", None, "c.yml"),
+        ],
+        edges=[DeclaredEdge("api", "db", 5432, "c.yml")],
+    )
+    await reconcile.apply(
+        db_session, system_id=system.id, tenant_id=test_tenant.id,
+        source=SubSystemSource.DOCKER_COMPOSE,
+        edge_source=DependencySource.DOCKER_COMPOSE, declared=declared,
+    )
+
+    shrunk = DeclaredState(subsystems=[
+        DeclaredSubsystem("api", "web_service", None, "c.yml"),
+        DeclaredSubsystem("db", "database", None, "c.yml"),
+    ])
+    report = await _diff(db_session, system, test_tenant.id, shrunk,
+                         edge_source=DependencySource.DOCKER_COMPOSE)
+
+    assert [(e.from_name, e.to_name) for e in report.edges_missing_in_code] == [
+        ("api", "db")
+    ]
+    assert report.has_drift is True
+
+
+@pytest.mark.asyncio
 async def test_edges_are_not_compared_when_the_source_declares_none(
     db_session, test_tenant, system
 ):

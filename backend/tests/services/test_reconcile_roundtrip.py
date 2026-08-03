@@ -191,6 +191,44 @@ async def test_the_round_trip_holds_for_over_length_names(
 
 
 @pytest.mark.asyncio
+async def test_the_round_trip_holds_for_over_length_technology_and_source_path(
+    db_session, test_tenant, system
+):
+    """Same hazard as the over-length-name test above, for the other two
+    truncated fields. `technology` comes from the compose `image` with the
+    tag stripped, so a long image name produces a long `technology`.
+    `source_path` is the repository path handed to the parser. Both are only
+    truncated in the parser, not in apply() — if either truncation moved (or
+    were dropped) the stored row would differ from the declaration on every
+    run. SQLite does not enforce column widths, so this can only fail on the
+    PostgreSQL leg."""
+    long_technology = "t" * 150
+    long_path = "modules/" * 70 + "docker-compose.yml"
+    assert len(long_technology) > 100
+    assert len(long_path) > 500
+    content = f"services:\n  api:\n    image: {long_technology}:latest\n".encode()
+    declared = parse_docker_compose(content, long_path)
+
+    await reconcile.apply(
+        db_session, system_id=system.id, tenant_id=test_tenant.id,
+        source=SubSystemSource.DOCKER_COMPOSE,
+        edge_source=DependencySource.DOCKER_COMPOSE, declared=declared,
+    )
+    report = await reconcile.diff(
+        db_session, system_id=system.id, tenant_id=test_tenant.id,
+        source=SubSystemSource.DOCKER_COMPOSE,
+        edge_source=DependencySource.DOCKER_COMPOSE, declared=declared,
+        absence_computed=True, absence_reason=None,
+    )
+
+    assert report.has_drift is False, (
+        f"subsystems_changed={report.subsystems_changed} "
+        f"missing_in_catalogue={[s.name for s in report.subsystems_missing_in_catalogue]} "
+        f"missing_in_code={report.subsystems_missing_in_code}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_applying_twice_then_diffing_still_reports_no_drift(
     db_session, test_tenant, system
 ):
