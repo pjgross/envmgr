@@ -249,8 +249,11 @@ async def test_the_summary_agrees_with_the_rows(db_session, test_tenant, fixture
 
 @pytest.mark.asyncio
 async def test_differing_rows_come_first(db_session, test_tenant, fixture_pair):
+    # Named to sort LAST alphabetically: the only thing that can bring it to
+    # the top is the differing-rows-first rule. Named "aaa-…" this test passed
+    # with that rule removed, which is how it was caught.
     extra = SubSystem(tenant_id=test_tenant.id,
-                      system_id=fixture_pair["system"].id, name="aaa-first-alphabetically")
+                      system_id=fixture_pair["system"].id, name="zzz-sorts-last-by-name")
     db_session.add(extra)
     await db_session.flush()
     db_session.add(EnvironmentSubSystem(
@@ -261,7 +264,12 @@ async def test_differing_rows_come_first(db_session, test_tenant, fixture_pair):
     result = await svc.compare_environments(
         db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
 
-    assert result["subsystems"][0]["differences"] != []
+    rows = result["subsystems"]
+    # Differing first...
+    assert rows[0]["differences"] != []
+    assert rows[0]["name"] == "zzz-sorts-last-by-name"
+    # ...and the matching row after it, despite sorting earlier by name.
+    assert rows[-1]["differences"] == []
 
 
 @pytest.mark.asyncio
