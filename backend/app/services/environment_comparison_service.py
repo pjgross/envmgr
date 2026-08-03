@@ -31,6 +31,7 @@ async def _systems(db: AsyncSession, env_id: int, tenant_id: int) -> dict[int, s
         .where(
             EnvironmentSystem.environment_id == env_id,
             EnvironmentSystem.tenant_id == tenant_id,
+            System.tenant_id == tenant_id,
             System.deleted_at.is_(None),
         )
     )).all()
@@ -54,7 +55,10 @@ async def _side(db: AsyncSession, env_id: int, tenant_id: int) -> dict[int, dict
         .where(
             EnvironmentSubSystem.environment_id == env_id,
             EnvironmentSubSystem.tenant_id == tenant_id,
+            SubSystem.tenant_id == tenant_id,
             SubSystem.deleted_at.is_(None),
+            System.tenant_id == tenant_id,
+            System.deleted_at.is_(None),
         )
     )).all()
 
@@ -76,6 +80,8 @@ async def _side(db: AsyncSession, env_id: int, tenant_id: int) -> dict[int, dict
                 EnvironmentSubSystemHost.environment_subsystem_id.in_(env_sub_ids),
                 EnvironmentSubSystemHost.tenant_id == tenant_id,
                 EnvironmentSubSystemHost.deleted_at.is_(None),
+                InfrastructureComponent.tenant_id == tenant_id,
+                InfrastructureComponent.deleted_at.is_(None),
             )
         )).all()
         for env_sub_id, component_type, role in host_rows:
@@ -85,6 +91,8 @@ async def _side(db: AsyncSession, env_id: int, tenant_id: int) -> dict[int, dict
     # Reuse the endpoint's own current-version semantics rather than
     # reimplementing the dedup: list_versions already resolves "latest per
     # subsystem" with a ROW_NUMBER() window under current_only.
+    # This re-validates the environment (compare_environments already did),
+    # which is accepted here in exchange for not duplicating that dedup query.
     version_rows, _total = await list_versions(db, env_id, tenant_id, current_only=True)
     versions = {v.subsystem_id: v.version_label for v in version_rows}
 

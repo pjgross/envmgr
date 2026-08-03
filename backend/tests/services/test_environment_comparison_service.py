@@ -288,3 +288,56 @@ async def test_systems_presence_is_reported(db_session, test_tenant, fixture_pai
     by_name = {s["name"]: s for s in result["systems"]}
     assert by_name["Payments"]["presence"] == "both"
     assert by_name["Reporting"]["presence"] == "right_only"
+
+
+@pytest.mark.asyncio
+async def test_a_soft_deleted_host_does_not_count_toward_host_shape(
+    db_session, test_tenant, fixture_pair
+):
+    """A decommissioned host still sitting in the junction must not inflate the
+    count — that is a wrong answer on screen, not just untidy data."""
+    await _host(db_session, test_tenant.id, fixture_pair["left"], fixture_pair["sub"].id,
+                component_type=InfrastructureComponentType.SERVER, role="primary",
+                name="sit-app-01")
+    await _host(db_session, test_tenant.id, fixture_pair["left"], fixture_pair["sub"].id,
+                component_type=InfrastructureComponentType.SERVER, role="primary",
+                name="sit-app-02-decommissioned")
+
+    component = (await db_session.execute(
+        select(InfrastructureComponent).where(
+            InfrastructureComponent.name == "sit-app-02-decommissioned")
+    )).scalar_one()
+    component.deleted_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    await db_session.flush()
+
+    result = await svc.compare_environments(
+        db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
+
+    row = next(r for r in result["subsystems"] if r["subsystem_id"] == fixture_pair["sub"].id)
+    assert row["left"]["host_shape"][0]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_rows_never_leak_into_a_comparison(
+    db_session, test_tenant, fixture_pair, second_tenant_factory
+):
+    """Tenant isolation is a security requirement here, so each joined table
+    carries its own tenant filter rather than trusting the junction's FK."""
+    other, _admin = await second_tenant_factory()
+    foreign_system = System(tenant_id=other.id, name="Foreign")
+    db_session.add(foreign_system)
+    await db_session.flush()
+    foreign_sub = SubSystem(tenant_id=other.id, system_id=foreign_system.id, name="foreign-api")
+    db_session.add(foreign_sub)
+    await db_session.flush()
+    # Deliberately cross-wired: a junction row for THIS tenant pointing at the
+    # other tenant's subsystem. Nothing should surface it.
+    db_session.add(EnvironmentSubSystem(
+        tenant_id=test_tenant.id, environment_id=fixture_pair["left"].id,
+        subsystem_id=foreign_sub.id, is_mocked=False))
+    await db_session.flush()
+
+    result = await svc.compare_environments(
+        db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
+
+    assert all(r["name"] != "foreign-api" for r in result["subsystems"])
