@@ -32,6 +32,10 @@ dependencies = [
     "python-dateutil>=2.8",
     "nats-py>=2.3",
     "prometheus-client>=0.26",
+    # Fernet for symmetric encryption of stored third-party credentials.
+    # Deliberately NOT reusing SECRET_KEY (JWT signing) — different blast
+    # radius, different rotation schedule.
+    "cryptography==43.0.1",
 ]
 
 [dependency-groups]

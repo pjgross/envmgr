@@ -33,7 +33,12 @@ class Settings(BaseSettings):
     # need a different life pass expires_delta explicitly. See
     # app/services/auth_session_service.py.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    
+
+    # Encrypts third-party credentials at rest. Separate from SECRET_KEY on
+    # purpose. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    SECRETS_ENCRYPTION_KEY: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     
