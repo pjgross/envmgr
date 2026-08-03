@@ -5,7 +5,9 @@ import {
 } from '@mui/material';
 import { githubIntegrationService } from '../../services/githubIntegrationService';
 import { formatApiError } from '../../services/apiError';
-import type { DriftDetectorReport, DriftEdge, DriftResult } from '../../types/githubIntegration';
+import type {
+  DriftConflictingEdge, DriftDetectorReport, DriftEdge, DriftResult,
+} from '../../types/githubIntegration';
 
 interface Props {
   open: boolean;
@@ -22,6 +24,17 @@ function edgeContext(e: DriftEdge): string | undefined {
   if (e.port != null) parts.push(`port ${e.port}`);
   if (e.source_path) parts.push(e.source_path);
   return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+// catalogue_source names the EXISTING row's provenance — this is not a
+// creation Scan can perform (uq_component_dep has no source column, so a
+// second row for the same pair would collide), so the context must lead
+// with what's already there, not with the code's own port/path.
+function conflictContext(e: DriftConflictingEdge): string {
+  const parts: string[] = [`recorded as ${e.catalogue_source} in EnvManager`];
+  if (e.port != null) parts.push(`port ${e.port}`);
+  parts.push(e.source_path);
+  return parts.join(' · ');
 }
 
 function DetectorSection({ report }: { report: DriftDetectorReport }) {
@@ -118,6 +131,30 @@ function DetectorSection({ report }: { report: DriftDetectorReport }) {
                 <ListItemText
                   primary={`${e.from_name} → ${e.to_name}`}
                   secondary={edgeContext(e)}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </>
+      )}
+
+      {edges.conflicting_source.length > 0 && (
+        <>
+          <Typography variant="subtitle2" sx={{ mt: 1 }}>
+            Dependencies the code declares, already recorded under a different source
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Scanning will not reconcile these — EnvManager already has each
+            dependency recorded (see source below), and a scan cannot create
+            a second row for the same pair. To resolve, remove or re-source
+            the existing entry by hand.
+          </Typography>
+          <List dense disablePadding>
+            {edges.conflicting_source.map((e, i) => (
+              <ListItem key={`${i}-${e.from_name}-${e.to_name}`} disableGutters>
+                <ListItemText
+                  primary={`${e.from_name} → ${e.to_name}`}
+                  secondary={conflictContext(e)}
                 />
               </ListItem>
             ))}

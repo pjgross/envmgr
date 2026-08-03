@@ -72,6 +72,23 @@ export interface DriftChangedEdge {
   source_path: string;
 }
 
+/**
+ * The code declares this edge, but the catalogue already has a row for the
+ * same (from, to) pair under a DIFFERENT source (e.g. a hand-made "manual"
+ * dependency the code also happens to declare). The unique constraint on
+ * dependency edges is (from_subsystem_id, to_subsystem_id, tenant_id) — it
+ * does NOT include source — so Scan cannot create this row: it would
+ * collide with the existing one. Never fold this into missing_in_catalogue,
+ * which the dialog reads as "Scan will create this".
+ */
+export interface DriftConflictingEdge {
+  from_name: string;
+  to_name: string;
+  port: number | null;
+  source_path: string;
+  catalogue_source: string;
+}
+
 export interface DriftDetectorReport {
   detector: string;
   paths: string[];
@@ -91,6 +108,8 @@ export interface DriftDetectorReport {
   edges: {
     missing_in_catalogue: DriftEdge[];
     missing_in_code: DriftEdge[] | null;
+    /** Always an array, never null — unlike missing_in_code above. */
+    conflicting_source: DriftConflictingEdge[];
     changed: DriftChangedEdge[];
   };
 }

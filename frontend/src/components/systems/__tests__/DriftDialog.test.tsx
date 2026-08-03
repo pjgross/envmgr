@@ -18,7 +18,9 @@ const detector = (overrides = {}) => ({
   absence_reason: null,
   has_drift: true,
   subsystems: { missing_in_catalogue: [], missing_in_code: [], changed: [] },
-  edges: { missing_in_catalogue: [], missing_in_code: [], changed: [] },
+  edges: {
+    missing_in_catalogue: [], missing_in_code: [], conflicting_source: [], changed: [],
+  },
   ...overrides,
 });
 
@@ -138,7 +140,9 @@ describe('DriftDialog', () => {
         absence_computed: false,
         absence_reason: 'GitHub returned only part of this repository.',
         subsystems: { missing_in_catalogue: [], missing_in_code: null, changed: [] },
-        edges: { missing_in_catalogue: [], missing_in_code: null, changed: [] },
+        edges: {
+          missing_in_catalogue: [], missing_in_code: null, conflicting_source: [], changed: [],
+        },
       })], { has_drift: false, truncated: true }) as never,
     );
 
@@ -179,6 +183,7 @@ describe('DriftDialog', () => {
             from_name: 'api', to_name: 'db', port: 5432, source_path: 'docker-compose.yml',
           }],
           missing_in_code: null,
+          conflicting_source: [],
           changed: [],
         },
       })], { truncated: true }) as never,
@@ -212,6 +217,7 @@ describe('DriftDialog', () => {
           missing_in_code: [
             { from_name: 'api', to_name: 'legacy-worker', port: 6379, source_path: 'docker-compose.yml' },
           ],
+          conflicting_source: [],
           changed: [],
         },
       })]) as never,
@@ -244,6 +250,7 @@ describe('DriftDialog', () => {
             { from_name: 'api', to_name: 'redis', port: 6379, source_path: 'docker-compose.yml' },
           ],
           missing_in_code: [],
+          conflicting_source: [],
           changed: [],
         },
       })]) as never,
@@ -325,5 +332,85 @@ describe('DriftDialog', () => {
 
     expect(await screen.findByText(/other/)).toBeInTheDocument();
     expect(screen.getByText(/web_service/)).toBeInTheDocument();
+  });
+
+  it('names both endpoints and the existing provenance for a conflicting-source edge', async () => {
+    // This category exists because a scan cannot create these rows —
+    // uq_component_dep has no source column, so a second row for the same
+    // pair collides. Assert the endpoint names and the catalogue's existing
+    // source (catalogue_source) both render.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        edges: {
+          missing_in_catalogue: [],
+          missing_in_code: [],
+          conflicting_source: [{
+            from_name: 'api', to_name: 'db', port: 5432,
+            source_path: 'docker-compose.yml', catalogue_source: 'manual',
+          }],
+          changed: [],
+        },
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(await screen.findByText('api → db')).toBeInTheDocument();
+    expect(screen.getByText(/recorded as manual in EnvManager/i)).toBeInTheDocument();
+    expect(screen.getByText(/port 5432/i)).toBeInTheDocument();
+  });
+
+  it('does not present a conflicting-source edge as something Scan will create', async () => {
+    // The bug this category fixes: the old report listed this edge under
+    // "declared in the code, not in EnvManager", and pressing Scan then
+    // raised an IntegrityError that rolled back — and lost — the rest of
+    // that detector's writes. The wording that implies creation must be
+    // absent for this group, and the entity must not appear under the
+    // "missing_in_catalogue" heading at all.
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        edges: {
+          missing_in_catalogue: [],
+          missing_in_code: [],
+          conflicting_source: [{
+            from_name: 'api', to_name: 'db', port: 5432,
+            source_path: 'docker-compose.yml', catalogue_source: 'manual',
+          }],
+          changed: [],
+        },
+      })]) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    expect(await screen.findByText('api → db')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/declared in the code, not in envmanager/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/scan will create/i)).not.toBeInTheDocument();
+  });
+
+  it('omits the conflicting-source group entirely when the array is empty', async () => {
+    vi.mocked(githubIntegrationService.drift).mockResolvedValue(
+      result([detector({
+        edges: {
+          missing_in_catalogue: [],
+          missing_in_code: [],
+          conflicting_source: [],
+          changed: [],
+        },
+        has_drift: false,
+      })], { has_drift: false }) as never,
+    );
+
+    render(<DriftDialog open systemId={1} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: /check drift/i }));
+
+    await screen.findByText(/catalogue matches the code/i);
+    expect(
+      screen.queryByText(/already recorded under a different source/i),
+    ).not.toBeInTheDocument();
   });
 });
