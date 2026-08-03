@@ -109,6 +109,9 @@ class RaidItemRead(BaseModel):
     description: Optional[str] = None
     status: str
     owner_id: Optional[int] = None
+    # Sent with the row so the UI never has to resolve it against the capped
+    # tenant-users collection, where an owner past the cap rendered as "—".
+    owner_username: Optional[str] = None
     raised_by: int
     raised_at: datetime
     target_date: Optional[datetime] = None

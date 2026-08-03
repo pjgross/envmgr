@@ -72,10 +72,20 @@ export default function RaidTab({ releaseId }: Props) {
     dispatch(fetchUsers());
   }, [dispatch, releaseId]);
 
-  const ownerName = (ownerId: number | null): string => {
-    if (ownerId == null) return '—';
-    return users.find((u) => u.id === ownerId)?.username ?? '—';
-  };
+  // Names come from the rows themselves — the server sends `owner_username`
+  // with each item — rather than from the tenant-users collection, which the
+  // server caps at 500. An owner past that cap used to resolve to an em dash,
+  // losing information on screen with nothing saying why.
+  const ownerNames = useMemo(() => {
+    const byId = new Map<number, string>();
+    items.forEach((i) => {
+      if (i.owner_id != null && i.owner_username) byId.set(i.owner_id, i.owner_username);
+    });
+    return byId;
+  }, [items]);
+
+  const ownerName = (ownerId: number | null): string =>
+    ownerId == null ? '—' : ownerNames.get(ownerId) ?? '—';
 
   const refresh = () => {
     dispatch(fetchRaidItems({ releaseId }));

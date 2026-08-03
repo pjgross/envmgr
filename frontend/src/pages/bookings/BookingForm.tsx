@@ -101,6 +101,7 @@ export default function BookingForm({
   const { bookingTypes } = useSelector((s: RootState) => s.bookingLifecycle);
   const templates = useSelector(selectBookingTemplates);
   const allUsers = useSelector((s: RootState) => s.tenantAdmin.users);
+  const allUsersTotal = useSelector((s: RootState) => s.tenantAdmin.usersTotal);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
   const initialEnvIds = useMemo(() => {
@@ -406,7 +407,21 @@ export default function BookingForm({
                   />
                 ))
               }
-              renderInput={(params) => <TextField {...params} label="Delegates (optional)" />}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Delegates (optional)"
+                  // GET /tenant/users is capped. Because this list is then
+                  // filtered to active users, the number of options bears no
+                  // relation to the cap — so the count alone gives no hint
+                  // that anyone is missing.
+                  helperText={
+                    allUsers.length < allUsersTotal
+                      ? `Only the first ${allUsers.length} of ${allUsersTotal} users are available to choose from.`
+                      : undefined
+                  }
+                />
+              )}
             />
           )}
         />

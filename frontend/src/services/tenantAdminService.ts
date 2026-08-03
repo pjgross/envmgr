@@ -1,11 +1,20 @@
 import api from './api';
+import type { Paged } from '../types/pagination';
 import type { TenantResponse, UserResponse } from '../types';
 
 export const tenantAdminService = {
   getSettings: () => api.get<TenantResponse>('/tenant/settings').then((r) => r.data),
   updateSettings: (settings: Record<string, unknown>) =>
     api.patch<TenantResponse>('/tenant/settings', { settings }).then((r) => r.data),
-  listUsers: () => api.get<UserResponse[]>('/tenant/users').then((r) => r.data),
+  // GET /tenant/users is capped server-side. The total comes back so callers
+  // can tell a complete user list from a truncated one — two pickers filter
+  // this collection, and a filtered view of a truncated fetch shows no sign of
+  // either the cap or the filtering.
+  listUsers: (): Promise<Paged<UserResponse>> =>
+    api.get<UserResponse[]>('/tenant/users').then((r) => ({
+      rows: r.data,
+      total: Number(r.headers['x-total-count'] ?? r.data.length),
+    })),
   createUser: (data: { username: string; email: string; password: string; role?: string }) =>
     api.post<UserResponse>('/tenant/users', data).then((r) => r.data),
   getUser: (id: number) => api.get<UserResponse>(`/tenant/users/${id}`).then((r) => r.data),

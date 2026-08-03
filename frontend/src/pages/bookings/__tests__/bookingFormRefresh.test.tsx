@@ -35,7 +35,7 @@ vi.mock('../../../services/customFieldService', () => ({
 }));
 vi.mock('../../../services/tenantAdminService', () => ({
   tenantAdminService: {
-    listUsers: vi.fn().mockResolvedValue([]),
+    listUsers: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
   },
 }));
 // BookingForm doesn't touch this directly, but if the Finding-1 regression
