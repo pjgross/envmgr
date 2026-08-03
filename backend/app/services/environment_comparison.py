@@ -27,7 +27,11 @@ def host_shape(attachments: list[tuple[str, Optional[str]]]) -> list[dict]:
             {"component_type": component_type, "role": role, "count": count}
             for (component_type, role), count in counts.items()
         ),
-        key=lambda entry: (entry["component_type"], entry["role"] or ""),
+        # `role is None` participates in the key so a null role and an empty
+        # string cannot tie: tied entries would fall back to Counter insertion
+        # order, and two identical environments could then report a spurious
+        # host_shape difference.
+        key=lambda entry: (entry["component_type"], entry["role"] is None, entry["role"] or ""),
     )
 
 

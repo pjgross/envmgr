@@ -245,6 +245,9 @@ async def test_the_summary_agrees_with_the_rows(db_session, test_tenant, fixture
     for kind in ("presence", "mocked", "version", "host_shape"):
         assert summary["by_kind"][kind] == sum(
             1 for r in rows if kind in r["differences"]), kind
+    # Positive control: every assertion above holds trivially over an empty list.
+    assert summary["compared"] > 0
+    assert summary["by_kind"]["presence"] == 1
 
 
 @pytest.mark.asyncio
@@ -291,6 +294,26 @@ async def test_systems_presence_is_reported(db_session, test_tenant, fixture_pai
 
 
 @pytest.mark.asyncio
+async def test_a_system_with_an_empty_name_on_one_side_does_not_500(
+    db_session, test_tenant, fixture_pair
+):
+    """`x.get(k) or y[k]` raises KeyError when the left name is falsy."""
+    blank = System(tenant_id=test_tenant.id, name="")
+    db_session.add(blank)
+    await db_session.flush()
+    db_session.add(EnvironmentSystem(
+        tenant_id=test_tenant.id, environment_id=fixture_pair["left"].id,
+        system_id=blank.id))
+    await db_session.flush()
+
+    result = await svc.compare_environments(
+        db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
+
+    entry = next(s for s in result["systems"] if s["system_id"] == blank.id)
+    assert entry["presence"] == "left_only"
+
+
+@pytest.mark.asyncio
 async def test_a_soft_deleted_host_does_not_count_toward_host_shape(
     db_session, test_tenant, fixture_pair
 ):
@@ -308,6 +331,35 @@ async def test_a_soft_deleted_host_does_not_count_toward_host_shape(
             InfrastructureComponent.name == "sit-app-02-decommissioned")
     )).scalar_one()
     component.deleted_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    await db_session.flush()
+
+    result = await svc.compare_environments(
+        db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
+
+    row = next(r for r in result["subsystems"] if r["subsystem_id"] == fixture_pair["sub"].id)
+    assert row["left"]["host_shape"][0]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_soft_deleted_host_attachment_does_not_count(
+    db_session, test_tenant, fixture_pair
+):
+    """The junction's own deleted_at, not the component's — detaching a host
+    soft-deletes the attachment while the component itself stays live."""
+    await _host(db_session, test_tenant.id, fixture_pair["left"], fixture_pair["sub"].id,
+                component_type=InfrastructureComponentType.SERVER, role="primary",
+                name="sit-app-01")
+    await _host(db_session, test_tenant.id, fixture_pair["left"], fixture_pair["sub"].id,
+                component_type=InfrastructureComponentType.SERVER, role="primary",
+                name="sit-app-02")
+
+    attachment = (await db_session.execute(
+        select(EnvironmentSubSystemHost)
+        .join(InfrastructureComponent,
+              InfrastructureComponent.id == EnvironmentSubSystemHost.infrastructure_component_id)
+        .where(InfrastructureComponent.name == "sit-app-02")
+    )).scalar_one()
+    attachment.deleted_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
     await db_session.flush()
 
     result = await svc.compare_environments(
@@ -341,6 +393,8 @@ async def test_another_tenants_rows_never_leak_into_a_comparison(
         db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
 
     assert all(r["name"] != "foreign-api" for r in result["subsystems"])
+    # Positive control: an all-empty result would satisfy the assertion above.
+    assert any(r["name"] == "api" for r in result["subsystems"])
 
 
 @pytest.mark.asyncio
@@ -371,3 +425,5 @@ async def test_a_foreign_subsystem_under_our_own_system_is_excluded(
         db_session, fixture_pair["left"].id, fixture_pair["right"].id, test_tenant.id)
 
     assert all(r["name"] != "foreign-under-our-system" for r in result["subsystems"])
+    # Positive control: an all-empty result would satisfy the assertion above.
+    assert any(r["name"] == "api" for r in result["subsystems"])

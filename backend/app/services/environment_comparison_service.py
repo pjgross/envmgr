@@ -129,7 +129,7 @@ async def compare_environments(
     systems = [
         {
             "system_id": sid,
-            "name": left_systems.get(sid) or right_systems[sid],
+            "name": left_systems[sid] if sid in left_systems else right_systems[sid],
             "presence": _presence(sid in left_systems, sid in right_systems),
         }
         for sid in sorted(set(left_systems) | set(right_systems))

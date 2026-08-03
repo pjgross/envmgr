@@ -41,6 +41,13 @@ def test_host_shape_of_nothing_is_empty():
     assert host_shape([]) == []
 
 
+def test_a_null_role_and_an_empty_role_sort_deterministically():
+    """Otherwise two identical environments can report a false difference."""
+    a = host_shape([("server", None), ("server", "")])
+    b = host_shape([("server", ""), ("server", None)])
+    assert a == b
+
+
 def _side(*, mocked=False, version="1.0", shape=None):
     return {"is_mocked": mocked, "version": version, "host_shape": shape or []}
 
