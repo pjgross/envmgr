@@ -9,12 +9,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, CircularProgress, MenuItem, Paper, TextField, Typography,
+  Alert, Box, Button, Checkbox, Chip, CircularProgress, FormControlLabel, MenuItem, Paper,
+  Stack, TextField, Typography,
 } from '@mui/material';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { environmentComparisonService } from '../../services/environmentComparisonService';
 import type { EnvironmentComparison } from '../../types/environmentComparison';
+import ComparisonTable, { KIND_LABEL } from '../../components/environments/ComparisonTable';
 
 export default function EnvironmentCompare() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -66,6 +68,19 @@ export default function EnvironmentCompare() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, left, right]);
 
+  const diffOnly = searchParams.get('diff_only') === '1';
+  const reference = (searchParams.get('reference') as 'left' | 'right' | null) ?? null;
+
+  const setFlag = useCallback(
+    (key: string, value: string | null) => {
+      const next = new URLSearchParams(searchParams);
+      if (value === null) next.delete(key);
+      else next.set(key, value);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>Compare Environments</Typography>
@@ -99,6 +114,25 @@ export default function EnvironmentCompare() {
             <MenuItem key={env.id} value={String(env.id)}>{env.name}</MenuItem>
           ))}
         </TextField>
+
+        <TextField
+          select size="small" label="Reference" value={reference ?? ''} sx={{ minWidth: 160 }}
+          onChange={(e) => setFlag('reference', e.target.value || null)}
+          helperText="Frames gaps as risk against one side"
+        >
+          <MenuItem value="">None</MenuItem>
+          <MenuItem value="left">Left</MenuItem>
+          <MenuItem value="right">Right</MenuItem>
+        </TextField>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={diffOnly}
+              onChange={(e) => setFlag('diff_only', e.target.checked ? '1' : null)}
+            />
+          }
+          label="Differences only"
+        />
       </Paper>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -109,10 +143,36 @@ export default function EnvironmentCompare() {
         </Typography>
       ) : loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>
-      ) : comparison && comparison.summary.differing === 0 ? (
-        <Alert severity="success">
-          {comparison.left.name} and {comparison.right.name} match on all four dimensions.
-        </Alert>
+      ) : comparison ? (
+        <>
+          <Paper sx={{ p: 2, mb: 2 }}>
+            <Typography variant="subtitle1">
+              {comparison.summary.differing} of {comparison.summary.compared} subsystems differ
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+              {(['presence', 'mocked', 'version', 'host_shape'] as const).map((kind) => (
+                <Chip key={kind} size="small"
+                      label={`${KIND_LABEL[kind]}: ${comparison.summary.by_kind[kind]}`} />
+              ))}
+            </Stack>
+          </Paper>
+          {comparison.summary.differing === 0 ? (
+            <Alert severity="success">
+              {comparison.left.name} and {comparison.right.name} match on all four dimensions.
+            </Alert>
+          ) : (
+            <Paper>
+              <ComparisonTable
+                rows={diffOnly
+                  ? comparison.subsystems.filter((r) => r.differences.length > 0)
+                  : comparison.subsystems}
+                leftName={comparison.left.name}
+                rightName={comparison.right.name}
+                reference={reference}
+              />
+            </Paper>
+          )}
+        </>
       ) : null}
     </Box>
   );

@@ -94,4 +94,61 @@ describe('EnvironmentCompare', () => {
 
     expect(await screen.findByText(/only the first/i)).toBeInTheDocument();
   });
+
+  it('does not claim the environments match when differences exist', async () => {
+    // Dropping the `differing === 0` condition would otherwise leave every
+    // other test in this file green while the page contradicts itself.
+    vi.mocked(environmentComparisonService.compare).mockResolvedValue({
+      ...EMPTY,
+      subsystems: [
+        {
+          subsystem_id: 1, name: 'api', system_id: 10, system_name: 'Payments',
+          presence: 'both',
+          left: { is_mocked: false, mock_notes: null, version: '1.0', host_shape: [] },
+          right: { is_mocked: false, mock_notes: null, version: '2.0', host_shape: [] },
+          differences: ['version'],
+        },
+      ],
+      summary: { compared: 1, differing: 1, by_kind: { presence: 0, mocked: 0, version: 1, host_shape: 0 } },
+    });
+
+    renderPage();
+    expect(await screen.findByText('api')).toBeInTheDocument();
+    expect(screen.queryByText(/match on all four dimensions/i)).not.toBeInTheDocument();
+  });
+
+  it('filters to differing rows and agrees with the summary count', async () => {
+    // The filter and the summary must come from the same place — these are the
+    // two numbers that drifted apart repeatedly in the pagination programme.
+    vi.mocked(environmentComparisonService.compare).mockResolvedValue({
+      ...EMPTY,
+      subsystems: [
+        {
+          subsystem_id: 1, name: 'api', system_id: 10, system_name: 'Payments',
+          presence: 'both',
+          left: { is_mocked: false, mock_notes: null, version: '1.0', host_shape: [] },
+          right: { is_mocked: false, mock_notes: null, version: '2.0', host_shape: [] },
+          differences: ['version'],
+        },
+        {
+          subsystem_id: 2, name: 'worker', system_id: 10, system_name: 'Payments',
+          presence: 'both',
+          left: { is_mocked: false, mock_notes: null, version: '1.0', host_shape: [] },
+          right: { is_mocked: false, mock_notes: null, version: '1.0', host_shape: [] },
+          differences: [],
+        },
+      ],
+      summary: { compared: 2, differing: 1, by_kind: { presence: 0, mocked: 0, version: 1, host_shape: 0 } },
+    });
+
+    renderPage();
+    expect(await screen.findByText('worker')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /differences only/i }));
+
+    expect(screen.queryByText('worker')).not.toBeInTheDocument();
+    expect(screen.getByText('api')).toBeInTheDocument();
+    // One row shown, and the summary said one differing.
+    expect(screen.getByText(/1 of 2 subsystems differ/i)).toBeInTheDocument();
+  });
 });
