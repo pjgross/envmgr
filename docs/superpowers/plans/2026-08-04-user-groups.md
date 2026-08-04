@@ -1120,7 +1120,8 @@ async def test_cannot_add_a_user_from_another_tenant(
     audit found four of. A cross-tenant id is a 404, never a 403: a 403 would
     confirm the user exists."""
     group = await ensure_user_group(db_session, test_tenant.id, name="Ops")
-    other_tenant = await second_tenant_factory()
+    # The fixture yields a FACTORY, and the factory returns (tenant, user).
+    other_tenant, _other_admin = await second_tenant_factory()
     outsider = await ensure_user(db_session, other_tenant.id, username="outsider")
     await db_session.commit()
 
@@ -1136,7 +1137,7 @@ async def test_cannot_add_a_user_from_another_tenant(
 async def test_cannot_touch_a_group_from_another_tenant(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):
-    other_tenant = await second_tenant_factory()
+    other_tenant, _other_admin = await second_tenant_factory()
     other_group = await ensure_user_group(db_session, other_tenant.id, name="Theirs")
     user = await ensure_user(db_session, test_tenant.id, username="ada")
     await db_session.commit()
@@ -1209,13 +1210,11 @@ async def test_a_master_admin_can_add_members_while_impersonating(
     assert added.json()["username"] == "ada"
 ```
 
-- [ ] **Step 2: Check the fixture name before running**
+- [ ] **Step 2: Fixture facts (already confirmed — do not re-derive)**
 
-`second_tenant_factory` exists in `backend/tests/conftest.py`. Confirm its call signature — it may take arguments:
-
-Run: `cd backend && grep -n "def second_tenant_factory" -A 15 tests/conftest.py`
-
-Adjust the two tests that use it to match the real signature.
+`second_tenant_factory` yields an async **factory**; calling it returns a
+`(Tenant, User)` tuple, which is why the tests above unpack two names. Two
+implementers on the previous plan each lost a cycle to this.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
@@ -1540,7 +1539,8 @@ async def test_cannot_point_at_another_tenants_group(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):
     """The FK-write gap this change adds. 404, not 403."""
-    other_tenant = await second_tenant_factory()
+    # The fixture yields a FACTORY, and the factory returns (tenant, user).
+    other_tenant, _other_admin = await second_tenant_factory()
     theirs = await ensure_user_group(db_session, other_tenant.id, name="Theirs")
     await db_session.commit()
 
@@ -1618,11 +1618,13 @@ async def test_filtering_by_operations_group(
     assert [e["name"] for e in filtered.json()] == ["mine"]
 ```
 
-- [ ] **Step 2: Check the `post_environment` factory signature**
+- [ ] **Step 2: Factory facts (already confirmed — do not re-derive)**
 
-Run: `cd backend && grep -n "async def post_environment" -A 30 tests/factories.py`
-
-It takes `**extra` and forwards it into the JSON body, and it supplies the required `tier_id`, `owner_user_id` and `expires_at`. Confirm that before relying on `operations_group_id=` passing through; if it filters keys, extend it.
+`post_environment(client, headers, name, **extra)` resolves a SIT tier over
+HTTP, sets `owner_user_id` from `/auth/me` and an expiry a year out, then
+`body.update(extra)` — so `operations_group_id=` passes straight through and
+needs no change. `second_tenant_factory` returns a `(Tenant, User)` tuple, which
+is why the test above unpacks two names.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
