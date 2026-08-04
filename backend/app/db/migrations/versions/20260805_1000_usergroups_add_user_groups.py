@@ -30,17 +30,22 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"),
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"),
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_user_group_tenant_id", "user_group", ["tenant_id"])
+    # Base declares `id` with index=True, so create_all builds this index on
+    # every model-defined table. Without it here, a migration-built database
+    # differs from a create_all-built one — not caught by
+    # test_migration_schema_drift.py, which compares only tables and columns.
+    op.create_index("ix_user_group_id", "user_group", ["id"])
 
     op.create_table(
         "user_group_member",
@@ -49,11 +54,11 @@ def upgrade() -> None:
         sa.Column("group_id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"),
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
             nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"),
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"]),
@@ -65,6 +70,9 @@ def upgrade() -> None:
     op.create_index("ix_user_group_member_tenant_id", "user_group_member", ["tenant_id"])
     op.create_index("ix_user_group_member_group_id", "user_group_member", ["group_id"])
     op.create_index("ix_user_group_member_user_id", "user_group_member", ["user_id"])
+    # Base declares `id` with index=True — same reasoning as ix_user_group_id
+    # above.
+    op.create_index("ix_user_group_member_id", "user_group_member", ["id"])
 
     op.add_column(
         "environment",
@@ -75,20 +83,28 @@ def upgrade() -> None:
         "environment", "user_group",
         ["operations_group_id"], ["id"],
     )
+    # Matches the name SQLAlchemy's default `ix_<table>_<column>` convention
+    # gives this `index=True` column (compare `ix_environment_owner_user_id`
+    # for the sibling `owner_user_id` column) — not shortened, unlike
+    # `ix_environment_tier_fk`, because there is no name collision to dodge
+    # here (see environment.py's __table_args__ comment for the one case
+    # where there is).
     op.create_index(
-        "ix_environment_operations_group", "environment", ["operations_group_id"]
+        "ix_environment_operations_group_id", "environment", ["operations_group_id"]
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_environment_operations_group", table_name="environment")
+    op.drop_index("ix_environment_operations_group_id", table_name="environment")
     op.drop_constraint("fk_environment_operations_group", "environment", type_="foreignkey")
     op.drop_column("environment", "operations_group_id")
 
+    op.drop_index("ix_user_group_member_id", table_name="user_group_member")
     op.drop_index("ix_user_group_member_user_id", table_name="user_group_member")
     op.drop_index("ix_user_group_member_group_id", table_name="user_group_member")
     op.drop_index("ix_user_group_member_tenant_id", table_name="user_group_member")
     op.drop_table("user_group_member")
 
+    op.drop_index("ix_user_group_id", table_name="user_group")
     op.drop_index("ix_user_group_tenant_id", table_name="user_group")
     op.drop_table("user_group")
