@@ -2179,7 +2179,7 @@ work had to fix. Idle arrives in B5 with its detection rules.
 - [ ] **Step 7: Run the tests**
 
 Run: `uv run pytest tests/services/test_environment_reserved_now.py -q`
-Expected: PASS, 6 passed
+Expected: PASS, 8 passed
 
 - [ ] **Step 8: Verify the two hoisted consumers still pass**
 
@@ -2460,18 +2460,21 @@ async def _seed(db_session, tenant_id, owner_id):
 
 
 @pytest.mark.asyncio
-async def test_governance_gap_returns_the_rows_missing_owner_or_expiry(
+async def test_governance_gap_returns_only_the_rows_missing_an_owner(
     client, auth_headers, db_session, test_tenant, test_user
 ):
+    """A null expiry means "no expiry planned" — a legitimate state, not a gap.
+    The `no-expiry` row NOT appearing is the discriminating half: without it
+    this test passes under the old owner-or-expiry semantics too."""
     await _seed(db_session, test_tenant.id, test_user.id)
 
     resp = await client.get(
         "/api/v1/environments/?governance_gap=true", headers=auth_headers
     )
     assert resp.status_code == 200
-    assert sorted(r["name"] for r in resp.json()) == ["no-expiry", "no-owner"]
+    assert sorted(r["name"] for r in resp.json()) == ["no-owner"]
     # The header is the true total, not the page length.
-    assert resp.headers["X-Total-Count"] == "2"
+    assert resp.headers["X-Total-Count"] == "1"
 
 
 @pytest.mark.asyncio
@@ -2495,6 +2498,46 @@ async def test_filtering_by_tier(client, auth_headers, db_session, test_tenant, 
         f"/api/v1/environments/?tier_id={tiers['apple'].id}", headers=auth_headers
     )
     assert sorted(r["name"] for r in resp.json()) == ["no-expiry", "owned-soon"]
+
+
+@pytest.mark.asyncio
+async def test_filtering_by_owner(client, auth_headers, db_session, test_tenant, test_user):
+    """Added from a Task 3 review finding: the owner_user_id filter shipped
+    untested, so deleting its `if` block left the suite green."""
+    await _seed(db_session, test_tenant.id, test_user.id)
+
+    resp = await client.get(
+        f"/api/v1/environments/?owner_user_id={test_user.id}", headers=auth_headers
+    )
+    assert sorted(r["name"] for r in resp.json()) == [
+        "no-expiry",
+        "owned-later",
+        "owned-soon",
+    ]
+    # The unowned row is the discriminating half — without it the filter could
+    # be a no-op and this test would still pass.
+    assert "no-owner" not in [r["name"] for r in resp.json()]
+
+
+@pytest.mark.asyncio
+async def test_sorting_by_owner_pins_the_unowned_row_last_on_asc(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    """Added from a Task 3 review finding: `owner` was whitelisted as sortable
+    with no ordering test, so NULL placement was unasserted in both directions.
+    `owner` is an outer-joined User.username, NULL for every unowned row, and
+    apply_sort pins NULLs last on ASC and first on DESC."""
+    await _seed(db_session, test_tenant.id, test_user.id)
+
+    asc = await client.get(
+        "/api/v1/environments/?sort_by=owner&sort_dir=asc", headers=auth_headers
+    )
+    assert [r["name"] for r in asc.json()][-1] == "no-owner"
+
+    desc = await client.get(
+        "/api/v1/environments/?sort_by=owner&sort_dir=desc", headers=auth_headers
+    )
+    assert [r["name"] for r in desc.json()][0] == "no-owner"
 
 
 @pytest.mark.asyncio
@@ -2539,7 +2582,7 @@ async def test_an_unwhitelisted_sort_field_is_422(client, auth_headers):
 - [ ] **Step 6: Run them**
 
 Run: `uv run pytest tests/integration/test_environment_governance_filters.py -q`
-Expected: PASS, 6 passed
+Expected: PASS, 8 passed
 
 - [ ] **Step 7: Run the full suite on both engines**
 
