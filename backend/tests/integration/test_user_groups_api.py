@@ -1,7 +1,9 @@
 """Group CRUD. Membership has its own file; environment wiring has another."""
 import pytest
+from sqlalchemy import select
 
 from app.core.pagination import TOTAL_COUNT_HEADER
+from app.db.models.user_group import UserGroup
 from tests.factories import ensure_environment, ensure_user_group
 
 
@@ -95,14 +97,55 @@ async def test_delete_soft_deletes_when_nothing_references_it(
 ):
     group = await ensure_user_group(db_session, test_tenant.id, name="Free")
     await db_session.commit()
+    group_id = group.id
 
     gone = await client.delete(
-        f"/api/v1/tenant/groups/{group.id}", headers=auth_headers
+        f"/api/v1/tenant/groups/{group_id}", headers=auth_headers
     )
     assert gone.status_code == 204, gone.text
 
     listed = (await client.get("/api/v1/tenant/groups", headers=auth_headers)).json()
     assert "Free" not in [g["name"] for g in listed]
+
+    # A 204 and absence from the list would pass identically for a hard
+    # delete. Query the row directly: it must still exist, with deleted_at
+    # set — environment.operations_group_id (and B3b's request history)
+    # keep pointing at retired groups, so a hard delete would break those FKs.
+    row = (
+        await db_session.execute(
+            select(UserGroup)
+            .where(UserGroup.id == group_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    assert row is not None
+    assert row.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_blocked_message_reports_the_true_remainder(
+    client, auth_headers, db_session, test_tenant
+):
+    """15 blocking environments — more than the 10-name cap.
+
+    The old implementation capped the *query* at 11 rows and derived the
+    remainder from `len(blockers) - 10`, so it could never report more than
+    1 no matter how many environments actually blocked the delete. The true
+    remainder here is 5.
+    """
+    group = await ensure_user_group(db_session, test_tenant.id, name="Overbooked")
+    for slot in range(1, 16):
+        env = await ensure_environment(db_session, test_tenant.id, slot=slot)
+        env.operations_group_id = group.id
+    await db_session.commit()
+
+    refused = await client.delete(
+        f"/api/v1/tenant/groups/{group.id}", headers=auth_headers
+    )
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert "and 5 more" in detail, detail
+    assert detail.count("test-env-") == 10
 
 
 @pytest.mark.asyncio

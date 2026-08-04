@@ -177,32 +177,38 @@ async def update_group(
 
 async def delete_group(db: AsyncSession, group_id: int, tenant_id: int) -> None:
     group = await get_group(db, group_id, tenant_id)
-    blockers = list(
-        (
-            await db.execute(
-                select(Environment.name)
-                .where(
-                    Environment.operations_group_id == group_id,
-                    Environment.tenant_id == tenant_id,
-                    Environment.deleted_at.is_(None),
-                )
-                .order_by(Environment.name)
-                .limit(_MAX_NAMED_BLOCKERS + 1)
-            )
-        )
-        .scalars()
-        .all()
+    blocker_filter = (
+        Environment.operations_group_id == group_id,
+        Environment.tenant_id == tenant_id,
+        # A soft-deleted environment is not a reference — counting it would
+        # make a group undeletable forever.
+        Environment.deleted_at.is_(None),
     )
-    if blockers:
-        named = blockers[:_MAX_NAMED_BLOCKERS]
+    # The true count is a separate query from the named subset: a query
+    # capped with LIMIT can never report more than the cap, so deriving the
+    # remainder from the length of a limited result is always wrong once the
+    # true count exceeds the cap by more than one.
+    total_blockers = (
+        await db.execute(select(func.count(Environment.id)).where(*blocker_filter))
+    ).scalar_one()
+    if total_blockers:
+        named = list(
+            (
+                await db.execute(
+                    select(Environment.name)
+                    .where(*blocker_filter)
+                    .order_by(Environment.name)
+                    .limit(_MAX_NAMED_BLOCKERS)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        remainder = total_blockers - len(named)
         detail = (
             "This group operates "
             + ", ".join(named)
-            + (
-                f" and {len(blockers) - _MAX_NAMED_BLOCKERS} more"
-                if len(blockers) > _MAX_NAMED_BLOCKERS
-                else ""
-            )
+            + (f" and {remainder} more" if remainder > 0 else "")
             + ". Reassign them before deleting it."
         )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
