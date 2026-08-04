@@ -17,7 +17,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, st
 from sqlalchemy import case, func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
+from app.core.pagination import (
+    Page,
+    Sort,
+    fetch_page,
+    pagination,
+    set_total_count,
+    sorting,
+)
 from app.db.base import get_db
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.lifecycle import LifecycleTemplate
@@ -1246,6 +1253,8 @@ class ReleaseBookingRequest(BaseModel):
 @router.get("/{release_id}/bookings")
 async def list_release_bookings(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -1256,21 +1265,25 @@ async def list_release_bookings(
 
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    rows = (
-        await db.execute(
-            select(Booking)
-            .options(
-                selectinload(Booking.environment),
-                selectinload(Booking.booking_request).selectinload(BookingRequest.booker),
-            )
-            .where(
-                Booking.release_id == release_id,
-                Booking.tenant_id == tenant_id,
-                Booking.deleted_at.is_(None),
-            )
-            .order_by(Booking.start_date.asc())
+    query = (
+        select(Booking)
+        .options(
+            selectinload(Booking.environment),
+            selectinload(Booking.booking_request).selectinload(BookingRequest.booker),
         )
-    ).scalars().all()
+        .where(
+            Booking.release_id == release_id,
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+        )
+        # A release's bookings routinely share a start date — a guided
+        # multi-environment booking creates several with exactly the same
+        # window — so `start_date` alone is not a total order and paging over
+        # it would duplicate and drop rows.
+        .order_by(Booking.start_date.asc(), Booking.id)
+    )
+    rows, total = await fetch_page(db, query, page)
+    set_total_count(response, total)
     # Return minimal shape — clients use the bookings endpoint for full detail
     return [
         {
@@ -1354,6 +1367,8 @@ async def bulk_book_release_environments(
 @router.get("/{release_id}/change-requests")
 async def list_linked_crs(
     release_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -1361,15 +1376,15 @@ async def list_linked_crs(
     from app.db.models.change_request import ChangeRequest
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    rows = (
-        await db.execute(
-            select(ChangeRequest).where(
-                ChangeRequest.release_id == release_id,
-                ChangeRequest.tenant_id == tenant_id,
-                ChangeRequest.deleted_at.is_(None),
-            ).order_by(ChangeRequest.id)
-        )
-    ).scalars().all()
+    # `id` is already the primary key, so this order is total as it stands and
+    # needs no tiebreaker added.
+    query = select(ChangeRequest).where(
+        ChangeRequest.release_id == release_id,
+        ChangeRequest.tenant_id == tenant_id,
+        ChangeRequest.deleted_at.is_(None),
+    ).order_by(ChangeRequest.id)
+    rows, total = await fetch_page(db, query, page)
+    set_total_count(response, total)
     return [
         {
             "id": cr.id,

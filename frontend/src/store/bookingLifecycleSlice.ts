@@ -2,6 +2,7 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import type { BookingLifecycleTemplate, BookingTypeRecord } from '../types/bookingLifecycle';
 import type { EntityType } from '../types/customField';
 import { bookingLifecycleService } from '../services/bookingLifecycleService';
+import { formatApiError } from '../services/apiError';
 
 // State keyed by entity_type so the same slice holds bookings, change requests,
 // and (later) releases. Selectors below provide back-compat for callers that
@@ -32,59 +33,105 @@ export const fetchBookingTypes = createAsyncThunk('bookingLifecycle/fetchBooking
   bookingLifecycleService.listBookingTypes()
 );
 
-export const createLifecycleTemplate = createAsyncThunk(
-  'bookingLifecycle/createTemplate',
-  async ({
-    data,
-    entityType = 'booking',
-  }: {
+// The mutating thunks reject with `rejectWithValue(formatApiError(...))` rather
+// than letting the axios error escape. Redux Toolkit serialises an escaping
+// error with `miniSerializeError`, which copies only name/message/stack/code —
+// `response.data.detail`, where the backend puts its actual explanation, is
+// dropped, and a real AxiosError's `.message` is the generic "Request failed
+// with status code 409". Consumers must therefore read `result.payload`, not
+// `result.error.message`. These are the paths where the backend's reason is the
+// whole point of the message: a duplicate name, or a template/type still in use.
+export const createLifecycleTemplate = createAsyncThunk<
+  BookingLifecycleTemplate,
+  {
     data: Parameters<typeof bookingLifecycleService.createTemplate>[0];
     entityType?: EntityType;
-  }) => bookingLifecycleService.createTemplate(data, entityType)
+  },
+  { rejectValue: string }
+>(
+  'bookingLifecycle/createTemplate',
+  async ({ data, entityType = 'booking' }, { rejectWithValue }) => {
+    try {
+      return await bookingLifecycleService.createTemplate(data, entityType);
+    } catch (err) {
+      return rejectWithValue(formatApiError(err, 'Failed to create template'));
+    }
+  }
 );
 
-export const updateLifecycleTemplate = createAsyncThunk(
-  'bookingLifecycle/updateTemplate',
-  ({
-    id,
-    data,
-  }: {
-    id: number;
-    data: Parameters<typeof bookingLifecycleService.updateTemplate>[1];
-  }) => bookingLifecycleService.updateTemplate(id, data)
-);
+export const updateLifecycleTemplate = createAsyncThunk<
+  BookingLifecycleTemplate,
+  { id: number; data: Parameters<typeof bookingLifecycleService.updateTemplate>[1] },
+  { rejectValue: string }
+>('bookingLifecycle/updateTemplate', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await bookingLifecycleService.updateTemplate(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update template'));
+  }
+});
 
-export const copyLifecycleTemplate = createAsyncThunk(
-  'bookingLifecycle/copyTemplate',
-  ({ id, name }: { id: number; name: string }) => bookingLifecycleService.copyTemplate(id, name)
-);
+export const copyLifecycleTemplate = createAsyncThunk<
+  BookingLifecycleTemplate,
+  { id: number; name: string },
+  { rejectValue: string }
+>('bookingLifecycle/copyTemplate', async ({ id, name }, { rejectWithValue }) => {
+  try {
+    return await bookingLifecycleService.copyTemplate(id, name);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to copy template'));
+  }
+});
 
-export const createBookingType = createAsyncThunk(
-  'bookingLifecycle/createBookingType',
-  (data: Parameters<typeof bookingLifecycleService.createBookingType>[0]) =>
-    bookingLifecycleService.createBookingType(data)
-);
+export const createBookingType = createAsyncThunk<
+  BookingTypeRecord,
+  Parameters<typeof bookingLifecycleService.createBookingType>[0],
+  { rejectValue: string }
+>('bookingLifecycle/createBookingType', async (data, { rejectWithValue }) => {
+  try {
+    return await bookingLifecycleService.createBookingType(data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to create booking type'));
+  }
+});
 
-export const updateBookingType = createAsyncThunk(
-  'bookingLifecycle/updateBookingType',
-  ({
-    id,
-    data,
-  }: {
-    id: number;
-    data: Parameters<typeof bookingLifecycleService.updateBookingType>[1];
-  }) => bookingLifecycleService.updateBookingType(id, data)
-);
+export const updateBookingType = createAsyncThunk<
+  BookingTypeRecord,
+  { id: number; data: Parameters<typeof bookingLifecycleService.updateBookingType>[1] },
+  { rejectValue: string }
+>('bookingLifecycle/updateBookingType', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await bookingLifecycleService.updateBookingType(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update booking type'));
+  }
+});
 
-export const deleteLifecycleTemplate = createAsyncThunk(
-  'bookingLifecycle/deleteTemplate',
-  (id: number) => bookingLifecycleService.deleteTemplate(id).then(() => id)
-);
+export const deleteLifecycleTemplate = createAsyncThunk<
+  number,
+  number,
+  { rejectValue: string }
+>('bookingLifecycle/deleteTemplate', async (id, { rejectWithValue }) => {
+  try {
+    await bookingLifecycleService.deleteTemplate(id);
+    return id;
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to delete template'));
+  }
+});
 
-export const deleteBookingType = createAsyncThunk(
-  'bookingLifecycle/deleteBookingType',
-  (id: number) => bookingLifecycleService.deleteBookingType(id).then(() => id)
-);
+export const deleteBookingType = createAsyncThunk<
+  number,
+  number,
+  { rejectValue: string }
+>('bookingLifecycle/deleteBookingType', async (id, { rejectWithValue }) => {
+  try {
+    await bookingLifecycleService.deleteBookingType(id);
+    return id;
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to delete booking type'));
+  }
+});
 
 /** Helper: locate the entity_type a given template id belongs to in state. */
 function findEntityTypeOf(

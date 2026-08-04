@@ -117,7 +117,71 @@ describe('BookingList server-side grid', () => {
 
     const [column] = buildCustomFieldColumns([def]);
 
-    expect(column.field).toBe('severity');
+    // Namespaced (`cf_${field_key}`), not the raw key — see the collision
+    // test below. `headerName` is untouched, since that's what users see.
+    expect(column.field).toBe('cf_severity');
+    expect(column.headerName).toBe('Severity');
     expect(column.sortable).toBe(false);
+  });
+
+  it('never generates a custom-field column whose field collides with a static one', () => {
+    // The bug this guards is the one EnvironmentList already hit: a tenant
+    // custom field keyed the same as a static column gives two GridColDefs
+    // one `field`, which MUI treats as a single column — duplicate headers,
+    // and a visibility toggle on one silently hides the other. `saveColumnModel`
+    // below then persists the spurious visibility change, so the real column
+    // stays hidden across reloads. No fixture defines a colliding custom
+    // field, so nothing else in this suite can catch it.
+    const staticFields = new Set(bookingColumns.map((c) => c.field));
+
+    const defs: CustomFieldDefinition[] = [...staticFields, 'severity'].map((key, i) => ({
+      id: i + 1,
+      tenant_id: 1,
+      entity_type: 'booking',
+      entity_subtype: null,
+      field_key: key,
+      label: key,
+      field_type: 'text',
+      required: false,
+      display_order: i,
+      options: null,
+      lifecycle_states: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }));
+
+    const customCols = buildCustomFieldColumns(defs);
+    expect(customCols).toHaveLength(defs.length);
+    customCols.forEach((col) => expect(staticFields.has(col.field)).toBe(false));
+    // And they don't collide with each other either.
+    expect(new Set(customCols.map((c) => c.field)).size).toBe(customCols.length);
+  });
+
+  it('still reads the value from the raw field_key, not the namespaced column id', () => {
+    // The namespace is a grid-column concern only. `custom_fields` on the row
+    // is keyed by the tenant's own field_key, so a valueGetter that looked up
+    // `cf_severity` would render every custom cell as '—' — the column would
+    // be present, correctly named, and permanently empty.
+    const def: CustomFieldDefinition = {
+      id: 1,
+      tenant_id: 1,
+      entity_type: 'booking',
+      entity_subtype: null,
+      field_key: 'severity',
+      label: 'Severity',
+      field_type: 'text',
+      required: false,
+      display_order: 1,
+      options: null,
+      lifecycle_states: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+
+    const [column] = buildCustomFieldColumns([def]);
+    const row = { custom_fields: { severity: 'high' } };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((column.valueGetter as any)({ row })).toBe('high');
   });
 });

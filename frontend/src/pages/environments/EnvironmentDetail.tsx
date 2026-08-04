@@ -144,8 +144,10 @@ export default function EnvironmentDetail() {
   // useAllEnvironmentTiers' JSDoc.
   const { tiers } = useAllEnvironmentTiers();
 
-  // GET /tenant/users/lite is knowingly unbounded — one of the five
-  // growth-bearing endpoints docs/pagination.md lists as not yet bounded.
+  // GET /tenant/users/lite is bounded, but at its own larger contract
+  // (default 1000, max 5000) rather than the shared 500/1000 — a truncated
+  // picker loses users rather than shortening a page. A tenant past 1000
+  // active users needs a type-to-search picker here; see docs/pagination.md.
   // Matches GatesTable.tsx and EnvironmentList's own owner picker.
   const [users, setUsers] = useState<Array<{ id: number; username: string }>>([]);
   useEffect(() => {

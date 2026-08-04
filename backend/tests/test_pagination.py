@@ -288,6 +288,8 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     ("deployments", "/api/v1/deployments", 500, "auth_headers"),
     ("builds", "/api/v1/builds", 500, "auth_headers"),
     ("booking_requests", "/api/v1/booking-requests", MAX_LIMIT, "auth_headers"),
+    # The picker list has its own, larger contract — see `list_users_lite`.
+    ("tenant_users_lite", "/api/v1/tenant/users/lite", 5000, "auth_headers"),
 ]
 
 
@@ -422,6 +424,8 @@ RELEASE_SUBRESOURCES: list[tuple[str, str, int, str]] = [
     ("release_dependencies", "dependencies", MAX_LIMIT, "auth_headers"),
     ("release_systems", "systems", MAX_LIMIT, "auth_headers"),
     ("release_history", "history", MAX_LIMIT, "auth_headers"),
+    ("release_bookings", "bookings", MAX_LIMIT, "auth_headers"),
+    ("release_change_requests", "change-requests", MAX_LIMIT, "auth_headers"),
 ]
 
 

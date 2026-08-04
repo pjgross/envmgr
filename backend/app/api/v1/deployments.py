@@ -185,6 +185,8 @@ async def link_change(
 @env_sub_router.get("/{environment_id}/deployments", response_model=list[DeploymentRead])
 async def list_environment_deployments(
     environment_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -192,8 +194,13 @@ async def list_environment_deployments(
         Deployment.tenant_id == current_user.active_tenant_id,
         Deployment.environment_id == environment_id,
         Deployment.deleted_at.is_(None),
-    ).order_by(Deployment.deployed_at.desc())
-    rows = (await db.execute(q)).all()
+    # `deployed_at` is caller-supplied by CI, so several deployments sharing a
+    # timestamp is ordinary rather than exceptional — without the `id`
+    # tiebreaker LIMIT/OFFSET over those ties duplicates and drops rows across
+    # pages. Matches the ordering of the flat `GET /deployments` sibling.
+    ).order_by(Deployment.deployed_at.desc(), Deployment.id)
+    rows, total = await fetch_page_rows(db, q, page)
+    set_total_count(response, total)
     return [
         _deployment_to_read(d, sha, env_name, rel_name, cr_title)
         for d, sha, env_name, rel_name, cr_title in rows

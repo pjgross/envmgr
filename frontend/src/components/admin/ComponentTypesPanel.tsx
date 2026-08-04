@@ -63,12 +63,13 @@ export default function ComponentTypesPanel() {
     if (editTarget) {
       const result = await dispatch(updateComponentType({ id: editTarget.id, data }));
       if (updateComponentType.rejected.match(result)) {
-        throw new Error(result.error.message ?? 'Failed to update');
+        // `payload`, not `error.message` — see the comment on the thunks.
+        throw new Error(result.payload ?? 'Failed to update');
       }
     } else {
       const result = await dispatch(createComponentType(data));
       if (createComponentType.rejected.match(result)) {
-        throw new Error(result.error.message ?? 'Failed to create');
+        throw new Error(result.payload ?? 'Failed to create');
       }
     }
   };
@@ -84,7 +85,7 @@ export default function ComponentTypesPanel() {
     setDeleteError(null);
     const result = await dispatch(deleteComponentType(deleteId));
     if (deleteComponentType.rejected.match(result)) {
-      setDeleteError(result.error.message ?? 'Failed to delete');
+      setDeleteError(result.payload ?? 'Failed to delete');
       return;
     }
     setDeleteOpen(false);

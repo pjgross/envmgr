@@ -247,7 +247,7 @@ async def test_received_feedback_returns_acks_targeting_this_booking(
         at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
     )
 
-    rows = await conflict_service.list_received_feedback(
+    rows, _total = await conflict_service.list_received_feedback(
         db_session, me.id, test_tenant.id
     )
     assert len(rows) == 1
@@ -285,7 +285,7 @@ async def test_received_feedback_excludes_empty_rows(db_session, test_tenant, te
         at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
     )
 
-    rows = await conflict_service.list_received_feedback(
+    rows, _total = await conflict_service.list_received_feedback(
         db_session, me.id, test_tenant.id
     )
     assert rows == []
@@ -322,7 +322,7 @@ async def test_received_feedback_tenant_isolation(db_session, test_tenant, test_
         at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
     )
 
-    rows = await conflict_service.list_received_feedback(
+    rows, _total = await conflict_service.list_received_feedback(
         db_session, me.id, other_tenant.id
     )
     assert rows == []
@@ -369,7 +369,7 @@ async def test_received_feedback_ordered_by_acknowledged_at_desc(
         at=datetime(2026, 5, 1, 15, 0, tzinfo=timezone.utc),
     )
 
-    rows = await conflict_service.list_received_feedback(
+    rows, _total = await conflict_service.list_received_feedback(
         db_session, me.id, test_tenant.id
     )
     assert [r.ack.notes for r in rows] == ["second", "first"]
@@ -402,7 +402,7 @@ async def test_received_feedback_excludes_rows_with_empty_notes_and_null_willing
         at=datetime(2026, 5, 1, 10, 30, tzinfo=timezone.utc),
     )
 
-    rows = await conflict_service.list_received_feedback(
+    rows, _total = await conflict_service.list_received_feedback(
         db_session, me.id, test_tenant.id
     )
     assert rows == []
