@@ -81,10 +81,12 @@ const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default'
   decommissioned: 'error',
 };
 
+// TODO(task-10): this form still has no tier / owner / expiry field. It is
+// deliberately limited to what compiles against the new EnvironmentResponse —
+// the governance fields land here in the detail-page task.
 interface EnvFormValues {
   name: string;
   description: string;
-  environment_type: string;
   status: EnvironmentStatus;
 }
 
@@ -126,7 +128,6 @@ export default function EnvironmentDetail() {
   const [envForm, setEnvForm] = useState<EnvFormValues>({
     name: '',
     description: '',
-    environment_type: '',
     status: 'active',
   });
   const [envFormError, setEnvFormError] = useState('');
@@ -174,7 +175,6 @@ export default function EnvironmentDetail() {
       setEnvForm({
         name: currentEnvironment.name,
         description: currentEnvironment.description ?? '',
-        environment_type: currentEnvironment.environment_type,
         status: currentEnvironment.status,
       });
       setEnvCustomFieldValues(currentEnvironment.custom_fields ?? {});
@@ -190,7 +190,6 @@ export default function EnvironmentDetail() {
       const data: EnvironmentUpdate = {
         name: envForm.name,
         description: envForm.description || undefined,
-        environment_type: envForm.environment_type,
         status: envForm.status,
         custom_fields: envCustomFieldValues,
       };
@@ -643,12 +642,6 @@ export default function EnvironmentDetail() {
                   multiline
                   rows={3}
                 />
-                <TextField
-                  label="Environment Type"
-                  value={envForm.environment_type}
-                  onChange={(e) => setEnvForm({ ...envForm, environment_type: e.target.value })}
-                  placeholder="e.g. staging, uat, dev"
-                />
                 <FormControl>
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -696,9 +689,9 @@ export default function EnvironmentDetail() {
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="overline" color="text.secondary">
-                    Environment Type
+                    Tier
                   </Typography>
-                  <Typography>{currentEnvironment?.environment_type}</Typography>
+                  <Typography>{currentEnvironment?.tier_name}</Typography>
                 </Box>
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>

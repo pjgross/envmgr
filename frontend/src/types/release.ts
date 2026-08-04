@@ -277,7 +277,7 @@ export interface CoverageSystemResponse {
 export interface CoverageEnvironmentResponse {
   environment_id: number;
   name: string;
-  environment_type: string;
+  tier_name: string;
   status: string;
   covered_system_ids: number[];
 }

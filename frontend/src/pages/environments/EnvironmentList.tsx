@@ -50,6 +50,9 @@ import type {
 import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
+import { formatExpiry } from '../../utils/dates';
+import api from '../../services/api';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -69,14 +72,19 @@ const STATUS_FILTERS: { label: string; value: EnvironmentStatus | 'all' }[] = [
 interface EnvFormValues {
   name: string;
   description: string;
-  environment_type: string;
+  tier_id: number | '';
+  owner_user_id: number | '';
+  /** "YYYY-MM-DD" from `<input type="date">`, or '' for no expiry planned. */
+  expires_at: string;
   status: EnvironmentStatus;
 }
 
 const emptyForm: EnvFormValues = {
   name: '',
   description: '',
-  environment_type: '',
+  tier_id: '',
+  owner_user_id: '',
+  expires_at: '',
   status: 'active',
 };
 
@@ -101,10 +109,12 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 }
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
-// "environments"): name, environment_type, status, created_at. `actions` has no
-// backing column, and per-tenant custom fields (built separately below, see
-// buildCustomFieldColumns) are never in the backend's sort whitelist — neither
-// ever was or can be sortable.
+// "environments"): name, tier, status, owner, expires_at, created_at.
+// `actions` has no backing column, `reserved_now` is derived from live
+// bookings rather than stored (so the backend cannot sort by it), and
+// per-tenant custom fields (built separately below, see
+// buildCustomFieldColumns) are never in the backend's sort whitelist — none
+// of those ever was or can be sortable.
 // A plain array export, not a component; co-located here per the C3 pilot's
 // releaseColumns precedent (small enough not to warrant its own file). The
 // `actions` column's renderCell is filled in at render time (see `columns`
@@ -124,10 +134,54 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
     ),
   },
   {
-    field: 'environment_type',
-    headerName: 'Type',
+    field: 'tier',
+    headerName: 'Tier',
     flex: 1,
     hideable: false,
+    renderCell: (params) => (
+      <Chip
+        label={params.row.tier_name}
+        size="small"
+        sx={{
+          bgcolor: params.row.tier_color ?? undefined,
+          color: params.row.tier_color ? 'common.white' : undefined,
+        }}
+      />
+    ),
+  },
+  {
+    field: 'owner',
+    headerName: 'Owner',
+    flex: 1,
+    renderCell: (params) => params.row.owner_username ?? '— unowned',
+  },
+  {
+    field: 'expires_at',
+    headerName: 'Expires',
+    flex: 0.9,
+    renderCell: (params) => (
+      <Typography
+        variant="body2"
+        color={
+          params.row.expires_at && new Date(params.row.expires_at) < new Date()
+            ? 'error.main'
+            : 'text.primary'
+        }
+      >
+        {formatExpiry(params.row.expires_at)}
+      </Typography>
+    ),
+  },
+  {
+    field: 'reserved_now',
+    headerName: 'Reserved',
+    flex: 0.7,
+    // Not in the backend's sort whitelist — it is computed from live bookings,
+    // not a stored column. A header that looks clickable and 422s on click is
+    // the exact failure test_sort_whitelist_contract exists to prevent.
+    sortable: false,
+    renderCell: (params) =>
+      params.row.reserved_now ? <Chip label="Reserved" size="small" color="info" /> : '—',
   },
   {
     field: 'status',
@@ -189,9 +243,26 @@ export default function EnvironmentList() {
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
 
+  // Never `state.environment.environments`: that is one server-paged window,
+  // so a picker reading it would silently offer whatever tiers happened to be
+  // on the visible page.
+  const { tiers } = useAllEnvironmentTiers();
+
+  // GET /tenant/users/lite is knowingly unbounded — one of the five
+  // growth-bearing endpoints docs/pagination.md lists as not yet bounded.
+  // Adding a consumer here is deliberate; bounding it is that item's job.
+  // (GatesTable.tsx calls it the same way.)
+  const [users, setUsers] = useState<Array<{ id: number; username: string }>>([]);
+  useEffect(() => {
+    api
+      .get<Array<{ id: number; username: string }>>('/tenant/users/lite')
+      .then((r) => setUsers(r.data))
+      .catch(() => setUsers([])); // owner select stays empty on failure
+  }, []);
+
   const grid = useServerGrid({
     endpoint: 'environments',
-    filterKeys: ['search', 'status', 'environment_type'],
+    filterKeys: ['search', 'status', 'tier_id', 'governance_gap'],
     // Free-text keys, and also the 'all'-sentinel exemption list. Every entry
     // must also appear in filterKeys above — there is a DEV warning if not.
     debounceKeys: ['search'],
@@ -229,7 +300,9 @@ export default function EnvironmentList() {
     setForm({
       name: env.name,
       description: env.description ?? '',
-      environment_type: env.environment_type,
+      tier_id: env.tier_id,
+      owner_user_id: env.owner_user_id ?? '',
+      expires_at: env.expires_at ? env.expires_at.slice(0, 10) : '',
       status: env.status,
     });
     setCustomFieldValues(env.custom_fields ?? {});
@@ -276,8 +349,20 @@ export default function EnvironmentList() {
       setFormError('Name is required');
       return;
     }
-    if (!form.environment_type.trim()) {
-      setFormError('Environment type is required');
+    if (!form.tier_id) {
+      setFormError('Tier is required');
+      return;
+    }
+    if (!form.owner_user_id) {
+      setFormError('A named owner is required');
+      return;
+    }
+    // Expiry is required on create only. A null expiry means "no expiry
+    // planned" — a legitimate state the backend deliberately exempts from its
+    // compliance rule — so demanding one here would make every
+    // spreadsheet-imported environment uneditable in the UI.
+    if (!editTarget && !form.expires_at) {
+      setFormError('An expiry date is required');
       return;
     }
     try {
@@ -285,7 +370,13 @@ export default function EnvironmentList() {
         const data: EnvironmentUpdate = {
           name: form.name,
           description: form.description || undefined,
-          environment_type: form.environment_type,
+          tier_id: Number(form.tier_id),
+          owner_user_id: Number(form.owner_user_id),
+          // Explicit null, not undefined: blanking the field clears the
+          // expiry rather than silently leaving the stored one in place.
+          expires_at: form.expires_at
+            ? new Date(`${form.expires_at}T00:00:00Z`).toISOString()
+            : null,
           status: form.status,
           custom_fields: customFieldValues,
         };
@@ -294,7 +385,9 @@ export default function EnvironmentList() {
         const data: EnvironmentCreate = {
           name: form.name,
           description: form.description || undefined,
-          environment_type: form.environment_type,
+          tier_id: Number(form.tier_id),
+          owner_user_id: Number(form.owner_user_id),
+          expires_at: new Date(`${form.expires_at}T00:00:00Z`).toISOString(),
           status: form.status,
           custom_fields: customFieldValues,
         };
@@ -352,8 +445,8 @@ export default function EnvironmentList() {
         </Button>
       </Box>
 
-      {/* Status filter chips */}
-      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+      {/* Status / tier / governance filters */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
         {STATUS_FILTERS.map((f) => (
           <Chip
             key={f.value}
@@ -364,6 +457,39 @@ export default function EnvironmentList() {
             onClick={() => grid.setFilter('status', f.value)}
           />
         ))}
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="tier-filter-label">Tier</InputLabel>
+          <Select
+            labelId="tier-filter-label"
+            label="Tier"
+            value={grid.filters.tier_id ?? ''}
+            onChange={(e) => grid.setFilter('tier_id', e.target.value)}
+          >
+            {/* '' is the no-selection value, NOT 'all': buildParams drops ''
+                and also drops the literal 'all' for non-text keys, so a
+                vocabulary containing 'all' would build params byte-identical
+                to "no selection" and the grid would never refetch. */}
+            <MenuItem value="">Any tier</MenuItem>
+            {tiers
+              .filter((t) => t.is_active)
+              .map((t) => (
+                <MenuItem key={t.id} value={String(t.id)}>
+                  {t.name}
+                </MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+        <Chip
+          // `governance_gap` is a missing OWNER only — a null expiry means "no
+          // expiry planned", a legitimate state rather than a gap.
+          label="Missing owner"
+          clickable
+          color={grid.filters.governance_gap === 'true' ? 'warning' : 'default'}
+          variant={grid.filters.governance_gap === 'true' ? 'filled' : 'outlined'}
+          onClick={() =>
+            grid.setFilter('governance_gap', grid.filters.governance_gap === 'true' ? '' : 'true')
+          }
+        />
       </Box>
 
       {error && (
@@ -427,13 +553,52 @@ export default function EnvironmentList() {
             multiline
             rows={2}
           />
+          <FormControl fullWidth required>
+            <InputLabel id="env-form-tier-label">Tier</InputLabel>
+            <Select
+              labelId="env-form-tier-label"
+              label="Tier"
+              value={form.tier_id}
+              onChange={(e) => setForm({ ...form, tier_id: Number(e.target.value) })}
+            >
+              {/* An inactive tier stays selectable only when it is the one
+                  already on this environment, so editing an environment on a
+                  retired tier does not silently change its tier. */}
+              {tiers
+                .filter((t) => t.is_active || t.id === form.tier_id)
+                .map((t) => (
+                  <MenuItem key={t.id} value={t.id}>
+                    {t.name}
+                  </MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel id="env-form-owner-label">Owner</InputLabel>
+            <Select
+              labelId="env-form-owner-label"
+              label="Owner"
+              value={form.owner_user_id}
+              onChange={(e) => setForm({ ...form, owner_user_id: Number(e.target.value) })}
+            >
+              {users.map((u) => (
+                <MenuItem key={u.id} value={u.id}>
+                  {u.username}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <TextField
-            label="Environment Type"
-            required
-            value={form.environment_type}
-            onChange={(e) => setForm({ ...form, environment_type: e.target.value })}
+            label="Expires"
+            type="date"
+            // Required on create only — see handleSave. Blank on edit means
+            // "no expiry planned", not an unfinished form.
+            required={!editTarget}
+            helperText={editTarget ? 'Leave blank for no expiry planned' : undefined}
+            value={form.expires_at}
+            onChange={(e) => setForm({ ...form, expires_at: e.target.value })}
+            InputLabelProps={{ shrink: true }}
             fullWidth
-            placeholder="e.g. staging, uat, dev"
           />
           <FormControl fullWidth>
             <InputLabel>Status</InputLabel>

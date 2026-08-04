@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
+import whitelists from '../../../constants/sortWhitelists.json';
 import EnvironmentList, { environmentColumns, buildCustomFieldColumns } from '../EnvironmentList';
 
 // No HTTP — this test is about the wiring between the URL/filters and the
@@ -16,7 +17,13 @@ vi.mock('../../../services/environmentService', () => ({
           id: 1,
           name: 'prod-a',
           description: null,
-          environment_type: 'production',
+          tier_id: 3,
+          tier_name: 'Production',
+          tier_color: '#c62828',
+          owner_user_id: 7,
+          owner_username: 'alice',
+          expires_at: null,
+          reserved_now: false,
           status: 'active',
           tenant_id: 1,
           custom_fields: null,
@@ -36,6 +43,20 @@ vi.mock('../../../services/customFieldService', () => ({
   customFieldService: {
     listDefinitions: vi.fn().mockResolvedValue([]),
   },
+}));
+
+// The tier picker (create/edit dialog + tier filter) reads every tier via
+// useAllEnvironmentTiers — deliberately not a paged slice of the grid.
+vi.mock('../../../services/environmentTierService', () => ({
+  environmentTierService: {
+    listTiers: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
+  },
+}));
+
+// The owner picker calls GET /tenant/users/lite straight through `api`,
+// matching GatesTable.tsx.
+vi.mock('../../../services/api', () => ({
+  default: { get: vi.fn().mockResolvedValue({ data: [] }) },
 }));
 
 // The real DataGrid virtualizes columns by container width, and jsdom always
@@ -154,12 +175,57 @@ describe('EnvironmentList server-side grid', () => {
     await waitFor(() => expect(lastListParams()).toMatchObject({ search: 'all' }));
   });
 
+  it('sends the tier and governance-gap filters', async () => {
+    // Both are new filterKeys. A key missing from filterKeys is written to the
+    // URL by setFilter but never read back into `filters`, so it never reaches
+    // the request — the URL reads `?tier_id=3` beside an unfiltered grid.
+    renderEnvironmentList('/environments?tier_id=3&governance_gap=true');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ tier_id: '3', governance_gap: 'true' })
+    );
+  });
+
+  it('refetches when the governance-gap chip is toggled on', async () => {
+    // The trap this guards: a filter whose "off" value collides with
+    // buildParams' own no-selection sentinel builds byte-identical params in
+    // both states, so the fetch effect (keyed on the resolved params) never
+    // re-runs and the grid silently keeps the old rows. Off is '', which
+    // buildParams drops; on is 'true', which it keeps.
+    renderEnvironmentList('/environments');
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    expect(lastListParams()).not.toHaveProperty('governance_gap');
+
+    fireEvent.click(screen.getByText('Missing owner'));
+
+    await waitFor(() => expect(lastListParams()).toMatchObject({ governance_gap: 'true' }));
+  });
+
   it('marks actions and custom-field columns unsortable', () => {
     const byField = Object.fromEntries(environmentColumns.map((c) => [c.field, c]));
-    ['name', 'environment_type', 'status', 'created_at'].forEach((f) =>
+    ['name', 'tier', 'status', 'owner', 'expires_at', 'created_at'].forEach((f) =>
       expect(byField[f].sortable).not.toBe(false)
     );
     expect(byField.actions.sortable).toBe(false);
+  });
+
+  it('leaves reserved_now unsortable — it is not in the backend whitelist', () => {
+    // The backend computes it from live bookings, so `sorting()` answers a
+    // sort_by=reserved_now with a 422. A sortable header would look clickable
+    // and fail on click.
+    const col = environmentColumns.find((c) => c.field === 'reserved_now');
+    expect(col?.sortable).toBe(false);
+  });
+
+  it('offers exactly the columns the backend will sort by', () => {
+    // Guards the other direction from the two assertions above: a column
+    // added here but absent from the whitelist earns a 422 on click, and one
+    // named differently from its whitelist entry (e.g. `tier_name` for
+    // `tier`) sends a sort_by the server rejects. Custom-field and `actions`
+    // columns are excluded above by being `sortable: false`.
+    const sortableFields = environmentColumns
+      .filter((c) => c.sortable !== false)
+      .map((c) => c.field);
+    expect(new Set(sortableFields)).toEqual(new Set(whitelists.environments.sortable));
   });
 
   it('disables the column filter, which would filter only the loaded page', async () => {
