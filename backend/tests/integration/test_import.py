@@ -3,7 +3,24 @@ import io
 
 import openpyxl
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+
+from app.services.environment_tier_defaults import (
+    seed_environment_tier_defaults_for_tenant,
+)
+from tests.factories import post_environment
+
+
+@pytest_asyncio.fixture
+async def seeded_tiers(db_session, test_tenant):
+    """The tier vocabulary the import resolves against.
+
+    Production tenants get it from tenant_service.create_tenant; the bare
+    `test_tenant` fixture is built as a raw row, so it has none.
+    """
+    await seed_environment_tier_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +70,7 @@ def make_system_excel(rows: list[dict]) -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_import_environments(client: AsyncClient, auth_headers):
+async def test_import_environments(client: AsyncClient, auth_headers, seeded_tiers):
     """POST /import/environments with a valid file creates new environments."""
     file_bytes = make_environment_excel([
         {"Name": "ImportedEnv1", "Type": "uat", "Description": "First imported env"},
@@ -79,14 +96,12 @@ async def test_import_environments(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_import_environments_skip_existing(client: AsyncClient, auth_headers):
+async def test_import_environments_skip_existing(
+    client: AsyncClient, auth_headers, seeded_tiers
+):
     """Importing an environment whose name already exists → skipped, not error."""
     # Pre-create the environment
-    await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "ExistingEnv", "environment_type": "test"},
-    )
+    await post_environment(client, auth_headers, "ExistingEnv")
 
     file_bytes = make_environment_excel([
         {"Name": "ExistingEnv", "Type": "uat"},

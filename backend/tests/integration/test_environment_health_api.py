@@ -9,6 +9,7 @@ from app.db.models.environment import Environment
 from app.db.models.user import Tenant, User
 from app.core.security import get_password_hash
 from app.services import api_key_service, environment_health_service as svc
+from tests.factories import ensure_environment_tier
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -33,10 +34,11 @@ async def authed_client(db_session, tenant, user) -> AsyncClient:
 @pytest_asyncio.fixture(scope="function")
 async def demo_environment_id(db_session, tenant) -> int:
     """A persisted Environment in the test tenant; yields its id."""
+    tier = await ensure_environment_tier(db_session, tenant.id)
     env = Environment(
         tenant_id=tenant.id,
         name="health-test-env",
-        environment_type="SIT",
+        tier_id=tier.id,
         status="active",
     )
     db_session.add(env)
@@ -92,10 +94,11 @@ async def other_tenant_environment_with_down_sample(db_session) -> int:
     db_session.add(other_user)
     await db_session.flush()
 
+    other_tier = await ensure_environment_tier(db_session, other_tenant.id)
     other_env = Environment(
         tenant_id=other_tenant.id,
         name="other-tenant-env",
-        environment_type="SIT",
+        tier_id=other_tier.id,
         status="active",
     )
     db_session.add(other_env)

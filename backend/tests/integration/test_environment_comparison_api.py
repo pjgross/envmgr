@@ -3,12 +3,14 @@ import pytest
 from httpx import AsyncClient
 
 from app.db.models.environment import Environment
+from tests.factories import ensure_environment_tier
 
 
 @pytest.fixture
 async def two_envs(db_session, test_tenant):
-    a = Environment(tenant_id=test_tenant.id, name="SIT", environment_type="test")
-    b = Environment(tenant_id=test_tenant.id, name="UAT", environment_type="test")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    a = Environment(tenant_id=test_tenant.id, name="SIT", tier_id=tier.id)
+    b = Environment(tenant_id=test_tenant.id, name="UAT", tier_id=tier.id)
     db_session.add_all([a, b])
     await db_session.commit()
     await db_session.refresh(a)
@@ -69,8 +71,9 @@ async def test_another_tenants_environment_is_404(
     """Not 403 — the caller must not learn the environment exists."""
     left, _ = two_envs
     other_tenant, _ = await second_tenant_factory()
+    foreign_tier = await ensure_environment_tier(db_session, other_tenant.id)
     foreign = Environment(
-        tenant_id=other_tenant.id, name="Their UAT", environment_type="test")
+        tenant_id=other_tenant.id, name="Their UAT", tier_id=foreign_tier.id)
     db_session.add(foreign)
     await db_session.commit()
     await db_session.refresh(foreign)

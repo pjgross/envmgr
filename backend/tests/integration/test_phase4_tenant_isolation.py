@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.services import api_key_service, change_request_service
+from tests.factories import ensure_environment_tier
 
 
 async def _seed_one_tenant(db_session, tenant, user, name_prefix: str):
@@ -20,7 +21,8 @@ async def _seed_one_tenant(db_session, tenant, user, name_prefix: str):
     db_session.add(sys_)
     await db_session.flush()
     sub = SubSystem(tenant_id=tenant.id, system_id=sys_.id, name=f"{name_prefix}-api")
-    env = Environment(tenant_id=tenant.id, name=f"{name_prefix}-sit", environment_type="integration")
+    tier = await ensure_environment_tier(db_session, tenant.id)
+    env = Environment(tenant_id=tenant.id, name=f"{name_prefix}-sit", tier_id=tier.id)
     db_session.add_all([sub, env])
     await db_session.flush()
 

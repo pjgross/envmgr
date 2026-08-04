@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, JSON, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, JSON, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,7 +27,18 @@ class Environment(Base):
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    environment_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    tier_id: Mapped[int] = mapped_column(
+        ForeignKey("environment_tier.id"), nullable=False
+    )
+    owner_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("user.id"), nullable=True, index=True
+    )
+    # Nullable so legacy rows stay honest rather than carrying a fabricated
+    # owner/expiry; the API requires both going forward and the gap is
+    # reportable via ?governance_gap=true.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     status: Mapped[EnvironmentStatus] = mapped_column(
         SAEnum(EnvironmentStatus, native_enum=False),
         nullable=False,
@@ -36,6 +47,15 @@ class Environment(Base):
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # Named explicitly. SQLAlchemy's default for an `index=True` column is
+        # `ix_<table>_<column>`, which here would be `ix_environment_tier_id` —
+        # the same name Base's indexed `id` already claims on the
+        # `environment_tier` table. PostgreSQL index names are unique per
+        # schema, so create_all would fail outright on the collision.
+        Index("ix_environment_tier_fk", "tier_id"),
+    )
 
     environment_systems: Mapped[list["EnvironmentSystem"]] = relationship(
         "EnvironmentSystem", back_populates="environment", lazy="select"

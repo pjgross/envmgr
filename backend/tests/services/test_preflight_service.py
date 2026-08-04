@@ -17,6 +17,7 @@ from app.db.models.environment import Environment, EnvironmentStatus
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.system import System, SubSystem
 from app.services import preflight_service
+from tests.factories import ensure_environment_tier
 
 
 async def _scaffold(db_session, tenant, user):
@@ -25,10 +26,11 @@ async def _scaffold(db_session, tenant, user):
     db_session.add(sys_row)
     await db_session.flush()
     sub = SubSystem(tenant_id=tenant.id, system_id=sys_row.id, name="orders-api")
+    tier = await ensure_environment_tier(db_session, tenant.id)
     env = Environment(
         tenant_id=tenant.id,
         name="sit",
-        environment_type="integration",
+        tier_id=tier.id,
         status=EnvironmentStatus.ACTIVE,
     )
     db_session.add_all([sub, env])

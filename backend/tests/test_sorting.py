@@ -43,6 +43,7 @@ from tests.factories import (
     ensure_build,
     ensure_change_request,
     ensure_environment,
+    ensure_environment_tier,
     ensure_user,
 )
 
@@ -214,10 +215,11 @@ async def test_paging_a_sorted_query_over_ties_sees_each_row_once(db_session, te
     """Every row shares a name, so the sort column alone leaves 25 ties. If
     apply_sort replaced the tiebreaker instead of preceding it, rows would
     duplicate and vanish across pages."""
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
     created = []
     for _ in range(25):
         env = Environment(
-            tenant_id=test_tenant.id, name="identical", environment_type="SIT"
+            tenant_id=test_tenant.id, name="identical", tier_id=tier.id
         )
         created.append(env)
         db_session.add(env)
@@ -1112,8 +1114,9 @@ async def test_deployments_paging_a_sorted_query_over_ties_sees_each_row_once(
 
 
 async def _mixed_case_environments(db_session, tenant_id, names):
+    tier = await ensure_environment_tier(db_session, tenant_id)
     created = [
-        Environment(tenant_id=tenant_id, name=name, environment_type="SIT")
+        Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
         for name in names
     ]
     db_session.add_all(created)

@@ -9,6 +9,7 @@ from app.api.v1.schemas.booking_lifecycle import (
     MANDATORY_STANDARD_FIELDS,
     validate_definition_for_entity,
 )
+from tests.factories import post_environment
 
 # --- Minimal valid definition with all mandatory fields editable in initial state ---
 
@@ -294,11 +295,7 @@ async def sf_booking(client: AsyncClient, auth_headers: dict) -> dict:
     booking_type_id = bt_resp.json()["id"]
 
     # Create environment
-    env_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "SF Integration Env", "environment_type": "test"},
-    )
+    env_resp = await post_environment(client, auth_headers, "SF Integration Env")
     assert env_resp.status_code == 201, env_resp.text
     env_id = env_resp.json()["id"]
 

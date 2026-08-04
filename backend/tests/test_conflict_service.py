@@ -8,11 +8,12 @@ from app.db.models.booking import Booking
 from app.db.models.booking_conflict_ack import BookingConflictAck
 from app.db.models.booking_request import BookingRequest
 from app.db.models.environment import Environment
-from tests.factories import ensure_booking_type
+from tests.factories import ensure_environment_tier, ensure_booking_type
 
 
 async def _make_env(db_session, test_tenant, name: str = "env1") -> Environment:
-    env = Environment(tenant_id=test_tenant.id, name=name, environment_type="dev")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    env = Environment(tenant_id=test_tenant.id, name=name, tier_id=tier.id)
     db_session.add(env)
     await db_session.flush()
     return env

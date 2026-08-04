@@ -31,6 +31,7 @@ from app.main import app
 from app.db.base import Base, get_db
 from app.db.models.user import Tenant, User
 from app.db.models.environment import Environment
+from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_request import BookingRequest
@@ -205,10 +206,13 @@ async def test_user(db_session, test_tenant) -> User:
 @pytest_asyncio.fixture(scope="function")
 async def test_environment(db_session, test_tenant) -> Environment:
     """A persisted environment in test_tenant."""
+    tier = EnvironmentTier(tenant_id=test_tenant.id, name="Dev", category="dev")
+    db_session.add(tier)
+    await db_session.flush()
     env = Environment(
         tenant_id=test_tenant.id,
         name="test-env",
-        environment_type="dev",
+        tier_id=tier.id,
     )
     db_session.add(env)
     await db_session.commit()

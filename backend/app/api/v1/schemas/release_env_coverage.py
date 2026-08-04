@@ -10,7 +10,7 @@ class CoverageSystem(BaseModel):
 class CoverageEnvironment(BaseModel):
     environment_id: int
     name: str
-    environment_type: str
+    tier_name: str
     status: str
     covered_system_ids: list[int]
 

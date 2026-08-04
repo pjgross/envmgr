@@ -8,7 +8,7 @@ from app.db.models.deployment import Deployment
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.services import change_request_service
-from tests.factories import ensure_build, ensure_change_request, ensure_environment
+from tests.factories import ensure_environment_tier, ensure_build, ensure_change_request, ensure_environment
 
 
 async def _seed(db_session, test_tenant, test_user, status="success"):
@@ -23,7 +23,8 @@ async def _seed(db_session, test_tenant, test_user, status="success"):
     db_session.add(sys)
     await db_session.flush()
     sub = SubSystem(tenant_id=test_tenant.id, system_id=sys.id, name="orders-api")
-    env = Environment(tenant_id=test_tenant.id, name="sit", environment_type="integration")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    env = Environment(tenant_id=test_tenant.id, name="sit", tier_id=tier.id)
     db_session.add_all([sub, env])
     await db_session.flush()
     build = Build(

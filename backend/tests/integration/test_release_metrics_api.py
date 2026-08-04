@@ -10,7 +10,7 @@ from app.db.models.environment import Environment
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.user import Tenant
-from tests.factories import ensure_booking_type
+from tests.factories import ensure_environment_tier, ensure_booking_type
 
 UTC = timezone.utc
 
@@ -54,7 +54,8 @@ async def test_release_metrics_requires_dates(authed_client):
 
 @pytest.mark.asyncio
 async def test_booking_conflicts_shape(authed_client, db_session, tenant, user):
-    env = Environment(tenant_id=tenant.id, name="SIT", environment_type="test")
+    tier = await ensure_environment_tier(db_session, tenant.id)
+    env = Environment(tenant_id=tenant.id, name="SIT", tier_id=tier.id)
     db_session.add(env); await db_session.flush()
     req = BookingRequest(
         tenant_id=tenant.id, project_name="Proj", booked_by=user.id,
@@ -96,7 +97,8 @@ async def test_booking_conflicts_is_tenant_scoped(authed_client, db_session):
     u2 = User(tenant_id=t2.id, username="rmapiuser2", email="rmapiuser2@test.com",
               password_hash=get_password_hash("x"), role="Viewer", is_active=True)
     db_session.add(u2); await db_session.flush()
-    env2 = Environment(tenant_id=t2.id, name="SIT2", environment_type="test")
+    tier2 = await ensure_environment_tier(db_session, t2.id)
+    env2 = Environment(tenant_id=t2.id, name="SIT2", tier_id=tier2.id)
     db_session.add(env2); await db_session.flush()
     req2 = BookingRequest(
         tenant_id=t2.id, project_name="Proj2", booked_by=u2.id,

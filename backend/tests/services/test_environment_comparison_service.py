@@ -16,13 +16,15 @@ from app.db.models.infrastructure_component import (
 from app.db.models.system import SubSystem, System
 from app.db.models.version import EnvironmentSubSystemVersion
 from app.services import environment_comparison_service as svc
+from tests.factories import ensure_environment_tier
 
 
 @pytest.fixture
 async def fixture_pair(db_session, test_tenant):
     """Two environments, one shared system, one shared subsystem."""
-    left = Environment(tenant_id=test_tenant.id, name="SIT", environment_type="test")
-    right = Environment(tenant_id=test_tenant.id, name="UAT", environment_type="test")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    left = Environment(tenant_id=test_tenant.id, name="SIT", tier_id=tier.id)
+    right = Environment(tenant_id=test_tenant.id, name="UAT", tier_id=tier.id)
     system = System(tenant_id=test_tenant.id, name="Payments")
     db_session.add_all([left, right, system])
     await db_session.flush()

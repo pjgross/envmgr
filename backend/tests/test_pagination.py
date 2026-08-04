@@ -18,15 +18,17 @@ from app.core.pagination import (
     pagination,
 )
 from app.db.models.environment import Environment
+from tests.factories import ensure_environment_tier
 
 
 async def _make_environments(db, tenant_id: int, count: int) -> None:
+    tier = await ensure_environment_tier(db, tenant_id)
     for n in range(count):
         db.add(
             Environment(
                 tenant_id=tenant_id,
                 name=f"env-{n:03d}",
-                environment_type="SIT",
+                tier_id=tier.id,
             )
         )
     await db.flush()

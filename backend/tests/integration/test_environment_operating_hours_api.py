@@ -7,6 +7,7 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.base import get_db
 from app.db.models.environment import Environment
+from tests.factories import ensure_environment_tier
 
 UTC = timezone.utc
 
@@ -30,7 +31,8 @@ async def authed_client(db_session, tenant, user) -> AsyncClient:
 
 
 async def _env(db, tenant_id, name="SIT"):
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="test")
+    tier = await ensure_environment_tier(db, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
     db.add(e); await db.flush(); return e
 
 

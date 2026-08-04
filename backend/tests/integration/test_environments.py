@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from app.db.models.user import Tenant, User
 from app.db.models.environment import Environment, EnvironmentStatus
 from app.core.security import get_password_hash
+from tests.factories import ensure_environment_tier, post_environment
 
 
 # ---------------------------------------------------------------------------
@@ -74,15 +75,11 @@ async def _create_system(client, auth_headers, name="TestSystem"):
 @pytest.mark.asyncio
 async def test_create_environment(client: AsyncClient, auth_headers):
     """POST /environments creates an environment and returns 201 with correct fields."""
-    response = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "Staging", "environment_type": "staging"},
-    )
+    response = await post_environment(client, auth_headers, "Staging")
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Staging"
-    assert data["environment_type"] == "staging"
+    assert data["tier_name"] == "SIT"
     assert data["status"] == "active"
     assert "id" in data
     assert "tenant_id" in data
@@ -93,19 +90,16 @@ async def test_create_environment(client: AsyncClient, auth_headers):
 @pytest.mark.asyncio
 async def test_create_environment_duplicate_name(client: AsyncClient, auth_headers):
     """POST /environments with duplicate name returns 409."""
-    payload = {"name": "DuplicateEnv", "environment_type": "test"}
-    await client.post("/api/v1/environments/", headers=auth_headers, json=payload)
-    response = await client.post("/api/v1/environments/", headers=auth_headers, json=payload)
+    await post_environment(client, auth_headers, "DuplicateEnv")
+    response = await post_environment(client, auth_headers, "DuplicateEnv")
     assert response.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_list_environments(client: AsyncClient, auth_headers):
     """GET /environments returns all non-deleted environments for the tenant."""
-    await client.post("/api/v1/environments/", headers=auth_headers,
-                      json={"name": "EnvAlpha", "environment_type": "dev"})
-    await client.post("/api/v1/environments/", headers=auth_headers,
-                      json={"name": "EnvBeta", "environment_type": "qa"})
+    await post_environment(client, auth_headers, "EnvAlpha")
+    await post_environment(client, auth_headers, "EnvBeta")
 
     response = await client.get("/api/v1/environments/", headers=auth_headers)
     assert response.status_code == 200
@@ -117,10 +111,8 @@ async def test_list_environments(client: AsyncClient, auth_headers):
 @pytest.mark.asyncio
 async def test_list_environments_status_filter(client: AsyncClient, auth_headers):
     """GET /environments?status=inactive filters by status correctly."""
-    await client.post("/api/v1/environments/", headers=auth_headers,
-                      json={"name": "ActiveEnv", "environment_type": "test", "status": "active"})
-    await client.post("/api/v1/environments/", headers=auth_headers,
-                      json={"name": "InactiveEnv", "environment_type": "test", "status": "inactive"})
+    await post_environment(client, auth_headers, "ActiveEnv", status="active")
+    await post_environment(client, auth_headers, "InactiveEnv", status="inactive")
 
     response = await client.get("/api/v1/environments/?status=inactive", headers=auth_headers)
     assert response.status_code == 200
@@ -132,11 +124,7 @@ async def test_list_environments_status_filter(client: AsyncClient, auth_headers
 @pytest.mark.asyncio
 async def test_tenant_isolation(client: AsyncClient, auth_headers, other_auth_headers):
     """Environment created by tenant A is not visible to tenant B."""
-    create_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "TenantAEnv", "environment_type": "staging"},
-    )
+    create_resp = await post_environment(client, auth_headers, "TenantAEnv")
     assert create_resp.status_code == 201
     env_id = create_resp.json()["id"]
 
@@ -153,10 +141,8 @@ async def test_tenant_isolation(client: AsyncClient, auth_headers, other_auth_he
 @pytest.mark.asyncio
 async def test_get_environment(client: AsyncClient, auth_headers):
     """GET /environments/{id} returns the correct environment."""
-    create_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "GetMeEnv", "environment_type": "uat", "description": "UAT env"},
+    create_resp = await post_environment(
+        client, auth_headers, "GetMeEnv", description="UAT env"
     )
     env_id = create_resp.json()["id"]
 
@@ -166,17 +152,13 @@ async def test_get_environment(client: AsyncClient, auth_headers):
     assert data["id"] == env_id
     assert data["name"] == "GetMeEnv"
     assert data["description"] == "UAT env"
-    assert data["environment_type"] == "uat"
+    assert data["tier_name"] == "SIT"
 
 
 @pytest.mark.asyncio
 async def test_update_environment(client: AsyncClient, auth_headers):
     """PATCH /environments/{id} updates specified fields."""
-    create_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "OriginalEnv", "environment_type": "dev"},
-    )
+    create_resp = await post_environment(client, auth_headers, "OriginalEnv")
     env_id = create_resp.json()["id"]
 
     response = await client.patch(
@@ -188,18 +170,14 @@ async def test_update_environment(client: AsyncClient, auth_headers):
     data = response.json()
     assert data["name"] == "UpdatedEnv"
     assert data["status"] == "maintenance"
-    # environment_type should be unchanged
-    assert data["environment_type"] == "dev"
+    # the tier should be unchanged
+    assert data["tier_name"] == "SIT"
 
 
 @pytest.mark.asyncio
 async def test_delete_environment_soft(client: AsyncClient, auth_headers, db_session):
     """DELETE /environments/{id} soft-deletes; environment no longer appears in list."""
-    create_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "ToDeleteEnv", "environment_type": "dev"},
-    )
+    create_resp = await post_environment(client, auth_headers, "ToDeleteEnv")
     env_id = create_resp.json()["id"]
 
     delete_resp = await client.delete(f"/api/v1/environments/{env_id}", headers=auth_headers)
@@ -233,8 +211,7 @@ async def test_delete_environment_soft(client: AsyncClient, auth_headers, db_ses
 async def test_add_system_to_environment(client: AsyncClient, auth_headers):
     """POST /{env_id}/systems adds a system and returns 201 with nested system data."""
     sys_id = await _create_system(client, auth_headers, "SysForEnv")
-    env_resp = await client.post("/api/v1/environments/", headers=auth_headers,
-                                 json={"name": "EnvWithSys", "environment_type": "test"})
+    env_resp = await post_environment(client, auth_headers, "EnvWithSys")
     env_id = env_resp.json()["id"]
 
     response = await client.post(
@@ -254,8 +231,7 @@ async def test_add_system_to_environment(client: AsyncClient, auth_headers):
 async def test_add_system_duplicate(client: AsyncClient, auth_headers):
     """Adding the same system to an environment twice returns 409."""
     sys_id = await _create_system(client, auth_headers, "DupSys")
-    env_resp = await client.post("/api/v1/environments/", headers=auth_headers,
-                                 json={"name": "DupEnv", "environment_type": "test"})
+    env_resp = await post_environment(client, auth_headers, "DupEnv")
     env_id = env_resp.json()["id"]
 
     await client.post(f"/api/v1/environments/{env_id}/systems",
@@ -269,8 +245,7 @@ async def test_add_system_duplicate(client: AsyncClient, auth_headers):
 async def test_update_system_in_environment(client: AsyncClient, auth_headers):
     """PATCH /{env_id}/systems/{sys_id} returns 200 with the current system row."""
     sys_id = await _create_system(client, auth_headers, "PatchSys")
-    env_resp = await client.post("/api/v1/environments/", headers=auth_headers,
-                                 json={"name": "PatchEnv", "environment_type": "dev"})
+    env_resp = await post_environment(client, auth_headers, "PatchEnv")
     env_id = env_resp.json()["id"]
 
     await client.post(f"/api/v1/environments/{env_id}/systems",
@@ -291,8 +266,7 @@ async def test_update_system_in_environment(client: AsyncClient, auth_headers):
 async def test_remove_system_from_environment(client: AsyncClient, auth_headers):
     """DELETE /{env_id}/systems/{sys_id} removes the link; not in list anymore."""
     sys_id = await _create_system(client, auth_headers, "RemoveSys")
-    env_resp = await client.post("/api/v1/environments/", headers=auth_headers,
-                                 json={"name": "RemoveEnv", "environment_type": "qa"})
+    env_resp = await post_environment(client, auth_headers, "RemoveEnv")
     env_id = env_resp.json()["id"]
 
     await client.post(f"/api/v1/environments/{env_id}/systems",
@@ -327,9 +301,10 @@ async def test_list_environments_default_order_unchanged(
     accidentally satisfy this assertion. This is what makes C1 safe to merge
     before the frontend half moves filtering server-side.
     """
-    charlie = Environment(tenant_id=test_tenant.id, name="Charlie", environment_type="SIT")
-    alpha = Environment(tenant_id=test_tenant.id, name="Alpha", environment_type="SIT")
-    bravo = Environment(tenant_id=test_tenant.id, name="Bravo", environment_type="SIT")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    charlie = Environment(tenant_id=test_tenant.id, name="Charlie", tier_id=tier.id)
+    alpha = Environment(tenant_id=test_tenant.id, name="Alpha", tier_id=tier.id)
+    bravo = Environment(tenant_id=test_tenant.id, name="Bravo", tier_id=tier.id)
     db_session.add_all([charlie, alpha, bravo])
     await db_session.commit()
 
@@ -342,9 +317,10 @@ async def test_list_environments_default_order_unchanged(
 async def test_list_environments_sort_by_name_both_directions(
     client: AsyncClient, auth_headers, db_session, test_tenant
 ):
-    charlie = Environment(tenant_id=test_tenant.id, name="Charlie", environment_type="SIT")
-    alpha = Environment(tenant_id=test_tenant.id, name="Alpha", environment_type="SIT")
-    bravo = Environment(tenant_id=test_tenant.id, name="Bravo", environment_type="SIT")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    charlie = Environment(tenant_id=test_tenant.id, name="Charlie", tier_id=tier.id)
+    alpha = Environment(tenant_id=test_tenant.id, name="Alpha", tier_id=tier.id)
+    bravo = Environment(tenant_id=test_tenant.id, name="Bravo", tier_id=tier.id)
     db_session.add_all([charlie, alpha, bravo])
     await db_session.commit()
 
@@ -362,26 +338,29 @@ async def test_list_environments_sort_by_name_both_directions(
 
 
 @pytest.mark.asyncio
-async def test_list_environments_sort_by_environment_type_both_directions(
+async def test_list_environments_sort_by_tier_both_directions(
     client: AsyncClient, auth_headers, db_session, test_tenant
 ):
-    """Names/ids are already in ascending order here, so only environment_type
-    sorting — not the name tiebreaker or insertion order — could produce these
+    """Names/ids are already in ascending order here, so only the tier name —
+    not the name tiebreaker or insertion order — could produce these
     sequences."""
-    e1 = Environment(tenant_id=test_tenant.id, name="E1", environment_type="zebra")
-    e2 = Environment(tenant_id=test_tenant.id, name="E2", environment_type="apple")
-    e3 = Environment(tenant_id=test_tenant.id, name="E3", environment_type="middle")
+    zebra = await ensure_environment_tier(db_session, test_tenant.id, name="zebra")
+    apple = await ensure_environment_tier(db_session, test_tenant.id, name="apple")
+    middle = await ensure_environment_tier(db_session, test_tenant.id, name="middle")
+    e1 = Environment(tenant_id=test_tenant.id, name="E1", tier_id=zebra.id)
+    e2 = Environment(tenant_id=test_tenant.id, name="E2", tier_id=apple.id)
+    e3 = Environment(tenant_id=test_tenant.id, name="E3", tier_id=middle.id)
     db_session.add_all([e1, e2, e3])
     await db_session.commit()
 
     asc = await client.get(
-        "/api/v1/environments/?sort_by=environment_type&sort_dir=asc", headers=auth_headers
+        "/api/v1/environments/?sort_by=tier&sort_dir=asc", headers=auth_headers
     )
     assert asc.status_code == 200
     assert [e["id"] for e in asc.json()] == [e2.id, e3.id, e1.id]
 
     desc = await client.get(
-        "/api/v1/environments/?sort_by=environment_type&sort_dir=desc", headers=auth_headers
+        "/api/v1/environments/?sort_by=tier&sort_dir=desc", headers=auth_headers
     )
     assert desc.status_code == 200
     assert [e["id"] for e in desc.json()] == [e1.id, e3.id, e2.id]
@@ -391,16 +370,17 @@ async def test_list_environments_sort_by_environment_type_both_directions(
 async def test_list_environments_sort_by_status_both_directions(
     client: AsyncClient, auth_headers, db_session, test_tenant
 ):
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
     s1 = Environment(
-        tenant_id=test_tenant.id, name="S1", environment_type="SIT",
+        tenant_id=test_tenant.id, name="S1", tier_id=tier.id,
         status=EnvironmentStatus.MAINTENANCE,
     )
     s2 = Environment(
-        tenant_id=test_tenant.id, name="S2", environment_type="SIT",
+        tenant_id=test_tenant.id, name="S2", tier_id=tier.id,
         status=EnvironmentStatus.ACTIVE,
     )
     s3 = Environment(
-        tenant_id=test_tenant.id, name="S3", environment_type="SIT",
+        tenant_id=test_tenant.id, name="S3", tier_id=tier.id,
         status=EnvironmentStatus.DECOMMISSIONED,
     )
     db_session.add_all([s1, s2, s3])
@@ -423,16 +403,17 @@ async def test_list_environments_sort_by_status_both_directions(
 async def test_list_environments_sort_by_created_at_both_directions(
     client: AsyncClient, auth_headers, db_session, test_tenant
 ):
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     c1 = Environment(
-        tenant_id=test_tenant.id, name="C1", environment_type="SIT",
+        tenant_id=test_tenant.id, name="C1", tier_id=tier.id,
         created_at=base + timedelta(days=2),
     )
     c2 = Environment(
-        tenant_id=test_tenant.id, name="C2", environment_type="SIT", created_at=base,
+        tenant_id=test_tenant.id, name="C2", tier_id=tier.id, created_at=base,
     )
     c3 = Environment(
-        tenant_id=test_tenant.id, name="C3", environment_type="SIT",
+        tenant_id=test_tenant.id, name="C3", tier_id=tier.id,
         created_at=base + timedelta(days=1),
     )
     db_session.add_all([c1, c2, c3])
@@ -469,11 +450,12 @@ async def test_list_environments_search_matches_case_insensitive_contains(
     """search must agree with the browser's
     `name.toLowerCase().includes(q.toLowerCase())` — matches regardless of case,
     substrings match, and a name with no match at all is excluded."""
-    prod = Environment(tenant_id=test_tenant.id, name="Production", environment_type="SIT")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    prod = Environment(tenant_id=test_tenant.id, name="Production", tier_id=tier.id)
     prod_backup = Environment(
-        tenant_id=test_tenant.id, name="production-backup", environment_type="SIT"
+        tenant_id=test_tenant.id, name="production-backup", tier_id=tier.id
     )
-    staging = Environment(tenant_id=test_tenant.id, name="Staging", environment_type="SIT")
+    staging = Environment(tenant_id=test_tenant.id, name="Staging", tier_id=tier.id)
     db_session.add_all([prod, prod_backup, staging])
     await db_session.commit()
 

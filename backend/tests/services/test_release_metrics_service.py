@@ -7,7 +7,7 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.user import User, Tenant
 from app.core.security import get_password_hash
 from app.services import release_metrics_service
-from tests.factories import ensure_booking_type, ensure_change_request, ensure_environment, ensure_subsystem
+from tests.factories import ensure_environment_tier, ensure_booking_type, ensure_change_request, ensure_environment, ensure_subsystem
 
 UTC = timezone.utc
 
@@ -24,7 +24,8 @@ async def _user(db, tenant_id):
 
 
 async def _env(db, tenant_id, name):
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="test")
+    tier = await ensure_environment_tier(db, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
     db.add(e); await db.flush(); return e
 
 

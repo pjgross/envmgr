@@ -814,6 +814,7 @@ async def get_environment_coverage(
     from app.db.models.release_system import ReleaseSystem
     from app.db.models.system import System
     from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus
+    from app.db.models.environment_tier import EnvironmentTier
 
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
@@ -847,10 +848,11 @@ async def get_environment_coverage(
                 EnvironmentSystem.environment_id,
                 EnvironmentSystem.system_id,
                 Environment.name,
-                Environment.environment_type,
+                EnvironmentTier.name,
                 Environment.status,
             )
             .join(Environment, Environment.id == EnvironmentSystem.environment_id)
+            .join(EnvironmentTier, EnvironmentTier.id == Environment.tier_id)
             .where(
                 EnvironmentSystem.system_id.in_(needed_ids),
                 EnvironmentSystem.tenant_id == tenant_id,
@@ -864,13 +866,13 @@ async def get_environment_coverage(
 
     env_map: dict[int, CoverageEnvironment] = {}
     covered: set[int] = set()
-    for env_id, sys_id, name, etype, estatus in es_rows:
+    for env_id, sys_id, name, tier_name, estatus in es_rows:
         ce = env_map.get(env_id)
         if ce is None:
             ce = CoverageEnvironment(
                 environment_id=env_id,
                 name=name,
-                environment_type=etype,
+                tier_name=tier_name,
                 status=getattr(estatus, "value", str(estatus)),
                 covered_system_ids=[],
             )

@@ -2,6 +2,7 @@
 import pytest
 
 from app.services import api_key_service
+from tests.factories import ensure_environment_tier
 
 
 async def _scaffold(db_session, tenant, user):
@@ -11,10 +12,11 @@ async def _scaffold(db_session, tenant, user):
     db_session.add(sys_row)
     await db_session.flush()
     sub = SubSystem(tenant_id=tenant.id, system_id=sys_row.id, name="orders-api")
+    tier = await ensure_environment_tier(db_session, tenant.id)
     env = Environment(
         tenant_id=tenant.id,
         name="sit",
-        environment_type="integration",
+        tier_id=tier.id,
     )
     db_session.add_all([sub, env])
     await db_session.flush()

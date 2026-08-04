@@ -8,6 +8,8 @@ from app.db.base import get_db
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.environment import Environment, EnvironmentStatus
+from app.db.models.environment_tier import EnvironmentTier
+from app.db.models.user import User
 from app.services import environment_service, environment_system_service
 from app.services import version_service, change_request_service
 from app.api.v1.schemas.environment import (
@@ -43,8 +45,10 @@ router = APIRouter()
 
 ENVIRONMENT_SORTS = {
     "name": Environment.name,
-    "environment_type": Environment.environment_type,
+    "tier": EnvironmentTier.name,
     "status": Environment.status,
+    "owner": User.username,
+    "expires_at": Environment.expires_at,
     "created_at": Environment.created_at,
 }
 
@@ -53,24 +57,30 @@ ENVIRONMENT_SORTS = {
 async def list_environments(
     response: Response,
     status: Optional[EnvironmentStatus] = None,
-    environment_type: Optional[str] = None,
+    tier_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
+    expiring_within_days: Optional[int] = Query(None, ge=0),
+    governance_gap: Optional[bool] = None,
     search: Optional[str] = None,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(ENVIRONMENT_SORTS, default="name")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    rows, total = await environment_service.list_environments(
+    views, total = await environment_service.list_environments(
         db,
         current_user.active_tenant_id,
         status_filter=status,
-        environment_type=environment_type,
+        tier_id=tier_id,
         page=page,
         search=search,
+        owner_user_id=owner_user_id,
+        expiring_within_days=expiring_within_days,
+        governance_gap=governance_gap,
         sort=sort,
     )
     set_total_count(response, total)
-    return rows
+    return [EnvironmentResponse.from_view(v) for v in views]
 
 
 @router.post("/", response_model=EnvironmentResponse, status_code=status.HTTP_201_CREATED)
@@ -79,7 +89,14 @@ async def create_environment(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await environment_service.create_environment(db, data, current_user.active_tenant_id)
+    env = await environment_service.create_environment(
+        db, data, current_user.active_tenant_id
+    )
+    return EnvironmentResponse.from_view(
+        await environment_service.get_environment_view(
+            db, env.id, current_user.active_tenant_id
+        )
+    )
 
 
 # MUST stay above `/{env_id}`: declared after it, FastAPI matches "compare"
@@ -114,7 +131,11 @@ async def get_environment(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await environment_service.get_environment(db, env_id, current_user.active_tenant_id)
+    return EnvironmentResponse.from_view(
+        await environment_service.get_environment_view(
+            db, env_id, current_user.active_tenant_id
+        )
+    )
 
 
 @router.patch("/{env_id}", response_model=EnvironmentResponse)
@@ -124,8 +145,13 @@ async def update_environment(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_tenant_admin()),
 ):
-    return await environment_service.update_environment(
+    await environment_service.update_environment(
         db, env_id, data, current_user.active_tenant_id
+    )
+    return EnvironmentResponse.from_view(
+        await environment_service.get_environment_view(
+            db, env_id, current_user.active_tenant_id
+        )
     )
 
 

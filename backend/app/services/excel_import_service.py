@@ -11,8 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.environment import Environment
+from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.system import System
-from app.api.v1.schemas.environment import EnvironmentCreate
 from app.services import environment_service, system_service
 
 
@@ -51,6 +51,34 @@ async def import_environments(
     type_idx = _find_col(headers, "Type", required=False)
     desc_idx = _find_col(headers, "Description", required=False)
 
+    # The tier vocabulary is what the tenant's admin configured. A spreadsheet
+    # upload resolves against it and never extends it — otherwise anyone who can
+    # upload a file can add to a list only an admin is supposed to control.
+    tiers = list(
+        (
+            await db.execute(
+                select(EnvironmentTier).where(
+                    EnvironmentTier.tenant_id == tenant_id,
+                    EnvironmentTier.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not tiers:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "This tenant has no environment tiers configured, so imported "
+                "environments cannot be assigned one."
+            ),
+        )
+    tier_by_name = {t.name.strip().lower(): t for t in tiers}
+    other_tier = next(
+        (t for t in tiers if t.category == "other"), tier_by_name.get("other")
+    )
+
     errors: list[dict] = []
     created = 0
     skipped = 0
@@ -70,8 +98,21 @@ async def import_environments(
         env_type = (
             str(row[type_idx]).strip()
             if type_idx is not None and type_idx < len(row) and row[type_idx] is not None
-            else "imported"
+            else ""
         )
+        # A blank or unrecognised type falls back to Other rather than minting a
+        # tier for it.
+        tier = tier_by_name.get(env_type.strip().lower()) or other_tier
+        if tier is None:
+            errors.append({
+                "row": row_num,
+                "field": "Type",
+                "message": (
+                    f"Unknown environment type '{env_type}' and this tenant has "
+                    "no 'Other' tier to fall back to"
+                ),
+            })
+            continue
         description = (
             str(row[desc_idx]).strip()
             if desc_idx is not None and desc_idx < len(row) and row[desc_idx] is not None
@@ -91,12 +132,16 @@ async def import_environments(
             continue
 
         try:
-            data = EnvironmentCreate(
+            # No owner and no expiry: a bulk upload has neither to offer, and a
+            # fabricated one would hide exactly the gap ?governance_gap=true
+            # exists to report.
+            await environment_service.create_environment_record(
+                db,
+                tenant_id,
                 name=name_str,
-                environment_type=env_type if env_type else "imported",
                 description=description or None,
+                tier_id=tier.id,
             )
-            await environment_service.create_environment(db, data, tenant_id)
             created += 1
         except (ValueError, ValidationError) as e:
             errors.append({"row": row_num, "field": "general", "message": str(e)})

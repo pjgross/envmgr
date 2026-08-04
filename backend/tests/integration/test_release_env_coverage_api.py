@@ -6,6 +6,7 @@ from app.main import app
 from app.db.base import get_db
 from app.db.models.system import System
 from app.db.models.environment import Environment, EnvironmentSystem, EnvironmentStatus
+from tests.factories import ensure_environment_tier
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -40,7 +41,8 @@ async def _make_system(db_session, tenant_id, name) -> int:
 
 
 async def _make_env(db_session, tenant_id, name, status=EnvironmentStatus.ACTIVE) -> int:
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="sit", status=status)
+    tier = await ensure_environment_tier(db_session, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id, status=status)
     db_session.add(e)
     await db_session.flush()
     return e.id

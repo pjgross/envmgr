@@ -10,7 +10,9 @@ from app.api.v1.schemas.system import SystemResponse
 class EnvironmentCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    environment_type: str
+    tier_id: int
+    owner_user_id: int
+    expires_at: datetime
     status: EnvironmentStatus = EnvironmentStatus.ACTIVE
     custom_fields: Optional[dict] = None
 
@@ -18,7 +20,9 @@ class EnvironmentCreate(BaseModel):
 class EnvironmentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    environment_type: Optional[str] = None
+    tier_id: Optional[int] = None
+    owner_user_id: Optional[int] = None
+    expires_at: Optional[datetime] = None
     status: Optional[EnvironmentStatus] = None
     custom_fields: Optional[dict] = None
 
@@ -29,12 +33,44 @@ class EnvironmentResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
-    environment_type: str
+    tier_id: int
+    tier_name: str
+    tier_color: Optional[str] = None
+    owner_user_id: Optional[int] = None
+    owner_username: Optional[str] = None
+    expires_at: Optional[datetime] = None
     status: EnvironmentStatus
     tenant_id: int
     custom_fields: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def from_view(cls, view) -> "EnvironmentResponse":
+        """Build from an environment_service.EnvironmentView.
+
+        Display names travel with the row rather than being resolved by the
+        browser against a separately-fetched collection — that collection is
+        capped, so a `.find()` miss renders the entity as '—' and loses
+        information no truncation banner can recover.
+        """
+        env = view.environment
+        return cls(
+            id=env.id,
+            name=env.name,
+            description=env.description,
+            tier_id=env.tier_id,
+            tier_name=view.tier_name,
+            tier_color=view.tier_color,
+            owner_user_id=env.owner_user_id,
+            owner_username=view.owner_username,
+            expires_at=env.expires_at,
+            status=env.status,
+            tenant_id=env.tenant_id,
+            custom_fields=env.custom_fields,
+            created_at=env.created_at,
+            updated_at=env.updated_at,
+        )
 
 
 class EnvironmentSystemCreate(BaseModel):

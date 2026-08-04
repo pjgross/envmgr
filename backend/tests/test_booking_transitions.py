@@ -2,6 +2,7 @@ import pytest
 from httpx import AsyncClient
 from app.core.security import get_password_hash
 from app.db.models.user import User
+from tests.factories import post_environment
 
 
 DEFAULT_DEFINITION = {
@@ -53,11 +54,7 @@ async def _setup_booking_type(client, auth_headers) -> int:
 
 
 async def _setup_env(client, auth_headers, name="TransitionTestEnv") -> int:
-    resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": name, "environment_type": "test"},
-    )
+    resp = await post_environment(client, auth_headers, name)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
