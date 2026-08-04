@@ -1,6 +1,6 @@
 # Environment governance fields — design
 
-**Status**: design, not started. Phase 7, sub-project B1 of ten.
+**Status**: implemented (backend); frontend follows in a later PR. Phase 7, sub-project B1 of ten.
 
 ## Where this sits in Phase 7
 
@@ -136,29 +136,44 @@ exactly the failure the drift work had to fix — a summary computed from what c
 reads as a clean bill of health. Idle arrives in B5 together with its N-day threshold and its
 activity sources.
 
-### Owner and expiry are required going forward, and honest about the past
+### Owner is required by the API; expiry is required only on create
 
 `owner_user_id` (FK → user) and `expires_at` (`DateTime(timezone=True)`) are both **nullable in
-the database** and both **required by the API**, precisely:
+the database**. What the API requires of each:
 
-- `POST /environments` requires both. 422 without them.
-- `PATCH /environments/{id}` requires that the environment is **compliant after the patch**. An
-  environment that already has an owner and an expiry can be patched freely. One that does not —
-  a legacy row — cannot be patched at all until the patch supplies them.
+- `POST /environments` requires both. 422 without them. The form path is unchanged.
+- `PATCH /environments/{id}` requires that the environment have an **owner after the patch**. An
+  environment that already has an owner can be patched freely, whatever its expiry. One with no
+  owner — a legacy row, or any other row missing one — cannot be patched at all until the patch
+  supplies one.
 
-The consequence is deliberate and worth stating: on a legacy environment, changing the status
-or the description means filling in the owner and expiry at the same time. That is the point.
-Every edit is an opportunity to close the gap, and a rule that exempts "small" edits never
-closes it.
+**This reverses a position taken earlier in this design.** The paragraphs above originally read
+"required going forward" for both fields, and both PATCH's compliance rule and `governance_gap`
+originally treated a missing owner *or* a missing expiry as non-compliant. During implementation
+the product owner decided that a null `expires_at` means **"no expiry planned"** — a legitimate,
+permanent state, not a value someone forgot to fill in. Owner has no equivalent legitimate null:
+an environment nobody has ever been assigned to is exactly the ghost-environment signal §2.12
+asks for, and there is no honest "nobody will ever own this" to distinguish it from. So the PATCH
+compliance rule and `governance_gap` (see API, below) now key on owner alone; a null expiry never
+blocks a patch. Without this reversal, a spreadsheet-imported row — owned, but with no expiry
+recorded — would have been frozen against even a description edit.
+
+The consequence is deliberate and worth stating: on a row with no owner, changing the status or
+the description means supplying an owner at the same time. That is the point. Every edit is an
+opportunity to close the gap, and a rule that exempts "small" edits never closes it.
 
 Legacy environments therefore keep a null owner rather than a fabricated one. Backfilling the
-owner to the tenant admin was rejected: it invents a person who never agreed to own the
-environment, and it converts the exact signal §2.12 is asking for — which environments have no
-accountable owner — into noise.
+owner to the tenant admin was rejected for the migration: it invents a person who never agreed to
+own the environment, and it converts the exact signal §2.12 is asking for — which environments
+have no accountable owner — into noise. The spreadsheet import is a different case: it sets
+`owner_user_id` to the importing admin and leaves `expires_at` null. The importer is present,
+acting and identifiable at the moment of import, so recording them as owner is truthful — unlike
+fabricating an owner for a pre-existing row nobody touched, which is exactly what the migration
+refused to do.
 
-Instead the gap is **counted and filterable**: `governance_gap=true` returns environments
-missing an owner or an expiry. Unowned environments are the ghost-environment problem, so
-surfacing them is a feature, not a migration compromise.
+Instead the owner gap is **counted and filterable**: `governance_gap=true` returns environments
+with a missing owner. Unowned environments are the ghost-environment problem, so surfacing them
+is a feature, not a migration compromise.
 
 `expires_at` is a timezone-aware `DateTime` for consistency with every other date in this
 codebase, even though it is a date-grained concept in practice.
@@ -259,9 +274,12 @@ New list filters, all applied in SQL:
 - `tier_id`
 - `owner_user_id`
 - `expiring_within_days` (int) — environments whose `expires_at` falls within the window.
-  A null expiry is **not** a match: "expiring soon" and "never given an expiry" are different
-  problems, and the second is what `governance_gap` is for
-- `governance_gap` (bool) — owner or expiry missing
+  A null expiry is **not** a match: it means no expiry was ever planned, not that one is
+  overdue, and it is excluded from this filter for the same reason it does not block a `PATCH`
+  or count toward `governance_gap`
+- `governance_gap` (bool) — owner missing (`owner_user_id IS NULL`). A null expiry is a
+  legitimate "no expiry planned" state, not a gap — see "Owner is required by the API; expiry
+  is required only on create", above
 
 The `environment_type` query parameter **goes**, replaced by `tier_id`. This is a breaking API
 change, taken knowingly: the field it filtered on no longer exists, and keeping a name-matching
@@ -321,11 +339,11 @@ at all, and its `batch_alter_table` path differs from PostgreSQL's.
 - **Sorting by tier and owner** asserted on **rendered row order over mixed-case data**. Not on
   the emitted SQL — the pagination pilot's SQL-token assertions stayed green while the order
   users saw was wrong.
-- **`governance_gap`** returns exactly the legacy rows with a null owner or null expiry, and the
-  count is the total, not the page length.
-- **The PATCH compliance rule**: patching a compliant environment's description succeeds;
-  patching a legacy environment's description alone is 422; the same patch carrying an owner and
-  an expiry succeeds.
+- **`governance_gap`** returns exactly the rows with a null owner — a null expiry alone does not
+  count — and the count is the total, not the page length.
+- **The PATCH compliance rule**: patching an environment that already has an owner succeeds
+  regardless of its expiry; patching a row with no owner is 422 on the description alone, and
+  succeeds once the same patch supplies an owner — a null `expires_at` never blocks it.
 - **Spreadsheet import** falls back to `Other` for a blank or unrecognised type and creates no
   tier — asserted by counting tiers before and after.
 - **Tier delete** refused with 409 while referenced, and permitted once the only environment
