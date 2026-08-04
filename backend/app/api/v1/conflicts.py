@@ -74,12 +74,15 @@ async def ack_conflict(
 )
 async def list_received_feedback(
     booking_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    rows = await conflict_service.list_received_feedback(
-        db, booking_id, current_user.active_tenant_id
+    rows, total = await conflict_service.list_received_feedback(
+        db, booking_id, current_user.active_tenant_id, page=page
     )
+    set_total_count(response, total)
     return [
         ReceivedFeedbackItem(
             willing_to_share=r.ack.willing_to_share,

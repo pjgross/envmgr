@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.pagination import Page, pagination, set_total_count
+from app.core.pagination import Page, fetch_page_rows, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import require_tenant_admin, get_current_user
 from app.db.models.user import User
@@ -60,18 +60,36 @@ async def list_users(
 
 @router.get("/users/lite", response_model=list[UserLite])
 async def list_users_lite(
+    response: Response,
+    # This endpoint's own contract, deliberately larger than the shared 500/1000.
+    # Every consumer is a *picker* (environment owner, gate assignee), and a
+    # truncated picker is information loss rather than a shortened page: the
+    # user it drops cannot be chosen at all, with nothing on screen saying so.
+    # The shared cap exists to stop one request loading 50k rows, and 1000 does
+    # that just as well while leaving no realistic tenant truncated. A tenant
+    # that does exceed it needs a type-to-search picker, not a bigger number —
+    # recorded as the follow-on in docs/pagination.md.
+    page: Page = Depends(pagination(default_limit=1000, max_limit=5000)),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """Minimal {id, username} list for assignee pickers. Open to any tenant member."""
-    rows = (
-        await db.execute(
-            select(User.id, User.username).where(
-                User.tenant_id == current_user.active_tenant_id,
-                User.is_active.is_(True),
-            ).order_by(User.username)
+    query = (
+        select(User.id, User.username)
+        .where(
+            User.tenant_id == current_user.active_tenant_id,
+            User.is_active.is_(True),
         )
-    ).all()
+        # `username` is unique per tenant, but ordering by it alone would leave
+        # the page order to the engine's collation — byte value on both engines
+        # here, so "Zebra" sorts before "apple". Fold the case the way
+        # `apply_sort` does, and keep the unique `id` as the tiebreaker, since
+        # two usernames differing only in case are no longer distinct keys once
+        # folded.
+        .order_by(func.lower(User.username), User.id)
+    )
+    rows, total = await fetch_page_rows(db, query, page)
+    set_total_count(response, total)
     return [UserLite(id=r.id, username=r.username) for r in rows]
 
 

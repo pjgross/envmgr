@@ -164,12 +164,15 @@ class ReceivedFeedbackRow:
 
 
 async def list_received_feedback(
-    db: AsyncSession, booking_id: int, tenant_id: int
-) -> list[ReceivedFeedbackRow]:
-    """Return acks left by other bookings' owners about this booking.
+    db: AsyncSession, booking_id: int, tenant_id: int, page: Optional[Page] = None
+) -> tuple[list[ReceivedFeedbackRow], int]:
+    """Return acks left by other bookings' owners about this booking, and the total.
 
     Excludes rows where both willing_to_share and notes are empty (no actual
     feedback posted yet). Ordered by acknowledged_at DESC.
+
+    Every filter is in the WHERE clause, so windowing the query is safe — there
+    is no Python-side predicate that a page would be applied ahead of.
     """
     AckUser = aliased(User)
     OwnerUser = aliased(User)
@@ -197,9 +200,12 @@ async def list_received_feedback(
                 ),
             ),
         )
-        .order_by(BookingConflictAck.acknowledged_at.desc())
+        # `acknowledged_at` is a defaulted timestamp, so two acks written in the
+        # same transaction tie on it; the primary key makes the order total, and
+        # LIMIT/OFFSET is only correct over a total order.
+        .order_by(BookingConflictAck.acknowledged_at.desc(), BookingConflictAck.id)
     )
-    result = await db.execute(stmt)
+    rows, total = await fetch_page_rows(db, stmt, page)
     return [
         ReceivedFeedbackRow(
             ack=ack,
@@ -208,5 +214,5 @@ async def list_received_feedback(
             acknowledged_by=ack_user,
             booked_by=owner_user,
         )
-        for ack, booking, req, ack_user, owner_user in result.all()
-    ]
+        for ack, booking, req, ack_user, owner_user in rows
+    ], total

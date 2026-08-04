@@ -1094,17 +1094,27 @@ existing groups to already be exhaustive. The reproducible count:
 
     grep -rn -B3 'response_model=list\[' backend/app/api/v1 | grep -v __pycache__ | grep -E '\.get\(' | wc -l
 
-That returns **51**, unchanged by the restructure below or by sub-project C1 — no endpoint was
-added or removed, only made bound-able. Of those, **27** are now bounded (the table above) and
-**24** are not — every one of the 24 is named below, sorted into whichever group its code
-actually justifies. `GET /builds` moved from "own ad hoc limit" (below) into the bounded table in
-this latest pass, which is the one count that changed since the number was last 26/25. If a
-future change adds or removes a list endpoint, re-run the count above and re-check this file
-against it; this doc has now drifted out of sync with the code three times.
+That returned **51** through sub-project C1 — unchanged by the restructure below or by C1 itself,
+since no endpoint was added or removed, only made bound-able. Of those, **27** were bounded (the
+table above) and **24** were not. `GET /builds` moved from "own ad hoc limit" (below) into the
+bounded table in that pass, which is the one count that changed since the number was last 26/25.
 
-Note the second count does not match the first: counting call sites of `set_total_count(response`
-under `backend/app/api/v1/` returns **28**, one more than the 27 bounded list endpoints, because
-`membership` sets the header without being a `list[...]` endpoint. Expect that off-by-one.
+**As of 2026-08-04 the same grep returns 52**, and the `set_total_count(response` count returns
+**37**. Two separate things moved the numbers, and neither is a re-audit:
+
+- `GET /environment-tiers/` was added by the governance-fields branch (see **‡** above), taking
+  the first count from 51 to 52 and arriving already bounded.
+- The growth-bearing group below was cleared: five endpoints bounded, of which **three**
+  (`environments/{id}/deployments`, `tenant/users/lite`, `bookings/{id}/received-feedback`) are
+  inside the 52 because they declare `response_model=list[...]`, and **two** (`releases/{id}/bookings`,
+  `releases/{id}/change-requests`) are outside it because they don't — they return bare dicts
+  built in the endpoint. That asymmetry is exactly why the second count runs ahead of the first.
+
+The remaining not-bounded endpoints below have **not** been re-enumerated against the current
+52; the groups are carried forward from the C1-era audit plus this pass's deletions. Re-run both
+greps and re-check this file before trusting any number here as current — it has now drifted out
+of sync with the code three times, and the counts above are a record of two known deltas, not a
+fresh audit.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
 never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged
@@ -1233,36 +1243,49 @@ contract rather than adopting the shared 500/1000, since a health timeline is re
 human. Two things it turned up that "just wiring" did not predict, both written up under
 *Wiring the last hand-rolled limit* below.
 
-**Growth-bearing, not yet bounded.** Unlike the groups above, nothing caps these structurally, and
-unlike the "blocked" group, there is no Python filtering standing in the way — every one does its
-filtering in SQL and only shapes rows afterwards, so each is a clean drop-in for the shared
-primitive whenever someone picks it up.
+**Growth-bearing — bounded 2026-08-04.** This group is now empty. Unlike the "blocked" group,
+none of these had Python filtering standing in the way: every one did its filtering in SQL and
+only shaped rows afterwards, so each was a clean drop-in for the shared primitive. All five went
+through in one pass, with `tests/test_pagination_c.py` covering the two that need an entity id in
+the path (the other three are rows in the tables in `tests/test_pagination.py`).
 
-- `GET /releases/{release_id}/bookings` (`list_release_bookings` in `releases.py`) — every
-  `Booking` row with `release_id` matching, ordered by `start_date`. A release under test for
-  months across many phases can accumulate as many bookings as the tenant-wide `/bookings/`
-  endpoint (already bounded in this sweep) — nothing about being scoped to one release caps the
-  count.
-- `GET /releases/{release_id}/change-requests` (`list_linked_crs` in `releases.py`) — every
-  `ChangeRequest` row with `release_id` matching, ordered by `id`. Same shape as the tenant-wide
-  `/change-requests` endpoint (already bounded), just release-scoped; nothing here caps the count
-  either.
+- `GET /releases/{release_id}/bookings` (`list_release_bookings` in `releases.py`) — shared
+  500/1000 contract, `fetch_page`. Gained an `id` tiebreaker: a guided multi-environment booking
+  creates several bookings with exactly the same window, so `start_date` alone is not a total
+  order.
+- `GET /releases/{release_id}/change-requests` (`list_linked_crs` in `releases.py`) — shared
+  contract, `fetch_page`. Already ordered by the primary key, so no tiebreaker was needed.
 - `GET /environments/{environment_id}/deployments` (`list_environment_deployments` in
-  `deployments.py`) — every `Deployment` row for one environment, newest first, no limit anywhere.
-  Its sibling `GET /deployments` **is** bounded (own 100/500 contract, above) and already accepts
-  the same `environment_id` filter, so `GET /deployments?environment_id=N` returns the identical,
-  paginated data today. This route is a separate query path that just never got the cap its
-  sibling has — deployments accumulate for the life of an environment, exactly the kind of history
-  that motivated bounding the tenant-wide route in the first place.
-- `GET /tenant/users/lite` (`list_users_lite` in `tenant_admin.py`) — every active user in the
-  tenant, `{id, username}` only, no limit. It mirrors `GET /tenant/users`, which needed real
-  pagination in this sweep because headcount is data, not configuration; the `/lite` variant reads
-  the same table with the same growth profile and currently has no cap at all.
+  `deployments.py`) — shared contract, `fetch_page_rows` (it is a multi-column select). Gained an
+  `id` tiebreaker, matching the ordering of its bounded sibling `GET /deployments`: `deployed_at`
+  is supplied by the CI caller, so several deployments sharing a timestamp is ordinary rather
+  than exceptional. Note the frontend's `deploymentService.forEnvironment` has **no callers** —
+  this route is API surface only today.
+- `GET /tenant/users/lite` (`list_users_lite` in `tenant_admin.py`) — **its own, larger contract:
+  `pagination(default_limit=1000, max_limit=5000)`, not the shared 500/1000.** Every consumer is
+  a picker (environment owner on both EnvironmentList and EnvironmentDetail, gate assignee in
+  GatesTable), and a truncated picker is *information loss*, not a shortened page: the user it
+  drops cannot be chosen at all, with nothing on screen saying so. The shared cap exists to stop
+  one request loading 50k rows, and 1000 does that just as well while leaving no realistic tenant
+  truncated. Bounding it also made the endpoint's collation matter for the first time — see the
+  next bullet.
 - `GET /bookings/{booking_id}/received-feedback` (`list_received_feedback` in `conflicts.py`) —
-  every ack left by another booking's owner about a conflict with this one, one query, no
-  post-fetch filtering. Its sibling on the same `booking_id`, `GET /bookings/{id}/conflicts`, was
-  bounded through the shared primitive in this sweep; this endpoint has the same growth driver
-  (however many other bookings overlapped this one and left feedback) and was simply missed.
+  shared contract; the paging moved into the service, which now returns `(rows, total)` like its
+  siblings. Gained an `id` tiebreaker on `acknowledged_at`.
+
+**Bounding an endpoint can change what its collation means.** `users/lite` ordered by a bare
+`username`. Unbounded, byte-value collation (see *Sorting* above — both engines here) was merely
+an odd-looking picker: "Zebra" before "apple". Windowed, the same order decides **which users are
+droppable** — every lowercase username truncates before any capitalised one. So the fold that
+`apply_sort` does for whitelisted sorts is now explicit in this query too
+(`func.lower(User.username), User.id`), with `id` kept as the tiebreaker since two usernames
+differing only in case stop being distinct keys once folded. Worth checking on any future
+hand-rolled `ORDER BY` that gains a window: an ordering that was cosmetic while unbounded becomes
+a data-selection rule the moment a `LIMIT` is attached.
+
+**Follow-on, not done:** a tenant past 1000 active users needs a type-to-search picker (server-side
+`search` on `users/lite` plus an Autocomplete in the three consumers), not a bigger number. No
+`search` parameter was added, deliberately — dead API surface with no consumer is worse than none.
 
 ## Ordering must be total
 
@@ -1285,7 +1308,11 @@ Endpoints that needed one added because their existing sort column was not uniqu
 (scheduled_start), `environment_health` (Environment.name), `infrastructure-components` (name),
 `releases` (created_at), `deployments` (deployed_at), `booking-requests` (created_at), `release
 events` (occurred_at), `release history` (changed_at), `conflicts` (start_date), `enterprise
-memberships` (requested_at). `builds` (commit_timestamp) joined this list in sub-project C1 — see
+memberships` (requested_at). The 2026-08-04 pass added four more: `release bookings`
+(start_date), `environment deployments` (deployed_at), `received-feedback` (acknowledged_at) and
+`tenant/users/lite` (username — see the collation note in the growth-bearing section, where the
+tiebreaker matters because folding case stops two usernames differing only in case from being
+distinct keys). `builds` (commit_timestamp) joined this list in sub-project C1 — see
 the next paragraph, since unlike the rest it's a genuine behaviour change rather than a gap this
 sweep merely found and closed at the same time as everything else.
 
