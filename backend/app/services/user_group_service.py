@@ -197,7 +197,11 @@ async def delete_group(db: AsyncSession, group_id: int, tenant_id: int) -> None:
                 await db.execute(
                     select(Environment.name)
                     .where(*blocker_filter)
-                    .order_by(Environment.name)
+                    # `Environment.name` carries no uniqueness constraint, so
+                    # the id tiebreaker is what stops two identically-named
+                    # environments at the LIMIT boundary yielding a different
+                    # named subset on each retry of the same failed delete.
+                    .order_by(Environment.name, Environment.id)
                     .limit(_MAX_NAMED_BLOCKERS)
                 )
             )
