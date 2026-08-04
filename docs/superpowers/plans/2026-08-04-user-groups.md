@@ -2550,6 +2550,7 @@ In `frontend/src/pages/environments/EnvironmentList.tsx`:
 - **Check the static column list assertion.** `environmentListServerGrid.test.tsx` asserts the exact set of static fields (`new Set(['name', 'tier', 'owner', ...])`). Add `operations_group_name` to that expected set, or the existing test fails.
 - Fetch the groups for the picker and the filter with `dispatch(fetchUserGroups({}))`, reading `state.userGroup.groups`. Do **not** read a paged environment slice for this.
 - Add an Operations Group `Select` to the create dialog, and an `operations_group_id` entry to `useServerGrid`'s `filterKeys` so the filter round-trips through the URL like the existing owner filter.
+- **Relabel the governance-gap filter chip.** It currently reads `label="Missing owner"` (around line 581) with a comment stating "`governance_gap` is a missing OWNER only". Task 4 extended that filter to mean *missing owner **or** missing operations group*, so both the label and the comment are now wrong. Change the label to `Governance gap` and rewrite the comment to state the current rule. This was found by Task 4's review, which noted no task in the plan covered it — without this the feature ships with a chip that lies about what it filters.
 - In the create dialog's Select, keep a soft-deleted group selectable when it is the current value, following the pattern already in the file for a retired tier and a deactivated owner. Read that block (search for `(inactive)`) and mirror it with `(deleted)`.
 
 - [ ] **Step 4: Add the control to the detail page**
