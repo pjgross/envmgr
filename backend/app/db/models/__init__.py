@@ -24,6 +24,7 @@ from app.db.models.booking_lifecycle import (
     BookingType,
     BookingStatusHistory,
 )
+from app.db.models.environment_tier import EnvironmentTier  # noqa: F401
 from app.db.models.change_request import (
     ChangeRequest,
     ChangeRequestEnvironment,
