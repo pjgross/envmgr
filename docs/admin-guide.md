@@ -335,7 +335,9 @@ inactive ◄──► decommissioned
 2. Fill in the form:
    - **Name** (required) — e.g. *UAT-1*. Unique within the tenant.
    - **Description** — optional free text.
-   - **Environment Type** (required) — free text, e.g. *staging*, *uat*, *dev*, *prod*. Use a small consistent vocabulary across your tenant; this drives filtering.
+   - **Tier** (required) — a tenant-configurable vocabulary, not free text. Configure the list under *Administration → Environments → Tiers*; each tier carries a name and a colour, and drives filtering and the topology/grid chip colouring.
+   - **Owner** (required) — a named user responsible for the environment. Shown on the list and detail pages; missing an owner is a reportable governance gap (`?governance_gap=true`).
+   - **Expires** (optional) — the date this environment is expected to retire. Leave blank for "no expiry planned" — that is a legitimate state, not a missing value, and does not count as a governance gap. Use the *expiring within N days* filter on the list page to find environments approaching their expiry.
    - **Status** — defaults to *active*.
    - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured in *Tenant Settings → Entity Config*; see [ch. 11](#11-tenant-settings)).
 3. Click *Create*. The environment is created with no systems attached.
