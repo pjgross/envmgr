@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
+import GroupsIcon from '@mui/icons-material/Groups';
 import StorageIcon from '@mui/icons-material/Storage';
 import MemoryIcon from '@mui/icons-material/Memory';
 import LanguageIcon from '@mui/icons-material/Language';
@@ -26,6 +27,7 @@ const DRAWER_WIDTH = 220;
 const adminNavItems = [
   { label: 'General Settings', path: '/tenant/settings', icon: <SettingsIcon fontSize="small" /> },
   { label: 'User Management', path: '/tenant/users', icon: <PeopleIcon fontSize="small" /> },
+  { label: 'User Groups', path: '/tenant/groups', icon: <GroupsIcon fontSize="small" /> },
   { label: 'API keys', path: '/tenant/api-keys', icon: <VpnKeyIcon fontSize="small" /> },
   { label: 'RAID Settings', path: '/tenant/raid-settings', icon: <WarningAmberIcon fontSize="small" /> },
 ];
