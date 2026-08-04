@@ -1,7 +1,7 @@
 # EnvManager — Architecture Reference
 
 > Referenced from [CLAUDE.md](../CLAUDE.md) | Roadmap: [plan.md](plan.md)
-> macmini infra: [architecture copy.md](architecture%20copy.md)
+> macmini infra: kept outside this repo — `envmgr-infra-notes/macmini-host-map.md`
 
 ---
 
@@ -380,7 +380,7 @@ EnvManager is deployed as Docker containers orchestrated by docker-compose. Two 
 | **Development** | Developer laptop (OrbStack) | localhost |
 | **Production** | macmini (Tailscale network) | `macmini` hostname |
 
-Full macmini service map: [`architecture copy.md`](architecture%20copy.md)
+Full macmini service map: kept outside this repo, in `envmgr-infra-notes/macmini-host-map.md`.
 
 ---
 

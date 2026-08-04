@@ -43,7 +43,7 @@ are markdown/ASCII only; no screenshots in the first cut.
 ## Non-goals
 
 - **Deployment / install instructions** — covered in `CLAUDE.md`,
-  `docs/architecture copy.md`, and `docs/prod architecture.md`.
+  the macmini host map (since moved outside the repo), and `docs/prod architecture.md`.
 - **API reference** — Swagger UI at `http://localhost:8000/docs` is
   authoritative; the manual links to it but does not duplicate it.
 - **Master-admin platform operations beyond tenant provisioning** —
