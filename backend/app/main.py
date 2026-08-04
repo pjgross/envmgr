@@ -82,6 +82,7 @@ from app.api.v1 import tenant_admin as tenant_admin_router
 from app.api.v1 import tenant_admin_fields as tenant_admin_fields_router
 from app.api.v1 import systems as systems_router
 from app.api.v1 import environments as environments_router
+from app.api.v1 import environment_tiers as environment_tiers_router
 from app.api.v1 import dependencies as dependencies_router
 from app.api.v1 import bookings as bookings_router
 from app.api.v1 import import_routes as import_router
@@ -117,6 +118,11 @@ from app.api.v1 import environment_operating_hours as environment_operating_hour
 app.include_router(environment_operating_hours_router.router, prefix="/api/v1")
 
 app.include_router(environments_router.router, prefix="/api/v1/environments", tags=["Environments"])
+app.include_router(
+    environment_tiers_router.router,
+    prefix="/api/v1/environment-tiers",
+    tags=["Environment Tiers"],
+)
 app.include_router(dependencies_router.router, prefix="/api/v1", tags=["Dependencies"])
 app.include_router(bookings_router.router, prefix="/api/v1/bookings", tags=["Bookings"])
 app.include_router(import_router.router, prefix="/api/v1/import", tags=["Import"])
