@@ -40,6 +40,7 @@ class EnvironmentResponse(BaseModel):
     owner_username: Optional[str] = None
     expires_at: Optional[datetime] = None
     status: EnvironmentStatus
+    reserved_now: bool = False
     tenant_id: int
     custom_fields: Optional[dict] = None
     created_at: datetime
@@ -66,6 +67,7 @@ class EnvironmentResponse(BaseModel):
             owner_username=view.owner_username,
             expires_at=env.expires_at,
             status=env.status,
+            reserved_now=view.reserved_now,
             tenant_id=env.tenant_id,
             custom_fields=env.custom_fields,
             created_at=env.created_at,

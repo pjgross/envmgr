@@ -8,7 +8,9 @@ from sqlalchemy import select, delete, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.booking_states import INACTIVE_BOOKING_STATUSES
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
+from app.db.models.booking import Booking
 from app.db.models.environment import (
     Environment,
     EnvironmentSystem,
@@ -34,6 +36,30 @@ class EnvironmentView:
     tier_name: str
     tier_color: Optional[str]
     owner_username: Optional[str]
+    reserved_now: bool
+
+
+def _reserved_now_clause():
+    """True when a live booking's window covers now.
+
+    Computed in SQL, not in Python afterwards: a Python-side derivation could
+    not be filtered or sorted on without windowing the page before the filter.
+    Half-open [start, end), matching conflict_service's overlap convention.
+    """
+    now = datetime.now(timezone.utc)
+    return (
+        select(Booking.id)
+        .where(
+            Booking.environment_id == Environment.id,
+            Booking.tenant_id == Environment.tenant_id,
+            Booking.deleted_at.is_(None),
+            Booking.status.notin_(INACTIVE_BOOKING_STATUSES),
+            Booking.start_date <= now,
+            Booking.end_date > now,
+        )
+        .exists()
+        .label("reserved_now")
+    )
 
 
 def _view_query(tenant_id: int):
@@ -45,7 +71,13 @@ def _view_query(tenant_id: int):
     surface another tenant's name.
     """
     return (
-        select(Environment, EnvironmentTier.name, EnvironmentTier.color, User.username)
+        select(
+            Environment,
+            EnvironmentTier.name,
+            EnvironmentTier.color,
+            User.username,
+            _reserved_now_clause(),
+        )
         .join(
             EnvironmentTier,
             and_(
@@ -113,8 +145,9 @@ async def list_environments(
                 tier_name=tier_name,
                 tier_color=tier_color,
                 owner_username=owner_username,
+                reserved_now=bool(reserved_now),
             )
-            for env, tier_name, tier_color, owner_username in rows
+            for env, tier_name, tier_color, owner_username, reserved_now in rows
         ],
         total,
     )
@@ -138,12 +171,13 @@ async def get_environment_view(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found"
         )
-    env, tier_name, tier_color, owner_username = row
+    env, tier_name, tier_color, owner_username, reserved_now = row
     return EnvironmentView(
         environment=env,
         tier_name=tier_name,
         tier_color=tier_color,
         owner_username=owner_username,
+        reserved_now=bool(reserved_now),
     )
 
 

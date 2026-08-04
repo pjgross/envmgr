@@ -12,11 +12,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, not_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.booking_states import INACTIVE_BOOKING_STATUSES
 from app.db.models.environment import Environment
 from app.db.models.booking import Booking
 from app.services import environment_operating_hours_service as ops_service
-
-_INACTIVE_BOOKING_STATES = {"draft", "rejected", "closed"}
 
 
 def _utc(dt: datetime) -> datetime:
@@ -105,7 +104,7 @@ async def environment_utilization(db: AsyncSession, tenant_id: int, environment_
             Booking.tenant_id == tenant_id,
             Booking.environment_id == environment_id,
             Booking.deleted_at.is_(None),
-            not_(Booking.status.in_(_INACTIVE_BOOKING_STATES)),
+            not_(Booking.status.in_(INACTIVE_BOOKING_STATUSES)),
             Booking.start_date < date_to,
             Booking.end_date > date_from,
         )
