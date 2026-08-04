@@ -221,7 +221,7 @@ async def get_environment(
     return env
 
 
-async def _validate_tier_and_owner(
+async def _validate_client_foreign_keys(
     db: AsyncSession,
     tenant_id: int,
     tier_id: Optional[int],
@@ -318,7 +318,7 @@ async def create_environment_record(
             detail="An environment with this name already exists in this tenant",
         )
     await validate_custom_fields(db, tenant_id, "environment", custom_fields)
-    await _validate_tier_and_owner(
+    await _validate_client_foreign_keys(
         db, tenant_id, tier_id, owner_user_id, operations_group_id
     )
     env = Environment(
@@ -389,7 +389,7 @@ async def update_environment(
                 "Supply owner_user_id with this change."
             ),
         )
-    await _validate_tier_and_owner(
+    await _validate_client_foreign_keys(
         db, tenant_id, data.tier_id, effective_owner, data.operations_group_id
     )
 

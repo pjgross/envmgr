@@ -53,7 +53,7 @@ async def import_environments(
     of `tenant_id`. A master admin importing while impersonating a tenant has
     `active_tenant_id == tenant_id` (the impersonated tenant) but their own
     `User.tenant_id` is the system tenant — pointing `owner_user_id` at them
-    would fail the same cross-tenant check `_validate_tier_and_owner` applies
+    would fail the same cross-tenant check `_validate_client_foreign_keys` applies
     on every other write (`environment_service.py`), and unlike a normal
     validation error that 404 is not caught by the per-row
     `except (ValueError, ValidationError)` below, so it used to fail the

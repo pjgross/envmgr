@@ -134,6 +134,55 @@ async def test_governance_gap_reports_a_missing_operations_group(
 
 
 @pytest.mark.asyncio
+async def test_governance_gap_false_excludes_a_row_missing_only_the_group(
+    client, auth_headers, db_session, test_tenant
+):
+    """The discriminating half `governance_gap=false` was missing: the only
+    existing coverage gave every "clean" row both an owner and a group, so it
+    passes identically whether the rule is "owner AND group" or "owner only".
+    A row with an owner but no group must be absent from the clean set."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Platform Ops")
+    await db_session.commit()
+
+    await post_environment(client, auth_headers, "owner-no-group")
+    await post_environment(
+        client, auth_headers, "owner-and-group", operations_group_id=group.id
+    )
+
+    clean = await client.get(
+        "/api/v1/environments/?governance_gap=false", headers=auth_headers
+    )
+    assert clean.status_code == 200, clean.text
+    names = [e["name"] for e in clean.json()]
+    assert "owner-and-group" in names
+    assert "owner-no-group" not in names
+
+
+@pytest.mark.asyncio
+async def test_patching_to_another_tenants_group_is_refused(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """The PATCH twin of test_cannot_point_at_another_tenants_group.
+    `update_environment` validates `operations_group_id` through the same
+    helper `create_environment_record` uses, so create-then-patch — the path
+    an attacker would actually use to probe another tenant's group ids — must
+    404 too, not just POST."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_user_group(db_session, other_tenant.id, name="Theirs")
+    await db_session.commit()
+
+    created = await post_environment(client, auth_headers, "patch-target")
+    env_id = created.json()["id"]
+
+    refused = await client.patch(
+        f"/api/v1/environments/{env_id}",
+        json={"operations_group_id": theirs.id},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 404, refused.text
+
+
+@pytest.mark.asyncio
 async def test_filtering_by_operations_group(
     client, auth_headers, db_session, test_tenant
 ):

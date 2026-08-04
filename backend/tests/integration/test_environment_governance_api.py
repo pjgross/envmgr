@@ -185,8 +185,10 @@ async def test_governance_gap_filter_selects_only_rows_missing_an_owner(
     the old "owner or expiry" semantics.
 
     Since B3a, `governance_gap` also covers a missing OPERATIONS GROUP, so
-    every row meant to read as clean here is given one too — `legacy` (no
-    owner, no group, no expiry) stays the only gap.
+    every row meant to read as clean here is given one too. This test's body
+    only discriminates the owner half, though — it would pass unchanged under
+    an owner-only rule; the group half is covered by
+    test_environment_operations_group.py::test_governance_gap_false_excludes_a_row_missing_only_the_group.
     """
     from app.db.models.environment import Environment
 

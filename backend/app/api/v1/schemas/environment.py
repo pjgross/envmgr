@@ -23,9 +23,11 @@ class EnvironmentUpdate(BaseModel):
     description: Optional[str] = None
     tier_id: Optional[int] = None
     owner_user_id: Optional[int] = None
-    # `int | None`, not Optional-with-default-sentinel: the service keys on
-    # model_fields_set, so an omitted key means "leave alone" and only an
-    # explicit null clears the group. Same contract as expires_at.
+    # Typed `Optional[int] = None` like every other field here — the
+    # omitted-vs-null distinction is NOT carried by this type. It comes from
+    # the service reading `model_fields_set`: an omitted key means "leave
+    # alone", only an explicit null clears the group. Same contract as
+    # expires_at.
     operations_group_id: Optional[int] = None
     expires_at: Optional[datetime] = None
     status: Optional[EnvironmentStatus] = None

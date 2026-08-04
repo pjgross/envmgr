@@ -191,7 +191,7 @@ async def test_import_by_an_impersonating_master_admin_imports_unowned_not_404(
     tenant they actually belong to. Before this fix, the route passed
     `current_user.id` straight through as `owner_user_id` while scoping the
     import to `active_tenant_id` — under impersonation the two disagree, so
-    `_validate_tier_and_owner`'s `User.tenant_id == tenant_id` check 404'd
+    `_validate_client_foreign_keys`'s `User.tenant_id == tenant_id` check 404'd
     ("Owner not found"). That `HTTPException` is not caught by the per-row
     `except (ValueError, ValidationError)` in excel_import_service, so the
     *entire upload* failed with a message naming neither the file nor the

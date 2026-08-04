@@ -56,7 +56,11 @@ async def test_governance_gap_returns_only_the_rows_missing_an_owner(
 
     Since B3a, the gap is missing OWNER *or* missing OPERATIONS GROUP; every
     owned row here also has a group (see `_seed`), so `no-owner` — missing
-    both — is still the only row that surfaces."""
+    both — is still the only row that surfaces. This test's body only
+    discriminates the owner half, though — it would pass unchanged under an
+    owner-only rule; the group half is covered by
+    test_environment_operations_group.py::test_governance_gap_false_excludes_a_row_missing_only_the_group.
+    """
     await _seed(db_session, test_tenant.id, test_user.id)
 
     resp = await client.get(
