@@ -28,4 +28,28 @@ describe('formatExpiry', () => {
     expect(formatExpiry(null)).toBe('No expiry planned');
     expect(formatExpiry('2026-08-04T12:00:00Z')).toBe('today');
   });
+
+  // The environment form always writes expiries normalised to `T00:00:00Z`.
+  // Reading "now" at any time other than exact midnight, a millisecond-based
+  // floor of the difference gets the calendar-day delta wrong by one in the
+  // overdue direction — these three pin the UTC-calendar-day arithmetic that
+  // replaces it, reading at midday rather than at midnight so a regression
+  // back to the millisecond version fails them.
+  it('reads an expiry of today, checked at midday, as "today"', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
+    expect(formatExpiry('2026-08-04T00:00:00Z')).toBe('today');
+  });
+
+  it('reads an expiry of yesterday, checked at midday, as overdue by 1 day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
+    expect(formatExpiry('2026-08-03T00:00:00Z')).toBe('overdue by 1 day');
+  });
+
+  it('reads an expiry of tomorrow, checked at midday, as in 1 day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
+    expect(formatExpiry('2026-08-05T00:00:00Z')).toBe('in 1 day');
+  });
 });

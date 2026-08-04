@@ -32,7 +32,19 @@ export function toDateInputValue(iso: string | null | undefined): string {
 export function formatExpiry(iso: string | null): string {
   if (!iso) return 'No expiry planned';
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  const days = Math.floor((new Date(iso).getTime() - Date.now()) / MS_PER_DAY);
+  const e = new Date(iso);
+  const n = new Date();
+  // Calendar-day difference, not a floored millisecond difference: expiries
+  // are always normalised to `T00:00:00Z`, and "now" is read at whatever
+  // time of day the page happens to load. Flooring the raw ms delta made an
+  // environment read as overdue for the entire day it actually expires
+  // (delta is negative any time after 00:00Z) and "today" a day early
+  // (readable only in the instant before midnight) — see expiry.test.ts.
+  const days = Math.round(
+    (Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate()) -
+      Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate())) /
+      MS_PER_DAY
+  );
   if (days === 0) return 'today';
   if (days > 0) return `in ${days} day${days === 1 ? '' : 's'}`;
   const overdue = Math.abs(days);

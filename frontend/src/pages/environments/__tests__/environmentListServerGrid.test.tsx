@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +35,8 @@ vi.mock('../../../services/environmentService', () => ({
       total: 1,
     }),
     deleteEnvironment: vi.fn().mockResolvedValue(undefined),
+    updateEnvironment: vi.fn(),
+    createEnvironment: vi.fn(),
   },
 }));
 
@@ -111,7 +114,26 @@ vi.mock('@mui/x-data-grid', async (importOriginal) => {
 });
 
 import { environmentService } from '../../../services/environmentService';
+import { environmentTierService } from '../../../services/environmentTierService';
+import api from '../../../services/api';
 import type { CustomFieldDefinition } from '../../../types/customField';
+
+// Shared by the create/edit dialog tests below: one active tier and one
+// active user, so the Tier/Owner <Select>s in the dialog have something to
+// pick and `handleSave`'s tier/owner-required checks are never what blocks
+// the save.
+const PRODUCTION_TIER = {
+  id: 3,
+  tenant_id: 1,
+  name: 'Production',
+  description: null,
+  category: null,
+  color: '#c62828',
+  display_order: 1,
+  is_active: true,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
 
 function renderEnvironmentList(url = '/environments') {
   return render(
@@ -273,5 +295,93 @@ describe('EnvironmentList server-side grid', () => {
 
     expect(column.field).toBe('region');
     expect(column.sortable).toBe(false);
+  });
+
+  // These two carry the whole "a null expiry means no expiry planned"
+  // decision: EnvironmentList gates the expiry-required validation on
+  // `!editTarget` (so Edit tolerates a blank expiry while Create still
+  // demands one), and the update payload always sends an explicit
+  // `expires_at: null` rather than omitting the key, because the backend
+  // keys on `model_fields_set` and an omitted key means "leave alone".
+  // Neither behaviour has any other test guarding it — both would survive
+  // deletion with a fully green suite.
+  it('lets Edit save a blank expiry, sending explicit null rather than leaving it alone', async () => {
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [PRODUCTION_TIER],
+      total: 1,
+    });
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [{ id: 7, username: 'alice' }] });
+    const updateMock = vi.mocked(environmentService.updateEnvironment).mockResolvedValueOnce({
+      id: 1,
+      name: 'prod-a',
+      description: null,
+      tier_id: 3,
+      tier_name: 'Production',
+      tier_color: '#c62828',
+      owner_user_id: 7,
+      owner_username: 'alice',
+      expires_at: null,
+      reserved_now: false,
+      status: 'active',
+      tenant_id: 1,
+      custom_fields: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+
+    renderEnvironmentList('/environments');
+    // The prod-a fixture (see the environmentService mock above) already has
+    // expires_at: null — exactly the row this decision is about.
+    await screen.findByText('prod-a');
+
+    const editButtons = screen
+      .getAllByRole('button', { hidden: true })
+      .filter((b) => b.getAttribute('aria-label') === 'Edit');
+    expect(editButtons.length).toBeGreaterThan(0);
+    fireEvent.click(editButtons[0]);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Expires')).toHaveValue('');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    // Synchronous: handleSave's validation runs in the click handler itself,
+    // before the dialog has any chance to close on a successful dispatch.
+    expect(within(dialog).queryByText(/expiry date is required/i)).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith(1, expect.objectContaining({ expires_at: null }))
+    );
+  });
+
+  it('still requires an expiry on Create, even though Edit tolerates a blank one', async () => {
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [PRODUCTION_TIER],
+      total: 1,
+    });
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [{ id: 7, username: 'alice' }] });
+    const createMock = vi.mocked(environmentService.createEnvironment);
+
+    renderEnvironmentList('/environments');
+    await screen.findByText('prod-a');
+
+    fireEvent.click(screen.getByRole('button', { name: /new environment/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    // Not an exact 'Name' match: the field is `required`, so MUI appends a
+    // visually-hidden asterisk to the label's accessible name ("Name *").
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), 'staging-b');
+
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Tier' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Production' }));
+
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Owner' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'alice' }));
+
+    // Expiry deliberately left blank.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    expect(await within(dialog).findByText(/expiry date is required/i)).toBeInTheDocument();
+    expect(createMock).not.toHaveBeenCalled();
   });
 });

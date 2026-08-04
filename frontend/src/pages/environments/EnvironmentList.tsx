@@ -581,6 +581,22 @@ export default function EnvironmentList() {
               value={form.owner_user_id}
               onChange={(e) => setForm({ ...form, owner_user_id: Number(e.target.value) })}
             >
+              {/* GET /tenant/users/lite filters to active users, but the
+                  backend's owner validation does not check is_active, so an
+                  environment can legitimately hold a deactivated owner. Keep
+                  that owner selectable (labelled as inactive) the same way
+                  the tier Select above keeps a retired tier selectable —
+                  otherwise the required field renders blank with a MUI
+                  out-of-range warning while form state still holds the id.
+                  `editTarget.owner_username` supplies the label since the
+                  lite list won't have this user at all. */}
+              {editTarget &&
+                form.owner_user_id === editTarget.owner_user_id &&
+                !users.some((u) => u.id === form.owner_user_id) && (
+                  <MenuItem value={form.owner_user_id}>
+                    {editTarget.owner_username ?? `#${form.owner_user_id}`} (inactive)
+                  </MenuItem>
+                )}
               {users.map((u) => (
                 <MenuItem key={u.id} value={u.id}>
                   {u.username}
