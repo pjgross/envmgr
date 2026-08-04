@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.schemas.user_group import UserGroupCreate, UserGroupUpdate
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
 from app.db.models.environment import Environment
+from app.db.models.user import User
 from app.db.models.user_group import UserGroup, UserGroupMember
 
 # A 409 listing 200 environment names is not a message a human can read. Name
@@ -226,4 +227,97 @@ async def delete_group(db: AsyncSession, group_id: int, tenant_id: int) -> None:
         )
     )
     group.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
+async def list_members(
+    db: AsyncSession,
+    group_id: int,
+    tenant_id: int,
+    *,
+    page: Optional[Page] = None,
+) -> tuple[list[tuple[UserGroupMember, str]], int]:
+    """Members of a group, each paired with the username.
+
+    The username travels with the row rather than being resolved in the browser
+    against `/tenant/users/lite`, which is capped — a `.find()` miss there would
+    render the member as '—' and lose information no banner can recover.
+    """
+    await get_group(db, group_id, tenant_id)  # 404s for another tenant's group
+    query = (
+        select(UserGroupMember, User.username)
+        .join(User, User.id == UserGroupMember.user_id)
+        .where(
+            UserGroupMember.group_id == group_id,
+            UserGroupMember.tenant_id == tenant_id,
+        )
+        # `username` is unique per tenant, but the case fold means two names
+        # differing only in case stop being distinct keys — the id makes the
+        # order total, which is what LIMIT/OFFSET requires.
+        .order_by(func.lower(User.username), UserGroupMember.id)
+    )
+    return await fetch_page_rows(db, query, page)
+
+
+async def add_member(
+    db: AsyncSession, group_id: int, user_id: int, tenant_id: int
+) -> tuple[UserGroupMember, str]:
+    await get_group(db, group_id, tenant_id)
+
+    # Validate the user against the ACTIVE tenant, not the caller's home
+    # tenant: under master-admin impersonation those differ, and scoping this
+    # to the wrong one 404s a legitimate request.
+    user = (
+        await db.execute(
+            select(User).where(User.id == user_id, User.tenant_id == tenant_id)
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    existing = (
+        await db.execute(
+            select(UserGroupMember.id).where(
+                UserGroupMember.group_id == group_id,
+                UserGroupMember.user_id == user_id,
+            )
+        )
+    ).first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{user.username} is already a member of this group",
+        )
+
+    member = UserGroupMember(
+        tenant_id=tenant_id, group_id=group_id, user_id=user_id
+    )
+    db.add(member)
+    await db.flush()
+    await db.refresh(member)
+    return member, user.username
+
+
+async def remove_member(
+    db: AsyncSession, group_id: int, user_id: int, tenant_id: int
+) -> None:
+    await get_group(db, group_id, tenant_id)
+    member = (
+        await db.execute(
+            select(UserGroupMember).where(
+                UserGroupMember.group_id == group_id,
+                UserGroupMember.user_id == user_id,
+                UserGroupMember.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This user is not a member of this group",
+        )
+    # Hard delete — a junction row, per this codebase's convention.
+    await db.delete(member)
     await db.flush()
