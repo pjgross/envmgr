@@ -34,13 +34,19 @@ def _find_col(headers: list, name: str, required: bool = True) -> Optional[int]:
 
 
 async def import_environments(
-    db: AsyncSession, file_bytes: bytes, tenant_id: int
+    db: AsyncSession, file_bytes: bytes, tenant_id: int, imported_by_user_id: int
 ) -> dict:
     """
     Parse an Excel workbook and import environments.
 
     Required columns: Name, Type
     Optional columns: Description, Status
+
+    Imported rows get `owner_user_id = imported_by_user_id` — the importer is
+    present, acting and identifiable, so recording them as owner is truthful,
+    unlike fabricating an owner for a pre-existing row. `expires_at` stays
+    null ("no expiry planned"): the spreadsheet has no expiry to offer, and a
+    null expiry is no longer treated as a governance gap.
     """
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
@@ -132,15 +138,17 @@ async def import_environments(
             continue
 
         try:
-            # No owner and no expiry: a bulk upload has neither to offer, and a
-            # fabricated one would hide exactly the gap ?governance_gap=true
-            # exists to report.
+            # Owner is the importing admin (present, acting, identifiable — see
+            # the module docstring above); no expiry, since the spreadsheet has
+            # none to offer and null now means "no expiry planned" rather than
+            # a gap.
             await environment_service.create_environment_record(
                 db,
                 tenant_id,
                 name=name_str,
                 description=description or None,
                 tier_id=tier.id,
+                owner_user_id=imported_by_user_id,
             )
             created += 1
         except (ValueError, ValidationError) as e:

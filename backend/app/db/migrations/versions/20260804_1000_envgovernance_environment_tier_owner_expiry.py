@@ -162,6 +162,11 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_environment_tier_tenant_id", "environment_tier", ["tenant_id"])
+    # Base declares `id` with index=True, so create_all builds this index on
+    # every model-defined table. Without it here, a migration-built database
+    # differs from a create_all-built one — not caught by
+    # test_migration_schema_drift.py, which compares only tables and columns.
+    op.create_index("ix_environment_tier_id", "environment_tier", ["id"])
 
     # Added nullable so the backfill has somewhere to write; tightened to NOT
     # NULL below, which is also the check that the backfill reached every row.
@@ -195,16 +200,17 @@ def downgrade() -> None:
     op.add_column(
         "environment", sa.Column("environment_type", sa.String(length=100), nullable=True)
     )
+    # Truncate in the copy itself, not in a later statement: a tier name over
+    # 100 characters (reachable — environment_tier.name is String(200) and the
+    # tier API lets an admin create one) would otherwise fail this UPDATE
+    # outright on PostgreSQL ("value too long for type character varying(100)"),
+    # so a later truncating statement would never run.
     op.get_bind().execute(
         sa.text(
-            "UPDATE environment SET environment_type = "
+            "UPDATE environment SET environment_type = substr("
             "(SELECT name FROM environment_tier WHERE environment_tier.id = environment.tier_id)"
+            ", 1, 100)"
         )
-    )
-    # A tier name may be longer than the column it is going back into, and a
-    # NULL would violate the NOT NULL restored below.
-    op.get_bind().execute(
-        sa.text("UPDATE environment SET environment_type = substr(environment_type, 1, 100)")
     )
     op.get_bind().execute(
         sa.text(
@@ -222,5 +228,6 @@ def downgrade() -> None:
     op.drop_column("environment", "owner_user_id")
     op.drop_column("environment", "tier_id")
 
+    op.drop_index("ix_environment_tier_id", table_name="environment_tier")
     op.drop_index("ix_environment_tier_tenant_id", table_name="environment_tier")
     op.drop_table("environment_tier")

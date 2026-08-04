@@ -27,7 +27,7 @@ async def import_environments_endpoint(
     """Import environments from an Excel (.xlsx) file."""
     file_bytes = await file.read()
     result = await excel_import_service.import_environments(
-        db, file_bytes, current_user.active_tenant_id
+        db, file_bytes, current_user.active_tenant_id, current_user.id
     )
     return result
 

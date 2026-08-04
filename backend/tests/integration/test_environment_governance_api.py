@@ -100,11 +100,17 @@ async def test_an_owner_from_another_tenant_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_patching_a_legacy_environment_requires_filling_the_gap(
+async def test_patching_a_legacy_environment_requires_filling_the_owner_gap(
     client, auth_headers, db_session, test_tenant, test_user
 ):
     """A legacy row (null owner, null expiry) cannot be patched at all until the
-    patch supplies them. Every edit is an opportunity to close the gap."""
+    patch supplies an OWNER. Every edit is an opportunity to close the gap.
+
+    Product decision: a null expiry is a legitimate "no expiry planned" state,
+    not a missing value, so — unlike the owner — it must never block a patch.
+    This test used to also require `expires_at` in the accepted patch; that
+    requirement is gone on purpose.
+    """
     tier = await _tier(db_session, test_tenant.id)
     from app.db.models.environment import Environment
 
@@ -122,17 +128,20 @@ async def test_patching_a_legacy_environment_requires_filling_the_gap(
     )
     assert refused.status_code == 422
 
+    # Owner only — no expires_at. This is the discriminating half: under the
+    # old "owner AND expiry" rule this same patch would still 422.
     accepted = await client.patch(
         f"/api/v1/environments/{legacy.id}",
         headers=auth_headers,
         json={
             "description": "just a note",
             "owner_user_id": test_user.id,
-            "expires_at": _future(),
         },
     )
     assert accepted.status_code == 200
-    assert accepted.json()["owner_username"] == test_user.username
+    body = accepted.json()
+    assert body["owner_username"] == test_user.username
+    assert body["expires_at"] is None
 
 
 @pytest.mark.asyncio
@@ -161,17 +170,26 @@ async def test_patching_a_compliant_environment_needs_nothing_extra(
 
 
 @pytest.mark.asyncio
-async def test_governance_gap_filter_selects_only_the_incomplete_rows(
+async def test_governance_gap_filter_selects_only_rows_missing_an_owner(
     client, auth_headers, db_session, test_tenant, test_user
 ):
-    """The gap is reportable, which is the whole reason owner/expiry stay
-    nullable in the database rather than being backfilled with a fabrication."""
+    """The gap is reportable, which is the whole reason owner stays nullable in
+    the database rather than being backfilled with a fabrication.
+
+    Product decision: `governance_gap` means missing OWNER only — a null
+    expiry is "no expiry planned", a legitimate state, not a gap. The
+    no-owner-but-has-expiry vs has-owner-but-no-expiry pair below is the
+    discriminating half: without it, this test would pass just as well under
+    the old "owner or expiry" semantics.
+    """
     from app.db.models.environment import Environment
 
     tier = await _tier(db_session, test_tenant.id)
+    # No owner, no expiry either — the gap case.
     legacy = Environment(tenant_id=test_tenant.id, name="legacy", tier_id=tier.id)
     db_session.add(legacy)
     await db_session.commit()
+    await db_session.refresh(legacy)
 
     compliant = await client.post(
         "/api/v1/environments/",
@@ -185,6 +203,24 @@ async def test_governance_gap_filter_selects_only_the_incomplete_rows(
     )
     compliant_id = compliant.json()["id"]
 
+    # Has an owner but no expiry — under the OLD "owner or expiry" semantics
+    # this would count as a gap. Under the new semantics it must not: an
+    # owner is present, so it is clean, and a null expiry is "no expiry
+    # planned", not a gap. `POST /environments` still requires `expires_at`
+    # (unchanged — the form path always states one), so this row — the shape
+    # the spreadsheet import produces — is built directly, the same way the
+    # `legacy` row above is.
+    no_expiry = Environment(
+        tenant_id=test_tenant.id,
+        name="owner-no-expiry",
+        tier_id=tier.id,
+        owner_user_id=test_user.id,
+    )
+    db_session.add(no_expiry)
+    await db_session.commit()
+    await db_session.refresh(no_expiry)
+    no_expiry_id = no_expiry.id
+
     gaps = await client.get(
         "/api/v1/environments/?governance_gap=true", headers=auth_headers
     )
@@ -194,7 +230,9 @@ async def test_governance_gap_filter_selects_only_the_incomplete_rows(
     clean = await client.get(
         "/api/v1/environments/?governance_gap=false", headers=auth_headers
     )
-    assert [e["id"] for e in clean.json()] == [compliant_id]
+    assert sorted(e["id"] for e in clean.json()) == sorted(
+        [compliant_id, no_expiry_id]
+    )
 
 
 @pytest.mark.asyncio
@@ -294,7 +332,7 @@ async def test_a_tier_becomes_deletable_once_its_environment_is_soft_deleted(
 
 @pytest.mark.asyncio
 async def test_spreadsheet_import_falls_back_to_other_and_creates_no_tier(
-    db_session, test_tenant
+    db_session, test_tenant, test_user
 ):
     """A vocabulary the admin configures must not be extendable by uploading a
     spreadsheet. Counted before and after, because 'it used Other' and 'it
@@ -327,6 +365,7 @@ async def test_spreadsheet_import_falls_back_to_other_and_creates_no_tier(
         db_session,
         make_environment_excel([{"Name": "from-spreadsheet", "Type": "wibble"}]),
         test_tenant.id,
+        test_user.id,
     )
     assert result["created"] == 1, result
 
@@ -351,7 +390,7 @@ async def test_spreadsheet_import_falls_back_to_other_and_creates_no_tier(
 
 @pytest.mark.asyncio
 async def test_spreadsheet_import_matches_a_known_tier_case_insensitively(
-    db_session, test_tenant
+    db_session, test_tenant, test_user
 ):
     from sqlalchemy import select
 
@@ -370,6 +409,7 @@ async def test_spreadsheet_import_matches_a_known_tier_case_insensitively(
         db_session,
         make_environment_excel([{"Name": "lower-case-uat", "Type": "uat"}]),
         test_tenant.id,
+        test_user.id,
     )
 
     env = (
@@ -387,7 +427,7 @@ async def test_spreadsheet_import_matches_a_known_tier_case_insensitively(
 
 @pytest.mark.asyncio
 async def test_spreadsheet_import_into_a_tenant_with_no_tiers_says_so(
-    db_session, test_tenant
+    db_session, test_tenant, test_user
 ):
     """Rather than an AttributeError on a None tier."""
     from fastapi import HTTPException
@@ -400,6 +440,7 @@ async def test_spreadsheet_import_into_a_tenant_with_no_tiers_says_so(
             db_session,
             make_environment_excel([{"Name": "nowhere", "Type": "dev"}]),
             test_tenant.id,
+            test_user.id,
         )
     assert exc.value.status_code == 422
     assert "tier" in exc.value.detail.lower()

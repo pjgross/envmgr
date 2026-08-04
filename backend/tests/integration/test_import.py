@@ -121,6 +121,66 @@ async def test_import_environments_skip_existing(
 
 
 @pytest.mark.asyncio
+async def test_import_sets_the_importing_admin_as_owner_with_no_expiry(
+    client: AsyncClient, auth_headers, seeded_tiers
+):
+    """The importer is present, acting and identifiable, so recording them as
+    owner is truthful — unlike fabricating an owner for a pre-existing row,
+    which the spec deliberately refused. `expires_at` stays null: the
+    spreadsheet has none to offer, and null now means "no expiry planned"."""
+    file_bytes = make_environment_excel([
+        {"Name": "ImportedWithOwner", "Type": "uat"},
+    ])
+
+    resp = await client.post(
+        "/api/v1/import/environments",
+        headers=auth_headers,
+        files={"file": ("envs.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["created"] == 1
+
+    me = await client.get("/api/v1/auth/me", headers=auth_headers)
+
+    list_resp = await client.get("/api/v1/environments/", headers=auth_headers)
+    [env] = [e for e in list_resp.json() if e["name"] == "ImportedWithOwner"]
+    assert env["owner_username"] == me.json()["username"]
+    assert env["expires_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_imported_environment_can_be_patched_without_supplying_an_expiry(
+    client: AsyncClient, auth_headers, seeded_tiers
+):
+    """The defect this fix closes: before Decision 1, a null expiry counted as
+    a governance gap and the PATCH compliance rule refused every patch until
+    both owner and expiry were supplied — freezing every imported row,
+    because the importer sets an owner but deliberately no expiry. A
+    description-only patch must now succeed on its own."""
+    file_bytes = make_environment_excel([
+        {"Name": "ImportedThenPatched", "Type": "uat"},
+    ])
+    resp = await client.post(
+        "/api/v1/import/environments",
+        headers=auth_headers,
+        files={"file": ("envs.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+
+    list_resp = await client.get("/api/v1/environments/", headers=auth_headers)
+    [env] = [e for e in list_resp.json() if e["name"] == "ImportedThenPatched"]
+    assert env["expires_at"] is None  # imported rows have no expiry, by design
+
+    patched = await client.patch(
+        f"/api/v1/environments/{env['id']}",
+        headers=auth_headers,
+        json={"description": "reviewed, still no expiry planned"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["expires_at"] is None
+
+
+@pytest.mark.asyncio
 async def test_import_environments_missing_required_col(client: AsyncClient, auth_headers):
     """File without Name column → HTTP 400."""
     file_bytes = make_environment_excel_no_name_col([

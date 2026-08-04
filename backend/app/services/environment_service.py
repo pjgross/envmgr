@@ -96,17 +96,12 @@ async def list_environments(
             Environment.expires_at.is_not(None), Environment.expires_at <= cutoff
         )
     if governance_gap is True:
-        query = query.where(
-            or_(
-                Environment.owner_user_id.is_(None),
-                Environment.expires_at.is_(None),
-            )
-        )
+        # A null expiry is a legitimate "no expiry planned" state, not a gap —
+        # see the product decision recorded on update_environment's compliance
+        # rule below. The gap is missing OWNER only.
+        query = query.where(Environment.owner_user_id.is_(None))
     elif governance_gap is False:
-        query = query.where(
-            Environment.owner_user_id.is_not(None),
-            Environment.expires_at.is_not(None),
-        )
+        query = query.where(Environment.owner_user_id.is_not(None))
     if search:
         query = query.where(Environment.name.ilike(f"%{search}%"))
     query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
@@ -237,10 +232,10 @@ async def create_environment_record(
     """Create an environment from explicit fields.
 
     Separate from `create_environment` because the spreadsheet import has no
-    owner or expiry to supply: a bulk upload creates rows with the governance
-    gap rather than a fabricated owner, which is what makes the gap reportable.
-    `env_status` rather than `status` — the module-level `status` is FastAPI's
-    status-code namespace, used by the raises below.
+    expiry to supply — imported rows get `expires_at=None` ("no expiry
+    planned"), while `owner_user_id` is the importing admin, threaded in by
+    the caller. `env_status` rather than `status` — the module-level `status`
+    is FastAPI's status-code namespace, used by the raises below.
     """
     # Check name uniqueness within tenant (active records only)
     existing = await db.execute(
@@ -304,21 +299,24 @@ async def update_environment(
 
     # An environment must be compliant AFTER the patch. A compliant one can be
     # patched freely; a legacy one cannot be patched at all until the patch
-    # supplies an owner and an expiry. Deliberate: a rule that exempts "small"
-    # edits never closes the gap.
+    # supplies an owner. Deliberate: a rule that exempts "small" edits never
+    # closes the gap.
+    #
+    # Expiry is deliberately NOT part of this rule. Product decision: a null
+    # expiry means "no expiry planned" — a legitimate state, not a missing
+    # value — so it must never block a patch. (Without this exemption, the
+    # spreadsheet-imported rows below, which are created with no expiry by
+    # design, would be frozen: unable to receive even a description edit.)
     fields_set = data.model_fields_set
     effective_owner = (
         data.owner_user_id if "owner_user_id" in fields_set else env.owner_user_id
     )
-    effective_expiry = (
-        data.expires_at if "expires_at" in fields_set else env.expires_at
-    )
-    if effective_owner is None or effective_expiry is None:
+    if effective_owner is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "An environment must have a named owner and an expiry date. "
-                "Supply owner_user_id and expires_at with this change."
+                "An environment must have a named owner. "
+                "Supply owner_user_id with this change."
             ),
         )
     await _validate_tier_and_owner(db, tenant_id, data.tier_id, effective_owner)
