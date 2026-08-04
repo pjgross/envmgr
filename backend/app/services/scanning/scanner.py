@@ -1,7 +1,8 @@
 """Walk a repository once, hand matched files to the detectors that claimed them."""
 import re
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +14,28 @@ from app.services.github_client import (
     GitHubUnavailable,
     GitHubUnexpectedResponse,
 )
-from app.services.scanning.registry import Detector, DetectorResult, ParseContext
+from app.services.scanning import reconcile
+from app.services.scanning.declared import DeclaredState
+from app.services.scanning.reconcile import ApplyResult
+from app.services.scanning.registry import Detector, ParseContext
 
 _REPO_URL = re.compile(r"github\.com[:/]+([^/]+)/([^/.]+)")
+
+
+def _format_apply_error(detector_name: str, exc: Exception) -> str:
+    """Class name + a short message, `detector: Class: message` — matching
+    the `path: message` shape walk errors use just below, so the two error
+    kinds in a scan response read consistently instead of one being a plain
+    path and the other a bare `str(exc)`.
+
+    Never str(exc) alone: a SQLAlchemy IntegrityError's __str__ embeds the
+    full failing SQL statement and every bound parameter. Those values are
+    the tenant's own data, not a secret, but they are still noise — and
+    schema-shape exposure — in a user-facing scan response.
+    """
+    message = str(exc).splitlines()[0] if str(exc) else ""
+    return f"{detector_name}: {type(exc).__name__}: {message}" if message \
+        else f"{detector_name}: {type(exc).__name__}"
 
 
 def _transport() -> Optional[httpx.BaseTransport]:
@@ -26,22 +46,6 @@ def _transport() -> Optional[httpx.BaseTransport]:
 def get_detectors() -> list[Detector]:
     from app.services.scanning.detectors import DETECTORS
     return DETECTORS
-
-
-@dataclass
-class DetectorReport:
-    detector: str
-    paths: list[str] = field(default_factory=list)
-    result: DetectorResult = field(default_factory=DetectorResult)
-    errors: list[str] = field(default_factory=list)
-    #: Paths this detector claimed that the file cap dropped before the fetch
-    #: loop ever reached them. Without this, a detector starved by the cap
-    #: looks identical to one that read everything and found nothing: e.g.
-    #: 300 .tf files ahead of docker-compose.yml in tree order means Compose
-    #: is never fetched, yet its report is all zeros with no error. A path
-    #: whose *fetch* fails (as opposed to being dropped by the cap) is
-    #: recorded in `errors` instead — see the per-path try/except below.
-    paths_unread: int = 0
 
 
 def parse_repo_url(url: Optional[str]) -> tuple[str, str]:
@@ -64,120 +68,339 @@ class ScanAlreadyRunning(RuntimeError):
     pass
 
 
-async def scan_repository(
-    db: AsyncSession, *, token: str, system_id: int, tenant_id: int, repo_url: str
-) -> dict:
-    owner, repo = parse_repo_url(repo_url)
+@dataclass
+class DetectorWalk:
+    detector: Detector
+    paths: list[str] = field(default_factory=list)
+    declared: DeclaredState = field(default_factory=DeclaredState)
+    errors: list[str] = field(default_factory=list)
+    #: Paths this detector claimed that the file cap dropped before the fetch
+    #: loop reached them. Without this, a detector starved by the cap looks
+    #: identical to one that read everything and found nothing: 300 .tf files
+    #: ahead of docker-compose.yml in tree order means Compose is never
+    #: fetched, yet its report is all zeros with no error.
+    paths_unread: int = 0
 
+
+@dataclass
+class WalkResult:
+    ref: str
+    files_scanned: int
+    truncated: bool
+    stopped_early: bool
+    walks: list[DetectorWalk]
+
+
+def absence_is_computable(
+    walk: DetectorWalk, *, truncated: bool, stopped_early: bool
+) -> tuple[bool, Optional[str]]:
+    """Whether "in the catalogue but not in the code" can be trusted.
+
+    Positive findings survive a partial read; absence findings do not. A file
+    that was never read is indistinguishable from one that was deleted, so
+    when any part of this detector's input went unseen the absence categories
+    are left uncomputed rather than computed wrong.
+    """
+    if truncated:
+        return False, (
+            "GitHub returned only a partial listing of this repository's file "
+            "tree, so files it never listed cannot be told apart from deleted "
+            "ones."
+        )
+    if stopped_early:
+        return False, (
+            "The scan stopped at its file limit, so files it never read cannot "
+            "be told apart from deleted ones."
+        )
+    if walk.paths_unread:
+        return False, (
+            f"{walk.paths_unread} matching file(s) were not read, so they cannot "
+            "be told apart from deleted ones."
+        )
+    if walk.errors:
+        return False, (
+            "Some matching files could not be fetched, so they cannot be told "
+            "apart from deleted ones."
+        )
+    return True, None
+
+
+async def _walk(client: GitHubClient, owner: str, repo: str) -> WalkResult:
+    """Read the repository once and parse everything the detectors claim.
+
+    Touches no database: both the scan and the drift report run this and then
+    do their own thing with the result.
+    """
+    ref = await client.get_default_branch(owner, repo)
+    tree = await client.get_tree(owner, repo, ref)
+
+    detectors = get_detectors()
+    walks = {d.name: DetectorWalk(detector=d) for d in detectors}
+
+    # A path goes to EVERY detector that claims it — "first match wins" would
+    # make behaviour depend on registry order.
+    claimed: list[tuple[str, list[Detector]]] = []
+    for path in tree.paths:
+        wanted = [d for d in detectors if d.matches(path)]
+        if wanted:
+            claimed.append((path, wanted))
+
+    stopped_early = len(claimed) > settings.MAX_SCAN_FILES
+    dropped, claimed = (
+        claimed[settings.MAX_SCAN_FILES:],
+        claimed[: settings.MAX_SCAN_FILES],
+    )
+    for _, wanted in dropped:
+        for detector in wanted:
+            walks[detector.name].paths_unread += 1
+
+    async def fetch(path: str) -> Optional[bytes]:
+        try:
+            return await client.get_blob(owner, repo, path, ref)
+        except Exception:
+            return None
+
+    for path, wanted in claimed:
+        try:
+            content = await client.get_blob(owner, repo, path, ref)
+        except (GitHubNotFound, GitHubUnavailable, GitHubUnexpectedResponse) as exc:
+            # A transient 5xx, a 404, or a malformed body on ONE file must not
+            # abort the whole walk. GitHubAuthError and GitHubRateLimited are
+            # deliberately NOT caught: a 401 is dead for every remaining file
+            # and must reach the endpoint's cleanup, and a 429 means every
+            # subsequent call fails the same way.
+            for detector in wanted:
+                walks[detector.name].errors.append(f"{path}: {exc}")
+            continue
+        for detector in wanted:
+            walk = walks[detector.name]
+            walk.paths.append(path)
+            try:
+                walk.declared = walk.declared + await detector.parse(
+                    ParseContext(content=content, path=path, fetch=fetch)
+                )
+            except Exception as exc:
+                # One detector failing must not take the others with it.
+                walk.errors.append(f"{path}: {exc}")
+
+    return WalkResult(
+        ref=ref,
+        files_scanned=len(claimed),
+        truncated=tree.truncated,
+        stopped_early=stopped_early,
+        walks=list(walks.values()),
+    )
+
+
+@asynccontextmanager
+async def _locked_scan(*, system_id: int, tenant_id: int) -> AsyncIterator[None]:
+    """Hold the per-system in-flight marker for an entire scan or drift
+    report — the network-bound walk AND whatever the caller does with its
+    result — not just the walk.
+
+    A marker released as soon as the walk returns would let a second request
+    pass the in-flight check while the first request's database writes are
+    still in progress: two `reconcile.apply` calls are check-then-act over
+    `catalogue()`, racing to insert the same (system_id, name). On the
+    SQLite test engine there is no unique constraint to catch that — the
+    loser silently disappears from both `apply()` and `diff()`. In
+    PRODUCTION, migration `nameuniqguard`'s partial unique index
+    `uq_subsystem_system_name (system_id, name) WHERE deleted_at IS NULL`
+    turns the same race into an `IntegrityError` instead of a silent loss —
+    still a failure, just a noisy one instead of a quiet one, and this lock
+    is what prevents either outcome. The forthcoming drift report needs this
+    too: comparing against a catalogue a concurrent scan is mutating reports
+    differences that exist on neither side.
+    """
     key = (tenant_id, system_id)
     if key in _in_flight:
         raise ScanAlreadyRunning("a scan of this system is already running")
     _in_flight.add(key)
     try:
-        client = GitHubClient(token=token, transport=_transport())
-        try:
-            ref = await client.get_default_branch(owner, repo)
-            tree = await client.get_tree(owner, repo, ref)
-
-            detectors = get_detectors()
-            reports = {d.name: DetectorReport(detector=d.name) for d in detectors}
-
-            # A path goes to EVERY detector that claims it — "first match wins"
-            # would make behaviour depend on registry order.
-            claimed: list[tuple[str, list[Detector]]] = []
-            for path in tree.paths:
-                wanted = [d for d in detectors if d.matches(path)]
-                if wanted:
-                    claimed.append((path, wanted))
-
-            stopped_early = len(claimed) > settings.MAX_SCAN_FILES
-            dropped, claimed = (
-                claimed[settings.MAX_SCAN_FILES:],
-                claimed[: settings.MAX_SCAN_FILES],
-            )
-            for _, wanted in dropped:
-                for detector in wanted:
-                    reports[detector.name].paths_unread += 1
-
-            async def fetch(path: str) -> Optional[bytes]:
-                try:
-                    return await client.get_blob(owner, repo, path, ref)
-                except Exception:
-                    return None
-
-            for path, wanted in claimed:
-                try:
-                    content = await client.get_blob(owner, repo, path, ref)
-                except (GitHubNotFound, GitHubUnavailable, GitHubUnexpectedResponse) as exc:
-                    # A transient 5xx, a 404 (the file existed in the tree but
-                    # is gone by the time it's fetched), or a malformed body on
-                    # ONE file must not abort the whole scan — that discards
-                    # every write earlier detectors already made (the request
-                    # rolls back) and blames "repository not found, or the
-                    # token cannot see it" on a single-file hiccup. Record it
-                    # against every detector that claimed this path and move
-                    # on to the next one.
-                    #
-                    # GitHubAuthError and GitHubRateLimited are deliberately
-                    # NOT caught here: a 401 means the token is dead for every
-                    # remaining file too (not just this one) and must still
-                    # reach the endpoint's cleanup in systems.py, and a 429
-                    # means every subsequent call would fail the same way —
-                    # continuing would just burn through the rest of the tree
-                    # collecting the same error per path.
-                    for detector in wanted:
-                        reports[detector.name].errors.append(f"{path}: {exc}")
-                    continue
-                for detector in wanted:
-                    report = reports[detector.name]
-                    report.paths.append(path)
-                    try:
-                        # Each detector writes inside its own SAVEPOINT. Without this a
-                        # failed flush — an IntegrityError from a duplicate name, say —
-                        # marks the whole session for rollback, and the NEXT use of the
-                        # session raises PendingRollbackError: one detector's failure
-                        # would erase every other detector's results at commit time.
-                        async with db.begin_nested():
-                            parsed = await detector.parse(
-                                ParseContext(
-                                    content=content, path=path, system_id=system_id,
-                                    tenant_id=tenant_id, db=db, fetch=fetch,
-                                )
-                            )
-                        report.result = report.result + parsed
-                    except Exception as exc:
-                        # One detector failing must not take the others with it.
-                        report.errors.append(f"{path}: {exc}")
-
-            return {
-                "ref": ref,
-                "files_scanned": len(claimed),
-                "truncated": tree.truncated,
-                "stopped_early": stopped_early,
-                "detectors": [
-                    {
-                        "detector": r.detector,
-                        "paths": r.paths,
-                        "subsystems_created": r.result.subsystems_created,
-                        "subsystems_updated": r.result.subsystems_updated,
-                        "dependencies_written": r.result.dependencies_written,
-                        "warnings": r.result.warnings,
-                        "errors": r.errors,
-                        "paths_unread": r.paths_unread,
-                    }
-                    for r in reports.values()
-                ],
-            }
-        finally:
-            # GitHubClient holds one pooled httpx client for its lifetime; a
-            # scan that raises must still release it, or every failed scan
-            # leaks a connection pool.
-            try:
-                await client.aclose()
-            except Exception:
-                # Never let a close failure replace the exception that is
-                # already propagating: the endpoint dispatches on that type,
-                # and losing it means a revoked token is never cleared.
-                pass
+        yield
     finally:
         _in_flight.discard(key)
+
+
+async def _walk_repository(*, token: str, repo_url: str) -> WalkResult:
+    """Open a GitHubClient, run the shared walk, and close the client.
+
+    Takes no lock and no session: callers hold `_locked_scan` around this and
+    do their own thing — apply, diff — with the result.
+    """
+    owner, repo = parse_repo_url(repo_url)
+    client = GitHubClient(token=token, transport=_transport())
+    try:
+        return await _walk(client, owner, repo)
+    finally:
+        # GitHubClient holds one pooled httpx client for its lifetime; a walk
+        # that raises must still release it, or every failure leaks a
+        # connection pool. Never let a close failure replace the exception
+        # already propagating — the endpoint dispatches on that type, and
+        # losing it means a revoked token is never cleared.
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+
+
+async def scan_repository(
+    db: AsyncSession, *, token: str, system_id: int, tenant_id: int, repo_url: str
+) -> dict:
+    async with _locked_scan(system_id=system_id, tenant_id=tenant_id):
+        walk_result = await _walk_repository(token=token, repo_url=repo_url)
+
+        detectors_out = []
+        for walk in walk_result.walks:
+            applied = ApplyResult()
+            errors = list(walk.errors)
+            if walk.declared.subsystems or walk.declared.edges:
+                try:
+                    # Each detector writes inside its own SAVEPOINT. Without it
+                    # a failed flush marks the whole session for rollback, and
+                    # the next use raises PendingRollbackError: one detector's
+                    # failure would erase every other detector's results at
+                    # commit time.
+                    async with db.begin_nested():
+                        applied = await reconcile.apply(
+                            db,
+                            system_id=system_id,
+                            tenant_id=tenant_id,
+                            source=walk.detector.subsystem_source,
+                            edge_source=walk.detector.edge_source,
+                            declared=walk.declared,
+                        )
+                except Exception as exc:
+                    errors.append(_format_apply_error(walk.detector.name, exc))
+            detectors_out.append({
+                "detector": walk.detector.name,
+                "paths": walk.paths,
+                "subsystems_created": applied.subsystems_created,
+                "subsystems_updated": applied.subsystems_updated,
+                "dependencies_written": applied.dependencies_written,
+                "warnings": walk.declared.warnings,
+                "errors": errors,
+                "paths_unread": walk.paths_unread,
+            })
+
+        return {
+            "ref": walk_result.ref,
+            "files_scanned": walk_result.files_scanned,
+            "truncated": walk_result.truncated,
+            "stopped_early": walk_result.stopped_early,
+            "detectors": detectors_out,
+        }
+
+
+async def drift_repository(
+    db: AsyncSession, *, token: str, system_id: int, tenant_id: int, repo_url: str
+) -> dict:
+    """Report where the catalogue and the repository disagree. Writes nothing.
+
+    Shares the scan's lock: comparing against a catalogue a concurrent scan is
+    mutating would report differences that exist on neither side.
+    """
+    async with _locked_scan(system_id=system_id, tenant_id=tenant_id):
+        walk_result = await _walk_repository(token=token, repo_url=repo_url)
+
+        detectors_out = []
+        for walk in walk_result.walks:
+            absence_computed, absence_reason = absence_is_computable(
+                walk,
+                truncated=walk_result.truncated,
+                stopped_early=walk_result.stopped_early,
+            )
+            report = await reconcile.diff(
+                db,
+                system_id=system_id,
+                tenant_id=tenant_id,
+                source=walk.detector.subsystem_source,
+                edge_source=walk.detector.edge_source,
+                declared=walk.declared,
+                absence_computed=absence_computed,
+                absence_reason=absence_reason,
+            )
+            detectors_out.append({
+                "detector": walk.detector.name,
+                "paths": walk.paths,
+                "paths_unread": walk.paths_unread,
+                "errors": walk.errors,
+                "warnings": report.warnings,
+                "absence_computed": report.absence_computed,
+                "absence_reason": report.absence_reason,
+                "has_drift": report.has_drift,
+                "subsystems": {
+                    "missing_in_catalogue": [
+                        {
+                            "name": s.name,
+                            "component_type": s.component_type,
+                            "technology": s.technology,
+                            "source_path": s.source_path,
+                        }
+                        for s in report.subsystems_missing_in_catalogue
+                    ],
+                    # None, never [] — "we checked and found nothing missing" and
+                    # "we could not check" are opposite conclusions.
+                    "missing_in_code": report.subsystems_missing_in_code,
+                    "changed": [
+                        {
+                            "name": c.name,
+                            "field": c.field,
+                            "catalogue": c.catalogue,
+                            "declared": c.declared,
+                            "source_path": c.source_path,
+                        }
+                        for c in report.subsystems_changed
+                    ],
+                },
+                "edges": {
+                    "missing_in_catalogue": [
+                        {
+                            "from_name": e.from_name,
+                            "to_name": e.to_name,
+                            "port": e.port,
+                            "source_path": e.source_path,
+                        }
+                        for e in report.edges_missing_in_catalogue
+                    ],
+                    "missing_in_code": None if report.edges_missing_in_code is None else [
+                        {"from_name": e.from_name, "to_name": e.to_name, "port": e.port}
+                        for e in report.edges_missing_in_code
+                    ],
+                    # The code declares this edge, but the catalogue already
+                    # holds a row for the same pair under a different source
+                    # (e.g. hand-made). apply() cannot create this — it would
+                    # collide with the existing row on uq_component_dep — so
+                    # it is never mixed into missing_in_catalogue, which the
+                    # UI reads as "Scan will create this".
+                    "conflicting_source": [
+                        {
+                            "from_name": e.from_name,
+                            "to_name": e.to_name,
+                            "port": e.port,
+                            "source_path": e.source_path,
+                            "catalogue_source": e.catalogue_source,
+                        }
+                        for e in report.edges_conflicting_source
+                    ],
+                    "changed": [
+                        {
+                            "from_name": c.from_name,
+                            "to_name": c.to_name,
+                            "catalogue_port": c.catalogue_port,
+                            "declared_port": c.declared_port,
+                            "source_path": c.source_path,
+                        }
+                        for c in report.edges_changed
+                    ],
+                },
+            })
+
+        return {
+            "ref": walk_result.ref,
+            "files_scanned": walk_result.files_scanned,
+            "truncated": walk_result.truncated,
+            "stopped_early": walk_result.stopped_early,
+            "has_drift": any(d["has_drift"] for d in detectors_out),
+            "detectors": detectors_out,
+        }

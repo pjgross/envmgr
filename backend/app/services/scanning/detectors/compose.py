@@ -5,8 +5,11 @@ registry works against known-good code.
 """
 import re
 
+from app.db.models.dependency import DependencySource
+from app.db.models.system import SubSystemSource
 from app.services import docker_compose_import_service
-from app.services.scanning.registry import Detector, DetectorResult, ParseContext
+from app.services.scanning.declared import DeclaredState
+from app.services.scanning.registry import Detector, ParseContext
 
 # Base Compose files only. `docker-compose.override.yml`, `docker-compose.prod.yml`
 # and friends are deliberately NOT claimed: an override is a fragment that
@@ -21,18 +24,14 @@ def _matches(path: str) -> bool:
     return _PATTERN.search(path) is not None
 
 
-async def _parse(ctx: ParseContext) -> DetectorResult:
-    result = await docker_compose_import_service.import_docker_compose(
-        system_id=ctx.system_id,
-        tenant_id=ctx.tenant_id,
-        content=ctx.content,
-        db=ctx.db,
-    )
-    return DetectorResult(
-        subsystems_created=result.get("subsystems_created", 0),
-        subsystems_updated=result.get("subsystems_updated", 0),
-        dependencies_written=result.get("dependencies_created", 0),
-    )
+async def _parse(ctx: ParseContext) -> DeclaredState:
+    return docker_compose_import_service.parse_docker_compose(ctx.content, ctx.path)
 
 
-DOCKER_COMPOSE = Detector(name="docker_compose", matches=_matches, parse=_parse)
+DOCKER_COMPOSE = Detector(
+    name="docker_compose",
+    matches=_matches,
+    parse=_parse,
+    subsystem_source=SubSystemSource.DOCKER_COMPOSE,
+    edge_source=DependencySource.DOCKER_COMPOSE,
+)

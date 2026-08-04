@@ -5,7 +5,7 @@ to disturb detectors that already work.
 """
 import pytest
 
-from app.services.scanning.registry import DetectorResult, ParseContext
+from app.services.scanning.registry import ParseContext
 from app.services.scanning.detectors import DETECTORS
 from app.services.scanning.detectors.compose import DOCKER_COMPOSE
 
@@ -49,22 +49,6 @@ def test_every_registered_detector_has_a_unique_name():
     assert len(names) == len(set(names))
 
 
-def test_detector_result_totals_are_addable():
-    """The scan sums results across detectors without knowing what any did."""
-    a = DetectorResult(subsystems_created=1, subsystems_updated=2, dependencies_written=3)
-    b = DetectorResult(subsystems_created=10, subsystems_updated=20, dependencies_written=30)
-    total = a + b
-    assert (total.subsystems_created, total.subsystems_updated, total.dependencies_written) == (
-        11, 22, 33
-    )
-
-
-def test_warnings_survive_addition():
-    a = DetectorResult(warnings=["a"])
-    b = DetectorResult(warnings=["b"])
-    assert (a + b).warnings == ["a", "b"]
-
-
 def test_terraform_claims_tf_files_only():
     from app.services.scanning.detectors.terraform_hcl import TERRAFORM_HCL
 
@@ -85,3 +69,40 @@ def test_adding_a_detector_did_not_disturb_the_existing_one():
     compose = next(d for d in DETECTORS if d.name == "docker_compose")
     assert compose.matches("docker-compose.yml") is True
     assert compose.matches("main.tf") is False
+
+
+def test_every_detector_declares_the_provenance_it_writes():
+    """diff() compares catalogue rows to the detector that owns their source.
+    A detector without one would silently compare against nothing."""
+    from app.db.models.system import SubSystemSource
+    from app.services.scanning.detectors import DETECTORS
+
+    for detector in DETECTORS:
+        assert isinstance(detector.subsystem_source, SubSystemSource), detector.name
+
+
+def test_only_detectors_that_declare_edges_may_delete_them():
+    """edge_source is what apply() deletes on. A detector that parses no edges
+    must pass None, or scanning a .tf file would wipe every compose edge."""
+    from app.services.scanning.detectors import DETECTORS
+
+    by_name = {d.name: d for d in DETECTORS}
+    assert by_name["docker_compose"].edge_source is not None
+    assert by_name["terraform_hcl"].edge_source is None
+
+
+@pytest.mark.asyncio
+async def test_a_detector_parses_without_a_database():
+    """The refactor's whole point: parsing is pure, so it needs no session."""
+    from app.services.scanning.registry import ParseContext
+
+    async def _never_called(path):
+        raise AssertionError("fetch should not be needed here")
+
+    declared = await DOCKER_COMPOSE.parse(ParseContext(
+        content=b"services:\n  api:\n    image: nginx\n",
+        path="docker-compose.yml",
+        fetch=_never_called,
+    ))
+
+    assert [s.name for s in declared.subsystems] == ["api"]

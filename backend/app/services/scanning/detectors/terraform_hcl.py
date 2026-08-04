@@ -1,6 +1,8 @@
 """Terraform HCL detector."""
+from app.db.models.system import SubSystemSource
 from app.services import terraform_hcl_import_service
-from app.services.scanning.registry import Detector, DetectorResult, ParseContext
+from app.services.scanning.declared import DeclaredState
+from app.services.scanning.registry import Detector, ParseContext
 
 
 def _matches(path: str) -> bool:
@@ -9,16 +11,15 @@ def _matches(path: str) -> bool:
     return path.endswith(".tf")
 
 
-async def _parse(ctx: ParseContext) -> DetectorResult:
-    result = await terraform_hcl_import_service.import_terraform_hcl(
-        system_id=ctx.system_id, tenant_id=ctx.tenant_id,
-        content=ctx.content, db=ctx.db,
-    )
-    return DetectorResult(
-        subsystems_created=result["subsystems_created"],
-        subsystems_updated=result["subsystems_updated"],
-        warnings=result.get("warnings", []),
-    )
+async def _parse(ctx: ParseContext) -> DeclaredState:
+    return terraform_hcl_import_service.parse_terraform_hcl(ctx.content, ctx.path)
 
 
-TERRAFORM_HCL = Detector(name="terraform_hcl", matches=_matches, parse=_parse)
+TERRAFORM_HCL = Detector(
+    name="terraform_hcl",
+    matches=_matches,
+    parse=_parse,
+    subsystem_source=SubSystemSource.TERRAFORM_HCL,
+    # HCL wires dependencies through interpolations, which this does not read.
+    edge_source=None,
+)

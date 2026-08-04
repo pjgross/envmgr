@@ -70,6 +70,7 @@ import type {
 } from '../../types/system';
 import SystemTopologyDiagram from './SystemTopologyDiagram';
 import ScanRepositoryDialog from '../../components/systems/ScanRepositoryDialog';
+import DriftDialog from '../../components/systems/DriftDialog';
 import ScopeWindowsTable from '../../components/releases/ScopeWindowsTable';
 import type {
   DependencyType,
@@ -298,6 +299,7 @@ export default function SystemDetail() {
 
   // GitHub repository scan dialog state
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [driftDialogOpen, setDriftDialogOpen] = useState(false);
 
   useEffect(() => {
     dispatch(fetchSystem(systemId));
@@ -881,6 +883,24 @@ export default function SystemDetail() {
                         disabled={!currentSystem?.github_repository_url}
                       >
                         Scan repository
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip
+                    title={
+                      currentSystem?.github_repository_url
+                        ? ''
+                        : 'Set a GitHub Repository URL to enable drift checks'
+                    }
+                  >
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setDriftDialogOpen(true)}
+                        disabled={!currentSystem?.github_repository_url}
+                      >
+                        Check drift
                       </Button>
                     </span>
                   </Tooltip>
@@ -1861,6 +1881,15 @@ export default function SystemDetail() {
           open={scanDialogOpen}
           systemId={currentSystem.id}
           onClose={() => setScanDialogOpen(false)}
+        />
+      )}
+
+      {/* GitHub Repository Drift Dialog */}
+      {currentSystem && (
+        <DriftDialog
+          open={driftDialogOpen}
+          systemId={currentSystem.id}
+          onClose={() => setDriftDialogOpen(false)}
         />
       )}
     </Box>

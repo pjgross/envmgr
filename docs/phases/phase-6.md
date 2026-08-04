@@ -1,7 +1,7 @@
 # Phase 6: Infrastructure Topology
 
-> Status: 🟡 **Substantially shipped.** Model + host-aware CRs (Phase 2.5), both IaC parsers, the topology API and the React Flow visualisation are all done; environment comparison shipped 2026-08-03. Three sub-projects remain — see *What is actually left* below. | Roadmap: [../plan.md](../plan.md)
-> Duration: 6–8 weeks (remainder) | Starts after Phase 5 completion
+> Status: ✅ **COMPLETE (2026-08-03).** Model + host-aware CRs (Phase 2.5), both IaC parsers, the topology API and the React Flow visualisation, environment comparison, GitHub OAuth + repository scanning, and drift detection are all shipped. Nothing outstanding — see *What is actually left* below for the corrected record. | Roadmap: [../plan.md](../plan.md)
+> Duration: 6–8 weeks (remainder) | Started after Phase 5 completion
 
 ---
 
@@ -33,7 +33,7 @@ The task list below was two-thirds wrong. Verified against the code, not the roa
 | GitHub repo link on System detail | **Shipped** — the field exists and renders |
 | Neo4j sync consumer | **Obsolete** — Neo4j removed, see [decisions/2026-07-30-drop-neo4j.md](../decisions/2026-07-30-drop-neo4j.md) |
 
-**One sub-project remains: drift detection.** Three of the four originally listed here are done — environment comparison, env-topology SP4 (already shipped before it was recorded as outstanding), and GitHub repository scanning.
+**All four sub-projects are now done** — environment comparison, env-topology SP4 (already shipped before it was recorded as outstanding), GitHub repository scanning, and drift detection.
 
 ### 1. Environment comparison — ✅ shipped 2026-08-03
 
@@ -53,17 +53,42 @@ Two decisions worth carrying into the rest of Phase 6:
   environment reframes the same differences as risk in the UI. Keeping it out of the API
   means one response serves both the triage and fidelity views.
 
-### 2. Drift detection — not started, and now the only remainder
+### 2. Drift detection — ✅ shipped 2026-08-03
 
-Compare IaC-declared against recorded state. Sub-project 3 has since answered part of what
-was blocking this: there is now an **HCL parser for `.tf` source**, and repository access via
-a connected GitHub account.
+`GET /api/v1/systems/{id}/github/drift` plus a "Check drift" dialog on System detail. Spec:
+[../superpowers/specs/2026-08-03-drift-detection-design.md](../superpowers/specs/2026-08-03-drift-detection-design.md).
 
-What it still needs is a decision on where **`.tfstate`** comes from — it is normally not in
-the repository. And a caution the scanner work turned up: `.tf` gives *declared* resources
-with no computed values or resource ids, so a `.tf` scan and a `.tfstate` import of the same
-infrastructure do **not** produce identical rows. Any drift comparison built on the
-assumption that they agree will report differences that are artefacts of the two formats.
+**It compares repository IaC against the subsystem catalogue, not `.tfstate` against recorded
+state** — because the framing above turned out not to match the code. The IaC parsers write
+`SubSystem` rows, not `InfrastructureComponent` rows; nothing anywhere sets
+`InfrastructureComponentSource.TERRAFORM`, which is still an unused enum value. So the
+comparison that was actually available needed no `.tfstate` and no new data source. The
+`.tf`-versus-`.tfstate` question is unchanged and remains out of scope, for the two reasons
+already recorded: state is not normally committed, and `.tf` declares resources with no
+computed values or resource ids, so the two formats do not produce comparable rows.
+
+Three things worth carrying forward:
+
+- **Parsing must not write.** The importers parsed and persisted in one pass, so "what the
+  code declares" never existed as a value anyone could compare. Detectors now return a
+  `DeclaredState`, and `reconcile.apply()` writes it while `reconcile.diff()` compares it —
+  both reading the same value, which is what stops the report describing a change a scan
+  would not make. A test asserts exactly that: `apply(declared)` then `diff(declared)` must
+  report zero drift. It earned its keep immediately, catching a case where the two sides
+  de-duplicated repeated edges in opposite directions.
+- **Truncate in the parser, never in the writer.** If the writer truncated, a stored row
+  would differ from the declaration it came from and every long name would report a phantom
+  change on every run. Note SQLite does not enforce column widths at all, so removing a
+  truncation fails **only** on the PostgreSQL leg.
+- **Positive findings survive a partial read; absence findings do not.** GitHub truncates
+  large trees and the scan caps files, and an unread file is indistinguishable from a deleted
+  one. So "in the catalogue but not in the code" is not computed at all when the read was
+  partial — it serialises as `null`, never `[]`, and the UI omits the group rather than
+  rendering it empty. "We checked and found nothing" and "we could not check" are opposite
+  conclusions.
+
+Provenance was the enabling change: `SubSystem` gained `source` and `source_path`, without
+which a resource deleted from the code cannot be told apart from one a person added by hand.
 
 ### 3. GitHub OAuth + repository scanning — ✅ shipped 2026-08-03
 
