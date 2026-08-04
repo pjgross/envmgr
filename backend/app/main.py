@@ -196,3 +196,9 @@ app.include_router(metrics_router.router, prefix="/api/v1")
 from app.api.v1 import integrations_github as integrations_github_router
 
 app.include_router(integrations_github_router.router, prefix="/api/v1")
+
+from app.api.v1 import user_groups as user_groups_router
+
+app.include_router(
+    user_groups_router.router, prefix="/api/v1/tenant", tags=["Tenant Admin"]
+)
