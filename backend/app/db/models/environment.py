@@ -39,6 +39,14 @@ class Environment(Base):
     expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # The team that operates this environment. Nullable everywhere: existing
+    # rows keep a null rather than a fabricated group, and `?governance_gap=`
+    # reports it. B3b is where the constraint lands — it refuses to *route* a
+    # request for an environment with no operating team, which is where the
+    # requirement actually matters.
+    operations_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("user_group.id"), nullable=True, index=True
+    )
     status: Mapped[EnvironmentStatus] = mapped_column(
         SAEnum(EnvironmentStatus, native_enum=False),
         nullable=False,
