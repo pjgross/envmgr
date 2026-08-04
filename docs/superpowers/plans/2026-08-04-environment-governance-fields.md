@@ -144,7 +144,7 @@ async def test_display_order_is_the_tier_progression_not_alphabetical(
 async def test_seed_does_not_leak_across_tenants(
     db_session, test_tenant, second_tenant_factory
 ):
-    other = await second_tenant_factory()
+    other, _ = await second_tenant_factory()  # the fixture returns (tenant, user)
     await seed_environment_tier_defaults_for_tenant(db_session, test_tenant.id)
     await db_session.flush()
 
@@ -454,7 +454,7 @@ async def test_another_tenants_tier_is_invisible_and_unreachable(
 ):
     from app.db.models.environment_tier import EnvironmentTier
 
-    other = await second_tenant_factory()
+    other, _ = await second_tenant_factory()  # the fixture returns (tenant, user)
     theirs = EnvironmentTier(tenant_id=other.id, name="Their Tier")
     db_session.add(theirs)
     await db_session.commit()
@@ -898,7 +898,7 @@ async def test_create_returns_tier_and_owner_names_on_the_row(
 async def test_a_tier_from_another_tenant_is_rejected(
     client, auth_headers, db_session, test_tenant, test_user, second_tenant_factory
 ):
-    other = await second_tenant_factory()
+    other, _ = await second_tenant_factory()  # the fixture returns (tenant, user)
     theirs = await _tier(db_session, other.id, name="Theirs")
 
     resp = await client.post(
