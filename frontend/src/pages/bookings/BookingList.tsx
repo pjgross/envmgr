@@ -57,6 +57,12 @@ const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | 'error' 
 
 // --- Column visibility localStorage ------------------------------------------
 
+// Custom-field columns are namespaced under this prefix (see
+// buildCustomFieldColumns below) so a tenant-defined field_key can never
+// collide with a static column's `field` — see the module-level comment
+// there for why that matters.
+const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
+
 function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
   const key = `bookings-list-columns-${userId ?? 'guest'}`;
   try {
@@ -186,6 +192,19 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
 // above — pulled out to a plain function so the `sortable: false` on them is
 // unit-testable the same way, since none of these fields is ever in the
 // backend's sort whitelist (they're tenant-defined, not schema columns).
+//
+// The `field` is namespaced `cf_<key>`, never the raw `field_key`. A tenant is
+// free to key a custom field `project_name` or `status` — entirely ordinary
+// things to do — and without the prefix that GridColDef would share its
+// `field` with the static column of the same name. MUI keys its column lookup
+// by `field`, so two entries sharing one become a single column: duplicate
+// headers, and toggling visibility on one silently hides the other, which
+// `saveColumnModel` above then persists across reloads. EnvironmentList
+// shipped exactly this bug when a static `owner` column met the demo tenant's
+// `owner` custom field.
+//
+// The prefix is a grid-column id only: `custom_fields` on the row is still
+// keyed by the tenant's own `field_key`, so the valueGetter reads the raw key.
 // eslint-disable-next-line react-refresh/only-export-components
 export function buildCustomFieldColumns(
   defs: CustomFieldDefinition[]
@@ -193,7 +212,7 @@ export function buildCustomFieldColumns(
   return defs.map(
     (def) =>
       ({
-        field: def.field_key,
+        field: `${CUSTOM_FIELD_COLUMN_PREFIX}${def.field_key}`,
         headerName: def.label,
         flex: 1,
         sortable: false,
