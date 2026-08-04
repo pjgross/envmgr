@@ -88,12 +88,46 @@ const emptyForm: EnvFormValues = {
   status: 'active',
 };
 
-function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
+// Custom-field columns are namespaced under this prefix (see
+// buildCustomFieldColumns below) so a tenant-defined field_key can never
+// collide with a static column's `field` — see the module-level comment
+// there for why that matters.
+const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
+
+// Read once from the static column list itself (never hardcoded) so this
+// stays correct if a static column is ever added, renamed or removed.
+const STATIC_COLUMN_FIELDS = () => environmentColumns.map((c) => c.field as string);
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function loadColumnModel(
+  userId: number | string | undefined,
+  knownStaticFields: readonly string[] = STATIC_COLUMN_FIELDS()
+): GridColumnVisibilityModel {
   const key = `environments-list-columns-${userId ?? 'guest'}`;
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return {};
-    return JSON.parse(raw) ?? {};
+    const parsed = (JSON.parse(raw) ?? {}) as Record<string, boolean>;
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const known = new Set(knownStaticFields);
+    // A `cf_`-prefixed key always belongs to the custom-field namespace, so
+    // it's kept regardless of whether *this* tenant's currently-loaded
+    // definitions include it — those load asynchronously (see
+    // fetchDefinitions in the component below), and dropping a namespaced
+    // entry just because definitions haven't arrived yet on this render
+    // would silently discard a real saved preference. A non-namespaced key
+    // is kept only if it names a column that still exists today; this is
+    // what stops a stale entry surviving indefinitely once its column is
+    // gone. Note it does NOT retroactively fix an entry whose key was
+    // already reused by a *new* static column of the same name before this
+    // fix shipped (see EnvironmentList's commit message) — that key is
+    // legitimately "known" either way, so it can't be told apart from a
+    // real preference for the new column.
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([field]) => field.startsWith(CUSTOM_FIELD_COLUMN_PREFIX) || known.has(field)
+      )
+    );
   } catch {
     return {};
   }
@@ -215,6 +249,18 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
 // above — pulled out to a plain function so the `sortable: false` on them is
 // unit-testable the same way, since none of these fields is ever in the
 // backend's sort whitelist (they're tenant-defined, not schema columns).
+//
+// The grid `field` is namespaced with CUSTOM_FIELD_COLUMN_PREFIX rather than
+// using `def.field_key` directly: field_key is tenant-chosen and free-text
+// (e.g. a demo tenant defined one keyed 'owner', to record an owner before
+// this page had a real Owner column), so an unnamespaced field can collide
+// with a static column's `field` of the same name — and did. MUI then treats
+// both grid entries as the same column internally (same `field` = same
+// lookup key), which duplicates the rendered header AND, worse, means a
+// visibility toggle persisted for one silently hides the other too. The
+// prefix is grid-internal only: `headerName` still reads `def.label`, and
+// the value is still looked up by the raw `def.field_key` inside
+// `custom_fields`, so nothing user-visible changes.
 // eslint-disable-next-line react-refresh/only-export-components
 export function buildCustomFieldColumns(
   defs: CustomFieldDefinition[]
@@ -222,7 +268,7 @@ export function buildCustomFieldColumns(
   return defs.map(
     (def) =>
       ({
-        field: def.field_key,
+        field: `${CUSTOM_FIELD_COLUMN_PREFIX}${def.field_key}`,
         headerName: def.label,
         flex: 1,
         sortable: false,

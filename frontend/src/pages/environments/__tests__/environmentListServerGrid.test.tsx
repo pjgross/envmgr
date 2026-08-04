@@ -3,10 +3,14 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
 import whitelists from '../../../constants/sortWhitelists.json';
-import EnvironmentList, { environmentColumns, buildCustomFieldColumns } from '../EnvironmentList';
+import EnvironmentList, {
+  environmentColumns,
+  buildCustomFieldColumns,
+  loadColumnModel,
+} from '../EnvironmentList';
 
 // No HTTP — this test is about the wiring between the URL/filters and the
 // dispatched fetch, not about what the server returns.
@@ -115,8 +119,10 @@ vi.mock('@mui/x-data-grid', async (importOriginal) => {
 
 import { environmentService } from '../../../services/environmentService';
 import { environmentTierService } from '../../../services/environmentTierService';
+import { customFieldService } from '../../../services/customFieldService';
 import api from '../../../services/api';
 import type { CustomFieldDefinition } from '../../../types/customField';
+import type { GridColDef } from '@mui/x-data-grid';
 
 // Shared by the create/edit dialog tests below: one active tier and one
 // active user, so the Tier/Owner <Select>s in the dialog have something to
@@ -293,8 +299,93 @@ describe('EnvironmentList server-side grid', () => {
 
     const [column] = buildCustomFieldColumns([def]);
 
-    expect(column.field).toBe('region');
+    // Namespaced (`cf_${field_key}`), not the raw key — see the collision
+    // tests below for why. `headerName` is untouched, since that's what the
+    // user actually sees.
+    expect(column.field).toBe('cf_region');
+    expect(column.headerName).toBe('Region');
     expect(column.sortable).toBe(false);
+  });
+
+  it('never generates a custom-field column whose field collides with a static one', () => {
+    // The bug this branch shipped: the demo tenant has a custom field
+    // definition keyed 'owner' — evidently how people recorded an owner
+    // before this page had a real Owner column — and this branch added a
+    // static column also named 'owner'. Two GridColDefs with the same
+    // `field` make MUI treat them as one column internally: duplicate
+    // headers, and a visibility toggle on one silently hides the other.
+    // `tier`, `expires_at` and `reserved_now` are this branch's other new
+    // static fields — any of them is one tenant custom-field rename away
+    // from the same collision.
+    const staticFields = new Set(environmentColumns.map((c) => c.field));
+    expect(staticFields).toEqual(
+      new Set(['name', 'tier', 'owner', 'expires_at', 'reserved_now', 'status', 'created_at', 'actions'])
+    );
+
+    const defs: CustomFieldDefinition[] = ['owner', 'tier', 'expires_at', 'reserved_now', 'region'].map(
+      (key, i) => ({
+        id: i + 1,
+        tenant_id: 1,
+        entity_type: 'environment',
+        entity_subtype: null,
+        field_key: key,
+        label: key,
+        field_type: 'text',
+        required: false,
+        display_order: i,
+        options: null,
+        lifecycle_states: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      })
+    );
+
+    const customCols = buildCustomFieldColumns(defs);
+    expect(customCols).toHaveLength(defs.length);
+    customCols.forEach((col) => expect(staticFields.has(col.field)).toBe(false));
+    // And they don't collide with each other either.
+    expect(new Set(customCols.map((c) => c.field)).size).toBe(customCols.length);
+  });
+
+  it('renders the static Owner column and a colliding custom Owner field as two distinct columns', async () => {
+    // Reproduces the exact demo-tenant fixture: a custom field keyed
+    // 'owner'. Before the fix both grid entries shared `field: 'owner'`;
+    // now the custom one is `cf_owner`. Assert on the columns actually
+    // handed to DataGrid (capturedGridProps), not rendered DOM header text —
+    // the un-virtualized stand-in above renders body cells only, no header
+    // row, and even a real DataGrid wouldn't disambiguate two columns that
+    // share one `field` since MUI keys its column lookup by `field`.
+    vi.mocked(customFieldService.listDefinitions).mockResolvedValueOnce([
+      {
+        id: 99,
+        tenant_id: 1,
+        entity_type: 'environment',
+        entity_subtype: null,
+        field_key: 'owner',
+        label: 'Owner',
+        field_type: 'text',
+        required: false,
+        display_order: 1,
+        options: null,
+        lifecycle_states: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    renderEnvironmentList('/environments');
+    await screen.findByText('prod-a');
+    await waitFor(() => {
+      const columns = (capturedGridProps.current?.columns ?? []) as GridColDef[];
+      expect(columns.some((c) => c.field === 'cf_owner')).toBe(true);
+    });
+
+    const columns = capturedGridProps.current?.columns as GridColDef[];
+    const ownerHeaders = columns.filter((c) => c.headerName === 'Owner');
+    // Two sources, two columns, two distinct field ids — not collapsed into
+    // one and not duplicated under the same id.
+    expect(ownerHeaders).toHaveLength(2);
+    expect(new Set(ownerHeaders.map((c) => c.field))).toEqual(new Set(['owner', 'cf_owner']));
   });
 
   // These two carry the whole "a null expiry means no expiry planned"
@@ -383,5 +474,59 @@ describe('EnvironmentList server-side grid', () => {
 
     expect(await within(dialog).findByText(/expiry date is required/i)).toBeInTheDocument();
     expect(createMock).not.toHaveBeenCalled();
+  });
+
+  describe('loadColumnModel', () => {
+    afterEach(() => {
+      localStorage.removeItem('environments-list-columns-777');
+    });
+
+    it('discards a persisted entry for a column id that no longer exists', () => {
+      // Simulates exactly what shipped: MUI auto-persisted {"owner": false}
+      // while the static and custom-field 'owner' columns collided. A
+      // *different* stale key (one that, unlike 'owner', doesn't happen to
+      // be reused by a real column) demonstrates the general mechanism —
+      // the 'owner' case itself is inherently unrecoverable this way, since
+      // that exact key legitimately names today's static column too; see
+      // the comment on loadColumnModel and this suite's commit message.
+      localStorage.setItem(
+        'environments-list-columns-777',
+        JSON.stringify({ retired_field: false, status: false })
+      );
+
+      const model = loadColumnModel(777, ['name', 'tier', 'owner', 'status']);
+
+      expect(model).toEqual({ status: false });
+    });
+
+    it('always keeps a cf_-prefixed entry, even for a custom field not in the known list yet', () => {
+      // Custom-field definitions load asynchronously (fetchDefinitions), so
+      // on the very first render `knownStaticFields` only reflects the
+      // static columns. A namespaced entry must survive that window rather
+      // than being wrongly treated as stale and dropped before the
+      // tenant's definitions have even arrived.
+      localStorage.setItem(
+        'environments-list-columns-777',
+        JSON.stringify({ cf_region: false })
+      );
+
+      const model = loadColumnModel(777, ['name', 'tier', 'owner', 'status']);
+
+      expect(model).toEqual({ cf_region: false });
+    });
+
+    it('defaults knownStaticFields to the real static column list, not a hardcoded one', () => {
+      // No second argument — exercises the default parameter, which reads
+      // `environmentColumns` directly rather than a copy-pasted list that
+      // could drift from it.
+      localStorage.setItem(
+        'environments-list-columns-777',
+        JSON.stringify({ owner: false, made_up_field: true })
+      );
+
+      const model = loadColumnModel(777);
+
+      expect(model).toEqual({ owner: false });
+    });
   });
 });
