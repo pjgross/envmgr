@@ -51,7 +51,7 @@ import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
-import { formatExpiry } from '../../utils/dates';
+import { formatExpiry, isExpiryOverdue } from '../../utils/dates';
 import api from '../../services/api';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
@@ -67,6 +67,17 @@ const STATUS_FILTERS: { label: string; value: EnvironmentStatus | 'all' }[] = [
   { label: 'Inactive', value: 'inactive' },
   { label: 'Maintenance', value: 'maintenance' },
   { label: 'Decommissioned', value: 'decommissioned' },
+];
+
+// Sensible fixed set for "what expires soon" rather than a free-text day
+// count — mirrors the tier/status filters' fixed-choice shape. Sent straight
+// through as `expiring_within_days`, which the backend already accepts
+// (`backend/app/api/v1/environments.py`) but which had no UI consumer at all
+// before this fix.
+const EXPIRY_WINDOW_FILTERS: { label: string; value: string }[] = [
+  { label: '7 days', value: '7' },
+  { label: '30 days', value: '30' },
+  { label: '90 days', value: '90' },
 ];
 
 interface EnvFormValues {
@@ -196,11 +207,7 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
     renderCell: (params) => (
       <Typography
         variant="body2"
-        color={
-          params.row.expires_at && new Date(params.row.expires_at) < new Date()
-            ? 'error.main'
-            : 'text.primary'
-        }
+        color={isExpiryOverdue(params.row.expires_at) ? 'error.main' : 'text.primary'}
       >
         {formatExpiry(params.row.expires_at)}
       </Typography>
@@ -308,7 +315,14 @@ export default function EnvironmentList() {
 
   const grid = useServerGrid({
     endpoint: 'environments',
-    filterKeys: ['search', 'status', 'tier_id', 'governance_gap'],
+    filterKeys: [
+      'search',
+      'status',
+      'tier_id',
+      'governance_gap',
+      'owner_user_id',
+      'expiring_within_days',
+    ],
     // Free-text keys, and also the 'all'-sentinel exemption list. Every entry
     // must also appear in filterKeys above — there is a DEV warning if not.
     debounceKeys: ['search'],
@@ -517,12 +531,50 @@ export default function EnvironmentList() {
                 to "no selection" and the grid would never refetch. */}
             <MenuItem value="">Any tier</MenuItem>
             {tiers
-              .filter((t) => t.is_active)
+              // An inactive tier stays selectable only when it is the one
+              // the URL/filter is currently carrying — same shape as the
+              // form's tier Select above. Without this, an environment on a
+              // retired tier stays visible in the grid but a `?tier_id=`
+              // deep link for it renders a blank Select over a filtered
+              // grid the user can't reproduce.
+              .filter((t) => t.is_active || String(t.id) === grid.filters.tier_id)
               .map((t) => (
                 <MenuItem key={t.id} value={String(t.id)}>
                   {t.name}
                 </MenuItem>
               ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="owner-filter-label">Owner</InputLabel>
+          <Select
+            labelId="owner-filter-label"
+            label="Owner"
+            value={grid.filters.owner_user_id ?? ''}
+            onChange={(e) => grid.setFilter('owner_user_id', e.target.value)}
+          >
+            <MenuItem value="">Any owner</MenuItem>
+            {users.map((u) => (
+              <MenuItem key={u.id} value={String(u.id)}>
+                {u.username}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="expiry-filter-label">Expires within</InputLabel>
+          <Select
+            labelId="expiry-filter-label"
+            label="Expires within"
+            value={grid.filters.expiring_within_days ?? ''}
+            onChange={(e) => grid.setFilter('expiring_within_days', e.target.value)}
+          >
+            <MenuItem value="">Any time</MenuItem>
+            {EXPIRY_WINDOW_FILTERS.map((f) => (
+              <MenuItem key={f.value} value={f.value}>
+                {f.label}
+              </MenuItem>
+            ))}
           </Select>
         </FormControl>
         <Chip

@@ -213,6 +213,67 @@ describe('EnvironmentList server-side grid', () => {
     );
   });
 
+  it('sends the owner and expiring-within-days filters', async () => {
+    // Both are new filterKeys added to close the gap between the spec (which
+    // said the list would gain owner and governance-gap filters, plus an
+    // expiry window) and what had shipped (tier and governance-gap only —
+    // `expiring_within_days` existed on the backend with no UI consumer at
+    // all).
+    renderEnvironmentList('/environments?owner_user_id=7&expiring_within_days=30');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ owner_user_id: '7', expiring_within_days: '30' })
+    );
+  });
+
+  it('does not send owner_user_id or expiring_within_days when neither filter is set', async () => {
+    // The discriminating half for the previous test: proves these two keys
+    // are genuinely optional filters reflecting the Select's own state,
+    // rather than always being sent (which would silently over-filter every
+    // request). The row-level discriminating half — a differently-owned or
+    // non-expiring-soon row that must NOT appear — is covered on the
+    // backend by test_filtering_by_owner and
+    // test_expiring_within_days_excludes_a_null_expiry
+    // (test_environment_governance_filters.py); this mocked-service test
+    // can only assert what params the page builds, not what rows a real
+    // server would return for them.
+    renderEnvironmentList('/environments');
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    expect(lastListParams()).not.toHaveProperty('owner_user_id');
+    expect(lastListParams()).not.toHaveProperty('expiring_within_days');
+  });
+
+  it('keeps a retired tier selectable in the filter when it is the current filter value', async () => {
+    // The tier *filter* used to list active tiers only, so an environment on
+    // a retired tier stayed visible in the grid but could never be filtered
+    // for — a `?tier_id=` deep link onto a retired tier rendered a blank
+    // Select over an already-filtered grid. Same shape as the create/edit
+    // form's existing fix (`t.is_active || t.id === form.tier_id`), applied
+    // to the filter.
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 5,
+          tenant_id: 1,
+          name: 'Retired',
+          description: null,
+          category: null,
+          color: null,
+          display_order: 2,
+          is_active: false,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    renderEnvironmentList('/environments?tier_id=5');
+    await waitFor(() => expect(lastListParams()).toMatchObject({ tier_id: '5' }));
+
+    const tierSelect = screen.getByRole('combobox', { name: 'Tier' });
+    expect(tierSelect).toHaveTextContent('Retired');
+  });
+
   it('refetches when the governance-gap chip is toggled on', async () => {
     // The trap this guards: a filter whose "off" value collides with
     // buildParams' own no-selection sentinel builds byte-identical params in
