@@ -73,6 +73,9 @@ import type {
 } from '../../types/environment';
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
+import { formatExpiry } from '../../utils/dates';
+import api from '../../services/api';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -81,12 +84,13 @@ const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default'
   decommissioned: 'error',
 };
 
-// TODO(task-10): this form still has no tier / owner / expiry field. It is
-// deliberately limited to what compiles against the new EnvironmentResponse —
-// the governance fields land here in the detail-page task.
 interface EnvFormValues {
   name: string;
   description: string;
+  tier_id: number | '';
+  owner_user_id: number | '';
+  /** "YYYY-MM-DD" from `<input type="date">`, or '' for no expiry planned. */
+  expires_at: string;
   status: EnvironmentStatus;
 }
 
@@ -128,9 +132,28 @@ export default function EnvironmentDetail() {
   const [envForm, setEnvForm] = useState<EnvFormValues>({
     name: '',
     description: '',
+    tier_id: '',
+    owner_user_id: '',
+    expires_at: '',
     status: 'active',
   });
   const [envFormError, setEnvFormError] = useState('');
+
+  // Never `state.environmentTier.tiers`: that is the admin panel's own list,
+  // which may not be loaded on an environment page at all. See
+  // useAllEnvironmentTiers' JSDoc.
+  const { tiers } = useAllEnvironmentTiers();
+
+  // GET /tenant/users/lite is knowingly unbounded — one of the five
+  // growth-bearing endpoints docs/pagination.md lists as not yet bounded.
+  // Matches GatesTable.tsx and EnvironmentList's own owner picker.
+  const [users, setUsers] = useState<Array<{ id: number; username: string }>>([]);
+  useEffect(() => {
+    api
+      .get<Array<{ id: number; username: string }>>('/tenant/users/lite')
+      .then((r) => setUsers(r.data))
+      .catch(() => setUsers([])); // owner select stays empty on failure
+  }, []);
 
   // Version tab state
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
@@ -175,6 +198,9 @@ export default function EnvironmentDetail() {
       setEnvForm({
         name: currentEnvironment.name,
         description: currentEnvironment.description ?? '',
+        tier_id: currentEnvironment.tier_id,
+        owner_user_id: currentEnvironment.owner_user_id ?? '',
+        expires_at: currentEnvironment.expires_at ? currentEnvironment.expires_at.slice(0, 10) : '',
         status: currentEnvironment.status,
       });
       setEnvCustomFieldValues(currentEnvironment.custom_fields ?? {});
@@ -186,10 +212,29 @@ export default function EnvironmentDetail() {
       setEnvFormError('Name is required');
       return;
     }
+    if (!envForm.tier_id) {
+      setEnvFormError('Tier is required');
+      return;
+    }
+    if (!envForm.owner_user_id) {
+      setEnvFormError('A named owner is required');
+      return;
+    }
+    // Expiry is deliberately not required here: null means "no expiry
+    // planned", a legitimate state the backend exempts from its compliance
+    // rule. Demanding one would make every spreadsheet-imported environment
+    // (owner set, no expiry) uneditable in the UI again.
     try {
       const data: EnvironmentUpdate = {
         name: envForm.name,
         description: envForm.description || undefined,
+        tier_id: Number(envForm.tier_id),
+        owner_user_id: Number(envForm.owner_user_id),
+        // Explicit null, not undefined: blanking the field clears the expiry
+        // rather than silently leaving the stored one in place.
+        expires_at: envForm.expires_at
+          ? new Date(`${envForm.expires_at}T00:00:00Z`).toISOString()
+          : null,
         status: envForm.status,
         custom_fields: envCustomFieldValues,
       };
@@ -642,6 +687,52 @@ export default function EnvironmentDetail() {
                   multiline
                   rows={3}
                 />
+                <FormControl required>
+                  <InputLabel id="env-detail-form-tier-label">Tier</InputLabel>
+                  <Select
+                    labelId="env-detail-form-tier-label"
+                    label="Tier"
+                    value={envForm.tier_id}
+                    onChange={(e) => setEnvForm({ ...envForm, tier_id: Number(e.target.value) })}
+                  >
+                    {/* An inactive tier stays selectable only when it is the
+                        one already on this environment, so editing an
+                        environment on a retired tier does not silently
+                        change its tier. */}
+                    {tiers
+                      .filter((t) => t.is_active || t.id === envForm.tier_id)
+                      .map((t) => (
+                        <MenuItem key={t.id} value={t.id}>
+                          {t.name}
+                        </MenuItem>
+                      ))}
+                  </Select>
+                </FormControl>
+                <FormControl required>
+                  <InputLabel id="env-detail-form-owner-label">Owner</InputLabel>
+                  <Select
+                    labelId="env-detail-form-owner-label"
+                    label="Owner"
+                    value={envForm.owner_user_id}
+                    onChange={(e) =>
+                      setEnvForm({ ...envForm, owner_user_id: Number(e.target.value) })
+                    }
+                  >
+                    {users.map((u) => (
+                      <MenuItem key={u.id} value={u.id}>
+                        {u.username}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Expires"
+                  type="date"
+                  helperText="Leave blank for no expiry planned"
+                  value={envForm.expires_at}
+                  onChange={(e) => setEnvForm({ ...envForm, expires_at: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                />
                 <FormControl>
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -689,9 +780,37 @@ export default function EnvironmentDetail() {
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="overline" color="text.secondary">
-                    Tier
+                    Governance
                   </Typography>
-                  <Typography>{currentEnvironment?.tier_name}</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Chip
+                        label={currentEnvironment?.tier_name}
+                        size="small"
+                        sx={{
+                          bgcolor: currentEnvironment?.tier_color ?? undefined,
+                          color: currentEnvironment?.tier_color ? 'common.white' : undefined,
+                        }}
+                      />
+                      {currentEnvironment?.reserved_now && (
+                        <Chip label="Reserved now" size="small" color="info" />
+                      )}
+                    </Box>
+                    <Typography variant="body2">
+                      Owner: {currentEnvironment?.owner_username ?? '— unowned'}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color={
+                        currentEnvironment?.expires_at &&
+                        new Date(currentEnvironment.expires_at) < new Date()
+                          ? 'error.main'
+                          : 'text.secondary'
+                      }
+                    >
+                      Expires: {formatExpiry(currentEnvironment?.expires_at ?? null)}
+                    </Typography>
+                  </Box>
                 </Box>
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ mb: 2 }}>
