@@ -2179,7 +2179,7 @@ work had to fix. Idle arrives in B5 with its detection rules.
 - [ ] **Step 7: Run the tests**
 
 Run: `uv run pytest tests/services/test_environment_reserved_now.py -q`
-Expected: PASS, 8 passed
+Expected: PASS, 7 passed (6 from this task, plus the end_date boundary test added after review)
 
 - [ ] **Step 8: Verify the two hoisted consumers still pass**
 
