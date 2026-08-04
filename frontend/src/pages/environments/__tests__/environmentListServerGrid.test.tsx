@@ -32,6 +32,8 @@ vi.mock('../../../services/environmentService', () => ({
           status: 'active',
           tenant_id: 1,
           custom_fields: null,
+          operations_group_id: null,
+          operations_group_name: null,
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z',
         },
@@ -477,6 +479,8 @@ describe('EnvironmentList server-side grid', () => {
       status: 'active',
       tenant_id: 1,
       custom_fields: null,
+      operations_group_id: null,
+      operations_group_name: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     });
