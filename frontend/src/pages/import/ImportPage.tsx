@@ -94,13 +94,24 @@ function ImportSection({ title, onUpload, loading, result, error }: ImportSectio
 
       {result && (
         <>
-          <Alert severity={result.errors.length > 0 ? 'warning' : 'success'} sx={{ mb: 2 }}>
+          <Alert
+            severity={
+              result.errors.length > 0
+                ? 'warning'
+                : result.tier_fallbacks.length > 0
+                  ? 'info'
+                  : 'success'
+            }
+            sx={{ mb: 2 }}
+          >
             Created {result.created}, Skipped {result.skipped}
             {result.errors.length > 0 && `, ${result.errors.length} error(s)`}
+            {result.tier_fallbacks.length > 0 &&
+              `, ${result.tier_fallbacks.length} assumption(s) made`}
           </Alert>
 
           {result.errors.length > 0 && (
-            <TableContainer>
+            <TableContainer sx={{ mb: result.tier_fallbacks.length > 0 ? 2 : 0 }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -120,6 +131,34 @@ function ImportSection({ title, onUpload, loading, result, error }: ImportSectio
                 </TableBody>
               </Table>
             </TableContainer>
+          )}
+
+          {result.tier_fallbacks.length > 0 && (
+            <>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Assumptions made
+              </Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Row</TableCell>
+                      <TableCell>Field</TableCell>
+                      <TableCell>Message</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {result.tier_fallbacks.map((fb, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>{fb.row}</TableCell>
+                        <TableCell>{fb.field}</TableCell>
+                        <TableCell>{fb.message}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
           )}
         </>
       )}

@@ -26,6 +26,11 @@ async def import_environments_endpoint(
 ):
     """Import environments from an Excel (.xlsx) file."""
     file_bytes = await file.read()
+    # `current_user.id` is passed as-is even under impersonation (where it
+    # names a user in the *system* tenant, not `active_tenant_id`) — the
+    # service checks the importing user's own tenant membership before using
+    # it as an owner, and imports the row unowned rather than failing when
+    # they aren't a member. See excel_import_service.import_environments.
     result = await excel_import_service.import_environments(
         db, file_bytes, current_user.active_tenant_id, current_user.id
     )
