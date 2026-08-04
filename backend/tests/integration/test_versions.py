@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from app.db.models.user import Tenant, User
 from app.db.models.system import System, SubSystem
 from app.core.security import get_password_hash, create_access_token
+from tests.factories import post_environment
 
 
 # ---------------------------------------------------------------------------
@@ -56,11 +57,7 @@ async def other_auth_headers(client, other_tenant, other_user) -> dict:
 
 
 async def _create_env(client, auth_headers, name="VersionTestEnv") -> int:
-    resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": name, "environment_type": "test"},
-    )
+    resp = await post_environment(client, auth_headers, name)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
@@ -248,10 +245,8 @@ async def test_version_tenant_isolation(
 ):
     """Environment belonging to another tenant returns 404."""
     # Create env under other_tenant
-    other_env_resp = await client.post(
-        "/api/v1/environments/",
-        headers=other_auth_headers,
-        json={"name": "OtherTenantEnv", "environment_type": "test"},
+    other_env_resp = await post_environment(
+        client, other_auth_headers, "OtherTenantEnv"
     )
     assert other_env_resp.status_code == 201
     other_env_id = other_env_resp.json()["id"]

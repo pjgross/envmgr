@@ -33,4 +33,11 @@ export interface ImportResult {
   created: number;
   skipped: number;
   errors: ImportError[];
+  // Rows imported successfully but with an assumption applied — a
+  // mistyped/blank Type filed under the tenant's Other tier, or a row
+  // imported without an owner because the importer isn't a member of the
+  // target tenant. Same shape as `errors`. Always present (backend default
+  // is `[]`); import paths that never produce one (e.g. systems) just send
+  // an empty array.
+  tier_fallbacks: ImportError[];
 }

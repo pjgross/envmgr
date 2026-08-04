@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.core.pagination import Page, fetch_page
 from app.services import environment_service
+from tests.factories import ensure_environment_tier
 
 
 @pytest.mark.asyncio
@@ -24,12 +25,13 @@ async def test_walking_pages_over_identical_sort_keys_sees_each_row_once(
     """Every environment shares a name, so `ORDER BY name` alone leaves 30 ties."""
     from app.db.models.environment import Environment
 
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
     total_rows = 30
     for _ in range(total_rows):
         db_session.add(Environment(
             tenant_id=test_tenant.id,
             name="identical",            # every row ties on the sort column
-            environment_type="SIT",
+            tier_id=tier.id,
         ))
     await db_session.flush()
 
@@ -43,7 +45,7 @@ async def test_walking_pages_over_identical_sort_keys_sees_each_row_once(
         assert total == total_rows
         if not rows:
             break
-        seen.extend(r.id for r in rows)
+        seen.extend(v.environment.id for v in rows)
         offset += page_size
 
     assert len(seen) == total_rows, f"expected {total_rows} rows, saw {len(seen)}"
@@ -60,9 +62,10 @@ async def test_only_the_total_order_gives_a_reproducible_sequence(
     """
     from app.db.models.environment import Environment
 
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
     for _ in range(20):
         db_session.add(Environment(
-            tenant_id=test_tenant.id, name="identical", environment_type="SIT",
+            tenant_id=test_tenant.id, name="identical", tier_id=tier.id,
         ))
     await db_session.flush()
 

@@ -5,6 +5,7 @@ from httpx import AsyncClient
 
 from app.db.models.user import Tenant, User
 from app.core.security import get_password_hash
+from tests.factories import post_environment
 
 
 DEFAULT_TEST_DEFINITION = {
@@ -251,11 +252,7 @@ async def test_required_field_blocks_booking_creation(client: AsyncClient, auth_
     # Define a required text field on bookings
     await _create_field(client, auth_headers, label="Ticket Ref", field_key="ticket_ref", required=True)
     # Create an environment to book
-    env_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "CF Test Env", "environment_type": "test"},
-    )
+    env_resp = await post_environment(client, auth_headers, "CF Test Env")
     env_id = env_resp.json()["id"]
     # Attempt to create booking without the required custom field
     resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
@@ -273,11 +270,7 @@ async def test_required_field_blocks_booking_creation(client: AsyncClient, auth_
 @pytest.mark.asyncio
 async def test_required_field_passes_when_provided(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     await _create_field(client, auth_headers, label="Ticket Ref", field_key="ticket_ref", required=True)
-    env_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "CF Test Env 2", "environment_type": "test"},
-    )
+    env_resp = await post_environment(client, auth_headers, "CF Test Env 2")
     env_id = env_resp.json()["id"]
     resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
         "environment_id": env_id,
@@ -295,11 +288,7 @@ async def test_required_field_passes_when_provided(client: AsyncClient, auth_hea
 @pytest.mark.asyncio
 async def test_number_field_rejects_non_numeric(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     await _create_field(client, auth_headers, label="Team Size", field_key="team_size", field_type="number", required=False)
-    env_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "CF Test Env 3", "environment_type": "test"},
-    )
+    env_resp = await post_environment(client, auth_headers, "CF Test Env 3")
     env_id = env_resp.json()["id"]
     resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
         "environment_id": env_id,
@@ -316,11 +305,7 @@ async def test_number_field_rejects_non_numeric(client: AsyncClient, auth_header
 @pytest.mark.asyncio
 async def test_unknown_custom_field_keys_are_accepted(client: AsyncClient, auth_headers: dict, default_booking_type_id: int):
     """Unknown keys (e.g. from soft-deleted fields) must not cause errors."""
-    env_resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "CF Test Env 4", "environment_type": "test"},
-    )
+    env_resp = await post_environment(client, auth_headers, "CF Test Env 4")
     env_id = env_resp.json()["id"]
     resp = await client.post("/api/v1/bookings/", headers=auth_headers, json={
         "environment_id": env_id,

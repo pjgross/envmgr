@@ -1,10 +1,12 @@
 import pytest
 from app.db.models.environment import Environment
 from app.db.models.environment_operating_hours import EnvironmentOperatingHours
+from tests.factories import ensure_environment_tier
 
 
 async def _env(db, tenant_id, name="Env"):
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="test")
+    tier = await ensure_environment_tier(db, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
     db.add(e); await db.flush(); return e
 
 

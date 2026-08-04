@@ -12,6 +12,7 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
+from tests.factories import ensure_environment_tier
 
 WIN_START = datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc)
 WIN_END = WIN_START + timedelta(days=1)
@@ -49,7 +50,8 @@ async def _make_system(db_session, tenant_id, name) -> int:
 
 
 async def _make_env(db_session, tenant_id, name) -> int:
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="sit")
+    tier = await ensure_environment_tier(db_session, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
     db_session.add(e)
     await db_session.flush()
     return e.id

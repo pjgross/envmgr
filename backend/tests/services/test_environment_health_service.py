@@ -11,11 +11,13 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.change_request import ChangeRequest, ChangeRequestEnvironment
 from app.db.models.lifecycle import LifecycleTemplate
 from app.services import environment_health_service as svc
+from tests.factories import ensure_environment_tier
 
 UTC = timezone.utc
 
 async def _env(db, tenant_id, name="Env A", status="active"):
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="SIT", status=status)
+    tier = await ensure_environment_tier(db, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id, status=status)
     db.add(e); await db.flush(); return e
 
 

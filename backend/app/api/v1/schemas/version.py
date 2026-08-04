@@ -62,3 +62,11 @@ class ImportResult(BaseModel):
     created: int
     skipped: int
     errors: list[ImportError]
+    # Rows that imported successfully but with an assumption applied rather
+    # than a value the file actually supplied — a mistyped/blank Type filed
+    # under the tenant's Other tier, or a row imported with no owner because
+    # the importer isn't a member of the target tenant (see
+    # excel_import_service.import_environments). Same shape as `errors` so
+    # the response stays consistent; defaults to `[]` for import paths (e.g.
+    # systems) that never produce one.
+    tier_fallbacks: list[ImportError] = []

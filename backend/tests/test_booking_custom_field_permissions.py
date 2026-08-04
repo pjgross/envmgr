@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+from tests.factories import post_environment
 
 DEFINITION_WITH_CUSTOM_FIELDS = {
     "states": [
@@ -197,11 +198,7 @@ async def _setup_booking_with_cf_template(client, auth_headers):
         json={"entity_type": "booking", "label": "Release Notes", "field_key": "release_notes", "field_type": "text"},
     )
 
-    env = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": "CFTestEnv", "environment_type": "testing"},
-    )
+    env = await post_environment(client, auth_headers, "CFTestEnv")
     env_id = env.json()["id"]
 
     booking = await client.post(

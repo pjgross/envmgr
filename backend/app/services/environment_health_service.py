@@ -5,6 +5,7 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.booking_states import INACTIVE_BOOKING_STATUSES
 from app.core.pagination import Page, fetch_page
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
@@ -13,10 +14,6 @@ from app.db.models.environment import Environment
 from app.db.models.environment_health import EnvironmentHealthStatus
 
 STALE_AFTER = timedelta(minutes=15)
-# Booking statuses that are NOT a live claim on an environment: draft (uncommitted) plus
-# the two terminal states (rejected, closed). The booking lifecycle has no "cancelled" state;
-# this mirrors conflict_service.TERMINAL_STATES ({rejected, closed}) plus draft.
-INACTIVE_BOOKING_STATUSES = {"draft", "rejected", "closed"}
 INACTIVE_CR_STATUSES = {"cancelled", "rejected"}
 
 

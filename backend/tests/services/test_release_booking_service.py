@@ -14,6 +14,7 @@ from app.db.models.system import System
 from app.db.models.user import Tenant
 from app.services import release_booking_service
 from app.services.booking_service import derive_and_set_context_tag
+from tests.factories import ensure_environment_tier
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -71,8 +72,9 @@ async def _make_release(db_session, tenant_id, user_id):
 
 
 async def _make_environment(db_session, tenant_id):
+    tier = await ensure_environment_tier(db_session, tenant_id)
     env = Environment(
-        tenant_id=tenant_id, name="SIT env", environment_type="test"
+        tenant_id=tenant_id, name="SIT env", tier_id=tier.id
     )
     db_session.add(env)
     await db_session.flush()

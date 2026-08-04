@@ -50,6 +50,9 @@ import type {
 import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
+import { formatExpiry, isExpiryOverdue } from '../../utils/dates';
+import api from '../../services/api';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
   active: 'success',
@@ -66,26 +69,76 @@ const STATUS_FILTERS: { label: string; value: EnvironmentStatus | 'all' }[] = [
   { label: 'Decommissioned', value: 'decommissioned' },
 ];
 
+// Sensible fixed set for "what expires soon" rather than a free-text day
+// count — mirrors the tier/status filters' fixed-choice shape. Sent straight
+// through as `expiring_within_days`, which the backend already accepts
+// (`backend/app/api/v1/environments.py`) but which had no UI consumer at all
+// before this fix.
+const EXPIRY_WINDOW_FILTERS: { label: string; value: string }[] = [
+  { label: '7 days', value: '7' },
+  { label: '30 days', value: '30' },
+  { label: '90 days', value: '90' },
+];
+
 interface EnvFormValues {
   name: string;
   description: string;
-  environment_type: string;
+  tier_id: number | '';
+  owner_user_id: number | '';
+  /** "YYYY-MM-DD" from `<input type="date">`, or '' for no expiry planned. */
+  expires_at: string;
   status: EnvironmentStatus;
 }
 
 const emptyForm: EnvFormValues = {
   name: '',
   description: '',
-  environment_type: '',
+  tier_id: '',
+  owner_user_id: '',
+  expires_at: '',
   status: 'active',
 };
 
-function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
+// Custom-field columns are namespaced under this prefix (see
+// buildCustomFieldColumns below) so a tenant-defined field_key can never
+// collide with a static column's `field` — see the module-level comment
+// there for why that matters.
+const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
+
+// Read once from the static column list itself (never hardcoded) so this
+// stays correct if a static column is ever added, renamed or removed.
+const STATIC_COLUMN_FIELDS = () => environmentColumns.map((c) => c.field as string);
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function loadColumnModel(
+  userId: number | string | undefined,
+  knownStaticFields: readonly string[] = STATIC_COLUMN_FIELDS()
+): GridColumnVisibilityModel {
   const key = `environments-list-columns-${userId ?? 'guest'}`;
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return {};
-    return JSON.parse(raw) ?? {};
+    const parsed = (JSON.parse(raw) ?? {}) as Record<string, boolean>;
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const known = new Set(knownStaticFields);
+    // A `cf_`-prefixed key always belongs to the custom-field namespace, so
+    // it's kept regardless of whether *this* tenant's currently-loaded
+    // definitions include it — those load asynchronously (see
+    // fetchDefinitions in the component below), and dropping a namespaced
+    // entry just because definitions haven't arrived yet on this render
+    // would silently discard a real saved preference. A non-namespaced key
+    // is kept only if it names a column that still exists today; this is
+    // what stops a stale entry surviving indefinitely once its column is
+    // gone. Note it does NOT retroactively fix an entry whose key was
+    // already reused by a *new* static column of the same name before this
+    // fix shipped (see EnvironmentList's commit message) — that key is
+    // legitimately "known" either way, so it can't be told apart from a
+    // real preference for the new column.
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([field]) => field.startsWith(CUSTOM_FIELD_COLUMN_PREFIX) || known.has(field)
+      )
+    );
   } catch {
     return {};
   }
@@ -101,10 +154,12 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 }
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
-// "environments"): name, environment_type, status, created_at. `actions` has no
-// backing column, and per-tenant custom fields (built separately below, see
-// buildCustomFieldColumns) are never in the backend's sort whitelist — neither
-// ever was or can be sortable.
+// "environments"): name, tier, status, owner, expires_at, created_at.
+// `actions` has no backing column, `reserved_now` is derived from live
+// bookings rather than stored (so the backend cannot sort by it), and
+// per-tenant custom fields (built separately below, see
+// buildCustomFieldColumns) are never in the backend's sort whitelist — none
+// of those ever was or can be sortable.
 // A plain array export, not a component; co-located here per the C3 pilot's
 // releaseColumns precedent (small enough not to warrant its own file). The
 // `actions` column's renderCell is filled in at render time (see `columns`
@@ -124,10 +179,50 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
     ),
   },
   {
-    field: 'environment_type',
-    headerName: 'Type',
+    field: 'tier',
+    headerName: 'Tier',
     flex: 1,
     hideable: false,
+    renderCell: (params) => (
+      <Chip
+        label={params.row.tier_name}
+        size="small"
+        sx={{
+          bgcolor: params.row.tier_color ?? undefined,
+          color: params.row.tier_color ? 'common.white' : undefined,
+        }}
+      />
+    ),
+  },
+  {
+    field: 'owner',
+    headerName: 'Owner',
+    flex: 1,
+    renderCell: (params) => params.row.owner_username ?? '— unowned',
+  },
+  {
+    field: 'expires_at',
+    headerName: 'Expires',
+    flex: 0.9,
+    renderCell: (params) => (
+      <Typography
+        variant="body2"
+        color={isExpiryOverdue(params.row.expires_at) ? 'error.main' : 'text.primary'}
+      >
+        {formatExpiry(params.row.expires_at)}
+      </Typography>
+    ),
+  },
+  {
+    field: 'reserved_now',
+    headerName: 'Reserved',
+    flex: 0.7,
+    // Not in the backend's sort whitelist — it is computed from live bookings,
+    // not a stored column. A header that looks clickable and 422s on click is
+    // the exact failure test_sort_whitelist_contract exists to prevent.
+    sortable: false,
+    renderCell: (params) =>
+      params.row.reserved_now ? <Chip label="Reserved" size="small" color="info" /> : '—',
   },
   {
     field: 'status',
@@ -161,6 +256,18 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
 // above — pulled out to a plain function so the `sortable: false` on them is
 // unit-testable the same way, since none of these fields is ever in the
 // backend's sort whitelist (they're tenant-defined, not schema columns).
+//
+// The grid `field` is namespaced with CUSTOM_FIELD_COLUMN_PREFIX rather than
+// using `def.field_key` directly: field_key is tenant-chosen and free-text
+// (e.g. a demo tenant defined one keyed 'owner', to record an owner before
+// this page had a real Owner column), so an unnamespaced field can collide
+// with a static column's `field` of the same name — and did. MUI then treats
+// both grid entries as the same column internally (same `field` = same
+// lookup key), which duplicates the rendered header AND, worse, means a
+// visibility toggle persisted for one silently hides the other too. The
+// prefix is grid-internal only: `headerName` still reads `def.label`, and
+// the value is still looked up by the raw `def.field_key` inside
+// `custom_fields`, so nothing user-visible changes.
 // eslint-disable-next-line react-refresh/only-export-components
 export function buildCustomFieldColumns(
   defs: CustomFieldDefinition[]
@@ -168,7 +275,7 @@ export function buildCustomFieldColumns(
   return defs.map(
     (def) =>
       ({
-        field: def.field_key,
+        field: `${CUSTOM_FIELD_COLUMN_PREFIX}${def.field_key}`,
         headerName: def.label,
         flex: 1,
         sortable: false,
@@ -189,9 +296,33 @@ export default function EnvironmentList() {
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
 
+  // Never `state.environment.environments`: that is one server-paged window,
+  // so a picker reading it would silently offer whatever tiers happened to be
+  // on the visible page.
+  const { tiers } = useAllEnvironmentTiers();
+
+  // GET /tenant/users/lite is knowingly unbounded — one of the five
+  // growth-bearing endpoints docs/pagination.md lists as not yet bounded.
+  // Adding a consumer here is deliberate; bounding it is that item's job.
+  // (GatesTable.tsx calls it the same way.)
+  const [users, setUsers] = useState<Array<{ id: number; username: string }>>([]);
+  useEffect(() => {
+    api
+      .get<Array<{ id: number; username: string }>>('/tenant/users/lite')
+      .then((r) => setUsers(r.data))
+      .catch(() => setUsers([])); // owner select stays empty on failure
+  }, []);
+
   const grid = useServerGrid({
     endpoint: 'environments',
-    filterKeys: ['search', 'status', 'environment_type'],
+    filterKeys: [
+      'search',
+      'status',
+      'tier_id',
+      'governance_gap',
+      'owner_user_id',
+      'expiring_within_days',
+    ],
     // Free-text keys, and also the 'all'-sentinel exemption list. Every entry
     // must also appear in filterKeys above — there is a DEV warning if not.
     debounceKeys: ['search'],
@@ -229,7 +360,9 @@ export default function EnvironmentList() {
     setForm({
       name: env.name,
       description: env.description ?? '',
-      environment_type: env.environment_type,
+      tier_id: env.tier_id,
+      owner_user_id: env.owner_user_id ?? '',
+      expires_at: env.expires_at ? env.expires_at.slice(0, 10) : '',
       status: env.status,
     });
     setCustomFieldValues(env.custom_fields ?? {});
@@ -276,8 +409,20 @@ export default function EnvironmentList() {
       setFormError('Name is required');
       return;
     }
-    if (!form.environment_type.trim()) {
-      setFormError('Environment type is required');
+    if (!form.tier_id) {
+      setFormError('Tier is required');
+      return;
+    }
+    if (!form.owner_user_id) {
+      setFormError('A named owner is required');
+      return;
+    }
+    // Expiry is required on create only. A null expiry means "no expiry
+    // planned" — a legitimate state the backend deliberately exempts from its
+    // compliance rule — so demanding one here would make every
+    // spreadsheet-imported environment uneditable in the UI.
+    if (!editTarget && !form.expires_at) {
+      setFormError('An expiry date is required');
       return;
     }
     try {
@@ -285,7 +430,13 @@ export default function EnvironmentList() {
         const data: EnvironmentUpdate = {
           name: form.name,
           description: form.description || undefined,
-          environment_type: form.environment_type,
+          tier_id: Number(form.tier_id),
+          owner_user_id: Number(form.owner_user_id),
+          // Explicit null, not undefined: blanking the field clears the
+          // expiry rather than silently leaving the stored one in place.
+          expires_at: form.expires_at
+            ? new Date(`${form.expires_at}T00:00:00Z`).toISOString()
+            : null,
           status: form.status,
           custom_fields: customFieldValues,
         };
@@ -294,7 +445,9 @@ export default function EnvironmentList() {
         const data: EnvironmentCreate = {
           name: form.name,
           description: form.description || undefined,
-          environment_type: form.environment_type,
+          tier_id: Number(form.tier_id),
+          owner_user_id: Number(form.owner_user_id),
+          expires_at: new Date(`${form.expires_at}T00:00:00Z`).toISOString(),
           status: form.status,
           custom_fields: customFieldValues,
         };
@@ -352,8 +505,8 @@ export default function EnvironmentList() {
         </Button>
       </Box>
 
-      {/* Status filter chips */}
-      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+      {/* Status / tier / governance filters */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
         {STATUS_FILTERS.map((f) => (
           <Chip
             key={f.value}
@@ -364,6 +517,77 @@ export default function EnvironmentList() {
             onClick={() => grid.setFilter('status', f.value)}
           />
         ))}
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="tier-filter-label">Tier</InputLabel>
+          <Select
+            labelId="tier-filter-label"
+            label="Tier"
+            value={grid.filters.tier_id ?? ''}
+            onChange={(e) => grid.setFilter('tier_id', e.target.value)}
+          >
+            {/* '' is the no-selection value, NOT 'all': buildParams drops ''
+                and also drops the literal 'all' for non-text keys, so a
+                vocabulary containing 'all' would build params byte-identical
+                to "no selection" and the grid would never refetch. */}
+            <MenuItem value="">Any tier</MenuItem>
+            {tiers
+              // An inactive tier stays selectable only when it is the one
+              // the URL/filter is currently carrying — same shape as the
+              // form's tier Select above. Without this, an environment on a
+              // retired tier stays visible in the grid but a `?tier_id=`
+              // deep link for it renders a blank Select over a filtered
+              // grid the user can't reproduce.
+              .filter((t) => t.is_active || String(t.id) === grid.filters.tier_id)
+              .map((t) => (
+                <MenuItem key={t.id} value={String(t.id)}>
+                  {t.name}
+                </MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="owner-filter-label">Owner</InputLabel>
+          <Select
+            labelId="owner-filter-label"
+            label="Owner"
+            value={grid.filters.owner_user_id ?? ''}
+            onChange={(e) => grid.setFilter('owner_user_id', e.target.value)}
+          >
+            <MenuItem value="">Any owner</MenuItem>
+            {users.map((u) => (
+              <MenuItem key={u.id} value={String(u.id)}>
+                {u.username}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel id="expiry-filter-label">Expires within</InputLabel>
+          <Select
+            labelId="expiry-filter-label"
+            label="Expires within"
+            value={grid.filters.expiring_within_days ?? ''}
+            onChange={(e) => grid.setFilter('expiring_within_days', e.target.value)}
+          >
+            <MenuItem value="">Any time</MenuItem>
+            {EXPIRY_WINDOW_FILTERS.map((f) => (
+              <MenuItem key={f.value} value={f.value}>
+                {f.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <Chip
+          // `governance_gap` is a missing OWNER only — a null expiry means "no
+          // expiry planned", a legitimate state rather than a gap.
+          label="Missing owner"
+          clickable
+          color={grid.filters.governance_gap === 'true' ? 'warning' : 'default'}
+          variant={grid.filters.governance_gap === 'true' ? 'filled' : 'outlined'}
+          onClick={() =>
+            grid.setFilter('governance_gap', grid.filters.governance_gap === 'true' ? '' : 'true')
+          }
+        />
       </Box>
 
       {error && (
@@ -427,13 +651,68 @@ export default function EnvironmentList() {
             multiline
             rows={2}
           />
+          <FormControl fullWidth required>
+            <InputLabel id="env-form-tier-label">Tier</InputLabel>
+            <Select
+              labelId="env-form-tier-label"
+              label="Tier"
+              value={form.tier_id}
+              onChange={(e) => setForm({ ...form, tier_id: Number(e.target.value) })}
+            >
+              {/* An inactive tier stays selectable only when it is the one
+                  already on this environment, so editing an environment on a
+                  retired tier does not silently change its tier. */}
+              {tiers
+                .filter((t) => t.is_active || t.id === form.tier_id)
+                .map((t) => (
+                  <MenuItem key={t.id} value={t.id}>
+                    {t.name}
+                  </MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth required>
+            <InputLabel id="env-form-owner-label">Owner</InputLabel>
+            <Select
+              labelId="env-form-owner-label"
+              label="Owner"
+              value={form.owner_user_id}
+              onChange={(e) => setForm({ ...form, owner_user_id: Number(e.target.value) })}
+            >
+              {/* GET /tenant/users/lite filters to active users, but the
+                  backend's owner validation does not check is_active, so an
+                  environment can legitimately hold a deactivated owner. Keep
+                  that owner selectable (labelled as inactive) the same way
+                  the tier Select above keeps a retired tier selectable —
+                  otherwise the required field renders blank with a MUI
+                  out-of-range warning while form state still holds the id.
+                  `editTarget.owner_username` supplies the label since the
+                  lite list won't have this user at all. */}
+              {editTarget &&
+                form.owner_user_id === editTarget.owner_user_id &&
+                !users.some((u) => u.id === form.owner_user_id) && (
+                  <MenuItem value={form.owner_user_id}>
+                    {editTarget.owner_username ?? `#${form.owner_user_id}`} (inactive)
+                  </MenuItem>
+                )}
+              {users.map((u) => (
+                <MenuItem key={u.id} value={u.id}>
+                  {u.username}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <TextField
-            label="Environment Type"
-            required
-            value={form.environment_type}
-            onChange={(e) => setForm({ ...form, environment_type: e.target.value })}
+            label="Expires"
+            type="date"
+            // Required on create only — see handleSave. Blank on edit means
+            // "no expiry planned", not an unfinished form.
+            required={!editTarget}
+            helperText={editTarget ? 'Leave blank for no expiry planned' : undefined}
+            value={form.expires_at}
+            onChange={(e) => setForm({ ...form, expires_at: e.target.value })}
+            InputLabelProps={{ shrink: true }}
             fullWidth
-            placeholder="e.g. staging, uat, dev"
           />
           <FormControl fullWidth>
             <InputLabel>Status</InputLabel>

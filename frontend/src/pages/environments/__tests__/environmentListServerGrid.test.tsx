@@ -1,10 +1,16 @@
 import type { ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import EnvironmentList, { environmentColumns, buildCustomFieldColumns } from '../EnvironmentList';
+import whitelists from '../../../constants/sortWhitelists.json';
+import EnvironmentList, {
+  environmentColumns,
+  buildCustomFieldColumns,
+  loadColumnModel,
+} from '../EnvironmentList';
 
 // No HTTP — this test is about the wiring between the URL/filters and the
 // dispatched fetch, not about what the server returns.
@@ -16,7 +22,13 @@ vi.mock('../../../services/environmentService', () => ({
           id: 1,
           name: 'prod-a',
           description: null,
-          environment_type: 'production',
+          tier_id: 3,
+          tier_name: 'Production',
+          tier_color: '#c62828',
+          owner_user_id: 7,
+          owner_username: 'alice',
+          expires_at: null,
+          reserved_now: false,
           status: 'active',
           tenant_id: 1,
           custom_fields: null,
@@ -27,6 +39,8 @@ vi.mock('../../../services/environmentService', () => ({
       total: 1,
     }),
     deleteEnvironment: vi.fn().mockResolvedValue(undefined),
+    updateEnvironment: vi.fn(),
+    createEnvironment: vi.fn(),
   },
 }));
 
@@ -36,6 +50,20 @@ vi.mock('../../../services/customFieldService', () => ({
   customFieldService: {
     listDefinitions: vi.fn().mockResolvedValue([]),
   },
+}));
+
+// The tier picker (create/edit dialog + tier filter) reads every tier via
+// useAllEnvironmentTiers — deliberately not a paged slice of the grid.
+vi.mock('../../../services/environmentTierService', () => ({
+  environmentTierService: {
+    listTiers: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
+  },
+}));
+
+// The owner picker calls GET /tenant/users/lite straight through `api`,
+// matching GatesTable.tsx.
+vi.mock('../../../services/api', () => ({
+  default: { get: vi.fn().mockResolvedValue({ data: [] }) },
 }));
 
 // The real DataGrid virtualizes columns by container width, and jsdom always
@@ -90,7 +118,28 @@ vi.mock('@mui/x-data-grid', async (importOriginal) => {
 });
 
 import { environmentService } from '../../../services/environmentService';
+import { environmentTierService } from '../../../services/environmentTierService';
+import { customFieldService } from '../../../services/customFieldService';
+import api from '../../../services/api';
 import type { CustomFieldDefinition } from '../../../types/customField';
+import type { GridColDef } from '@mui/x-data-grid';
+
+// Shared by the create/edit dialog tests below: one active tier and one
+// active user, so the Tier/Owner <Select>s in the dialog have something to
+// pick and `handleSave`'s tier/owner-required checks are never what blocks
+// the save.
+const PRODUCTION_TIER = {
+  id: 3,
+  tenant_id: 1,
+  name: 'Production',
+  description: null,
+  category: null,
+  color: '#c62828',
+  display_order: 1,
+  is_active: true,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
 
 function renderEnvironmentList(url = '/environments') {
   return render(
@@ -154,12 +203,118 @@ describe('EnvironmentList server-side grid', () => {
     await waitFor(() => expect(lastListParams()).toMatchObject({ search: 'all' }));
   });
 
+  it('sends the tier and governance-gap filters', async () => {
+    // Both are new filterKeys. A key missing from filterKeys is written to the
+    // URL by setFilter but never read back into `filters`, so it never reaches
+    // the request — the URL reads `?tier_id=3` beside an unfiltered grid.
+    renderEnvironmentList('/environments?tier_id=3&governance_gap=true');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ tier_id: '3', governance_gap: 'true' })
+    );
+  });
+
+  it('sends the owner and expiring-within-days filters', async () => {
+    // Both are new filterKeys added to close the gap between the spec (which
+    // said the list would gain owner and governance-gap filters, plus an
+    // expiry window) and what had shipped (tier and governance-gap only —
+    // `expiring_within_days` existed on the backend with no UI consumer at
+    // all).
+    renderEnvironmentList('/environments?owner_user_id=7&expiring_within_days=30');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ owner_user_id: '7', expiring_within_days: '30' })
+    );
+  });
+
+  it('does not send owner_user_id or expiring_within_days when neither filter is set', async () => {
+    // The discriminating half for the previous test: proves these two keys
+    // are genuinely optional filters reflecting the Select's own state,
+    // rather than always being sent (which would silently over-filter every
+    // request). The row-level discriminating half — a differently-owned or
+    // non-expiring-soon row that must NOT appear — is covered on the
+    // backend by test_filtering_by_owner and
+    // test_expiring_within_days_excludes_a_null_expiry
+    // (test_environment_governance_filters.py); this mocked-service test
+    // can only assert what params the page builds, not what rows a real
+    // server would return for them.
+    renderEnvironmentList('/environments');
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    expect(lastListParams()).not.toHaveProperty('owner_user_id');
+    expect(lastListParams()).not.toHaveProperty('expiring_within_days');
+  });
+
+  it('keeps a retired tier selectable in the filter when it is the current filter value', async () => {
+    // The tier *filter* used to list active tiers only, so an environment on
+    // a retired tier stayed visible in the grid but could never be filtered
+    // for — a `?tier_id=` deep link onto a retired tier rendered a blank
+    // Select over an already-filtered grid. Same shape as the create/edit
+    // form's existing fix (`t.is_active || t.id === form.tier_id`), applied
+    // to the filter.
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 5,
+          tenant_id: 1,
+          name: 'Retired',
+          description: null,
+          category: null,
+          color: null,
+          display_order: 2,
+          is_active: false,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    renderEnvironmentList('/environments?tier_id=5');
+    await waitFor(() => expect(lastListParams()).toMatchObject({ tier_id: '5' }));
+
+    const tierSelect = screen.getByRole('combobox', { name: 'Tier' });
+    expect(tierSelect).toHaveTextContent('Retired');
+  });
+
+  it('refetches when the governance-gap chip is toggled on', async () => {
+    // The trap this guards: a filter whose "off" value collides with
+    // buildParams' own no-selection sentinel builds byte-identical params in
+    // both states, so the fetch effect (keyed on the resolved params) never
+    // re-runs and the grid silently keeps the old rows. Off is '', which
+    // buildParams drops; on is 'true', which it keeps.
+    renderEnvironmentList('/environments');
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    expect(lastListParams()).not.toHaveProperty('governance_gap');
+
+    fireEvent.click(screen.getByText('Missing owner'));
+
+    await waitFor(() => expect(lastListParams()).toMatchObject({ governance_gap: 'true' }));
+  });
+
   it('marks actions and custom-field columns unsortable', () => {
     const byField = Object.fromEntries(environmentColumns.map((c) => [c.field, c]));
-    ['name', 'environment_type', 'status', 'created_at'].forEach((f) =>
+    ['name', 'tier', 'status', 'owner', 'expires_at', 'created_at'].forEach((f) =>
       expect(byField[f].sortable).not.toBe(false)
     );
     expect(byField.actions.sortable).toBe(false);
+  });
+
+  it('leaves reserved_now unsortable — it is not in the backend whitelist', () => {
+    // The backend computes it from live bookings, so `sorting()` answers a
+    // sort_by=reserved_now with a 422. A sortable header would look clickable
+    // and fail on click.
+    const col = environmentColumns.find((c) => c.field === 'reserved_now');
+    expect(col?.sortable).toBe(false);
+  });
+
+  it('offers exactly the columns the backend will sort by', () => {
+    // Guards the other direction from the two assertions above: a column
+    // added here but absent from the whitelist earns a 422 on click, and one
+    // named differently from its whitelist entry (e.g. `tier_name` for
+    // `tier`) sends a sort_by the server rejects. Custom-field and `actions`
+    // columns are excluded above by being `sortable: false`.
+    const sortableFields = environmentColumns
+      .filter((c) => c.sortable !== false)
+      .map((c) => c.field);
+    expect(new Set(sortableFields)).toEqual(new Set(whitelists.environments.sortable));
   });
 
   it('disables the column filter, which would filter only the loaded page', async () => {
@@ -205,7 +360,234 @@ describe('EnvironmentList server-side grid', () => {
 
     const [column] = buildCustomFieldColumns([def]);
 
-    expect(column.field).toBe('region');
+    // Namespaced (`cf_${field_key}`), not the raw key — see the collision
+    // tests below for why. `headerName` is untouched, since that's what the
+    // user actually sees.
+    expect(column.field).toBe('cf_region');
+    expect(column.headerName).toBe('Region');
     expect(column.sortable).toBe(false);
+  });
+
+  it('never generates a custom-field column whose field collides with a static one', () => {
+    // The bug this branch shipped: the demo tenant has a custom field
+    // definition keyed 'owner' — evidently how people recorded an owner
+    // before this page had a real Owner column — and this branch added a
+    // static column also named 'owner'. Two GridColDefs with the same
+    // `field` make MUI treat them as one column internally: duplicate
+    // headers, and a visibility toggle on one silently hides the other.
+    // `tier`, `expires_at` and `reserved_now` are this branch's other new
+    // static fields — any of them is one tenant custom-field rename away
+    // from the same collision.
+    const staticFields = new Set(environmentColumns.map((c) => c.field));
+    expect(staticFields).toEqual(
+      new Set(['name', 'tier', 'owner', 'expires_at', 'reserved_now', 'status', 'created_at', 'actions'])
+    );
+
+    const defs: CustomFieldDefinition[] = ['owner', 'tier', 'expires_at', 'reserved_now', 'region'].map(
+      (key, i) => ({
+        id: i + 1,
+        tenant_id: 1,
+        entity_type: 'environment',
+        entity_subtype: null,
+        field_key: key,
+        label: key,
+        field_type: 'text',
+        required: false,
+        display_order: i,
+        options: null,
+        lifecycle_states: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      })
+    );
+
+    const customCols = buildCustomFieldColumns(defs);
+    expect(customCols).toHaveLength(defs.length);
+    customCols.forEach((col) => expect(staticFields.has(col.field)).toBe(false));
+    // And they don't collide with each other either.
+    expect(new Set(customCols.map((c) => c.field)).size).toBe(customCols.length);
+  });
+
+  it('renders the static Owner column and a colliding custom Owner field as two distinct columns', async () => {
+    // Reproduces the exact demo-tenant fixture: a custom field keyed
+    // 'owner'. Before the fix both grid entries shared `field: 'owner'`;
+    // now the custom one is `cf_owner`. Assert on the columns actually
+    // handed to DataGrid (capturedGridProps), not rendered DOM header text —
+    // the un-virtualized stand-in above renders body cells only, no header
+    // row, and even a real DataGrid wouldn't disambiguate two columns that
+    // share one `field` since MUI keys its column lookup by `field`.
+    vi.mocked(customFieldService.listDefinitions).mockResolvedValueOnce([
+      {
+        id: 99,
+        tenant_id: 1,
+        entity_type: 'environment',
+        entity_subtype: null,
+        field_key: 'owner',
+        label: 'Owner',
+        field_type: 'text',
+        required: false,
+        display_order: 1,
+        options: null,
+        lifecycle_states: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    renderEnvironmentList('/environments');
+    await screen.findByText('prod-a');
+    await waitFor(() => {
+      const columns = (capturedGridProps.current?.columns ?? []) as GridColDef[];
+      expect(columns.some((c) => c.field === 'cf_owner')).toBe(true);
+    });
+
+    const columns = capturedGridProps.current?.columns as GridColDef[];
+    const ownerHeaders = columns.filter((c) => c.headerName === 'Owner');
+    // Two sources, two columns, two distinct field ids — not collapsed into
+    // one and not duplicated under the same id.
+    expect(ownerHeaders).toHaveLength(2);
+    expect(new Set(ownerHeaders.map((c) => c.field))).toEqual(new Set(['owner', 'cf_owner']));
+  });
+
+  // These two carry the whole "a null expiry means no expiry planned"
+  // decision: EnvironmentList gates the expiry-required validation on
+  // `!editTarget` (so Edit tolerates a blank expiry while Create still
+  // demands one), and the update payload always sends an explicit
+  // `expires_at: null` rather than omitting the key, because the backend
+  // keys on `model_fields_set` and an omitted key means "leave alone".
+  // Neither behaviour has any other test guarding it — both would survive
+  // deletion with a fully green suite.
+  it('lets Edit save a blank expiry, sending explicit null rather than leaving it alone', async () => {
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [PRODUCTION_TIER],
+      total: 1,
+    });
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [{ id: 7, username: 'alice' }] });
+    const updateMock = vi.mocked(environmentService.updateEnvironment).mockResolvedValueOnce({
+      id: 1,
+      name: 'prod-a',
+      description: null,
+      tier_id: 3,
+      tier_name: 'Production',
+      tier_color: '#c62828',
+      owner_user_id: 7,
+      owner_username: 'alice',
+      expires_at: null,
+      reserved_now: false,
+      status: 'active',
+      tenant_id: 1,
+      custom_fields: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+
+    renderEnvironmentList('/environments');
+    // The prod-a fixture (see the environmentService mock above) already has
+    // expires_at: null — exactly the row this decision is about.
+    await screen.findByText('prod-a');
+
+    const editButtons = screen
+      .getAllByRole('button', { hidden: true })
+      .filter((b) => b.getAttribute('aria-label') === 'Edit');
+    expect(editButtons.length).toBeGreaterThan(0);
+    fireEvent.click(editButtons[0]);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Expires')).toHaveValue('');
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    // Synchronous: handleSave's validation runs in the click handler itself,
+    // before the dialog has any chance to close on a successful dispatch.
+    expect(within(dialog).queryByText(/expiry date is required/i)).not.toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith(1, expect.objectContaining({ expires_at: null }))
+    );
+  });
+
+  it('still requires an expiry on Create, even though Edit tolerates a blank one', async () => {
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [PRODUCTION_TIER],
+      total: 1,
+    });
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [{ id: 7, username: 'alice' }] });
+    const createMock = vi.mocked(environmentService.createEnvironment);
+
+    renderEnvironmentList('/environments');
+    await screen.findByText('prod-a');
+
+    fireEvent.click(screen.getByRole('button', { name: /new environment/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    // Not an exact 'Name' match: the field is `required`, so MUI appends a
+    // visually-hidden asterisk to the label's accessible name ("Name *").
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), 'staging-b');
+
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Tier' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Production' }));
+
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Owner' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'alice' }));
+
+    // Expiry deliberately left blank.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    expect(await within(dialog).findByText(/expiry date is required/i)).toBeInTheDocument();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  describe('loadColumnModel', () => {
+    afterEach(() => {
+      localStorage.removeItem('environments-list-columns-777');
+    });
+
+    it('discards a persisted entry for a column id that no longer exists', () => {
+      // Simulates exactly what shipped: MUI auto-persisted {"owner": false}
+      // while the static and custom-field 'owner' columns collided. A
+      // *different* stale key (one that, unlike 'owner', doesn't happen to
+      // be reused by a real column) demonstrates the general mechanism —
+      // the 'owner' case itself is inherently unrecoverable this way, since
+      // that exact key legitimately names today's static column too; see
+      // the comment on loadColumnModel and this suite's commit message.
+      localStorage.setItem(
+        'environments-list-columns-777',
+        JSON.stringify({ retired_field: false, status: false })
+      );
+
+      const model = loadColumnModel(777, ['name', 'tier', 'owner', 'status']);
+
+      expect(model).toEqual({ status: false });
+    });
+
+    it('always keeps a cf_-prefixed entry, even for a custom field not in the known list yet', () => {
+      // Custom-field definitions load asynchronously (fetchDefinitions), so
+      // on the very first render `knownStaticFields` only reflects the
+      // static columns. A namespaced entry must survive that window rather
+      // than being wrongly treated as stale and dropped before the
+      // tenant's definitions have even arrived.
+      localStorage.setItem(
+        'environments-list-columns-777',
+        JSON.stringify({ cf_region: false })
+      );
+
+      const model = loadColumnModel(777, ['name', 'tier', 'owner', 'status']);
+
+      expect(model).toEqual({ cf_region: false });
+    });
+
+    it('defaults knownStaticFields to the real static column list, not a hardcoded one', () => {
+      // No second argument — exercises the default parameter, which reads
+      // `environmentColumns` directly rather than a copy-pasted list that
+      // could drift from it.
+      localStorage.setItem(
+        'environments-list-columns-777',
+        JSON.stringify({ owner: false, made_up_field: true })
+      );
+
+      const model = loadColumnModel(777);
+
+      expect(model).toEqual({ owner: false });
+    });
   });
 });

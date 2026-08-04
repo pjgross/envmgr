@@ -2,7 +2,7 @@ import pytest
 from datetime import datetime, timezone, timedelta
 
 from app.services import environment_utilization_service as util
-from tests.factories import ensure_booking_type
+from tests.factories import ensure_environment_tier, ensure_booking_type
 
 UTC = timezone.utc
 
@@ -108,7 +108,8 @@ _uc = 0
 
 
 async def _mk_env(db, tenant_id, name="Env"):
-    e = Environment(tenant_id=tenant_id, name=name, environment_type="test")
+    tier = await ensure_environment_tier(db, tenant_id)
+    e = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
     db.add(e); await db.flush(); return e
 
 

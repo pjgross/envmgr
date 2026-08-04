@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.services import api_key_service, change_request_service
+from tests.factories import ensure_environment_tier
 
 
 async def _scaffold(db_session, tenant, user):
@@ -15,7 +16,8 @@ async def _scaffold(db_session, tenant, user):
     db_session.add(sys)
     await db_session.flush()
     sub = SubSystem(tenant_id=tenant.id, system_id=sys.id, name="orders-api")
-    env = Environment(tenant_id=tenant.id, name="sit", environment_type="integration")
+    tier = await ensure_environment_tier(db_session, tenant.id)
+    env = Environment(tenant_id=tenant.id, name="sit", tier_id=tier.id)
     db_session.add_all([sub, env])
     await db_session.flush()
     _, raw = await api_key_service.create_key(

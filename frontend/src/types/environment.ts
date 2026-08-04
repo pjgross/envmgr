@@ -4,7 +4,19 @@ export interface EnvironmentResponse {
   id: number;
   name: string;
   description: string | null;
-  environment_type: string;
+  tier_id: number;
+  tier_name: string;
+  tier_color: string | null;
+  owner_user_id: number | null;
+  /**
+   * The owner's display name, travelling with the row rather than being
+   * resolved in the browser against a separately-fetched (and capped) user
+   * collection — see docs/pagination.md.
+   */
+  owner_username: string | null;
+  /** Null means "no expiry planned" — a legitimate state, not a missing value. */
+  expires_at: string | null;
+  reserved_now: boolean;
   status: EnvironmentStatus;
   tenant_id: number;
   custom_fields: Record<string, unknown> | null;
@@ -38,7 +50,10 @@ export interface EnvironmentSystemsResponse {
 export interface EnvironmentCreate {
   name: string;
   description?: string;
-  environment_type: string;
+  tier_id: number;
+  owner_user_id: number;
+  /** Required on create; `PATCH` may clear it later (see EnvironmentUpdate). */
+  expires_at: string;
   status?: EnvironmentStatus;
   custom_fields?: Record<string, unknown>;
 }
@@ -46,7 +61,14 @@ export interface EnvironmentCreate {
 export interface EnvironmentUpdate {
   name?: string;
   description?: string;
-  environment_type?: string;
+  tier_id?: number;
+  owner_user_id?: number;
+  /**
+   * `null` clears the expiry — "no expiry planned", which the backend treats
+   * as a legitimate state and deliberately excludes from its compliance rule.
+   * Omit the key to leave the stored value untouched.
+   */
+  expires_at?: string | null;
   status?: EnvironmentStatus;
   custom_fields?: Record<string, unknown>;
 }

@@ -43,7 +43,10 @@ describe('environmentService.listEnvironments', () => {
       sort_dir: 'desc',
       search: 'sit',
       status: 'active',
-      environment_type: 'staging',
+      tier_id: 3,
+      owner_user_id: 7,
+      expiring_within_days: 30,
+      governance_gap: true,
     });
 
     expect(mockGet).toHaveBeenCalledWith('/environments/', {
@@ -54,7 +57,10 @@ describe('environmentService.listEnvironments', () => {
         sort_dir: 'desc',
         search: 'sit',
         status: 'active',
-        environment_type: 'staging',
+        tier_id: 3,
+        owner_user_id: 7,
+        expiring_within_days: 30,
+        governance_gap: true,
       },
     });
   });

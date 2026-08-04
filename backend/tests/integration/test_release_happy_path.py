@@ -10,6 +10,7 @@ from app.db.models.environment import Environment, EnvironmentSystem
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.core.security import get_password_hash
+from tests.factories import ensure_environment_tier
 
 
 # ── Local fixtures ────────────────────────────────────────────────────────────
@@ -38,10 +39,11 @@ async def authed_client(db_session, tenant, user) -> AsyncClient:
 @pytest_asyncio.fixture(scope="function")
 async def environment(db_session, tenant) -> Environment:
     """A persisted Environment in the `tenant` fixture."""
+    tier = await ensure_environment_tier(db_session, tenant.id)
     env = Environment(
         tenant_id=tenant.id,
         name="SIT-ENV-01",
-        environment_type="sit",
+        tier_id=tier.id,
     )
     db_session.add(env)
     await db_session.commit()

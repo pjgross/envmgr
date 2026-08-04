@@ -16,7 +16,10 @@ import type { Paged } from '../types/pagination';
 export const environmentService = {
   listEnvironments: (params?: {
     status?: string;
-    environment_type?: string;
+    tier_id?: number;
+    owner_user_id?: number;
+    expiring_within_days?: number;
+    governance_gap?: boolean;
     search?: string;
     limit?: number;
     offset?: number;

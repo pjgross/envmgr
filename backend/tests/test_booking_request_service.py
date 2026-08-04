@@ -8,6 +8,7 @@ from app.db.models.environment import Environment
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking import Booking
+from tests.factories import ensure_environment_tier
 
 
 async def _seed_lifecycle_and_type(db_session, tenant):
@@ -33,7 +34,8 @@ async def _seed_lifecycle_and_type(db_session, tenant):
 
 
 async def _make_env(db_session, tenant, name):
-    env = Environment(tenant_id=tenant.id, name=name, environment_type="dev")
+    tier = await ensure_environment_tier(db_session, tenant.id)
+    env = Environment(tenant_id=tenant.id, name=name, tier_id=tier.id)
     db_session.add(env)
     await db_session.flush()
     return env

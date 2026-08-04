@@ -10,7 +10,7 @@
     "default_dir": "asc"
   },
   "environments": {
-    "sortable": ["name", "environment_type", "status", "created_at"],
+    "sortable": ["name", "tier", "status", "owner", "expires_at", "created_at"],
     "default": "name",
     "default_dir": "asc"
   },

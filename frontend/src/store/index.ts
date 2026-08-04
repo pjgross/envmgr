@@ -6,6 +6,7 @@ import buildReducer from './buildSlice';
 import tenantAdminReducer from './tenantAdminSlice';
 import systemReducer from './systemSlice';
 import environmentReducer from './environmentSlice';
+import environmentTierReducer from './environmentTierSlice';
 import dependencyReducer from './dependencySlice';
 import bookingReducer from './bookingSlice';
 import deploymentReducer from './deploymentSlice';
@@ -36,6 +37,7 @@ export const store = configureStore({
     tenantAdmin: tenantAdminReducer,
     system: systemReducer,
     environment: environmentReducer,
+    environmentTier: environmentTierReducer,
     dependency: dependencyReducer,
     deployment: deploymentReducer,
     booking: bookingReducer,

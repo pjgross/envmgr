@@ -10,6 +10,7 @@ from app.db.models.environment import Environment
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.core.security import get_password_hash
+from tests.factories import post_environment
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +115,7 @@ async def default_booking_type_id(client: AsyncClient, auth_headers: dict) -> in
 
 
 async def _create_env(client, auth_headers, name="TestEnv") -> int:
-    resp = await client.post(
-        "/api/v1/environments/",
-        headers=auth_headers,
-        json={"name": name, "environment_type": "test"},
-    )
+    resp = await post_environment(client, auth_headers, name)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 

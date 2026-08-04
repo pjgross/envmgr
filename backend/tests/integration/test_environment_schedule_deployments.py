@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
+from tests.factories import ensure_environment_tier
 
 
 @pytest.mark.asyncio
@@ -17,7 +18,8 @@ async def test_schedule_includes_deployments(client, auth_headers, db_session, t
     db_session.add(sys)
     await db_session.flush()
     sub = SubSystem(tenant_id=test_tenant.id, system_id=sys.id, name="orders-api")
-    env = Environment(tenant_id=test_tenant.id, name="sit", environment_type="integration")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    env = Environment(tenant_id=test_tenant.id, name="sit", tier_id=tier.id)
     db_session.add_all([sub, env])
     await db_session.flush()
     build = Build(

@@ -105,7 +105,7 @@ already matched, so it is unaffected.
 |---|---|---|---|
 | `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | — |
 | `GET /bookings/` | `start_date`, `end_date`, `status` | `start_date` asc | — |
-| `GET /environments/` | `name`, `environment_type`, `status`, `created_at` | `name` asc | `search` |
+| `GET /environments/` | `name`, `tier`, `status`, `owner`, `expires_at`, `created_at` | `name` asc | `search` |
 | `GET /change-requests` | `title`, `change_type`, `status`, `scheduled_start` | `scheduled_start` desc | — |
 | `GET /systems/` | `name` | `name` asc | `search` |
 | `GET /infrastructure-components/` | `name`, `component_type`, `provider`, `region`, `source` | `name` asc | `search` (widened to name/provider/region) |
@@ -1026,6 +1026,7 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 | Endpoint | Service | Cap |
 |---|---|---|
 | `GET /environments/` | `environment_service.list_environments` | 1000 |
+| `GET /environment-tiers/` | `environment_tier_service.list_tiers` — new with this branch's governance-fields work, not part of the 51/28/24 counts below, which predate it **‡** | 1000 |
 | `GET /systems/` | `system_service.list_systems` | 1000 |
 | `GET /incidents` | `incident_service.list_incidents` | 1000 |
 | `GET /bookings/` | `booking_service.list_bookings` | 1000 |
@@ -1068,6 +1069,18 @@ both `current` (which specifically queries `state == ACCEPTED`) and in `history`
 semantic question about what "history" should mean, not a pagination bug, and changing it is out
 of scope for a query-restructure pass — noted here so it isn't mistaken for a side effect of the
 bounding work.
+
+**‡** `GET /environment-tiers/` (`backend/app/api/v1/environment_tiers.py`) is new entirely —
+added by the same branch that added `tier`/`owner`/`expires_at` to `Environment` — so it postdates
+every enumerated count in this document (the 51 `response_model=list[...]` endpoints, the 28
+bounded, the 24 not). It went straight onto `pagination()` + `sorting()` from the start rather
+than being added unbounded and bounded later, so it never passed through "not yet bounded." It is
+deliberately **absent** from `backend/tests/test_sort_whitelist_contract.py`'s `WHITELISTS` dict:
+that test enforces agreement between a backend whitelist and
+`frontend/src/constants/sortWhitelists.json`, and nothing on the frontend sorts this endpoint
+server-side — the tier picker (`useAllEnvironmentTiers`) reads every tier unpaged for use in
+selects, not through a sortable grid. Add it to both the JSON contract and `WHITELISTS` the day a
+grid actually renders and sorts a paged tier list.
 
 ## Not yet bounded
 

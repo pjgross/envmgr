@@ -20,6 +20,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
 from app.db.models.environment import Environment
+from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
@@ -116,6 +117,30 @@ async def ensure_user(
     return user
 
 
+async def ensure_environment_tier(
+    db: AsyncSession, tenant_id: int, name: str = "SIT"
+) -> EnvironmentTier:
+    """A real tier for `tenant_id`. Idempotent per (tenant, name).
+
+    Environment.tier_id is NOT NULL, so every test that builds an environment
+    needs one of these.
+    """
+    existing = (
+        await db.execute(
+            select(EnvironmentTier).where(
+                EnvironmentTier.tenant_id == tenant_id, EnvironmentTier.name == name
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    tier = EnvironmentTier(tenant_id=tenant_id, name=name, category=name.lower())
+    db.add(tier)
+    await db.flush()
+    return tier
+
+
 async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) -> Environment:
     """A real environment for `tenant_id`, addressed by a small integer.
 
@@ -135,10 +160,41 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
     if existing is not None:
         return existing
 
-    environment = Environment(tenant_id=tenant_id, name=name, environment_type="SIT")
+    tier = await ensure_environment_tier(db, tenant_id)
+    environment = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
     db.add(environment)
     await db.flush()
     return environment
+
+
+async def post_environment(client, headers: dict, name: str, **extra):
+    """POST /environments with the tier, owner and expiry it now requires.
+
+    Returns the raw response, so a caller can still assert on the status code.
+    Everything is resolved over HTTP, so a test needs no database fixtures to
+    use it — `extra` overrides or adds to the body.
+    """
+    listed = await client.get("/api/v1/environment-tiers/", headers=headers)
+    match = [t for t in listed.json() if t["name"] == "SIT"]
+    if match:
+        tier_id = match[0]["id"]
+    else:
+        created = await client.post(
+            "/api/v1/environment-tiers/", headers=headers, json={"name": "SIT"}
+        )
+        tier_id = created.json()["id"]
+
+    me = await client.get("/api/v1/auth/me", headers=headers)
+    body = {
+        "name": name,
+        "tier_id": tier_id,
+        "owner_user_id": me.json()["id"],
+        "expires_at": (
+            datetime.now(timezone.utc) + timedelta(days=365)
+        ).isoformat(),
+    }
+    body.update(extra)
+    return await client.post("/api/v1/environments/", headers=headers, json=body)
 
 
 _build_seq = 0
