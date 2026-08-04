@@ -123,6 +123,49 @@ describe('UserGroupDetail', () => {
     expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
   });
 
+  it('surfaces the server reason when removing a member is refused', async () => {
+    // Same AxiosError SHAPE as the add-member test above: generic text on
+    // `.message`, the real reason only at response.data.detail. This guards
+    // handleRemoveMember's `result.payload` read the same way the add-member
+    // test guards handleAddMember's — mutating either to `result.error.message`
+    // must fail its own test.
+    vi.mocked(userGroupService.removeMember).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: 'alice cannot be removed: last remaining owner.' },
+      },
+    });
+    renderPage('Admin');
+
+    await waitFor(() => expect(screen.getByText('alice')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /remove/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('alice cannot be removed: last remaining owner.')
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('shows an error instead of an empty list when loading members fails', async () => {
+    vi.mocked(userGroupService.listMembers).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 500',
+      response: { status: 500, data: { detail: 'Failed to load members: db unavailable' } },
+    });
+    renderPage('Admin');
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Failed to load members: db unavailable')
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
+  });
+
   it('leaves the page usable with an empty picker when /tenant/users/lite fails', async () => {
     mockedApiGet.mockRejectedValue({
       isAxiosError: true,

@@ -158,9 +158,15 @@ const userGroupSlice = createSlice({
       .addCase(fetchUserGroup.fulfilled, (state, action) => {
         state.currentGroup = action.payload;
       })
+      .addCase(fetchUserGroup.rejected, (state, action) => {
+        state.error = action.payload ?? 'Failed to load user group';
+      })
       .addCase(fetchGroupMembers.fulfilled, (state, action) => {
         state.members = action.payload.rows;
         state.memberTotal = action.payload.total;
+      })
+      .addCase(fetchGroupMembers.rejected, (state, action) => {
+        state.error = action.payload ?? 'Failed to load members';
       })
       .addCase(addGroupMember.fulfilled, (state, action) => {
         state.members.push(action.payload);

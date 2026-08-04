@@ -30,7 +30,7 @@ export default function UserGroupDetail() {
   const groupId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { currentGroup, members } = useSelector((s: RootState) => s.userGroup);
+  const { currentGroup, members, error: loadError } = useSelector((s: RootState) => s.userGroup);
   // GET /tenant/groups/{id} is open to any tenant member; POST/DELETE on
   // membership are require_tenant_admin(). Mirror that split for the write
   // controls the way UserGroups.tsx does for its row actions.
@@ -96,6 +96,12 @@ export default function UserGroupDetail() {
       <Button size="small" onClick={() => navigate('/tenant/groups')} sx={{ mb: 2 }}>
         Back to User Groups
       </Button>
+
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {loadError}
+        </Alert>
+      )}
 
       <Typography variant="h5">{group?.name ?? 'User Group'}</Typography>
       {group?.description && (
