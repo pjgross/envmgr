@@ -199,4 +199,46 @@ describe('EnvironmentDetail governance form', () => {
       expect.objectContaining({ owner_user_id: 7, tier_id: 3, expires_at: null })
     );
   });
+
+  it('keeps a deactivated owner selectable in edit mode, symmetric with EnvironmentList', async () => {
+    // GET /tenant/users/lite (mocked above to [{id: 7, username: 'alice'}])
+    // omits deactivated users, but the backend's owner validation does not
+    // check is_active — an environment can legitimately hold a deactivated
+    // owner. Before this fix EnvironmentList's own picker handled this (an
+    // "(inactive)" option), but EnvironmentDetail had no equivalent, so
+    // editing the *same* environment from the detail page rendered a blank
+    // required Owner Select plus a MUI out-of-range warning.
+    const DEACTIVATED_OWNER_ENV = {
+      ...OWNED_ENV,
+      id: 3,
+      name: 'deactivated-owner-env',
+      owner_user_id: 42,
+      owner_username: 'retired-bob',
+    };
+    vi.mocked(environmentService.getEnvironment).mockResolvedValue(DEACTIVATED_OWNER_ENV);
+    vi.mocked(environmentService.updateEnvironment).mockResolvedValue(DEACTIVATED_OWNER_ENV);
+
+    renderDetail(3);
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'deactivated-owner-env' })).toBeInTheDocument()
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const ownerSelect = screen.getByRole('combobox', { name: 'Owner' });
+    expect(ownerSelect).toHaveTextContent('retired-bob');
+    expect(ownerSelect).toHaveTextContent(/inactive/i);
+
+    // Save must not be blocked by the "owner required" check — the id is
+    // already present in form state, just not in the fetched user list.
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.queryByText(/named owner is required/i)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(environmentService.updateEnvironment).toHaveBeenCalledWith(
+        3,
+        expect.objectContaining({ owner_user_id: 42 })
+      )
+    );
+  });
 });

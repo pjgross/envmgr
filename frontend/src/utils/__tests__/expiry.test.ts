@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 
-import { formatExpiry } from '../dates';
+import { formatExpiry, isExpiryOverdue } from '../dates';
 
 describe('formatExpiry', () => {
   afterEach(() => {
@@ -51,5 +51,50 @@ describe('formatExpiry', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
     expect(formatExpiry('2026-08-05T00:00:00Z')).toBe('in 1 day');
+  });
+});
+
+describe('isExpiryOverdue', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // These pin the bug this function fixes: the overdue *colour* used to come
+  // from a raw instant comparison (new Date(expires_at) < new Date()) while
+  // the *label* (formatExpiry, above) used calendar-day arithmetic, so an
+  // environment expiring today read "today" in black text while its cell was
+  // already red from 00:00Z — label and colour disagreeing for a whole day.
+  // isExpiryOverdue now drives both from the same day-delta.
+
+  it('is not overdue on the day of expiry itself, checked right after midnight', () => {
+    // The instant-comparison bug's exact failure mode: new Date(iso) < now
+    // is already true seconds after 00:00Z on the expiry date.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T00:00:05Z'));
+    expect(isExpiryOverdue('2026-08-04T00:00:00Z')).toBe(false);
+    expect(formatExpiry('2026-08-04T00:00:00Z')).toBe('today');
+  });
+
+  it('is not overdue on the day of expiry, checked at midday', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
+    expect(isExpiryOverdue('2026-08-04T00:00:00Z')).toBe(false);
+  });
+
+  it('is overdue the day after expiry', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
+    expect(isExpiryOverdue('2026-08-03T00:00:00Z')).toBe(true);
+  });
+
+  it('is not overdue for a future expiry', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T12:00:00Z'));
+    expect(isExpiryOverdue('2026-08-05T00:00:00Z')).toBe(false);
+  });
+
+  it('is not overdue when there is no expiry — "no expiry planned" is not a governance gap', () => {
+    expect(isExpiryOverdue(null)).toBe(false);
+    expect(isExpiryOverdue(undefined)).toBe(false);
   });
 });

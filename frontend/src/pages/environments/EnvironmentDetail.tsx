@@ -74,7 +74,7 @@ import type {
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
-import { formatExpiry } from '../../utils/dates';
+import { formatExpiry, isExpiryOverdue } from '../../utils/dates';
 import api from '../../services/api';
 
 const STATUS_COLORS: Record<EnvironmentStatus, 'success' | 'warning' | 'default' | 'error'> = {
@@ -718,6 +718,24 @@ export default function EnvironmentDetail() {
                       setEnvForm({ ...envForm, owner_user_id: Number(e.target.value) })
                     }
                   >
+                    {/* GET /tenant/users/lite filters to active users, but the
+                        backend's owner validation does not check is_active, so
+                        an environment can legitimately hold a deactivated
+                        owner. Keep that owner selectable (labelled as
+                        inactive) the same way EnvironmentList's own owner
+                        Select does — otherwise this required field renders
+                        blank with a MUI out-of-range warning while form state
+                        still holds the id. `currentEnvironment.owner_username`
+                        supplies the label since the lite list won't have this
+                        user at all. */}
+                    {currentEnvironment &&
+                      envForm.owner_user_id === currentEnvironment.owner_user_id &&
+                      !users.some((u) => u.id === envForm.owner_user_id) && (
+                        <MenuItem value={envForm.owner_user_id}>
+                          {currentEnvironment.owner_username ?? `#${envForm.owner_user_id}`}{' '}
+                          (inactive)
+                        </MenuItem>
+                      )}
                     {users.map((u) => (
                       <MenuItem key={u.id} value={u.id}>
                         {u.username}
@@ -802,8 +820,7 @@ export default function EnvironmentDetail() {
                     <Typography
                       variant="body2"
                       color={
-                        currentEnvironment?.expires_at &&
-                        new Date(currentEnvironment.expires_at) < new Date()
+                        isExpiryOverdue(currentEnvironment?.expires_at)
                           ? 'error.main'
                           : 'text.secondary'
                       }
