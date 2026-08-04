@@ -1,5 +1,28 @@
 # EnvManager
 
+> **Status: work in progress — not a released product.**
+>
+> This is an actively developed personal project, published so the work is visible and
+> reusable. It is not a finished product and has never been released: there are no tagged
+> versions, no upgrade path between commits, and no support.
+>
+> Concretely, if you are thinking of running it:
+>
+> - **The schema and API change without notice.** Migrations are written for a
+>   forward-only path on a single deployment; there is no guarantee that any two commits
+>   are compatible.
+> - **Roughly half the roadmap is unbuilt.** Phases 1–6 are complete and Phase 7 is
+>   underway; Phases 8–13 (governance, test data management, cost/FinOps, compliance
+>   evidence, ITSM integration) are designed but not implemented. See
+>   [docs/plan.md](docs/plan.md).
+> - **It has been exercised on one deployment, by one person.** Multi-tenancy is enforced
+>   and tested, and CI runs the suite against SQLite and PostgreSQL, but none of it has
+>   been independently audited or run at scale.
+> - **Credentials in the documentation are local development defaults** (`admin`/`admin123`
+>   and similar). They exist so the demo stack starts. Never deploy with them.
+>
+> Issues and pull requests are welcome, but response times are best-effort.
+
 A test environment management platform for booking, tracking and visualising test environments, with release governance, DORA metrics and infrastructure topology.
 
 ## Features
@@ -191,4 +214,8 @@ envmgr/
 
 ## License
 
-Proprietary — All rights reserved
+Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Provided "as is", without warranties or conditions of any kind. See the licence for the
+governing terms; the status note at the top of this file describes the practical maturity
+of the code.
