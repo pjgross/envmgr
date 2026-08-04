@@ -61,7 +61,7 @@ export default function EnvironmentTiersPanel() {
       })
     );
     if (createEnvironmentTier.rejected.match(result)) {
-      setCreateError(result.error.message ?? 'Failed to create tier');
+      setCreateError(result.payload ?? result.error.message ?? 'Failed to create tier');
       return;
     }
     setCreateOpen(false);
@@ -92,7 +92,7 @@ export default function EnvironmentTiersPanel() {
       })
     );
     if (updateEnvironmentTier.rejected.match(result)) {
-      setEditError(result.error.message ?? 'Failed to update tier');
+      setEditError(result.payload ?? result.error.message ?? 'Failed to update tier');
       return;
     }
     setEditTarget(null);
@@ -104,7 +104,7 @@ export default function EnvironmentTiersPanel() {
     const result = await dispatch(deleteEnvironmentTier(deleteTarget.id));
     if (deleteEnvironmentTier.rejected.match(result)) {
       // The backend refuses 409 while environments still reference the tier.
-      setDeleteError(result.error.message ?? 'Failed to delete tier');
+      setDeleteError(result.payload ?? result.error.message ?? 'Failed to delete tier');
       return;
     }
     setDeleteTarget(null);
@@ -238,6 +238,7 @@ export default function EnvironmentTiersPanel() {
             type="number"
             value={editOrder}
             onChange={(e) => setEditOrder(Number(e.target.value))}
+            helperText="Lower numbers sort first — tiers have a progression, not an alphabet."
           />
           <TextField
             select

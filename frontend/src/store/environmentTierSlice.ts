@@ -1,10 +1,12 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { environmentTierService } from '../services/environmentTierService';
+import { formatApiError } from '../services/apiError';
 import type {
   EnvironmentTierResponse,
   EnvironmentTierCreate,
   EnvironmentTierUpdate,
 } from '../types/environmentTier';
+import type { Paged } from '../types/pagination';
 
 interface EnvironmentTierState {
   tiers: EnvironmentTierResponse[];
@@ -20,29 +22,57 @@ const initialState: EnvironmentTierState = {
   error: null,
 };
 
-export const fetchEnvironmentTiers = createAsyncThunk(
-  'environmentTier/fetch',
-  () => environmentTierService.listTiers()
-);
+const sortTiers = (tiers: EnvironmentTierResponse[]): EnvironmentTierResponse[] =>
+  [...tiers].sort((a, b) => a.display_order - b.display_order || a.id - b.id);
 
-export const createEnvironmentTier = createAsyncThunk(
-  'environmentTier/create',
-  (data: EnvironmentTierCreate) => environmentTierService.createTier(data)
-);
+export const fetchEnvironmentTiers = createAsyncThunk<
+  Paged<EnvironmentTierResponse>,
+  void,
+  { rejectValue: string }
+>('environmentTier/fetch', async (_, { rejectWithValue }) => {
+  try {
+    return await environmentTierService.listTiers();
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to load tiers'));
+  }
+});
 
-export const updateEnvironmentTier = createAsyncThunk(
-  'environmentTier/update',
-  ({ id, data }: { id: number; data: EnvironmentTierUpdate }) =>
-    environmentTierService.updateTier(id, data)
-);
+export const createEnvironmentTier = createAsyncThunk<
+  EnvironmentTierResponse,
+  EnvironmentTierCreate,
+  { rejectValue: string }
+>('environmentTier/create', async (data, { rejectWithValue }) => {
+  try {
+    return await environmentTierService.createTier(data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to create tier'));
+  }
+});
 
-export const deleteEnvironmentTier = createAsyncThunk(
-  'environmentTier/delete',
-  async (id: number) => {
+export const updateEnvironmentTier = createAsyncThunk<
+  EnvironmentTierResponse,
+  { id: number; data: EnvironmentTierUpdate },
+  { rejectValue: string }
+>('environmentTier/update', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await environmentTierService.updateTier(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update tier'));
+  }
+});
+
+export const deleteEnvironmentTier = createAsyncThunk<
+  number,
+  number,
+  { rejectValue: string }
+>('environmentTier/delete', async (id, { rejectWithValue }) => {
+  try {
     await environmentTierService.deleteTier(id);
     return id;
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to delete tier'));
   }
-);
+});
 
 const environmentTierSlice = createSlice({
   name: 'environmentTier',
@@ -61,17 +91,15 @@ const environmentTierSlice = createSlice({
       })
       .addCase(fetchEnvironmentTiers.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message ?? 'Failed to load tiers';
+        state.error = action.payload ?? action.error.message ?? 'Failed to load tiers';
       })
       .addCase(createEnvironmentTier.fulfilled, (state, action) => {
-        state.tiers = [...state.tiers, action.payload].sort(
-          (a, b) => a.display_order - b.display_order || a.id - b.id
-        );
+        state.tiers = sortTiers([...state.tiers, action.payload]);
         state.total += 1;
       })
       .addCase(updateEnvironmentTier.fulfilled, (state, action) => {
-        state.tiers = state.tiers.map((t) =>
-          t.id === action.payload.id ? action.payload : t
+        state.tiers = sortTiers(
+          state.tiers.map((t) => (t.id === action.payload.id ? action.payload : t))
         );
       })
       .addCase(deleteEnvironmentTier.fulfilled, (state, action) => {
