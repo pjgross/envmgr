@@ -6,6 +6,7 @@ import BookingTypesPanel from '../../components/admin/BookingTypesPanel';
 import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
 import ComponentTypesPanel from '../../components/admin/ComponentTypesPanel';
 import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPanel';
+import EnvironmentTiersPanel from '../../components/admin/EnvironmentTiersPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -42,6 +43,9 @@ const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request', 'release
 // Entities that have event types config.
 const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];
 
+// Entities that have a tier vocabulary.
+const TIERS_SUPPORTED: EntityType[] = ['environment'];
+
 export default function EntityConfig() {
   const { entityType } = useParams<{ entityType: string }>();
   const [tab, setTab] = useState(0);
@@ -68,6 +72,8 @@ export default function EntityConfig() {
   const label = ENTITY_LABELS[entityType];
   const hasLifecycle = LIFECYCLE_SUPPORTED.includes(et);
   const hasEventTypes = EVENT_TYPES_SUPPORTED.includes(et);
+  const hasTiers = TIERS_SUPPORTED.includes(et);
+  const tiersTabIndex = 1 + (hasLifecycle ? 1 : 0) + (hasEventTypes ? 1 : 0);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -83,6 +89,7 @@ export default function EntityConfig() {
           <Tab label="Custom Fields" />
           {hasLifecycle && <Tab label="Lifecycle" />}
           {hasEventTypes && <Tab label="Event Types" />}
+          {hasTiers && <Tab label="Tiers" />}
         </Tabs>
       </Box>
 
@@ -103,6 +110,8 @@ export default function EntityConfig() {
       {hasEventTypes && tab === (hasLifecycle ? 2 : 1) && (
         <ReleaseEventTypesPanel />
       )}
+
+      {hasTiers && tab === tiersTabIndex && <EnvironmentTiersPanel />}
     </Box>
   );
 }
