@@ -26,9 +26,9 @@ def _url(driver: str, name: str) -> str:
     return base.rsplit("/", 1)[0] + f"/{name}"
 
 
-def _alembic(target: str, name: str) -> subprocess.CompletedProcess:
+def _alembic(direction: str, target: str, name: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", target],
+        [sys.executable, "-m", "alembic", direction, target],
         cwd=BACKEND_DIR,
         env={**os.environ, "PYTHONPATH": ".", "DATABASE_URL": _url("asyncpg", name)},
         capture_output=True,
@@ -37,8 +37,10 @@ def _alembic(target: str, name: str) -> subprocess.CompletedProcess:
 
 
 @pytest.fixture
-def scratch_database():
-    name = SCRATCH_DB
+def scratch_database(request):
+    # Namespaced per test — see test_migration_schema_drift.py's identical
+    # fixture — so concurrently-running tests don't fight over one database.
+    name = f"{SCRATCH_DB}_{abs(hash(request.node.name)) % 10_000}"
     try:
         admin = create_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
         with admin.connect() as conn:
@@ -57,7 +59,7 @@ def scratch_database():
 @pytest.fixture
 def migrated(scratch_database):
     """Two tenants with mixed-case environment types, migrated to head."""
-    before = _alembic("subsystemsource", scratch_database)
+    before = _alembic("upgrade", "subsystemsource", scratch_database)
     assert before.returncode == 0, before.stderr
 
     engine = create_engine(_url("psycopg2", scratch_database), isolation_level="AUTOCOMMIT")
@@ -87,7 +89,7 @@ def migrated(scratch_database):
             )
     engine.dispose()
 
-    after = _alembic("head", scratch_database)
+    after = _alembic("upgrade", "head", scratch_database)
     assert after.returncode == 0, f"upgrade to head failed:\n{after.stderr}"
 
     engine = create_engine(_url("psycopg2", scratch_database))
@@ -157,3 +159,64 @@ def test_the_old_column_is_gone(migrated):
         columns = {c["name"] for c in inspect(conn).get_columns("environment")}
     assert "environment_type" not in columns
     assert {"tier_id", "owner_user_id", "expires_at"} <= columns
+
+
+def test_downgrade_restores_environment_type_and_truncates_long_tier_names(scratch_database):
+    """downgrade() copies each environment's tier name into the restored
+    VARCHAR(100) environment_type column. A tier name over 100 characters is
+    reachable — environment_tier.name is String(200) and the tier API accepts
+    it — so the copy must truncate in the same statement that writes it, not
+    in a later one: code review already found a two-statement version where
+    the untruncated copy failed outright on PostgreSQL ("value too long for
+    type character varying(100)"), so the truncating statement after it never
+    ran."""
+    up = _alembic("upgrade", "head", scratch_database)
+    assert up.returncode == 0, up.stderr
+
+    long_name = "x" * 150
+    engine = create_engine(_url("psycopg2", scratch_database), isolation_level="AUTOCOMMIT")
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO tenant (name, slug, is_active, created_at, updated_at) "
+                "VALUES ('One', 'one', true, now(), now())"
+            )
+        )
+        tenant_id = conn.execute(text("SELECT id FROM tenant")).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO environment_tier "
+                "(tenant_id, name, display_order, is_active, created_at, updated_at) "
+                "VALUES (:t, :n, 0, true, now(), now())"
+            ),
+            {"t": tenant_id, "n": long_name},
+        )
+        tier_id = conn.execute(text("SELECT id FROM environment_tier")).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO environment "
+                "(tenant_id, name, tier_id, status, created_at, updated_at) "
+                "VALUES (:t, 'e', :tier, 'ACTIVE', now(), now())"
+            ),
+            {"t": tenant_id, "tier": tier_id},
+        )
+    engine.dispose()
+
+    down = _alembic("downgrade", "subsystemsource", scratch_database)
+    assert down.returncode == 0, f"downgrade failed:\n{down.stderr}"
+
+    engine = create_engine(_url("psycopg2", scratch_database))
+    with engine.connect() as conn:
+        insp = inspect(conn)
+        tables = insp.get_table_names()
+        columns = {c["name"]: c for c in insp.get_columns("environment")}
+        restored = conn.execute(
+            text("SELECT environment_type FROM environment WHERE name = 'e'")
+        ).scalar_one()
+    engine.dispose()
+
+    assert "environment_tier" not in tables
+    assert "environment_type" in columns
+    assert columns["environment_type"]["nullable"] is False
+    assert restored == long_name[:100]
+    assert len(restored) == 100

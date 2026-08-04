@@ -125,6 +125,17 @@ def _backfill(conn) -> None:
                 by_lower_name[key] = tier_id
 
             if raw is None:
+                # Unreachable in practice, kept as defence rather than dead
+                # code: environment.environment_type was declared
+                # VARCHAR(100) NOT NULL in its original migration
+                # (20260323_1335_4b4d469a6e85_add_environment_environment_system.py)
+                # and no later migration ever relaxed it; the model carried
+                # nullable=False throughout. So `existing_types` can never
+                # contain a real None here — DISTINCT would surface a NULL if
+                # one existed, but this branch has nothing to catch. Do not
+                # add a test that seeds a NULL environment_type to cover it;
+                # that state cannot occur, and a test for an impossible state
+                # is worse than none.
                 conn.execute(
                     sa.text(
                         "UPDATE environment SET tier_id = :tier "

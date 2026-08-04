@@ -92,6 +92,20 @@ jobs:
             exit 1
           fi
 
+      - name: Assert the environment tier migration guard is actually running
+        # Same failure mode as the drift guard above, for the tier
+        # upgrade/downgrade coverage in test_environment_tier_migration.py — a
+        # silent skip here would mean the downgrade truncation bug (found once
+        # by code review) has no test actually running against it.
+        if: matrix.db == 'postgres'
+        run: |
+          uv run pytest tests/test_environment_tier_migration.py -q --no-header -rs \
+            | tee /tmp/tier_migration.txt
+          if grep -q "SKIPPED" /tmp/tier_migration.txt; then
+            echo "::error::environment tier migration guard skipped — PostgreSQL was not reachable"
+            exit 1
+          fi
+
       - name: Run test suite (SQLite)
         if: matrix.db == 'sqlite'
         run: uv run pytest -q
