@@ -45,6 +45,12 @@ export default function UserGroups() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const { groups, loading } = useSelector((s: RootState) => s.userGroup);
+  // The backend gates POST/PATCH/DELETE on require_tenant_admin(); GET is open
+  // to any tenant member (see app/api/v1/user_groups.py). Mirror that split
+  // here rather than gating the whole route — PrivateRoute treats a master
+  // admin as satisfying any role check, so do the same for the write controls.
+  const user = useSelector((s: RootState) => s.auth.user);
+  const canWrite = user?.role === 'Admin' || user?.is_master_admin === true;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -134,31 +140,32 @@ export default function UserGroups() {
     col.field === 'actions'
       ? {
           ...col,
-          renderCell: (params) => (
-            <Box sx={{ display: 'flex', gap: 0.5 }}>
-              <Button
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openEdit(params.row);
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                size="small"
-                color="error"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteError(null);
-                  setDeleteId(params.row.id);
-                  setDeleteOpen(true);
-                }}
-              >
-                Delete
-              </Button>
-            </Box>
-          ),
+          renderCell: (params) =>
+            canWrite ? (
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Button
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEdit(params.row);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteError(null);
+                    setDeleteId(params.row.id);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  Delete
+                </Button>
+              </Box>
+            ) : null,
         }
       : col
   );
@@ -167,9 +174,11 @@ export default function UserGroups() {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Typography variant="h5">User Groups</Typography>
-        <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
-          + New Group
-        </Button>
+        {canWrite && (
+          <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+            + New Group
+          </Button>
+        )}
       </Box>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         A group organises users for environment access. A group operating
@@ -182,6 +191,11 @@ export default function UserGroups() {
         loading={loading}
         autoHeight
         disableRowSelectionOnClick
+        // description/member_count/environment_count are unsortable (see
+        // userGroupColumns above); without this a raw DataGrid still offers a
+        // Filter menu on them that would silently filter only the fetched
+        // window instead of the server-paged set. docs/pagination.md.
+        disableColumnFilter
         pageSizeOptions={[10, 25]}
         onRowClick={(params) => navigate(`/tenant/groups/${params.row.id}`)}
       />

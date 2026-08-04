@@ -20,6 +20,9 @@ export const userGroupService = {
       total: Number(r.headers['x-total-count'] ?? r.data.length),
     })),
 
+  getGroup: (id: number): Promise<UserGroupResponse> =>
+    api.get(`/tenant/groups/${id}`).then((r) => r.data),
+
   createGroup: (data: UserGroupCreate): Promise<UserGroupResponse> =>
     api.post('/tenant/groups', data).then((r) => r.data),
 

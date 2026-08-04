@@ -55,8 +55,14 @@ vi.mock('@mui/x-data-grid', async (importOriginal) => {
   };
 });
 
-function renderPage() {
-  const store = configureStore({ reducer: { userGroup: userGroupReducer } });
+function renderPage(role: 'Admin' | 'Member' = 'Admin') {
+  const store = configureStore({
+    reducer: {
+      userGroup: userGroupReducer,
+      // Minimal stand-in — the page only reads `state.auth.user`.
+      auth: (state = { user: { role, is_master_admin: false } }) => state,
+    },
+  });
   return render(
     <Provider store={store}>
       <MemoryRouter initialEntries={['/tenant/groups']}>
@@ -132,5 +138,24 @@ describe('UserGroups', () => {
       expect(screen.getByText(/This group operates Mortgage SIT/)).toBeInTheDocument()
     );
     expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the list but not the write controls for a non-admin', async () => {
+    // Finding 1: GET /tenant/groups is readable by any tenant member (see
+    // app/api/v1/user_groups.py), so the route must not be Admin-gated — but
+    // the write actions still are.
+    renderPage('Member');
+    await waitFor(() => expect(screen.getByText('Platform Ops')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /new group/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the write controls for an admin', async () => {
+    renderPage('Admin');
+    await waitFor(() => expect(screen.getByText('Platform Ops')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /new group/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
   });
 });

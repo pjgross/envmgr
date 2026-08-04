@@ -155,7 +155,7 @@ function App() {
             <Route
               path="/tenant/groups"
               element={
-                <PrivateRoute requiredRole="Admin">
+                <PrivateRoute>
                   <UserGroups />
                 </PrivateRoute>
               }
@@ -163,7 +163,7 @@ function App() {
             <Route
               path="/tenant/groups/:id"
               element={
-                <PrivateRoute requiredRole="Admin">
+                <PrivateRoute>
                   <UserGroupDetail />
                 </PrivateRoute>
               }

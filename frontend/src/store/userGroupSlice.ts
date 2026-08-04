@@ -11,6 +11,10 @@ import type {
 interface UserGroupState {
   groups: UserGroupResponse[];
   total: number;
+  // The single group backing the detail page. Kept separate from `groups`
+  // (a server-paged slice) so a deep link or refresh on /tenant/groups/:id
+  // doesn't depend on the list having been fetched first.
+  currentGroup: UserGroupResponse | null;
   members: UserGroupMemberResponse[];
   memberTotal: number;
   loading: boolean;
@@ -20,6 +24,7 @@ interface UserGroupState {
 const initialState: UserGroupState = {
   groups: [],
   total: 0,
+  currentGroup: null,
   members: [],
   memberTotal: 0,
   loading: false,
@@ -42,6 +47,18 @@ export const fetchUserGroups = createAsyncThunk<
     return await userGroupService.listGroups(params);
   } catch (err) {
     return rejectWithValue(formatApiError(err, 'Failed to load user groups'));
+  }
+});
+
+export const fetchUserGroup = createAsyncThunk<
+  UserGroupResponse,
+  number,
+  { rejectValue: string }
+>('userGroup/fetchOne', async (id, { rejectWithValue }) => {
+  try {
+    return await userGroupService.getGroup(id);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to load user group'));
   }
 });
 
@@ -137,6 +154,9 @@ const userGroupSlice = createSlice({
       .addCase(fetchUserGroups.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload ?? 'Failed to load user groups';
+      })
+      .addCase(fetchUserGroup.fulfilled, (state, action) => {
+        state.currentGroup = action.payload;
       })
       .addCase(fetchGroupMembers.fulfilled, (state, action) => {
         state.members = action.payload.rows;
