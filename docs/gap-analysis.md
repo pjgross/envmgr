@@ -1,7 +1,7 @@
 # EnvManager — Capability Gap Analysis
 
 > **Source of truth for scope coverage.** Compares the two domain-introduction documents
-> (`Release Management Introduction.docx`, `Environment Management Introduction.docx`) against
+> (`Release Management Introduction`, `Environment Management Introduction` — kept outside this repository) against
 > the planned functionality in [requirements.md](requirements.md) and [plan.md](plan.md).
 > Produced 2026-07-16. This is a **living checklist** — update the Status column as items land.
 

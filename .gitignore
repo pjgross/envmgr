@@ -85,3 +85,9 @@ docker-compose.override.yml
 
 # Superpowers brainstorming sessions
 .superpowers/
+
+# Binary source documents are kept outside the repository (third-party material,
+# and large binaries are a poor fit for git).
+*.docx
+*.doc
+*.pdf
