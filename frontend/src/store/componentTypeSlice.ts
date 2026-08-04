@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import type { ComponentTypeDefinitionResponse } from '../types/componentType';
 import { componentTypeService } from '../services/componentTypeService';
+import { formatApiError } from '../services/apiError';
 
 interface ComponentTypeState {
   definitions: ComponentTypeDefinitionResponse[];
@@ -18,21 +19,49 @@ export const fetchComponentTypes = createAsyncThunk('componentType/fetchAll', ()
   componentTypeService.listTypes()
 );
 
-export const createComponentType = createAsyncThunk(
-  'componentType/create',
-  (data: Parameters<typeof componentTypeService.createType>[0]) =>
-    componentTypeService.createType(data)
-);
+// The mutating thunks reject with `rejectWithValue(formatApiError(...))` rather
+// than letting the axios error escape. Redux Toolkit serialises an escaping
+// error with `miniSerializeError`, which copies only name/message/stack/code —
+// `response.data.detail`, where the backend puts its actual explanation, is
+// dropped, and a real AxiosError's `.message` is the generic "Request failed
+// with status code 409". Consumers must therefore read `result.payload`, not
+// `result.error.message`.
+export const createComponentType = createAsyncThunk<
+  ComponentTypeDefinitionResponse,
+  Parameters<typeof componentTypeService.createType>[0],
+  { rejectValue: string }
+>('componentType/create', async (data, { rejectWithValue }) => {
+  try {
+    return await componentTypeService.createType(data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to create component type'));
+  }
+});
 
-export const updateComponentType = createAsyncThunk(
-  'componentType/update',
-  ({ id, data }: { id: number; data: Parameters<typeof componentTypeService.updateType>[1] }) =>
-    componentTypeService.updateType(id, data)
-);
+export const updateComponentType = createAsyncThunk<
+  ComponentTypeDefinitionResponse,
+  { id: number; data: Parameters<typeof componentTypeService.updateType>[1] },
+  { rejectValue: string }
+>('componentType/update', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await componentTypeService.updateType(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update component type'));
+  }
+});
 
-export const deleteComponentType = createAsyncThunk('componentType/delete', (id: number) =>
-  componentTypeService.deleteType(id).then(() => id)
-);
+export const deleteComponentType = createAsyncThunk<
+  number,
+  number,
+  { rejectValue: string }
+>('componentType/delete', async (id, { rejectWithValue }) => {
+  try {
+    await componentTypeService.deleteType(id);
+    return id;
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to delete component type'));
+  }
+});
 
 const componentTypeSlice = createSlice({
   name: 'componentType',

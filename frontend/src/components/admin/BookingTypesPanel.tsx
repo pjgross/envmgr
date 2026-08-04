@@ -68,7 +68,8 @@ export default function BookingTypesPanel() {
       })
     );
     if (createBookingType.rejected.match(result)) {
-      setCreateError(result.error.message ?? 'Failed to create booking type');
+      // `payload`, not `error.message` — see the comment on the thunks.
+      setCreateError(result.payload ?? 'Failed to create booking type');
       return;
     }
     setCreateOpen(false);
@@ -99,7 +100,7 @@ export default function BookingTypesPanel() {
       })
     );
     if (updateBookingType.rejected.match(result)) {
-      setEditError(result.error.message ?? 'Failed to update booking type');
+      setEditError(result.payload ?? 'Failed to update booking type');
       return;
     }
     setEditOpen(false);
@@ -116,7 +117,7 @@ export default function BookingTypesPanel() {
     setDeleteError(null);
     const result = await dispatch(deleteBookingType(deleteId));
     if (deleteBookingType.rejected.match(result)) {
-      setDeleteError(result.error.message ?? 'Failed to delete booking type');
+      setDeleteError(result.payload ?? 'Failed to delete booking type');
       return;
     }
     setDeleteOpen(false);

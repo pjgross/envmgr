@@ -378,9 +378,10 @@ export default function LifecycleTemplatesPanel({
     }
     setSaving(false);
     if ('error' in result) {
-      setError(
-        (result as { error: { message?: string } }).error.message ?? 'Failed to save template'
-      );
+      // `payload`, not `error.message` — see the comment on the thunks. The
+      // cast is because `result` here is one of two thunk results (create or
+      // update); both reject with a string payload.
+      setError((result as { payload?: string }).payload ?? 'Failed to save template');
       return;
     }
     setEditTemplateId(null);
@@ -500,7 +501,7 @@ export default function LifecycleTemplatesPanel({
     setDeleteError(null);
     const result = await dispatch(deleteLifecycleTemplate(deleteTemplateId));
     if (deleteLifecycleTemplate.rejected.match(result)) {
-      setDeleteError(result.error.message ?? 'Failed to delete template');
+      setDeleteError(result.payload ?? 'Failed to delete template');
       return;
     }
     setDeleteOpen(false);
