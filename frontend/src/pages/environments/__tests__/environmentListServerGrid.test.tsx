@@ -286,9 +286,25 @@ describe('EnvironmentList server-side grid', () => {
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
     expect(lastListParams()).not.toHaveProperty('governance_gap');
 
-    fireEvent.click(screen.getByText('Missing owner'));
+    fireEvent.click(screen.getByText('Governance gap'));
 
     await waitFor(() => expect(lastListParams()).toMatchObject({ governance_gap: 'true' }));
+  });
+
+  it('renders the operations group name that came with the row', async () => {
+    // The name travels with the row. Resolving it against the groups
+    // collection would render '—' on a miss, which is information lost.
+    renderEnvironmentList('/environments');
+    await waitFor(() => {
+      const columns = (capturedGridProps.current?.columns ?? []) as GridColDef[];
+      expect(columns.some((c) => c.field === 'operations_group_name')).toBe(true);
+    });
+    const byField = Object.fromEntries(
+      (capturedGridProps.current?.columns as GridColDef[]).map((c) => [c.field, c])
+    );
+    // Not in the backend whitelist — it is a joined column, not an
+    // Environment column, so a sortable header would 422 on click.
+    expect(byField.operations_group_name.sortable).toBe(false);
   });
 
   it('marks actions and custom-field columns unsortable', () => {
@@ -382,7 +398,17 @@ describe('EnvironmentList server-side grid', () => {
     // from the same collision.
     const staticFields = new Set(environmentColumns.map((c) => c.field));
     expect(staticFields).toEqual(
-      new Set(['name', 'tier', 'owner', 'expires_at', 'reserved_now', 'status', 'created_at', 'actions'])
+      new Set([
+        'name',
+        'tier',
+        'owner',
+        'expires_at',
+        'reserved_now',
+        'status',
+        'operations_group_name',
+        'created_at',
+        'actions',
+      ])
     );
 
     const defs: CustomFieldDefinition[] = ['owner', 'tier', 'expires_at', 'reserved_now', 'region'].map(
