@@ -5,6 +5,8 @@ import pytest
 
 from app.db.models.environment_tier import EnvironmentTier
 
+from tests.factories import ensure_user_group
+
 
 async def _tier(db_session, tenant_id, name="SIT", **kwargs):
     tier = EnvironmentTier(tenant_id=tenant_id, name=name, **kwargs)
@@ -181,11 +183,16 @@ async def test_governance_gap_filter_selects_only_rows_missing_an_owner(
     no-owner-but-has-expiry vs has-owner-but-no-expiry pair below is the
     discriminating half: without it, this test would pass just as well under
     the old "owner or expiry" semantics.
+
+    Since B3a, `governance_gap` also covers a missing OPERATIONS GROUP, so
+    every row meant to read as clean here is given one too — `legacy` (no
+    owner, no group, no expiry) stays the only gap.
     """
     from app.db.models.environment import Environment
 
     tier = await _tier(db_session, test_tenant.id)
-    # No owner, no expiry either — the gap case.
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops")
+    # No owner, no group, no expiry either — the gap case.
     legacy = Environment(tenant_id=test_tenant.id, name="legacy", tier_id=tier.id)
     db_session.add(legacy)
     await db_session.commit()
@@ -198,23 +205,25 @@ async def test_governance_gap_filter_selects_only_rows_missing_an_owner(
             "name": "compliant",
             "tier_id": tier.id,
             "owner_user_id": test_user.id,
+            "operations_group_id": group.id,
             "expires_at": _future(),
         },
     )
     compliant_id = compliant.json()["id"]
 
-    # Has an owner but no expiry — under the OLD "owner or expiry" semantics
-    # this would count as a gap. Under the new semantics it must not: an
-    # owner is present, so it is clean, and a null expiry is "no expiry
-    # planned", not a gap. `POST /environments` still requires `expires_at`
-    # (unchanged — the form path always states one), so this row — the shape
-    # the spreadsheet import produces — is built directly, the same way the
-    # `legacy` row above is.
+    # Has an owner and a group but no expiry — under the OLD "owner or expiry"
+    # semantics this would count as a gap. Under the new semantics it must
+    # not: an owner and a group are both present, so it is clean, and a null
+    # expiry is "no expiry planned", not a gap. `POST /environments` still
+    # requires `expires_at` (unchanged — the form path always states one), so
+    # this row — the shape the spreadsheet import produces — is built
+    # directly, the same way the `legacy` row above is.
     no_expiry = Environment(
         tenant_id=test_tenant.id,
         name="owner-no-expiry",
         tier_id=tier.id,
         owner_user_id=test_user.id,
+        operations_group_id=group.id,
     )
     db_session.add(no_expiry)
     await db_session.commit()

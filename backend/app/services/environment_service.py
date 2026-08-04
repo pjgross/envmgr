@@ -22,9 +22,11 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
+from app.db.models.user_group import UserGroup
 from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
+from app.services import user_group_service
 
 
 @dataclass
@@ -36,6 +38,7 @@ class EnvironmentView:
     tier_name: str
     tier_color: Optional[str]
     owner_username: Optional[str]
+    operations_group_name: Optional[str]
     reserved_now: bool
 
 
@@ -76,6 +79,7 @@ def _view_query(tenant_id: int):
             EnvironmentTier.name,
             EnvironmentTier.color,
             User.username,
+            UserGroup.name,
             _reserved_now_clause(),
         )
         .join(
@@ -89,6 +93,13 @@ def _view_query(tenant_id: int):
             User,
             and_(User.id == Environment.owner_user_id, User.tenant_id == tenant_id),
         )
+        .outerjoin(
+            UserGroup,
+            and_(
+                UserGroup.id == Environment.operations_group_id,
+                UserGroup.tenant_id == tenant_id,
+            ),
+        )
     )
 
 
@@ -101,6 +112,7 @@ async def list_environments(
     *,
     search: Optional[str] = None,
     owner_user_id: Optional[int] = None,
+    operations_group_id: Optional[int] = None,
     expiring_within_days: Optional[int] = None,
     governance_gap: Optional[bool] = None,
     sort: Optional[Sort] = None,
@@ -120,6 +132,8 @@ async def list_environments(
         query = query.where(Environment.tier_id == tier_id)
     if owner_user_id is not None:
         query = query.where(Environment.owner_user_id == owner_user_id)
+    if operations_group_id is not None:
+        query = query.where(Environment.operations_group_id == operations_group_id)
     if expiring_within_days is not None:
         cutoff = datetime.now(timezone.utc) + timedelta(days=expiring_within_days)
         # A null expiry is not "expiring soon" — it is a governance gap, which
@@ -129,11 +143,19 @@ async def list_environments(
         )
     if governance_gap is True:
         # A null expiry is a legitimate "no expiry planned" state, not a gap —
-        # see the product decision recorded on update_environment's compliance
-        # rule below. The gap is missing OWNER only.
-        query = query.where(Environment.owner_user_id.is_(None))
+        # see the product decision on update_environment's compliance rule
+        # below. The gaps are a missing OWNER or a missing OPERATIONS GROUP.
+        query = query.where(
+            or_(
+                Environment.owner_user_id.is_(None),
+                Environment.operations_group_id.is_(None),
+            )
+        )
     elif governance_gap is False:
-        query = query.where(Environment.owner_user_id.is_not(None))
+        query = query.where(
+            Environment.owner_user_id.is_not(None),
+            Environment.operations_group_id.is_not(None),
+        )
     if search:
         query = query.where(Environment.name.ilike(f"%{search}%"))
     query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
@@ -145,9 +167,10 @@ async def list_environments(
                 tier_name=tier_name,
                 tier_color=tier_color,
                 owner_username=owner_username,
+                operations_group_name=operations_group_name,
                 reserved_now=bool(reserved_now),
             )
-            for env, tier_name, tier_color, owner_username, reserved_now in rows
+            for env, tier_name, tier_color, owner_username, operations_group_name, reserved_now in rows
         ],
         total,
     )
@@ -171,12 +194,13 @@ async def get_environment_view(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found"
         )
-    env, tier_name, tier_color, owner_username, reserved_now = row
+    env, tier_name, tier_color, owner_username, operations_group_name, reserved_now = row
     return EnvironmentView(
         environment=env,
         tier_name=tier_name,
         tier_color=tier_color,
         owner_username=owner_username,
+        operations_group_name=operations_group_name,
         reserved_now=bool(reserved_now),
     )
 
@@ -202,10 +226,11 @@ async def _validate_tier_and_owner(
     tenant_id: int,
     tier_id: Optional[int],
     owner_user_id: Optional[int],
+    operations_group_id: Optional[int] = None,
 ) -> None:
-    """Both are client-supplied foreign keys, so both are checked against the
-    caller's tenant — this is the IDOR-class gap the 2026-07-16 isolation audit
-    found four of."""
+    """All three are client-supplied foreign keys, so all are checked against
+    the caller's tenant — this is the IDOR-class gap the 2026-07-16 isolation
+    audit found four of."""
     if tier_id is not None:
         found = (
             await db.execute(
@@ -233,6 +258,12 @@ async def _validate_tier_and_owner(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found"
             )
+    if operations_group_id is not None:
+        # Scoped to the ACTIVE tenant. Under master-admin impersonation
+        # current_user.id and active_tenant_id belong to different tenants, and
+        # scoping this to the wrong one 404s a legitimate request — the bug
+        # that killed an entire spreadsheet upload in B1.
+        await user_group_service.get_group(db, operations_group_id, tenant_id)
 
 
 async def create_environment(
@@ -245,6 +276,7 @@ async def create_environment(
         description=data.description,
         tier_id=data.tier_id,
         owner_user_id=data.owner_user_id,
+        operations_group_id=data.operations_group_id,
         expires_at=data.expires_at,
         env_status=data.status,
         custom_fields=data.custom_fields,
@@ -259,6 +291,7 @@ async def create_environment_record(
     tier_id: int,
     description: Optional[str] = None,
     owner_user_id: Optional[int] = None,
+    operations_group_id: Optional[int] = None,
     expires_at: Optional[datetime] = None,
     env_status: EnvironmentStatus = EnvironmentStatus.ACTIVE,
     custom_fields: Optional[dict] = None,
@@ -285,12 +318,15 @@ async def create_environment_record(
             detail="An environment with this name already exists in this tenant",
         )
     await validate_custom_fields(db, tenant_id, "environment", custom_fields)
-    await _validate_tier_and_owner(db, tenant_id, tier_id, owner_user_id)
+    await _validate_tier_and_owner(
+        db, tenant_id, tier_id, owner_user_id, operations_group_id
+    )
     env = Environment(
         name=name,
         description=description,
         tier_id=tier_id,
         owner_user_id=owner_user_id,
+        operations_group_id=operations_group_id,
         expires_at=expires_at,
         status=env_status,
         tenant_id=tenant_id,
@@ -353,12 +389,16 @@ async def update_environment(
                 "Supply owner_user_id with this change."
             ),
         )
-    await _validate_tier_and_owner(db, tenant_id, data.tier_id, effective_owner)
+    await _validate_tier_and_owner(
+        db, tenant_id, data.tier_id, effective_owner, data.operations_group_id
+    )
 
     if data.tier_id is not None:
         env.tier_id = data.tier_id
     if "owner_user_id" in fields_set:
         env.owner_user_id = data.owner_user_id
+    if "operations_group_id" in fields_set:
+        env.operations_group_id = data.operations_group_id
     if "expires_at" in fields_set:
         env.expires_at = data.expires_at
 
