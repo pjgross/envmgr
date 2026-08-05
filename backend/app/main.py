@@ -204,3 +204,11 @@ app.include_router(
     # open to any tenant member (see app/api/v1/user_groups.py), not admin-only.
     user_groups_router.router, prefix="/api/v1/tenant", tags=["User Groups"]
 )
+
+from app.api.v1 import environment_requests as environment_requests_router
+
+app.include_router(
+    environment_requests_router.router,
+    prefix="/api/v1/environment-requests",
+    tags=["Environment Requests"],
+)
