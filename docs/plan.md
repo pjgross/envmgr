@@ -101,7 +101,7 @@ See [phases/phase-4.md](phases/phase-4.md) for the full delivery summary.
 
 ---
 
-## Phase 5: DORA Metrics — ⏳ Planned
+## Phase 5: DORA Metrics — ✅ Complete
 
 See [phases/phase-5.md](phases/phase-5.md).
 
@@ -109,7 +109,7 @@ See [phases/phase-5.md](phases/phase-5.md).
 
 ---
 
-## Phase 6: Infrastructure Topology — ⏳ Planned
+## Phase 6: Infrastructure Topology — 🟡 Substantially shipped
 
 See [phases/phase-6.md](phases/phase-6.md).
 

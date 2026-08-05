@@ -110,8 +110,8 @@ Seed on first run: `cd backend && PYTHONPATH=. uv run python scripts/seed_master
 ## Tests
 
 ```bash
-cd backend  && SECRET_KEY=dev uv run pytest -q            # 919 tests, in-memory SQLite
-cd frontend && npm run lint && npm run test -- --run      # 120 tests
+cd backend  && SECRET_KEY=dev uv run pytest -q            # 1413 tests, in-memory SQLite
+cd frontend && npm run lint && npm run test -- --run      # 419 tests
 cd frontend && npm run test:e2e                           # Playwright
 ```
 
