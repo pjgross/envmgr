@@ -68,7 +68,7 @@ export function isExpiryOverdue(iso: string | null | undefined): boolean {
  * Null is "No expiry planned", never "today": no expiry and an expiry that
  * lands now are different facts, and a null expiry is a legitimate state
  * rather than a missing value (it is deliberately not what `governance_gap`
- * looks for — that is a missing owner).
+ * looks for — that is a missing owner or a missing operations group).
  */
 export function formatExpiry(iso: string | null): string {
   if (!iso) return 'No expiry planned';

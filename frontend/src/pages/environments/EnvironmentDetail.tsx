@@ -874,6 +874,10 @@ export default function EnvironmentDetail() {
                     <Typography variant="body2">
                       Owner: {currentEnvironment?.owner_username ?? '— unowned'}
                     </Typography>
+                    <Typography variant="body2">
+                      Operations Group:{' '}
+                      {currentEnvironment?.operations_group_name ?? '— no group'}
+                    </Typography>
                     <Typography
                       variant="body2"
                       color={
