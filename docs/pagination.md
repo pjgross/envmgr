@@ -1054,6 +1054,8 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 | `GET /subsystems/{id}/dependencies` | `dependency_service.list_component_dependencies`, row variant | 1000 |
 | `GET /environments/{id}/versions` | `version_service.list_versions` — both `current_only` values, row variant | 1000 |
 | `GET /releases/{id}/membership` **†** | `enterprise_membership_service.list_history_for_project` — bounds the `history` list only | 1000 |
+| `GET /tenant/groups` | `user_group_service.list_groups` — new with the B3a user-groups branch, not part of the 51/28/24 counts below, which predate it **‡** | 1000 |
+| `GET /tenant/groups/{group_id}/members` | `user_group_service.list_members`, row variant — same branch **‡** | 1000 |
 
 **†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
 not a bare array, so it was never part of the `list[...]` count above or below. `current` is at
@@ -1081,6 +1083,15 @@ that test enforces agreement between a backend whitelist and
 server-side — the tier picker (`useAllEnvironmentTiers`) reads every tier unpaged for use in
 selects, not through a sortable grid. Add it to both the JSON contract and `WHITELISTS` the day a
 grid actually renders and sorts a paged tier list.
+
+`GET /tenant/groups` and `GET /tenant/groups/{group_id}/members` (`backend/app/api/v1/user_groups.py`)
+are the same shape, added later by the B3a user-groups branch and likewise postdating every count
+in this document. `/tenant/groups` also went straight onto `pagination()` + `sorting()`
+(`USER_GROUP_SORTS`) from the start, and is likewise **absent** from the `WHITELISTS`/JSON
+contract pair — `UserGroups.tsx` renders a **client-side** `DataGrid` (no `sortingMode="server"`),
+so nothing sorts this endpoint server-side either, the same reason as `environment-tiers`, not
+because the backend whitelist doesn't exist. `/members` has no `sorting()` at all — it is always
+ordered `(lower(username), id)` — so it was never a WHITELISTS candidate in the first place.
 
 ## Not yet bounded
 

@@ -218,6 +218,16 @@ The user table has five columns: *Username*, *Email*, *Role*, *Status*, *Actions
 
 To revoke access without losing history, click *Deactivate* on the user's row and confirm. The user is locked out at login but their bookings, change requests, comments, and audit trail are preserved. While inactive, their *Status* chip reads `Inactive` and the per-row *Role* drop-down is disabled. To restore access, click *Reactivate* — the action button toggles to *Reactivate* whenever a user is inactive.
 
+### User Groups
+
+A *User Group* organises users into a team that an environment can name as its operations group — see [ch. 6](#6-modelling-environments). Manage them at `/tenant/groups`.
+
+- **Reading the list, a group's detail, and its member list is open to any tenant member** — every user needs to be able to see which team operates a given environment, and the environment form needs the group list as a picker source. Creating, editing or deleting a group, and adding or removing a member, are Admin-only; a non-admin sees the same list and detail pages with the write controls (*New Group*, *Edit*, *Delete*, *Add*, *Remove*) hidden.
+- The list shows *Name*, *Description*, *Members*, and *Environments* — the last two are live counts, not columns you set directly. Click a group's *Environments* count to jump to `/environments` filtered to that group.
+- Click a row to open its detail page, where an Admin adds and removes members by username.
+- A group that is still assigned as any environment's operations group cannot be deleted — the 409 response names the environments blocking it (and how many more, past the first ten). Reassign or clear those first.
+- Deleting an unreferenced group soft-deletes it: its name keeps rendering (labelled "(deleted)") on any environment that still names it as the value already stored there, but it drops out of the picker for a *new* assignment.
+
 ### Password resets
 
 > **Not yet available:** there is no tenant-admin password-reset flow on `/tenant/users`. If a user has lost their password, ask your Master Admin to call `POST /api/v1/admin/tenants/{tenant_id}/users/{user_id}/reset-password` with a fresh `new_password`, then share the new value out of band.
@@ -336,12 +346,21 @@ inactive ◄──► decommissioned
    - **Name** (required) — e.g. *UAT-1*. Unique within the tenant.
    - **Description** — optional free text.
    - **Tier** (required) — a tenant-configurable vocabulary, not free text. Configure the list under *Administration → Environments → Tiers*; each tier carries a name and a colour, and drives filtering and the topology/grid chip colouring.
-   - **Owner** (required) — a named user responsible for the environment. Shown on the list and detail pages; missing an owner is a reportable governance gap (`?governance_gap=true`).
+   - **Owner** (required) — a named user responsible for the environment. Shown on the list and detail pages; missing an owner *or* an operations group is a reportable governance gap (`?governance_gap=true`).
+   - **Operations Group** (optional) — the team responsible for this environment day-to-day, picked from *Administration → User Groups* (see [ch. 4](#4-managing-users-and-roles)). Shown on the list and detail pages; leaving it unset counts toward the same governance gap as a missing owner.
    - **Expires** (optional) — the date this environment is expected to retire. Leave blank for "no expiry planned" — that is a legitimate state, not a missing value, and does not count as a governance gap. Use the *expiring within N days* filter on the list page to find environments approaching their expiry.
    - **Status** — defaults to *active*.
    - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured in *Tenant Settings → Entity Config*; see [ch. 11](#11-tenant-settings)).
 3. Click *Create*. The environment is created with no systems attached.
 4. Open the new row to land on the detail page, then move to the *Systems* tab to attach systems.
+
+> **Note (first deploy after operations groups shipped):** `operations_group_id` is
+> nullable with no backfill — by design, since there is no automatic way to guess
+> which team should own an existing environment. That means `?governance_gap=true`
+> matches **every** existing environment until someone assigns groups, so the
+> *Governance gap* chip will flag the whole estate on day one. That is correct
+> behaviour, not a bug: work through the list assigning operations groups (and
+> owners, for any row still missing one) to bring the gap count down.
 
 ### Walkthrough: adding environment instances
 
