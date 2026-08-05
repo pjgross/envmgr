@@ -5,7 +5,7 @@ can name the missing field. The schema cannot express "environment_id is
 required when kind='access'" without a validator that produces a worse message.
 """
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -170,9 +170,10 @@ def _assert_mode_fields(
         if expires_at is None:
             missing.append("expires_at")
     if missing:
+        article = "An" if kind[:1].lower() in "aeiou" else "A"
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"A '{kind}' request requires: {', '.join(missing)}",
+            f"{article} '{kind}' request requires: {', '.join(missing)}",
         )
 
 

@@ -38,6 +38,9 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.booking import Booking
 from app.db.models.system import System
 from app.core.security import get_password_hash
+from app.services.environment_request_defaults import (
+    seed_environment_request_defaults_for_tenant,
+)
 from datetime import datetime, timezone, timedelta
 
 # `or` not a get() default: an empty value (e.g. a CI matrix leg that sets the
@@ -424,3 +427,18 @@ async def release_lifecycle_template(db_session, tenant) -> LifecycleTemplate:
     await db_session.commit()
     await db_session.refresh(template)
     return template
+
+
+@pytest_asyncio.fixture(scope="function")
+async def environment_request_lifecycle(db_session, test_tenant) -> None:
+    """Seeds the environment_request lifecycle template for `test_tenant`.
+
+    `test_tenant` builds a bare Tenant row directly, bypassing
+    tenant_service.create_tenant — the only place that calls this seeder — so
+    any test that creates an environment request needs it seeded by hand.
+    Explicit rather than autouse (unlike the B3b module fixture this replaces)
+    so a test that wants a different template can simply not request it,
+    matching test_booking_type / test_change_requests.py's test_cr_lifecycle.
+    """
+    await seed_environment_request_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
