@@ -16,6 +16,7 @@ from app.api.v1.schemas.environment_request import (
     EnvironmentRequestCreate,
     EnvironmentRequestUpdate,
 )
+from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
 from app.db.models.environment import Environment
 from app.db.models.environment_request import EnvironmentRequest
@@ -23,6 +24,7 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.user import User
 from app.db.models.user_group import UserGroup, UserGroupMember
+from app.services import lifecycle_service
 from app.services.environment_request_defaults import ENTITY_TYPE
 
 
@@ -399,3 +401,172 @@ async def list_requests(
     query = apply_sort(query, sort).order_by(EnvironmentRequest.id)
     rows, total = await fetch_page_rows(db, query, page)
     return [_to_view(r) for r in rows], total
+
+
+async def _is_in_operations_group(
+    db: AsyncSession, environment_id: Optional[int], user_id: int, tenant_id: int
+) -> bool:
+    if environment_id is None:
+        return False
+    found = (
+        await db.execute(
+            select(UserGroupMember.id)
+            .join(Environment, Environment.operations_group_id == UserGroupMember.group_id)
+            .where(
+                Environment.id == environment_id,
+                Environment.tenant_id == tenant_id,
+                UserGroupMember.user_id == user_id,
+                UserGroupMember.tenant_id == tenant_id,
+            )
+        )
+    ).first()
+    return found is not None
+
+
+async def assert_may_transition(
+    db: AsyncSession,
+    req: EnvironmentRequest,
+    to_state: str,
+    current_user: User,
+    tenant_id: int,
+) -> LifecycleTemplate:
+    """The one place in this application that reads group membership for
+    authorization, alongside environment_service.assert_may_edit_handover.
+
+        may = role AND (group OR Admin)
+
+    Admin bypasses the GROUP check but not the ROLE check, so a request can
+    never become permanently unactionable because a team was emptied — while
+    the lifecycle template still means something.
+    """
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.id == req.lifecycle_id,
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if tpl is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Lifecycle template not found")
+
+    allowed, reason = lifecycle_service.validate_transition(
+        tpl.definition, req.status, to_state, current_user.role, {}
+    )
+    if not allowed:
+        # Same role-blocked-vs-invalid-transition split as booking_service:
+        # a role the template excludes is a 403 (an authorization matter,
+        # even though validate_transition itself doesn't return a status
+        # code); an undefined transition or unmet required-field is a 400.
+        if reason and ("not allowed" in reason or "role" in reason.lower()):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Your role cannot make this transition"
+            )
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            reason
+            or f"Transition from '{req.status}' to '{to_state}' is not allowed",
+        )
+
+    is_admin = current_user.role == "Admin"
+    if not is_admin:
+        in_group = await _is_in_operations_group(
+            db, req.environment_id, current_user.id, tenant_id
+        )
+        if not in_group:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Only the operating team for this environment, or an admin, "
+                "can action this request",
+            )
+    return tpl
+
+
+async def _assert_routable(db: AsyncSession, req: EnvironmentRequest, tenant_id: int) -> None:
+    """B3a's promise, honoured at submission.
+
+    A request whose environment has no operating team has nobody to route to.
+    Refusing here beats letting it through: a request only an Admin can see
+    sits unactioned with nobody knowing why.
+    """
+    if req.kind != "access" or req.environment_id is None:
+        return
+    row = (
+        await db.execute(
+            select(Environment.name, Environment.operations_group_id).where(
+                Environment.id == req.environment_id,
+                Environment.tenant_id == tenant_id,
+            )
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+    name, group_id = row
+    if group_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{name} has no operations team, so this request cannot be routed. "
+            "Ask an admin to assign one.",
+        )
+
+
+async def transition(
+    db: AsyncSession,
+    request_id: int,
+    to_state: str,
+    current_user: User,
+    tenant_id: int,
+    notes: Optional[str] = None,
+) -> EnvironmentRequestView:
+    view = await get_request_view(db, request_id, tenant_id)
+    req = view.request
+
+    if to_state == "submitted":
+        await _assert_routable(db, req, tenant_id)
+
+    await assert_may_transition(db, req, to_state, current_user, tenant_id)
+
+    from_state = req.status
+    req.status = to_state
+    await db.flush()
+
+    await publish_event(
+        db,
+        event_type="EnvironmentRequestTransitioned",
+        aggregate_id=req.id,
+        aggregate_type="EnvironmentRequest",
+        payload={"id": req.id, "from_state": from_state, "to_state": to_state},
+        tenant_id=tenant_id,
+    )
+    return await get_request_view(db, request_id, tenant_id)
+
+
+async def allowed_transitions(
+    db: AsyncSession, request_id: int, current_user: User, tenant_id: int
+) -> list[dict]:
+    """Transitions this actor may ACTUALLY make — role and group both applied.
+
+    The detail page renders these as buttons. Returning role-allowed
+    transitions the group check would then refuse produces a button that
+    always 403s.
+    """
+    view = await get_request_view(db, request_id, tenant_id)
+    req = view.request
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(LifecycleTemplate.id == req.lifecycle_id)
+        )
+    ).scalar_one_or_none()
+    if tpl is None:
+        return []
+
+    by_role = lifecycle_service.get_allowed_transitions(
+        tpl.definition, req.status, current_user.role
+    )
+    if current_user.role == "Admin":
+        return by_role
+    in_group = await _is_in_operations_group(
+        db, req.environment_id, current_user.id, tenant_id
+    )
+    return by_role if in_group else []

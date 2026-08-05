@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.schemas.environment_request import (
     EnvironmentRequestCreate,
     EnvironmentRequestResponse,
+    EnvironmentRequestTransition,
     EnvironmentRequestUpdate,
 )
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
@@ -90,3 +91,28 @@ async def update_environment_request(
         db, request_id, data, current_user, current_user.active_tenant_id
     )
     return EnvironmentRequestResponse.from_view(view)
+
+
+@router.post("/{request_id}/transition", response_model=EnvironmentRequestResponse)
+async def transition_environment_request(
+    request_id: int,
+    data: EnvironmentRequestTransition,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    view = await environment_request_service.transition(
+        db, request_id, data.to_state, current_user,
+        current_user.active_tenant_id, notes=data.notes,
+    )
+    return EnvironmentRequestResponse.from_view(view)
+
+
+@router.get("/{request_id}/allowed-transitions")
+async def get_allowed_transitions(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_request_service.allowed_transitions(
+        db, request_id, current_user, current_user.active_tenant_id
+    )
