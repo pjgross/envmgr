@@ -3,10 +3,13 @@
 > **Repo / remote (2026-08-04) — READ THIS FIRST, IT CHANGED**: `github.com/pjgross/envmgr` is now a **PUBLIC repository with rewritten history**, and it is **not the same repository** the older notes below refer to. The original private repo was renamed **`pjgross/envmgr_old`** (remote `old`) and still holds all 59 PRs and the unpurged history. The public repo was created fresh from a purged mirror, so **every commit hash before 2026-08-04 differs from the old repo's**, and the two share no common ancestor.
 >
 > Consequences that matter:
+>
 > - **Never force-push a branch derived from old history to `github`.** It would reintroduce material that was deliberately purged (see below). Normal `main` pushes are safe; the histories are unrelated so git rejects accidental mixing.
 > - The local `origin` (GitLab, `localhost:8929`) **still holds the old history** and is the one place old objects remain reachable locally. Legacy/dev-only; leave it alone.
 > - Licence is **Apache-2.0** (`LICENSE` + `NOTICE`). The README carries a work-in-progress status notice. Both `frontend/package.json` and `backend/pyproject.toml` declare `license = "Apache-2.0"`. Do not reintroduce the old "Proprietary — All rights reserved" wording.
-> - **Two things were purged from history and must never return**: `docs/architecture copy.md` (a map of a personal macmini — Ollama, Neo4j, GitLab, Jira and their ports; now at `../envmgr-infra-notes/macmini-host-map.md`), and three `.docx` files (29.6 MB, written for Planview). `.gitignore` now blocks `*.docx`, `*.doc`, `*.pdf`.
+>
+>
+>
 > - Backups of the pre-purge history: `../envmgr-backup-20260804-180454.bundle` and `../envmgr-backup-docx-191629.bundle` (33 MB each).
 > - **A history purge does not defeat GitHub PR refs.** `refs/pull/N/head` is permanent and public on a public repo, so purging `main` in a repo with PRs leaves the content fetchable. That is *why* publication used a fresh repo rather than a rewrite of the original. Remember this before ever purging again.
 >
@@ -25,6 +28,7 @@
 > **Phase 7 sub-project B3a (User groups + environment operations group) — ✅ COMPLETE 2026-08-05**, merged as `b72684d7`. **B3 is now two sub-projects.** Brainstorming surfaced a requirement the roadmap line does not carry: the environment request is consumed by **operations teams, one per platform**, who need to see the requests they must action — so environments have to know which team operates them, and teams had to become a thing the system can hold. **B3a** shipped a generic `UserGroup` + `user_group_member`, `environment.operations_group_id`, and the admin and environment UI. **B3b** — the request form, routing to the operating team, approval and the Welcome Pack — is not started. Spec: [docs/superpowers/specs/2026-08-04-user-groups-design.md](docs/superpowers/specs/2026-08-04-user-groups-design.md).
 >
 > What B3a established, and what will bite if forgotten:
+>
 > - **`UserGroup` is deliberately generic, not an "OperationsTeam".** A1 is `Project` + members — also a container of users — and **must point at this primitive** rather than building a second membership model, or users are left asking which one to add someone to.
 > - **Membership grants NO permissions.** Every authorization rule stays role-based; B3b introduces the first behaviour that reads membership. **Reads are open to any tenant member; only writes are Admin** — deliberately unlike `/tenant/users`, which really is admin-gated. An implementer over-gated the UI on exactly that false analogy and it took a review to catch.
 > - **`?governance_gap=true` changed meaning**: missing owner **OR** missing operations group. On first deploy it therefore matches **every** existing environment (nullable, no backfill by design), so the relabelled "Governance gap" chip flags the whole estate until groups are assigned. Correct, documented in the admin guide, and looks exactly like a bug.
@@ -33,6 +37,7 @@
 > - **`tests/test_migration_schema_drift.py` compares only column NAME SETS** — not types, defaults or indexes. Four real drifts passed it on this branch, including naive-vs-timezone-aware timestamps that would have reached production. Its "N passed" is **not** evidence that a hand-written migration matches its model. Extending it is open work in its own right (it will surface pre-existing, deliberate divergence such as `uq_environment_tenant_name`, so it needs an allow-list).
 >
 > What B1 established, and the decisions that will bite if forgotten:
+>
 > - **Tier is a tenant-configurable table** (`environment_tier`), not an enum, and it *replaced* `environment.environment_type`. Each tenant's distinct values were folded onto the eight standard tiers case-insensitively; unrecognised values survive as tenant-specific tiers with a NULL `category`.
 > - **A null `expires_at` means "no expiry planned"** — a legitimate state, not a missing value. So `governance_gap` = **missing owner only**; the PATCH compliance rule requires an **owner only** (a null expiry must never block a save, or spreadsheet-imported rows freeze); `POST /environments` **still requires** an expiry; the import sets `owner_user_id` to the importing admin. `EnvironmentUpdate.expires_at` is typed `string | null`, not optional, because the backend keys on `model_fields_set` — an omitted key means "leave alone", so only an explicit null can clear an expiry.
 > - **`reserved_now` is derived in SQL** (correlated EXISTS over live bookings, half-open `[start, end)`), never a stored status — an environment that is reserved is still active. **No `idle` field ships**; it arrives in B5 with its detection rules.
@@ -43,7 +48,7 @@
 > **First prod deploy after this**: signs everyone out once (old 24h tokens have no refresh token), requires `SECRET_KEY` + `POSTGRES_PASSWORD` (plus `SECRETS_ENCRYPTION_KEY` once GitHub is connected — lose it and every stored credential is unrecoverable), runs migrations `basetimestamps` + `authsessions` from the entrypoint, and the SP1/SP2 tenant backfill scripts remain a standing step. See [docs/dependency-audit.md](docs/dependency-audit.md), [docs/pagination.md](docs/pagination.md), [docs/decisions/](docs/decisions/) and §8/§9/§12/§13/§14 of the architecture reference.
 > **Current Phase (2026-07-29)**: Everything merged + pushed to GitHub `main`. Phase 1 ✅ | Phase 2 ✅ | Phase 2.5 ✅ | Phase 3 Sub-1/Sub-2 ✅ (Sub-3 Jira deferred) | Phase 4 ✅ (incl. user/admin manual, `build_number` required, `GET /api/v1/webhooks/can-deploy` preflight, GitLab-CI dogfooding pipeline). **Phase 5 ✅ COMPLETE + in-app verified** — 5 sub-projects: SP1 Incident Tracking, SP2 DORA Metrics, SP3 Environment Health, SP4 PIR, SP5b Release/Booking-conflict metrics, SP5a Environment Operating Hours + Utilization (DST-correct, `zoneinfo`); latest migration `environment_operating_hours` (`7441806378e5`). Health-alert closed-booking bug fixed. **Release RAID log fully shipped + UI-verified** (backend + frontend + docs + enterprise rollup; migration `raidlogtables`). **UI audit done** — P1 fixes landed, P2/P3 backlog. Phase 5 follow-on: SP1/SP2 tenant backfill scripts are a standing **prod**-deploy step (dev confirmed clean). Next: per [docs/plan.md](docs/plan.md) / [docs/gap-analysis.md](docs/gap-analysis.md) (Phases 6–13).
 > **Requirements**: [docs/requirements.md](docs/requirements.md)
-> **App Architecture**: [docs/prod architecture.md](docs/prod%20architecture.md)
+> **App Architecture**: [docs/prod architecture.md](<docs/prod%20architecture.md>)
 > **Infra (macmini)**: kept outside this repo — see `envmgr-infra-notes/macmini-host-map.md` alongside the checkout (removed when the repo went public; it mapped a personal host, not this project)
 > **Roadmap**: [docs/plan.md](docs/plan.md) | **Phase 1 summary**: [docs/phases/phase-1.md](docs/phases/phase-1.md) | **Phase 2 summary**: [docs/phases/phase-2.md](docs/phases/phase-2.md) | **Phase 3 summary**: [docs/phases/phase-3.md](docs/phases/phase-3.md)
 > **Gap analysis (2026-07-16)**: [docs/gap-analysis.md](docs/gap-analysis.md) — capability coverage vs the Release/Environment Management intro docs; added Phases 9–13 (Release Governance, Test Data Management, Cost/FinOps, Compliance/Audit, ITSM) + expanded Phases 6 & 7.
@@ -81,18 +86,18 @@ cd backend && uvicorn app.main:app --reload
 cd frontend && npm run dev
 ```
 
-| Service | Dev URL | Notes |
-|---------|---------|-------|
-| Frontend | http://localhost:5173 | Vite dev server |
-| Backend API | http://localhost:8000 | FastAPI |
-| API Docs | http://localhost:8000/docs | Swagger UI |
-| NATS Monitor | http://localhost:8222 | Local NATS container |
-| Metrics | http://localhost:8000/metrics | Prometheus exposition |
-| PostgreSQL | localhost:5432 | Local Postgres container |
-| Redis | localhost:6379 | Local Redis container |
-| Jira | http://localhost:8090 | Dev/testing only — not in prod |
-| GitLab | http://localhost:8929 | Dev/testing only — not in prod |
-| GitLab SSH | localhost:2224 | Dev/testing only — not in prod |
+| Service      | Dev URL                       | Notes                           |
+| ------------ | ----------------------------- | ------------------------------- |
+| Frontend     | http://localhost:5173         | Vite dev server                 |
+| Backend API  | http://localhost:8000         | FastAPI                         |
+| API Docs     | http://localhost:8000/docs    | Swagger UI                      |
+| NATS Monitor | http://localhost:8222         | Local NATS container            |
+| Metrics      | http://localhost:8000/metrics | Prometheus exposition           |
+| PostgreSQL   | localhost:5432                | Local Postgres container        |
+| Redis        | localhost:6379                | Local Redis container           |
+| Jira         | http://localhost:8090         | Dev/testing only — not in prod |
+| GitLab       | http://localhost:8929         | Dev/testing only — not in prod |
+| GitLab SSH   | localhost:2224                | Dev/testing only — not in prod |
 
 Demo login: `admin` / `admin123` (tenant: `demo`)
 
@@ -119,15 +124,15 @@ SECRET_KEY=$(openssl rand -hex 32) POSTGRES_PASSWORD=... \
 - The frontend image is nginx serving the built bundle and proxying `/api` to `BACKEND_ORIGIN` (`src/services/api.ts` uses a relative `/api/v1` baseURL, so whatever serves the bundle must also proxy the API).
 - Port lists in `docker-compose.prod.yml` use `!override`; without it compose **appends** to the base list and republishes the base port too.
 
-| Service | Source | Prod connection |
-|---------|--------|-----------------|
-| PostgreSQL | EnvManager docker-compose | `localhost:5435` (own container) |
-| Redis | EnvManager docker-compose | `localhost:6379` (own container) |
-| NATS | **Shared — macmini** | `nats://macmini:4222` |
-| Grafana | **Shared — macmini** | `http://macmini:3003` |
-| Prometheus | **Shared — macmini** | `http://macmini:9093` |
-| Backend API | EnvManager docker-compose | `http://macmini:8100` |
-| Frontend | EnvManager docker-compose | `http://macmini:5173` (or via Caddy) |
+| Service     | Source                      | Prod connection                        |
+| ----------- | --------------------------- | -------------------------------------- |
+| PostgreSQL  | EnvManager docker-compose   | `localhost:5435` (own container)     |
+| Redis       | EnvManager docker-compose   | `localhost:6379` (own container)     |
+| NATS        | **Shared — macmini** | `nats://macmini:4222`                |
+| Grafana     | **Shared — macmini** | `http://macmini:3003`                |
+| Prometheus  | **Shared — macmini** | `http://macmini:9093`                |
+| Backend API | EnvManager docker-compose   | `http://macmini:8100`                |
+| Frontend    | EnvManager docker-compose   | `http://macmini:5173` (or via Caddy) |
 
 **No graph database**: Neo4j was provisioned early but never used — topology is PostgreSQL-backed. Removed 2026-07-30, see [docs/decisions/2026-07-30-drop-neo4j.md](docs/decisions/2026-07-30-drop-neo4j.md). The macmini Neo4j instance is a shared host service for other projects and still runs; EnvManager just doesn't connect to it.
 
@@ -236,7 +241,8 @@ useEffect(() => { dispatch(fetchEnvironments()); }, []);
 
 ## Architecture Reference
 
-See [docs/prod architecture.md](docs/prod%20architecture.md) for:
+See [docs/prod architecture.md](<docs/prod%20architecture.md>) for:
+
 - Multi-tier architecture diagram
 - Layer responsibilities (API / Service / DB)
 - Multi-tenancy pattern

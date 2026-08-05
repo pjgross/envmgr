@@ -1,9 +1,5 @@
 # EnvManager — Requirements
 
-> **Authoritative reference for Claude Code sessions.**
-> Source documents: [`archive/EnvManager_Requirements_Summary.md`](archive/EnvManager_Requirements_Summary.md), [`archive/EnvManager_Development_Prompt.md`](archive/EnvManager_Development_Prompt.md) (both superseded by this document — see [`archive/`](archive/)) and `Planview Release Verify Introduction`, a third-party vendor document kept outside this repository.
-> Architecture: [prod architecture.md](prod%20architecture.md) | Roadmap: [plan.md](plan.md)
-
 ---
 
 ## 1. Problem Statement
@@ -101,6 +97,7 @@ EnvManager replaces a legacy test environment management system and eliminates r
 > **Delivery status (2026-04-23):** Sub-1 (Core Releases) ✅ merged (MRs !4–!13); Sub-2 (Enterprise Releases) ✅ merged (MR !15, `64c52e3`). Sub-1 delivered Release Template Library, Project Releases with configurable lifecycle, Test Phases, Gates with criteria (due date + assignee + notes; one-way auto-pass; per-release overdue count), System Roles, Release Dependencies with date-impact alerts, Release Event Log, release-booking linking with derived context tag, calendar + Gantt views, scope items with moves + backlog + immutable history, per-tenant `change_kind` rules for scope-change KPIs. Sub-2 delivered first-class enterprise releases with own lifecycle/phases/gates/bookings, admission workflow (pending → accepted/rejected/withdrawn; accepted → removed) with state × role permissions, configurable admission-lockdown marker flagging late scope for audit, rollup views (systems/scope/timeline/members), HTML report with print, project-side Enterprise tab, admin lifecycle editor extensions. **Deferred:** Jira Integration (Sub-3), Post-Implementation Reviews (Phase 5).
 
 #### Release Types
+
 - Two top-level release kinds:
   - **Enterprise Release (Release Train)**: groups 2+ Project Releases that must be tested and deployed together; each member Project Release must be approved/admitted into the Enterprise Release; the Enterprise Release tracks combined test phases across all members
   - **Project Release**: an individual release for one team/project
@@ -108,12 +105,14 @@ EnvManager replaces a legacy test environment management system and eliminates r
 - Each release type has its own **configurable state workflow** (Emergency has a simplified/fast-track lifecycle)
 
 #### Release Lifecycle
+
 - Releases follow a lifecycle made up of **phases** (SDLC stages) and **gates** (approval checkpoints)
 - Phases track stages relevant to release management (e.g., development, SIT, UAT, staging, CAB, production deployment)
 - Gates define agreed exit criteria that must be met before the next phase begins
 - Activities and tasks can be tracked within each phase
 
 #### Release Templates
+
 - A **Release Template Library** stores reusable release templates
 - Each template pre-defines: lifecycle phases, gates, activities, and approval checkpoints
 - Users create new releases from a template (not from scratch)
@@ -121,22 +120,26 @@ EnvManager replaces a legacy test environment management system and eliminates r
 - Templates are versioned to track process evolution over time
 
 #### Release Scope (Changes / User Stories)
+
 - Release **scope** defined by **user stories and defects imported from Jira** via webhook events
 - Multiple Jira projects can contribute scope to a single release
 - Release scope changes (added/removed stories) are audited
 
 **Jira Integration — per-project configuration:**
+
 - Each Jira project has its own `JiraProjectConfig` record containing: project key, Jira base URL, webhook secret (HMAC), credentials, and field mappings
 - **"Copy from existing project"**: when configuring a new Jira project, an admin can clone another project's field mappings as a starting point (creates an independent copy — changes don't propagate)
 - Webhook signature is verified on every inbound event
 
 **Custom field mapping:**
+
 - Admins configure how Jira webhook payload fields (including custom fields) map to named custom fields on `ReleaseChange` scope items in EnvManager
 - Each mapping entry: `jira_field_path` (JSON path into the Jira payload, e.g. `fields.customfield_10001`) → `display_name` + `envmgr_field_key` + `field_type`
 - A "test mapping" tool lets admins paste a sample Jira webhook payload and preview the resulting field values before saving
 - Mapped values stored in `custom_fields` JSONB on the `ReleaseChange` record
 
 **Jira Epics:**
+
 - Epics are imported from Jira via the same webhook mechanism (issue type = Epic)
 - Stored as `JiraEpic` records with the same custom field mapping applied
 - Stories and defects are linked to their parent Epic via `epic_id` FK (resolved from Jira's `parent.key` or `customfield_epic_link`)
@@ -145,6 +148,7 @@ EnvManager replaces a legacy test environment management system and eliminates r
 - On the Release Scope tab: stories are grouped under their parent Epic as a collapsible header
 
 #### Release Systems
+
 - Systems are linked to a release with a declared **role**:
   - `changing` — this system has new code being deployed as part of the release
   - `regression` — no code change; must be tested alongside changing systems
@@ -152,25 +156,30 @@ EnvManager replaces a legacy test environment management system and eliminates r
 - **Code Implementation Dependency**: a system on a release can have a specific deployment date set (e.g., for multi-data-center rollouts, dark deployments with a feature flag to turn on later)
 
 #### Release Environment Bookings
+
 - Test environments and environment groups are linked to release test phases via bookings
 - Bookings derive their context tag (`deployment` or `regression`) automatically from the system role on the release (see §2.2)
 - Provides a complete test environment schedule linked to the release timeline
 
 #### Release Gates & Dependencies
+
 - **Release gates**: approval checkpoints between phases; all gate criteria must be met before the release progresses
 - **Release dependencies**: a release can declare that it must deploy after another release (ordering)
 - "Smart alerts" notify the release manager when a dependency's dates change and may impact this release
 
 #### Release Events
+
 - An optional, configurable **event log** on each release
 - Event types are configurable: e.g., Reschedule Reason, Scope Change, Post-Go-Live Incident
 - Used for audit trail, post-implementation reporting, and future process improvement
 
 #### Release Views
+
 - **Calendar view**: shows release bookings and environment usage across time
 - **Schedule / Gantt timeline view**: shows phase durations, gates, and key dates across multiple releases side by side
 
 #### Post-Implementation Reviews (PIR)
+
 - P1/P2 incidents attributed to a release trigger a **PIR record** on that release
 - PIR documents: root cause, action plan, lessons learned
 - PIR completion can be configured as a gate before a release is formally closed
@@ -199,14 +208,15 @@ EnvManager replaces a legacy test environment management system and eliminates r
 
 The four DORA metrics must be calculated and displayed:
 
-| Metric | Calculation Basis |
-|--------|-------------------|
-| **Deployment Frequency** | Count of successful deployments per time window |
-| **Lead Time for Changes** | Time from build commit (git SHA) to successful production deployment |
-| **Change Failure Rate** | % of deployments that trigger an incident |
-| **Mean Time to Recovery (MTTR)** | Average time from incident creation to resolution |
+| Metric                                 | Calculation Basis                                                    |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| **Deployment Frequency**         | Count of successful deployments per time window                      |
+| **Lead Time for Changes**        | Time from build commit (git SHA) to successful production deployment |
+| **Change Failure Rate**          | % of deployments that trigger an incident                            |
+| **Mean Time to Recovery (MTTR)** | Average time from incident creation to resolution                    |
 
 Additional data requirements:
+
 - Incident tracking (see below)
 - Deployment success/failure/rollback status
 - Release gate outcomes
@@ -214,10 +224,12 @@ Additional data requirements:
 - Export to CSV
 
 **Incident tracking lifecycle**:
+
 - Phase 5: Manual entry of incidents in EnvManager (with linked deployment and environment)
 - Later phase (post Phase 5): REST API ingestion, webhook push, import from external tools (PagerDuty, Opsgenie, ServiceNow)
 
 **Incident → PIR → Fix Release traceability:**
+
 - An incident carries two release FKs:
   - `release_id` — the release that **caused** the incident (used for DORA Change Failure Rate; may be null if cause is unknown)
   - `fix_release_id` — the upcoming release that will **deliver the fix** (set by the problem manager once a fix release is planned)
@@ -228,12 +240,14 @@ Additional data requirements:
 - Incident list (`GET /api/v1/incidents`) includes `fix_release_target_date` for a "Fix ETA" overview column
 
 **Environment Health Check Dashboard** (Phase 5):
+
 - Simple REST API endpoint: `POST /api/v1/environments/{id}/health` — accepts `status` (`up | down | issue`) pushed by external tools
 - Populated by external monitoring scripts, test runners, or cron jobs (not by EnvManager's own monitoring)
 - Dashboard shows per-environment: current status, active bookings, current planned TECRs (explaining whether outages are expected), and status history timeline
 - If an environment is `down` or `issue` during an active booking with no planned TECR outage, the system surfaces an alert
 
 **Post-Implementation Reviews** (Phase 5):
+
 - PIR records linked to incidents and releases (see §2.5)
 - Release-level metrics: release success rate, environment utilization, booking conflicts per month, emergency release % of total
 
@@ -250,6 +264,7 @@ Additional data requirements:
 - ~~Neo4j is the graph store for topology~~ — **superseded 2026-07-30**: PostgreSQL is the system of record *and* serves topology; Neo4j was provisioned but never used and has been removed ([decisions/2026-07-30-drop-neo4j.md](decisions/2026-07-30-drop-neo4j.md))
 
 **IaC-to-dependency model integration (Phase 6):**
+
 - Terraform and Docker Compose parsers (Phase 6) populate the **same `SystemDependency` and `ComponentDependency` tables introduced in Phase 1** — they do not create a separate dependency model
 - Parsed connections are written with `source = terraform | docker_compose` (vs. `manual` for Phase 1 entries)
 - This means manually declared dependencies and auto-discovered IaC dependencies coexist in the same graph, queryable together
@@ -263,6 +278,7 @@ Additional data requirements:
 - Event replay capability for debugging and recovery
 
 Key events requiring notifications:
+
 - Booking created / approved / rejected / conflict detected
 - Change request created / approved / started / completed
 - Deployment completed (success or failure)
@@ -380,70 +396,70 @@ Key events requiring notifications:
 
 ## 4. Data Model (Key Entities)
 
-| Entity | Phase | Description |
-|--------|-------|-------------|
-| **Tenant** | 0 ✅ | Organisation / multi-tenant isolation unit |
-| **User** | 0 ✅ | Authenticated user within a tenant |
-| **Environment** | 1 | A test environment (on-premise or cloud) |
-| **Environment Group** | 7 | A collection of environments bookable as one unit |
-| **System** | 1 | A logical application or service — tenant-level catalog entry (not environment-scoped) |
-| **EnvironmentSystem** | 1 | Junction record linking a System to an Environment; status = active \| inactive \| mock |
-| **SystemDependency** | 1 | A declared service call dependency between two Systems (source: manual \| terraform \| docker_compose) |
-| **Sub-System** | 1 | A component within a System (also catalog-level) |
-| **ComponentDependency** | 1 | A declared service call dependency between two SubSystems, cross-system calls allowed |
-| **Infrastructure Component** | 6 | A cloud/on-premise resource (Lambda, S3, server, etc.) |
-| **Infrastructure Layer** | 6 | A logical grouping of components for diagram layout |
-| **Infrastructure Connection** | 6 | A network or data flow between components |
-| **Infrastructure Snapshot** | 6 | Point-in-time topology capture |
-| **Project** | 7 | A team or project using environments |
-| **Usage Agreement** | 7 | Cooperation rules between projects sharing an environment |
-| **Booking** | 1 | A time-based reservation (supports Shared / Exclusive, recurring) |
-| **Change Request** | 2 | A planned change to a sub-resource |
-| **Release** | 3 | A Project Release or Enterprise Release (release train) |
-| **Release Template** | 3 | A reusable release template with predefined phases, gates, and activities |
-| **Release Dependency** | 3 | An ordering relationship between releases |
-| **Release Event** | 3 | An audit log entry on a release (reschedule reason, scope change, etc.) |
-| **Test Phase** | 3 | A phase within a release (SIT, UAT, Staging) |
-| **Release Gate** | 3 | An approval checkpoint between test phases |
-| **JiraProjectConfig** | 3 | Per-project Jira integration config with webhook secret, credentials, and field mappings |
-| **JiraEpic** | 3 | A Jira Epic with custom fields; stories linked to it; release span is derived |
-| **Post-Implementation Review (PIR)** | 5 | Root cause + action plan for incidents attributed to a release |
-| **Build** | 4 | A versioned software build (git SHA, branch, Jira tickets, pipeline steps) |
-| **Deployment** | 4 | A CI/CD deployment event linked to a build and environment |
-| **Incident** | 5 | An incident record; `release_id` = causal release; `fix_release_id` = fix delivery release; linked to PIR via `PIR.incident_id` |
-| **Environment Health Status** | 5 | Point-in-time up/down/issue status pushed via REST API |
-| **Event Log** | 1 | Outbox event store for reliable event publishing |
-| **Release Intake** | 9 | Front-door request with risk score, before a Release is accepted |
-| **Go/No-Go Decision** | 9 | Recorded joint sign-off (go/conditional/no-go, dissents) on a release |
-| **Rollback Plan** | 9 | Documented rollback for a release incl. data-reversibility flags + in-flight auth record |
-| **Gate Evidence** | 9/12 | Evidence artefact captured at a gate, attached to the release |
-| **Feature Flag State** | 9 | Per-environment flag value + lifecycle (rollout, removal-by) |
-| **Data Profile** | 10 | Per-environment test-data profile (synthetic/masked/subset, classification, refresh) |
-| **Data Refresh** | 10 | A masked Prod→non-Prod refresh event with cadence + verification |
-| **Cost Record** | 11 | Run-rate / funding / chargeback for an environment or release |
-| **Regulatory Regime** | 12 | Compliance regime on a release/environment driving gates + evidence retention |
-| **ITSM Change** | 13 | Infrastructure/config change pulled from ITSM onto the unified schedule |
-| **SLA / OLA** | 13 | Service/operational level agreement definitions + monthly performance |
+| Entity                                     | Phase | Description                                                                                                                          |
+| ------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **Tenant**                           | 0 ✅  | Organisation / multi-tenant isolation unit                                                                                           |
+| **User**                             | 0 ✅  | Authenticated user within a tenant                                                                                                   |
+| **Environment**                      | 1     | A test environment (on-premise or cloud)                                                                                             |
+| **Environment Group**                | 7     | A collection of environments bookable as one unit                                                                                    |
+| **System**                           | 1     | A logical application or service — tenant-level catalog entry (not environment-scoped)                                              |
+| **EnvironmentSystem**                | 1     | Junction record linking a System to an Environment; status = active\| inactive \| mock                                               |
+| **SystemDependency**                 | 1     | A declared service call dependency between two Systems (source: manual\| terraform \| docker_compose)                                |
+| **Sub-System**                       | 1     | A component within a System (also catalog-level)                                                                                     |
+| **ComponentDependency**              | 1     | A declared service call dependency between two SubSystems, cross-system calls allowed                                                |
+| **Infrastructure Component**         | 6     | A cloud/on-premise resource (Lambda, S3, server, etc.)                                                                               |
+| **Infrastructure Layer**             | 6     | A logical grouping of components for diagram layout                                                                                  |
+| **Infrastructure Connection**        | 6     | A network or data flow between components                                                                                            |
+| **Infrastructure Snapshot**          | 6     | Point-in-time topology capture                                                                                                       |
+| **Project**                          | 7     | A team or project using environments                                                                                                 |
+| **Usage Agreement**                  | 7     | Cooperation rules between projects sharing an environment                                                                            |
+| **Booking**                          | 1     | A time-based reservation (supports Shared / Exclusive, recurring)                                                                    |
+| **Change Request**                   | 2     | A planned change to a sub-resource                                                                                                   |
+| **Release**                          | 3     | A Project Release or Enterprise Release (release train)                                                                              |
+| **Release Template**                 | 3     | A reusable release template with predefined phases, gates, and activities                                                            |
+| **Release Dependency**               | 3     | An ordering relationship between releases                                                                                            |
+| **Release Event**                    | 3     | An audit log entry on a release (reschedule reason, scope change, etc.)                                                              |
+| **Test Phase**                       | 3     | A phase within a release (SIT, UAT, Staging)                                                                                         |
+| **Release Gate**                     | 3     | An approval checkpoint between test phases                                                                                           |
+| **JiraProjectConfig**                | 3     | Per-project Jira integration config with webhook secret, credentials, and field mappings                                             |
+| **JiraEpic**                         | 3     | A Jira Epic with custom fields; stories linked to it; release span is derived                                                        |
+| **Post-Implementation Review (PIR)** | 5     | Root cause + action plan for incidents attributed to a release                                                                       |
+| **Build**                            | 4     | A versioned software build (git SHA, branch, Jira tickets, pipeline steps)                                                           |
+| **Deployment**                       | 4     | A CI/CD deployment event linked to a build and environment                                                                           |
+| **Incident**                         | 5     | An incident record;`release_id` = causal release; `fix_release_id` = fix delivery release; linked to PIR via `PIR.incident_id` |
+| **Environment Health Status**        | 5     | Point-in-time up/down/issue status pushed via REST API                                                                               |
+| **Event Log**                        | 1     | Outbox event store for reliable event publishing                                                                                     |
+| **Release Intake**                   | 9     | Front-door request with risk score, before a Release is accepted                                                                     |
+| **Go/No-Go Decision**                | 9     | Recorded joint sign-off (go/conditional/no-go, dissents) on a release                                                                |
+| **Rollback Plan**                    | 9     | Documented rollback for a release incl. data-reversibility flags + in-flight auth record                                             |
+| **Gate Evidence**                    | 9/12  | Evidence artefact captured at a gate, attached to the release                                                                        |
+| **Feature Flag State**               | 9     | Per-environment flag value + lifecycle (rollout, removal-by)                                                                         |
+| **Data Profile**                     | 10    | Per-environment test-data profile (synthetic/masked/subset, classification, refresh)                                                 |
+| **Data Refresh**                     | 10    | A masked Prod→non-Prod refresh event with cadence + verification                                                                    |
+| **Cost Record**                      | 11    | Run-rate / funding / chargeback for an environment or release                                                                        |
+| **Regulatory Regime**                | 12    | Compliance regime on a release/environment driving gates + evidence retention                                                        |
+| **ITSM Change**                      | 13    | Infrastructure/config change pulled from ITSM onto the unified schedule                                                              |
+| **SLA / OLA**                        | 13    | Service/operational level agreement definitions + monthly performance                                                                |
 
 ---
 
 ## 5. Key Decisions
 
-| Decision | Resolution | Rationale |
-|----------|------------|-----------|
-| Authentication | Keep simple JWT/bcrypt for now | RBAC deferred; platform still in development |
-| RBAC | Deferred | Will be implemented when auth is upgraded to OAuth 2.0/OIDC |
-| Recurring bookings | Include in Phase 1 | Core booking requirement, not optional |
-| Build entity | Separate from Deployment | Build = artifact (git SHA, branch, Jira tickets, pipeline steps); Deployment = install act |
-| CI/CD integration | GitHub Actions only | Only tool in use at this organisation |
-| Jira integration | Yes — Phase 3 | User story import for release scope |
-| CMDB integration | Excluded | Not in use; can be added later if needed |
-| Incident entry | Manual in EnvManager (Phase 5), then API/webhook (later phase) | Pragmatic starting point |
-| Phase 8 | Excluded from plan | Listed as out of scope in requirements |
-| Enterprise Release | Include in Phase 3 | Needed for managing coordinated multi-team production deployments |
-| Release Templates | Full library in Phase 3 | Central to building a repeatable, improvable release process |
-| Health Check Dashboard | Phase 5 (with DORA) | Belongs with monitoring and metrics; not Phase 1 priority |
-| Booking system context | Auto-derived from release | Release declares system roles; bookings inherit context automatically |
+| Decision               | Resolution                                                     | Rationale                                                                                  |
+| ---------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Authentication         | Keep simple JWT/bcrypt for now                                 | RBAC deferred; platform still in development                                               |
+| RBAC                   | Deferred                                                       | Will be implemented when auth is upgraded to OAuth 2.0/OIDC                                |
+| Recurring bookings     | Include in Phase 1                                             | Core booking requirement, not optional                                                     |
+| Build entity           | Separate from Deployment                                       | Build = artifact (git SHA, branch, Jira tickets, pipeline steps); Deployment = install act |
+| CI/CD integration      | GitHub Actions only                                            | Only tool in use at this organisation                                                      |
+| Jira integration       | Yes — Phase 3                                                 | User story import for release scope                                                        |
+| CMDB integration       | Excluded                                                       | Not in use; can be added later if needed                                                   |
+| Incident entry         | Manual in EnvManager (Phase 5), then API/webhook (later phase) | Pragmatic starting point                                                                   |
+| Phase 8                | Excluded from plan                                             | Listed as out of scope in requirements                                                     |
+| Enterprise Release     | Include in Phase 3                                             | Needed for managing coordinated multi-team production deployments                          |
+| Release Templates      | Full library in Phase 3                                        | Central to building a repeatable, improvable release process                               |
+| Health Check Dashboard | Phase 5 (with DORA)                                            | Belongs with monitoring and metrics; not Phase 1 priority                                  |
+| Booking system context | Auto-derived from release                                      | Release declares system roles; bookings inherit context automatically                      |
 
 ---
 
@@ -467,20 +483,20 @@ Still out of scope:
 
 ## 7. Phase Map
 
-| Phase | Requirement Domains Addressed |
-|-------|-------------------------------|
-| 0 ✅ | Infrastructure setup, Auth foundation, Base models |
-| 1 ✅ | Environment Modeling, Booking System (incl. recurring), Event Infrastructure |
-| 2 | Change Management |
-| 3 | Release Management (Enterprise + Project Releases, Templates, Dependencies, Events, System Roles, Gantt View, PIR), Jira Integration |
-| 4 | Build Tracking, Deployment Tracking (GitHub Actions) |
-| 5 | DORA Metrics, Incident Tracking (manual), Health Check Dashboard, PIR, scheduled health checks, booking honour/utilisation |
-| 6 | Infrastructure Topology (Terraform, React Flow) + **Environment Drift detection & sync vs Production** (§2.12/B4) |
-| 7 | Multi-Project Coordination, Environment Groups, Usage Agreements + **Environment Lifecycle & Governance** (§2.12: tiers, decommission, welcome pack, priority contention) |
-| 8 | *(reserved — parked AI Copilot / AI-driven Integrations design)* |
-| 9 | **Release Governance & Deployment Safety** (§2.11: intake, go/no-go, scope freeze, rollback, hyper-care, feature flags, deploy patterns) |
-| 10 | **Test Data Management** (§2.13) |
-| 11 | **Cost & FinOps** (§2.14) |
-| 12 | **Compliance & Audit Evidence** (§2.15 — depends on RBAC/OAuth) |
-| 13 | **ITSM Integration & Enterprise Operations** (§2.16: change feed, reconciliation, SLA/OLA, maturity, comms) |
-| Post-13 | Incident API/webhook ingestion, external incident tool imports, RBAC/OAuth, full CMDB sync |
+| Phase   | Requirement Domains Addressed                                                                                                                                                   |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 ✅    | Infrastructure setup, Auth foundation, Base models                                                                                                                              |
+| 1 ✅    | Environment Modeling, Booking System (incl. recurring), Event Infrastructure                                                                                                    |
+| 2       | Change Management                                                                                                                                                               |
+| 3       | Release Management (Enterprise + Project Releases, Templates, Dependencies, Events, System Roles, Gantt View, PIR), Jira Integration                                            |
+| 4       | Build Tracking, Deployment Tracking (GitHub Actions)                                                                                                                            |
+| 5       | DORA Metrics, Incident Tracking (manual), Health Check Dashboard, PIR, scheduled health checks, booking honour/utilisation                                                      |
+| 6       | Infrastructure Topology (Terraform, React Flow) +**Environment Drift detection & sync vs Production** (§2.12/B4)                                                         |
+| 7       | Multi-Project Coordination, Environment Groups, Usage Agreements +**Environment Lifecycle & Governance** (§2.12: tiers, decommission, welcome pack, priority contention) |
+| 8       | *(reserved — parked AI Copilot / AI-driven Integrations design)*                                                                                                             |
+| 9       | **Release Governance & Deployment Safety** (§2.11: intake, go/no-go, scope freeze, rollback, hyper-care, feature flags, deploy patterns)                                 |
+| 10      | **Test Data Management** (§2.13)                                                                                                                                         |
+| 11      | **Cost & FinOps** (§2.14)                                                                                                                                                |
+| 12      | **Compliance & Audit Evidence** (§2.15 — depends on RBAC/OAuth)                                                                                                         |
+| 13      | **ITSM Integration & Enterprise Operations** (§2.16: change feed, reconciliation, SLA/OLA, maturity, comms)                                                              |
+| Post-13 | Incident API/webhook ingestion, external incident tool imports, RBAC/OAuth, full CMDB sync                                                                                      |
