@@ -47,6 +47,22 @@ class Environment(Base):
     operations_group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("user_group.id"), nullable=True, index=True
     )
+    # Handover fields — the Welcome Pack's content, authored by the team that
+    # operates this environment (see PATCH /environments/{id}/handover, which
+    # is the ONLY write path for them; they are deliberately absent from
+    # EnvironmentUpdate). All nullable: a newly created environment has nothing
+    # to hand over until it has been built.
+    #
+    # Credentials are deliberately NOT here. This app has one secret store,
+    # built for a single OAuth token. `connection_notes` says WHERE credentials
+    # come from — a vault path, a team to ask — without this becoming the place
+    # passwords live.
+    access_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    connection_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    support_contact: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sla_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    known_limitations: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    decommission_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[EnvironmentStatus] = mapped_column(
         SAEnum(EnvironmentStatus, native_enum=False),
         nullable=False,

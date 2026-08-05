@@ -20,6 +20,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
 from app.db.models.environment import Environment
+from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.system import SubSystem, System
@@ -192,6 +193,60 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
     db.add(environment)
     await db.flush()
     return environment
+
+
+async def ensure_environment_request(
+    db: AsyncSession, tenant_id: int, **overrides
+) -> EnvironmentRequest:
+    """A request for `tenant_id`, defaulting to a valid access request.
+
+    `lifecycle_id`, `requested_by` and `environment_id` are all real FKs, so a
+    test must never pass a bare `1`. Pass overrides to change kind or targets.
+    """
+    from app.db.models.lifecycle import LifecycleTemplate
+
+    user = await ensure_user(db, tenant_id)
+    env = await ensure_environment(db, tenant_id)
+
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.entity_type == "environment_request",
+                LifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalars().first()
+    if tpl is None:
+        tpl = LifecycleTemplate(
+            tenant_id=tenant_id,
+            entity_type="environment_request",
+            name="fk-parent-request-lifecycle",
+            definition={
+                "states": [
+                    {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                ],
+                "transitions": [],
+                "field_permissions": {},
+            },
+        )
+        db.add(tpl)
+        await db.flush()
+
+    fields = {
+        "tenant_id": tenant_id,
+        "kind": "access",
+        "status": "draft",
+        "lifecycle_id": tpl.id,
+        "requested_by": user.id,
+        "justification": "fk-parent justification",
+        "environment_id": env.id,
+    }
+    fields.update(overrides)
+    req = EnvironmentRequest(**fields)
+    db.add(req)
+    await db.flush()
+    return req
 
 
 async def post_environment(client, headers: dict, name: str, **extra):
