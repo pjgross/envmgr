@@ -1,5 +1,7 @@
 # EnvManager
 
+**<https://pjgross.github.io/envmgr_site/>**
+
 > **Status: work in progress — not a released product.**
 >
 > This is an actively developed personal project, published so the work is visible and
