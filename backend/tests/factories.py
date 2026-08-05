@@ -24,6 +24,7 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
+from app.db.models.user_group import UserGroup
 
 
 async def ensure_subsystem(
@@ -115,6 +116,32 @@ async def ensure_user(
     db.add(user)
     await db.flush()
     return user
+
+
+async def ensure_user_group(
+    db: AsyncSession, tenant_id: int, name: str = "fk-parent-group"
+) -> UserGroup:
+    """A real group for `tenant_id`. Idempotent per (tenant, name).
+
+    `environment.operations_group_id` and `user_group_member.group_id` are both
+    real FKs, so tests must never pass a bare `1`.
+    """
+    existing = (
+        await db.execute(
+            select(UserGroup).where(
+                UserGroup.tenant_id == tenant_id,
+                UserGroup.name == name,
+                UserGroup.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    group = UserGroup(tenant_id=tenant_id, name=name)
+    db.add(group)
+    await db.flush()
+    return group
 
 
 async def ensure_environment_tier(

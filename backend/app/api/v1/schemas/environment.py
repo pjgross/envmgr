@@ -12,6 +12,7 @@ class EnvironmentCreate(BaseModel):
     description: Optional[str] = None
     tier_id: int
     owner_user_id: int
+    operations_group_id: Optional[int] = None
     expires_at: datetime
     status: EnvironmentStatus = EnvironmentStatus.ACTIVE
     custom_fields: Optional[dict] = None
@@ -22,6 +23,12 @@ class EnvironmentUpdate(BaseModel):
     description: Optional[str] = None
     tier_id: Optional[int] = None
     owner_user_id: Optional[int] = None
+    # Typed `Optional[int] = None` like every other field here — the
+    # omitted-vs-null distinction is NOT carried by this type. It comes from
+    # the service reading `model_fields_set`: an omitted key means "leave
+    # alone", only an explicit null clears the group. Same contract as
+    # expires_at.
+    operations_group_id: Optional[int] = None
     expires_at: Optional[datetime] = None
     status: Optional[EnvironmentStatus] = None
     custom_fields: Optional[dict] = None
@@ -38,6 +45,8 @@ class EnvironmentResponse(BaseModel):
     tier_color: Optional[str] = None
     owner_user_id: Optional[int] = None
     owner_username: Optional[str] = None
+    operations_group_id: Optional[int] = None
+    operations_group_name: Optional[str] = None
     expires_at: Optional[datetime] = None
     status: EnvironmentStatus
     reserved_now: bool = False
@@ -65,6 +74,8 @@ class EnvironmentResponse(BaseModel):
             tier_color=view.tier_color,
             owner_user_id=env.owner_user_id,
             owner_username=view.owner_username,
+            operations_group_id=env.operations_group_id,
+            operations_group_name=view.operations_group_name,
             expires_at=env.expires_at,
             status=env.status,
             reserved_now=view.reserved_now,

@@ -32,6 +32,8 @@ vi.mock('../../../services/environmentService', () => ({
           status: 'active',
           tenant_id: 1,
           custom_fields: null,
+          operations_group_id: null,
+          operations_group_name: null,
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z',
         },
@@ -225,6 +227,18 @@ describe('EnvironmentList server-side grid', () => {
     );
   });
 
+  it('sends the operations_group_id filter', async () => {
+    // Every other filter added to this page has a round-trip test that it
+    // survives the URL via useServerGrid's filterKeys; operations_group_id
+    // didn't. A key missing from filterKeys is written to the URL by
+    // setFilter but never read back into `filters`, same trap as the
+    // tier/governance-gap test above.
+    renderEnvironmentList('/environments?operations_group_id=4');
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ operations_group_id: '4' })
+    );
+  });
+
   it('does not send owner_user_id or expiring_within_days when neither filter is set', async () => {
     // The discriminating half for the previous test: proves these two keys
     // are genuinely optional filters reflecting the Select's own state,
@@ -284,9 +298,55 @@ describe('EnvironmentList server-side grid', () => {
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
     expect(lastListParams()).not.toHaveProperty('governance_gap');
 
-    fireEvent.click(screen.getByText('Missing owner'));
+    fireEvent.click(screen.getByText('Governance gap'));
 
     await waitFor(() => expect(lastListParams()).toMatchObject({ governance_gap: 'true' }));
+  });
+
+  it('renders the operations group name that came with the row', async () => {
+    // The name travels with the row. Resolving it against the groups
+    // collection would render '—' on a miss, which is information lost.
+    vi.mocked(environmentService.listEnvironments).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 1,
+          name: 'prod-a',
+          description: null,
+          tier_id: 3,
+          tier_name: 'Production',
+          tier_color: '#c62828',
+          owner_user_id: 7,
+          owner_username: 'alice',
+          expires_at: null,
+          reserved_now: false,
+          status: 'active',
+          tenant_id: 1,
+          custom_fields: null,
+          operations_group_id: 4,
+          operations_group_name: 'SRE',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    renderEnvironmentList('/environments');
+    await waitFor(() => {
+      const columns = (capturedGridProps.current?.columns ?? []) as GridColDef[];
+      expect(columns.some((c) => c.field === 'operations_group_name')).toBe(true);
+    });
+    const byField = Object.fromEntries(
+      (capturedGridProps.current?.columns as GridColDef[]).map((c) => [c.field, c])
+    );
+    // Not in the backend whitelist — it is a joined column, not an
+    // Environment column, so a sortable header would 422 on click.
+    expect(byField.operations_group_name.sortable).toBe(false);
+
+    // The row's own operations_group_name, not a lookup against the groups
+    // collection (which is empty in this test) — a resolve-by-id bug would
+    // render '—' here instead.
+    await screen.findByText('SRE');
   });
 
   it('marks actions and custom-field columns unsortable', () => {
@@ -380,7 +440,17 @@ describe('EnvironmentList server-side grid', () => {
     // from the same collision.
     const staticFields = new Set(environmentColumns.map((c) => c.field));
     expect(staticFields).toEqual(
-      new Set(['name', 'tier', 'owner', 'expires_at', 'reserved_now', 'status', 'created_at', 'actions'])
+      new Set([
+        'name',
+        'tier',
+        'owner',
+        'expires_at',
+        'reserved_now',
+        'status',
+        'operations_group_name',
+        'created_at',
+        'actions',
+      ])
     );
 
     const defs: CustomFieldDefinition[] = ['owner', 'tier', 'expires_at', 'reserved_now', 'region'].map(
@@ -477,6 +547,8 @@ describe('EnvironmentList server-side grid', () => {
       status: 'active',
       tenant_id: 1,
       custom_fields: null,
+      operations_group_id: null,
+      operations_group_name: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     });
@@ -504,6 +576,112 @@ describe('EnvironmentList server-side grid', () => {
     await waitFor(() =>
       expect(updateMock).toHaveBeenCalledWith(1, expect.objectContaining({ expires_at: null }))
     );
+  });
+
+  // Same decision, same shape, as the expires_at pair above:
+  // operations_group_id must always be sent explicitly on update — including
+  // explicit null — because EnvironmentUpdate also keys on
+  // model_fields_set, and an omitted key means "leave alone". Neither
+  // behaviour has any other test guarding it.
+  it('lets Edit save with no operations group, sending explicit null rather than leaving it alone', async () => {
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [PRODUCTION_TIER],
+      total: 1,
+    });
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [{ id: 7, username: 'alice' }] });
+    const updateMock = vi.mocked(environmentService.updateEnvironment).mockResolvedValueOnce({
+      id: 1,
+      name: 'prod-a',
+      description: null,
+      tier_id: 3,
+      tier_name: 'Production',
+      tier_color: '#c62828',
+      owner_user_id: 7,
+      owner_username: 'alice',
+      expires_at: null,
+      reserved_now: false,
+      status: 'active',
+      tenant_id: 1,
+      custom_fields: null,
+      operations_group_id: null,
+      operations_group_name: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+
+    renderEnvironmentList('/environments');
+    // The prod-a fixture (see the environmentService mock above) already has
+    // operations_group_id: null — exactly the row this decision is about.
+    await screen.findByText('prod-a');
+
+    const editButtons = screen
+      .getAllByRole('button', { hidden: true })
+      .filter((b) => b.getAttribute('aria-label') === 'Edit');
+    expect(editButtons.length).toBeGreaterThan(0);
+    fireEvent.click(editButtons[0]);
+
+    const dialog = await screen.findByRole('dialog');
+    // No group selected — form.operations_group_id starts '' for this row.
+    await within(dialog).findByRole('combobox', { name: 'Operations Group' });
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ operations_group_id: null })
+      )
+    );
+  });
+
+  it('keeps a soft-deleted operations group selectable in the edit dialog', async () => {
+    // Same shape as the retired-tier (filter) and deactivated-owner (form)
+    // cases above: an environment can carry a group id that GET
+    // /tenant/groups no longer lists because the group was soft-deleted.
+    // Without the keep-selectable branch, MUI renders the Select blank with
+    // an out-of-range warning while form state still holds the id.
+    vi.mocked(environmentTierService.listTiers).mockResolvedValueOnce({
+      rows: [PRODUCTION_TIER],
+      total: 1,
+    });
+    vi.mocked(api.get).mockResolvedValueOnce({ data: [{ id: 7, username: 'alice' }] });
+    vi.mocked(environmentService.listEnvironments).mockResolvedValueOnce({
+      rows: [
+        {
+          id: 1,
+          name: 'prod-a',
+          description: null,
+          tier_id: 3,
+          tier_name: 'Production',
+          tier_color: '#c62828',
+          owner_user_id: 7,
+          owner_username: 'alice',
+          expires_at: null,
+          reserved_now: false,
+          status: 'active',
+          tenant_id: 1,
+          custom_fields: null,
+          operations_group_id: 4,
+          operations_group_name: 'SRE',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    renderEnvironmentList('/environments');
+    await screen.findByText('prod-a');
+
+    const editButtons = screen
+      .getAllByRole('button', { hidden: true })
+      .filter((b) => b.getAttribute('aria-label') === 'Edit');
+    fireEvent.click(editButtons[0]);
+
+    const dialog = await screen.findByRole('dialog');
+    const groupSelect = within(dialog).getByRole('combobox', { name: 'Operations Group' });
+    expect(groupSelect).toHaveTextContent('SRE');
+    expect(groupSelect).toHaveTextContent(/deleted/i);
   });
 
   it('still requires an expiry on Create, even though Edit tolerates a blank one', async () => {

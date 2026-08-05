@@ -40,6 +40,7 @@ import {
   deleteEnvironment,
 } from '../../store/environmentSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
+import { fetchUserGroups } from '../../store/userGroupSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type {
   EnvironmentResponse,
@@ -88,6 +89,8 @@ interface EnvFormValues {
   /** "YYYY-MM-DD" from `<input type="date">`, or '' for no expiry planned. */
   expires_at: string;
   status: EnvironmentStatus;
+  /** '' means "no group assigned" — mapped to `null` on save, not omitted. */
+  operations_group_id: number | '';
 }
 
 const emptyForm: EnvFormValues = {
@@ -97,6 +100,7 @@ const emptyForm: EnvFormValues = {
   owner_user_id: '',
   expires_at: '',
   status: 'active',
+  operations_group_id: '',
 };
 
 // Custom-field columns are namespaced under this prefix (see
@@ -156,10 +160,11 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "environments"): name, tier, status, owner, expires_at, created_at.
 // `actions` has no backing column, `reserved_now` is derived from live
-// bookings rather than stored (so the backend cannot sort by it), and
-// per-tenant custom fields (built separately below, see
-// buildCustomFieldColumns) are never in the backend's sort whitelist — none
-// of those ever was or can be sortable.
+// bookings rather than stored (so the backend cannot sort by it),
+// `operations_group_name` is a joined column rather than an Environment
+// column (so it can never be whitelisted either), and per-tenant custom
+// fields (built separately below, see buildCustomFieldColumns) are never in
+// the backend's sort whitelist — none of those ever was or can be sortable.
 // A plain array export, not a component; co-located here per the C3 pilot's
 // releaseColumns precedent (small enough not to warrant its own file). The
 // `actions` column's renderCell is filled in at render time (see `columns`
@@ -234,6 +239,15 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
     ),
   },
   {
+    field: 'operations_group_name',
+    headerName: 'Operations Group',
+    flex: 1,
+    // Not in the backend's sort whitelist — it is a joined column, not an
+    // Environment column, so a sortable header would 422 on click.
+    sortable: false,
+    renderCell: (params) => params.row.operations_group_name ?? '—',
+  },
+  {
     field: 'created_at',
     headerName: 'Created',
     flex: 0.8,
@@ -295,6 +309,9 @@ export default function EnvironmentList() {
   const customFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
+  // Never a paged environment slice — `fetchUserGroups({})` reads the whole
+  // tenant collection, same reasoning as the tier/owner pickers below.
+  const groups = useSelector((state: RootState) => state.userGroup.groups);
 
   // Never `state.environment.environments`: that is one server-paged window,
   // so a picker reading it would silently offer whatever tiers happened to be
@@ -323,6 +340,7 @@ export default function EnvironmentList() {
       'governance_gap',
       'owner_user_id',
       'expiring_within_days',
+      'operations_group_id',
     ],
     // Free-text keys, and also the 'all'-sentinel exemption list. Every entry
     // must also appear in filterKeys above — there is a DEV warning if not.
@@ -346,6 +364,7 @@ export default function EnvironmentList() {
 
   useEffect(() => {
     dispatch(fetchDefinitions('environment'));
+    dispatch(fetchUserGroups({}));
   }, [dispatch]);
 
   const openCreate = useCallback(() => {
@@ -365,6 +384,7 @@ export default function EnvironmentList() {
       owner_user_id: env.owner_user_id ?? '',
       expires_at: env.expires_at ? env.expires_at.slice(0, 10) : '',
       status: env.status,
+      operations_group_id: env.operations_group_id ?? '',
     });
     setCustomFieldValues(env.custom_fields ?? {});
     setFormError('');
@@ -440,6 +460,10 @@ export default function EnvironmentList() {
             : null,
           status: form.status,
           custom_fields: customFieldValues,
+          // Explicit null, not undefined: the backend keys on
+          // model_fields_set, so an omitted key means "leave alone" and
+          // clearing the group would silently do nothing.
+          operations_group_id: form.operations_group_id ? Number(form.operations_group_id) : null,
         };
         await dispatch(updateEnvironment({ id: editTarget.id, data })).unwrap();
       } else {
@@ -451,6 +475,7 @@ export default function EnvironmentList() {
           expires_at: new Date(`${form.expires_at}T00:00:00Z`).toISOString(),
           status: form.status,
           custom_fields: customFieldValues,
+          operations_group_id: form.operations_group_id ? Number(form.operations_group_id) : null,
         };
         await dispatch(createEnvironment(data)).unwrap();
       }
@@ -578,10 +603,27 @@ export default function EnvironmentList() {
             ))}
           </Select>
         </FormControl>
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <InputLabel id="operations-group-filter-label">Operations Group</InputLabel>
+          <Select
+            labelId="operations-group-filter-label"
+            label="Operations Group"
+            value={grid.filters.operations_group_id ?? ''}
+            onChange={(e) => grid.setFilter('operations_group_id', e.target.value)}
+          >
+            <MenuItem value="">Any group</MenuItem>
+            {groups.map((g) => (
+              <MenuItem key={g.id} value={String(g.id)}>
+                {g.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
         <Chip
-          // `governance_gap` is a missing OWNER only — a null expiry means "no
-          // expiry planned", a legitimate state rather than a gap.
-          label="Missing owner"
+          // `governance_gap` means missing an owner OR missing an operations
+          // group — a null expiry means "no expiry planned", a legitimate
+          // state rather than a gap.
+          label="Governance gap"
           clickable
           color={grid.filters.governance_gap === 'true' ? 'warning' : 'default'}
           variant={grid.filters.governance_gap === 'true' ? 'filled' : 'outlined'}
@@ -699,6 +741,38 @@ export default function EnvironmentList() {
               {users.map((u) => (
                 <MenuItem key={u.id} value={u.id}>
                   {u.username}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth>
+            <InputLabel id="env-form-operations-group-label">Operations Group</InputLabel>
+            <Select
+              labelId="env-form-operations-group-label"
+              label="Operations Group"
+              value={form.operations_group_id}
+              onChange={(e) =>
+                setForm({ ...form, operations_group_id: e.target.value as number | '' })
+              }
+            >
+              <MenuItem value="">No group</MenuItem>
+              {/* A soft-deleted group stays selectable only when it is the one
+                  already on this environment, so opening the form for an
+                  environment whose group was deleted doesn't blank a valid
+                  value — same shape as the Tier/Owner Selects above. The
+                  backend still returns operations_group_name for a
+                  soft-deleted group, so the label is available even though
+                  fetchUserGroups({}) no longer lists it. */}
+              {editTarget &&
+                form.operations_group_id === editTarget.operations_group_id &&
+                !groups.some((g) => g.id === form.operations_group_id) && (
+                  <MenuItem value={form.operations_group_id}>
+                    {editTarget.operations_group_name ?? `#${form.operations_group_id}`} (deleted)
+                  </MenuItem>
+                )}
+              {groups.map((g) => (
+                <MenuItem key={g.id} value={g.id}>
+                  {g.name}
                 </MenuItem>
               ))}
             </Select>

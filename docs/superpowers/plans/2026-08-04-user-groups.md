@@ -1120,7 +1120,8 @@ async def test_cannot_add_a_user_from_another_tenant(
     audit found four of. A cross-tenant id is a 404, never a 403: a 403 would
     confirm the user exists."""
     group = await ensure_user_group(db_session, test_tenant.id, name="Ops")
-    other_tenant = await second_tenant_factory()
+    # The fixture yields a FACTORY, and the factory returns (tenant, user).
+    other_tenant, _other_admin = await second_tenant_factory()
     outsider = await ensure_user(db_session, other_tenant.id, username="outsider")
     await db_session.commit()
 
@@ -1136,7 +1137,7 @@ async def test_cannot_add_a_user_from_another_tenant(
 async def test_cannot_touch_a_group_from_another_tenant(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):
-    other_tenant = await second_tenant_factory()
+    other_tenant, _other_admin = await second_tenant_factory()
     other_group = await ensure_user_group(db_session, other_tenant.id, name="Theirs")
     user = await ensure_user(db_session, test_tenant.id, username="ada")
     await db_session.commit()
@@ -1209,13 +1210,11 @@ async def test_a_master_admin_can_add_members_while_impersonating(
     assert added.json()["username"] == "ada"
 ```
 
-- [ ] **Step 2: Check the fixture name before running**
+- [ ] **Step 2: Fixture facts (already confirmed — do not re-derive)**
 
-`second_tenant_factory` exists in `backend/tests/conftest.py`. Confirm its call signature — it may take arguments:
-
-Run: `cd backend && grep -n "def second_tenant_factory" -A 15 tests/conftest.py`
-
-Adjust the two tests that use it to match the real signature.
+`second_tenant_factory` yields an async **factory**; calling it returns a
+`(Tenant, User)` tuple, which is why the tests above unpack two names. Two
+implementers on the previous plan each lost a cycle to this.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
@@ -1540,7 +1539,8 @@ async def test_cannot_point_at_another_tenants_group(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):
     """The FK-write gap this change adds. 404, not 403."""
-    other_tenant = await second_tenant_factory()
+    # The fixture yields a FACTORY, and the factory returns (tenant, user).
+    other_tenant, _other_admin = await second_tenant_factory()
     theirs = await ensure_user_group(db_session, other_tenant.id, name="Theirs")
     await db_session.commit()
 
@@ -1618,11 +1618,13 @@ async def test_filtering_by_operations_group(
     assert [e["name"] for e in filtered.json()] == ["mine"]
 ```
 
-- [ ] **Step 2: Check the `post_environment` factory signature**
+- [ ] **Step 2: Factory facts (already confirmed — do not re-derive)**
 
-Run: `cd backend && grep -n "async def post_environment" -A 30 tests/factories.py`
-
-It takes `**extra` and forwards it into the JSON body, and it supplies the required `tier_id`, `owner_user_id` and `expires_at`. Confirm that before relying on `operations_group_id=` passing through; if it filters keys, extend it.
+`post_environment(client, headers, name, **extra)` resolves a SIT tier over
+HTTP, sets `owner_user_id` from `/auth/me` and an expiry a year out, then
+`body.update(extra)` — so `operations_group_id=` passes straight through and
+needs no change. `second_tenant_factory` returns a `(Tenant, User)` tuple, which
+is why the test above unpacks two names.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
@@ -2548,6 +2550,7 @@ In `frontend/src/pages/environments/EnvironmentList.tsx`:
 - **Check the static column list assertion.** `environmentListServerGrid.test.tsx` asserts the exact set of static fields (`new Set(['name', 'tier', 'owner', ...])`). Add `operations_group_name` to that expected set, or the existing test fails.
 - Fetch the groups for the picker and the filter with `dispatch(fetchUserGroups({}))`, reading `state.userGroup.groups`. Do **not** read a paged environment slice for this.
 - Add an Operations Group `Select` to the create dialog, and an `operations_group_id` entry to `useServerGrid`'s `filterKeys` so the filter round-trips through the URL like the existing owner filter.
+- **Relabel the governance-gap filter chip.** It currently reads `label="Missing owner"` (around line 581) with a comment stating "`governance_gap` is a missing OWNER only". Task 4 extended that filter to mean *missing owner **or** missing operations group*, so both the label and the comment are now wrong. Change the label to `Governance gap` and rewrite the comment to state the current rule. This was found by Task 4's review, which noted no task in the plan covered it — without this the feature ships with a chip that lies about what it filters.
 - In the create dialog's Select, keep a soft-deleted group selectable when it is the current value, following the pattern already in the file for a retired tier and a deactivated owner. Read that block (search for `(inactive)`) and mirror it with `(deleted)`.
 
 - [ ] **Step 4: Add the control to the detail page**

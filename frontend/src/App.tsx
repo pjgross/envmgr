@@ -53,6 +53,8 @@ const TenantDetail = lazy(() => import('./pages/admin/TenantDetail'));
 const TenantList = lazy(() => import('./pages/admin/TenantList'));
 const TenantScopeChangeRules = lazy(() => import('./pages/admin/TenantScopeChangeRules'));
 const TenantSettings = lazy(() => import('./pages/tenant/TenantSettings'));
+const UserGroupDetail = lazy(() => import('./pages/admin/UserGroupDetail'));
+const UserGroups = lazy(() => import('./pages/admin/UserGroups'));
 const UserManagement = lazy(() => import('./pages/tenant/UserManagement'));
 
 function FullPageSpinner() {
@@ -147,6 +149,22 @@ function App() {
               element={
                 <PrivateRoute requiredRole="Admin">
                   <UserManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/groups"
+              element={
+                <PrivateRoute>
+                  <UserGroups />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/groups/:id"
+              element={
+                <PrivateRoute>
+                  <UserGroupDetail />
                 </PrivateRoute>
               }
             />

@@ -20,6 +20,8 @@ export interface EnvironmentResponse {
   status: EnvironmentStatus;
   tenant_id: number;
   custom_fields: Record<string, unknown> | null;
+  operations_group_id: number | null;
+  operations_group_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +58,7 @@ export interface EnvironmentCreate {
   expires_at: string;
   status?: EnvironmentStatus;
   custom_fields?: Record<string, unknown>;
+  operations_group_id?: number | null;
 }
 
 export interface EnvironmentUpdate {
@@ -71,6 +74,11 @@ export interface EnvironmentUpdate {
   expires_at?: string | null;
   status?: EnvironmentStatus;
   custom_fields?: Record<string, unknown>;
+  /**
+   * `null` clears the group. The backend keys on `model_fields_set`, so an
+   * omitted key means "leave alone" — only an explicit null clears it.
+   */
+  operations_group_id?: number | null;
 }
 
 export interface EnvironmentSystemCreate {

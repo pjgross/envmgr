@@ -11,6 +11,8 @@ import pytest
 from app.db.models.environment import Environment
 from app.db.models.environment_tier import EnvironmentTier
 
+from tests.factories import ensure_user_group
+
 
 async def _seed(db_session, tenant_id, owner_id):
     tiers = {}
@@ -20,18 +22,23 @@ async def _seed(db_session, tenant_id, owner_id):
         tiers[name] = tier
     await db_session.flush()
 
+    # Every owned row also gets an operations group, so these rows stay
+    # unambiguously "clean" now that governance_gap covers both fields —
+    # only `no-owner` (missing both) should ever surface as a gap here.
+    group = await ensure_user_group(db_session, tenant_id, name="Ops")
+
     soon = datetime.now(timezone.utc) + timedelta(days=5)
     later = datetime.now(timezone.utc) + timedelta(days=200)
 
     rows = [
         Environment(tenant_id=tenant_id, name="owned-soon", tier_id=tiers["apple"].id,
-                    owner_user_id=owner_id, expires_at=soon),
+                    owner_user_id=owner_id, operations_group_id=group.id, expires_at=soon),
         Environment(tenant_id=tenant_id, name="owned-later", tier_id=tiers["Banana"].id,
-                    owner_user_id=owner_id, expires_at=later),
+                    owner_user_id=owner_id, operations_group_id=group.id, expires_at=later),
         Environment(tenant_id=tenant_id, name="no-owner", tier_id=tiers["cherry"].id,
                     owner_user_id=None, expires_at=later),
         Environment(tenant_id=tenant_id, name="no-expiry", tier_id=tiers["apple"].id,
-                    owner_user_id=owner_id, expires_at=None),
+                    owner_user_id=owner_id, operations_group_id=group.id, expires_at=None),
     ]
     for row in rows:
         db_session.add(row)
@@ -40,12 +47,20 @@ async def _seed(db_session, tenant_id, owner_id):
 
 
 @pytest.mark.asyncio
-async def test_governance_gap_returns_only_the_rows_missing_an_owner(
+async def test_governance_gap_true_discriminates_missing_owner(
     client, auth_headers, db_session, test_tenant, test_user
 ):
     """A null expiry means "no expiry planned" — a legitimate state, not a gap.
     The `no-expiry` row NOT appearing is the discriminating half: without it
-    this test passes under the old owner-or-expiry semantics too."""
+    this test passes under the old owner-or-expiry semantics too.
+
+    Since B3a, the gap is missing OWNER *or* missing OPERATIONS GROUP; every
+    owned row here also has a group (see `_seed`), so `no-owner` — missing
+    both — is still the only row that surfaces. This test's body only
+    discriminates the owner half, though — it would pass unchanged under an
+    owner-only rule; the group half is covered by the gap=true test
+    test_environment_operations_group.py::test_governance_gap_reports_a_missing_operations_group.
+    """
     await _seed(db_session, test_tenant.id, test_user.id)
 
     resp = await client.get(

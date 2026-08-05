@@ -59,6 +59,9 @@ async def list_environments(
     status: Optional[EnvironmentStatus] = None,
     tier_id: Optional[int] = None,
     owner_user_id: Optional[int] = None,
+    operations_group_id: Optional[int] = Query(
+        None, description="Only environments operated by this group."
+    ),
     expiring_within_days: Optional[int] = Query(None, ge=0),
     governance_gap: Optional[bool] = None,
     search: Optional[str] = None,
@@ -75,6 +78,7 @@ async def list_environments(
         page=page,
         search=search,
         owner_user_id=owner_user_id,
+        operations_group_id=operations_group_id,
         expiring_within_days=expiring_within_days,
         governance_gap=governance_gap,
         sort=sort,

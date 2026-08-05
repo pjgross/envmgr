@@ -196,3 +196,11 @@ app.include_router(metrics_router.router, prefix="/api/v1")
 from app.api.v1 import integrations_github as integrations_github_router
 
 app.include_router(integrations_github_router.router, prefix="/api/v1")
+
+from app.api.v1 import user_groups as user_groups_router
+
+app.include_router(
+    # Its own tag, not "Tenant Admin": three of its five endpoints are reads
+    # open to any tenant member (see app/api/v1/user_groups.py), not admin-only.
+    user_groups_router.router, prefix="/api/v1/tenant", tags=["User Groups"]
+)

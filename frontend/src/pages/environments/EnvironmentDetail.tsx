@@ -56,6 +56,7 @@ import { useAllSystems } from '../../hooks/useAllSystems';
 import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlice';
 import { recordVersion, updateVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
+import { fetchUserGroups } from '../../store/userGroupSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
@@ -92,6 +93,8 @@ interface EnvFormValues {
   /** "YYYY-MM-DD" from `<input type="date">`, or '' for no expiry planned. */
   expires_at: string;
   status: EnvironmentStatus;
+  /** '' means "no group assigned" — mapped to `null` on save, not omitted. */
+  operations_group_id: number | '';
 }
 
 interface SysFormValues {
@@ -136,6 +139,7 @@ export default function EnvironmentDetail() {
     owner_user_id: '',
     expires_at: '',
     status: 'active',
+    operations_group_id: '',
   });
   const [envFormError, setEnvFormError] = useState('');
 
@@ -143,6 +147,10 @@ export default function EnvironmentDetail() {
   // which may not be loaded on an environment page at all. See
   // useAllEnvironmentTiers' JSDoc.
   const { tiers } = useAllEnvironmentTiers();
+
+  // Never a paged environment slice — `fetchUserGroups({})` reads the whole
+  // tenant collection, same reasoning as the tier list above.
+  const groups = useSelector((state: RootState) => state.userGroup.groups);
 
   // GET /tenant/users/lite is bounded, but at its own larger contract
   // (default 1000, max 5000) rather than the shared 500/1000 — a truncated
@@ -191,6 +199,7 @@ export default function EnvironmentDetail() {
     dispatch(fetchEnvironment(envId));
     dispatch(fetchEnvironmentSystems(envId));
     dispatch(fetchDefinitions('environment'));
+    dispatch(fetchUserGroups({}));
     // Clear any previous verify result when env changes
     dispatch(clearVerifyResult());
   }, [dispatch, envId]);
@@ -204,6 +213,7 @@ export default function EnvironmentDetail() {
         owner_user_id: currentEnvironment.owner_user_id ?? '',
         expires_at: currentEnvironment.expires_at ? currentEnvironment.expires_at.slice(0, 10) : '',
         status: currentEnvironment.status,
+        operations_group_id: currentEnvironment.operations_group_id ?? '',
       });
       setEnvCustomFieldValues(currentEnvironment.custom_fields ?? {});
     }
@@ -239,6 +249,12 @@ export default function EnvironmentDetail() {
           : null,
         status: envForm.status,
         custom_fields: envCustomFieldValues,
+        // Explicit null, not undefined: the backend keys on
+        // model_fields_set, so an omitted key means "leave alone" and
+        // clearing the group would silently do nothing.
+        operations_group_id: envForm.operations_group_id
+          ? Number(envForm.operations_group_id)
+          : null,
       };
       await dispatch(updateEnvironment({ id: envId, data })).unwrap();
       setEditMode(false);
@@ -745,6 +761,45 @@ export default function EnvironmentDetail() {
                     ))}
                   </Select>
                 </FormControl>
+                <FormControl>
+                  <InputLabel id="env-detail-form-operations-group-label">
+                    Operations Group
+                  </InputLabel>
+                  <Select
+                    labelId="env-detail-form-operations-group-label"
+                    label="Operations Group"
+                    value={envForm.operations_group_id}
+                    onChange={(e) =>
+                      setEnvForm({
+                        ...envForm,
+                        operations_group_id: e.target.value as number | '',
+                      })
+                    }
+                  >
+                    <MenuItem value="">No group</MenuItem>
+                    {/* A soft-deleted group stays selectable only when it is
+                        the one already on this environment, so opening this
+                        form after its group was deleted doesn't blank a valid
+                        value — same shape as the Tier/Owner Selects above.
+                        The backend still returns operations_group_name for a
+                        soft-deleted group, so the label is available even
+                        though fetchUserGroups({}) no longer lists it. */}
+                    {currentEnvironment &&
+                      envForm.operations_group_id === currentEnvironment.operations_group_id &&
+                      !groups.some((g) => g.id === envForm.operations_group_id) && (
+                        <MenuItem value={envForm.operations_group_id}>
+                          {currentEnvironment.operations_group_name ??
+                            `#${envForm.operations_group_id}`}{' '}
+                          (deleted)
+                        </MenuItem>
+                      )}
+                    {groups.map((g) => (
+                      <MenuItem key={g.id} value={g.id}>
+                        {g.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <TextField
                   label="Expires"
                   type="date"
@@ -818,6 +873,10 @@ export default function EnvironmentDetail() {
                     </Box>
                     <Typography variant="body2">
                       Owner: {currentEnvironment?.owner_username ?? '— unowned'}
+                    </Typography>
+                    <Typography variant="body2">
+                      Operations Group:{' '}
+                      {currentEnvironment?.operations_group_name ?? '— no group'}
                     </Typography>
                     <Typography
                       variant="body2"
