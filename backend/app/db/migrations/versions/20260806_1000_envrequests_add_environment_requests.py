@@ -136,16 +136,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.get_bind().execute(
-        sa.text("DELETE FROM lifecycle_template WHERE entity_type = 'environment_request'")
-    )
-
-    for column in (
-        "decommission_notes", "known_limitations", "sla_notes",
-        "support_contact", "connection_notes", "access_url",
-    ):
-        op.drop_column("environment", column)
-
+    # environment_request.lifecycle_id FKs to lifecycle_template with no
+    # ondelete, so the table (and its rows, if any exist) must go before the
+    # DELETE below — deleting the referenced templates first raises a
+    # ForeignKeyViolationError the moment any request row exists.
     for index in (
         "ix_environment_request_created_environment_id",
         "ix_environment_request_operations_group_id",
@@ -157,3 +151,20 @@ def downgrade() -> None:
     ):
         op.drop_index(index, table_name="environment_request")
     op.drop_table("environment_request")
+
+    # Scoped to this migration's own seeded row by name, not just
+    # entity_type — a bare entity_type filter would also delete any template
+    # a tenant authored themselves. Precedent:
+    # 20260418_1930_p2s3_seed_cr_lifecycles.py's downgrade.
+    op.get_bind().execute(
+        sa.text(
+            "DELETE FROM lifecycle_template WHERE entity_type = 'environment_request' "
+            "AND name = 'Standard Request'"
+        )
+    )
+
+    for column in (
+        "decommission_notes", "known_limitations", "sla_notes",
+        "support_contact", "connection_notes", "access_url",
+    ):
+        op.drop_column("environment", column)

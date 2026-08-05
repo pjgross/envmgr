@@ -46,14 +46,18 @@ ENTITY_FIELD_SPECS: dict[str, dict[str, set[str]]] = {
             "kind", "justification", "needed_by", "environment_id",
             "proposed_name", "tier_id", "expires_at", "operations_group_id",
         },
-        # Empty, matching "release": the seeded default definition uses
-        # field_permissions={}, and a non-empty mandatory set here would
-        # require the initial state to carry a field_permissions entry with a
-        # non-empty editable_by list for each — which the plain seeded default
-        # deliberately doesn't have. 'kind' and 'justification' are still
-        # required at submission time; that requirement is enforced in
-        # environment_request_service, which can name the missing field in
-        # its message, not through this lifecycle machinery.
+        # Empty: a non-empty mandatory set here requires the initial state to
+        # carry a populated field_permissions entry (a non-empty editable_by
+        # list per mandatory field), and this template ships
+        # field_permissions={} — deliberately plain, see
+        # environment_request_defaults.py. "release" also has an empty
+        # mandatory set, but for an unrelated reason: its own default
+        # templates (release_defaults.py) enforce required-ness through
+        # field_permissions[state]["required_fields"], read by
+        # lifecycle_service at transition time, not through this mandatory
+        # set at all. 'kind' and 'justification' here are enforced in
+        # environment_request_service instead, which can name the missing
+        # field in its message.
         "mandatory": set(),
     },
 }

@@ -60,3 +60,29 @@ async def test_seeding_is_idempotent(db_session, test_tenant):
     )).scalars().all()
     assert len(rows) == 1
     assert rows[0].is_default is True
+
+
+@pytest.mark.asyncio
+async def test_creating_a_tenant_seeds_its_request_lifecycle(db_session):
+    """Exercises the tenant_service.create_tenant wiring itself, not just the
+    seeder function directly — mirrors
+    test_environment_tier_defaults_seed.py's
+    test_creating_a_tenant_seeds_its_tiers. Without this, nothing at any
+    level noticed when the seed call was removed from create_tenant."""
+    from app.api.v1.schemas import TenantCreate
+    from app.services import tenant_service
+
+    tenant = await tenant_service.create_tenant(
+        db_session, TenantCreate(name="Request Org", slug="request-org")
+    )
+
+    rows = (await db_session.execute(
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.tenant_id == tenant.id,
+            LifecycleTemplate.entity_type == "environment_request",
+            LifecycleTemplate.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].name == "Standard Request"
+    assert rows[0].is_default is True
