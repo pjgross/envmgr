@@ -13,7 +13,6 @@ export const userGroupService = {
     offset?: number;
     sort_by?: string;
     sort_dir?: 'asc' | 'desc';
-    search?: string;
   }): Promise<Paged<UserGroupResponse>> =>
     api.get<UserGroupResponse[]>('/tenant/groups', { params }).then((r) => ({
       rows: r.data,

@@ -30,7 +30,9 @@ export default function UserGroupDetail() {
   const groupId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { currentGroup, members, error: loadError } = useSelector((s: RootState) => s.userGroup);
+  const { currentGroup, members, memberTotal, error: loadError } = useSelector(
+    (s: RootState) => s.userGroup
+  );
   // GET /tenant/groups/{id} is open to any tenant member; POST/DELETE on
   // membership are require_tenant_admin(). Mirror that split for the write
   // controls the way UserGroups.tsx does for its row actions.
@@ -141,6 +143,19 @@ export default function UserGroupDetail() {
             Add
           </Button>
         </Box>
+      )}
+
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+        Members ({members.length}
+        {memberTotal > members.length ? ` of ${memberTotal}` : ''})
+      </Typography>
+      {memberTotal > members.length && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Showing the first {members.length} of {memberTotal} members. The "Add
+          member" picker above is filtered against only this window, so a
+          member past it could still be offered there — adding them would 409
+          as already a member.
+        </Alert>
       )}
 
       <Paper variant="outlined">

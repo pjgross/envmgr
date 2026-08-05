@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -9,6 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Link,
   TextField,
   Typography,
 } from '@mui/material';
@@ -24,20 +25,32 @@ import {
 } from '../../store/userGroupSlice';
 import type { UserGroupResponse } from '../../types/userGroup';
 
-// Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
-// "tenant-groups"): `name` and `created_at` ONLY. `description` is an ordinary
-// visible column the backend does not whitelist. `member_count` and
-// `environment_count` are correlated subqueries rather than columns, so they can
-// never be whitelisted — sorting by them is a genuine capability the server-side
-// grid gives up, the same trade the twelve computed columns elsewhere make. A
-// sortable header on any of these 422s on first click.
+// This grid is client-side: no sortingMode="server" or paginationMode="server"
+// below, so every click sorts the rows already in the browser and none of it
+// reaches the backend. `member_count` and `environment_count` are correlated
+// subqueries the backend could never whitelist for server-side sorting (see
+// USER_GROUP_SORTS in app/api/v1/user_groups.py) but that doesn't matter here —
+// there is no server-side sort to be missing from. `tenant-groups` is
+// deliberately absent from sortWhitelists.json and test_sort_whitelist_contract.py
+// for exactly this reason (docs/pagination.md's ‡ footnote convention): a
+// sortable whitelist entry is only added once a grid actually sorts an
+// endpoint server-side.
 // eslint-disable-next-line react-refresh/only-export-components
 export const userGroupColumns: GridColDef<UserGroupResponse>[] = [
   { field: 'name', headerName: 'Name', flex: 1 },
   { field: 'description', headerName: 'Description', flex: 2, sortable: false,
     renderCell: (params) => (params.value as string | null) ?? '—' },
-  { field: 'member_count', headerName: 'Members', width: 110, sortable: false },
-  { field: 'environment_count', headerName: 'Environments', width: 140, sortable: false },
+  { field: 'member_count', headerName: 'Members', width: 110 },
+  { field: 'environment_count', headerName: 'Environments', width: 140,
+    renderCell: (params) => (
+      <Link
+        component={RouterLink}
+        to={`/environments?operations_group_id=${params.row.id}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {params.value}
+      </Link>
+    ) },
   { field: 'actions', headerName: '', width: 140, sortable: false, disableColumnMenu: true },
 ];
 

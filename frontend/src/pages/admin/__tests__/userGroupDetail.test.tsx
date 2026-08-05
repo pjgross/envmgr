@@ -193,4 +193,26 @@ describe('UserGroupDetail', () => {
     expect(screen.getByLabelText(/add member/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();
   });
+
+  it('shows a truncation note when the member list is capped', async () => {
+    // The members endpoint is bounded (docs/pagination.md). Rendering only
+    // the fetched page with no reference to memberTotal makes a group past
+    // the cap silently look like it has exactly 500 members.
+    vi.mocked(userGroupService.listMembers).mockResolvedValue({
+      rows: [makeMember()],
+      total: 500,
+    });
+    renderPage('Admin');
+
+    await waitFor(() => expect(screen.getByText('alice')).toBeInTheDocument());
+    expect(screen.getByText('Members (1 of 500)')).toBeInTheDocument();
+    expect(screen.getByText(/showing the first 1 of 500 members/i)).toBeInTheDocument();
+  });
+
+  it('shows no truncation note when the full member list fits', async () => {
+    renderPage('Admin');
+    await waitFor(() => expect(screen.getByText('alice')).toBeInTheDocument());
+    expect(screen.getByText('Members (1)')).toBeInTheDocument();
+    expect(screen.queryByText(/showing the first/i)).not.toBeInTheDocument();
+  });
 });

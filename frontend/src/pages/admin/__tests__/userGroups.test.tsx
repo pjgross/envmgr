@@ -9,7 +9,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import UserGroups, { userGroupColumns } from '../UserGroups';
 import userGroupReducer from '../../../store/userGroupSlice';
 import { userGroupService } from '../../../services/userGroupService';
-import whitelists from '../../../constants/sortWhitelists.json';
 
 vi.mock('../../../services/userGroupService', () => ({
   userGroupService: {
@@ -92,20 +91,22 @@ describe('UserGroups', () => {
     });
   });
 
-  it('marks every column the backend cannot sort as unsortable', () => {
-    // The contract docs/pagination.md describes: a sortable header whose field
-    // the backend does not whitelist looks clickable and 422s on click.
-    // member_count and environment_count are correlated subqueries, not
-    // columns, so they can never be whitelisted.
-    const sortable = new Set(whitelists['tenant-groups'].sortable as string[]);
-    userGroupColumns.forEach((col) => {
-      if (col.sortable !== false) {
-        expect(sortable.has(col.field)).toBe(true);
-      }
-    });
+  it('leaves member_count and environment_count sortable', () => {
+    // This grid has no sortingMode="server" / paginationMode="server" (see
+    // UserGroups.tsx) — every sort happens against the rows already in the
+    // browser, so it never reaches the backend's USER_GROUP_SORTS whitelist.
+    // member_count and environment_count are correlated subqueries the
+    // backend could never whitelist for a server-side sort, but that
+    // restriction doesn't apply client-side: disabling them here would give
+    // up a capability that works. `tenant-groups` is deliberately absent from
+    // sortWhitelists.json for the same reason (docs/pagination.md's ‡
+    // footnote convention).
     const byField = Object.fromEntries(userGroupColumns.map((c) => [c.field, c]));
-    expect(byField.member_count.sortable).toBe(false);
-    expect(byField.environment_count.sortable).toBe(false);
+    expect(byField.member_count.sortable).not.toBe(false);
+    expect(byField.environment_count.sortable).not.toBe(false);
+    // description stays unsortable: it's an ordinary column the backend
+    // never whitelisted, unrelated to the client/server-sort distinction.
+    expect(byField.description.sortable).toBe(false);
   });
 
   it('renders the counts that came with the row', async () => {
@@ -113,6 +114,13 @@ describe('UserGroups', () => {
     await waitFor(() => expect(screen.getByText('Platform Ops')).toBeInTheDocument());
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
+  });
+
+  it('links the environment count to the filtered environments list', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Platform Ops')).toBeInTheDocument());
+    const link = screen.getByRole('link', { name: '2' });
+    expect(link).toHaveAttribute('href', '/environments?operations_group_id=1');
   });
 
   it('names the blocking environments when a delete is refused', async () => {

@@ -157,6 +157,10 @@ const userGroupSlice = createSlice({
       })
       .addCase(fetchUserGroup.fulfilled, (state, action) => {
         state.currentGroup = action.payload;
+        // Neither this thunk nor fetchGroupMembers has a pending handler, so
+        // without this a failed fetch's banner survives a later successful
+        // one and sits on the detail page forever.
+        state.error = null;
       })
       .addCase(fetchUserGroup.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load user group';
@@ -164,6 +168,7 @@ const userGroupSlice = createSlice({
       .addCase(fetchGroupMembers.fulfilled, (state, action) => {
         state.members = action.payload.rows;
         state.memberTotal = action.payload.total;
+        state.error = null;
       })
       .addCase(fetchGroupMembers.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load members';

@@ -43,10 +43,5 @@
     "sortable": ["git_branch", "build_number", "commit_timestamp"],
     "default": "commit_timestamp",
     "default_dir": "desc"
-  },
-  "tenant-groups": {
-    "sortable": ["name", "created_at"],
-    "default": "name",
-    "default_dir": "asc"
   }
 }
