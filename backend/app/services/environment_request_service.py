@@ -307,13 +307,22 @@ async def terminal_states_for_tenant(db: AsyncSession, tenant_id: int) -> frozen
             )
         )
     ).scalars().all()
+    if not definitions:
+        # No environment_request template exists for this tenant at all —
+        # the seeder makes this near-impossible, but the lookup genuinely has
+        # nothing to say, so fall back to the hardcoded three.
+        return _FALLBACK_TERMINAL_STATES
     terminal = {
         state["key"]
         for definition in definitions
         for state in (definition or {}).get("states", [])
         if state.get("is_terminal")
     }
-    return frozenset(terminal) or _FALLBACK_TERMINAL_STATES
+    # Templates were found and read; if none of their states are marked
+    # terminal, that is the tenant's actual configuration, not a lookup
+    # failure — respecting it (returning empty rather than the fallback) is
+    # the whole point of deriving this from the tenant's own templates.
+    return frozenset(terminal)
 
 REQUEST_SORTS = {
     "status": EnvironmentRequest.status,
@@ -323,7 +332,7 @@ REQUEST_SORTS = {
 }
 
 
-def _actionable_clause(user_id: int, is_admin: bool):
+def _actionable_clause(tenant_id: int, user_id: int, is_admin: bool):
     """"Requests my team must action."
 
     Deliberately does NOT fold in the Admin group-bypass. An Admin sees
@@ -338,6 +347,7 @@ def _actionable_clause(user_id: int, is_admin: bool):
         .where(
             UserGroupMember.group_id == Environment.operations_group_id,
             UserGroupMember.user_id == user_id,
+            UserGroupMember.tenant_id == tenant_id,
         )
         .correlate(Environment)
         .exists()
@@ -384,7 +394,7 @@ async def list_requests(
         query = query.where(
             EnvironmentRequest.status.notin_(terminal),
             EnvironmentRequest.requested_by != user_id,
-            _actionable_clause(user_id, is_admin),
+            _actionable_clause(tenant_id, user_id, is_admin),
         )
     query = apply_sort(query, sort).order_by(EnvironmentRequest.id)
     rows, total = await fetch_page_rows(db, query, page)
