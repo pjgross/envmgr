@@ -9,19 +9,20 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.environment_request import (
     EnvironmentRequestCreate,
     EnvironmentRequestUpdate,
 )
+from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
 from app.db.models.environment import Environment
 from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.user import User
-from app.db.models.user_group import UserGroup
+from app.db.models.user_group import UserGroup, UserGroupMember
 from app.services.environment_request_defaults import ENTITY_TYPE
 
 
@@ -274,3 +275,117 @@ async def update_request(
     )
     await db.flush()
     return await get_request_view(db, request_id, tenant_id)
+
+
+# Fallback only, for a tenant with no environment_request template at all —
+# which the seeder makes near-impossible, but a filter that excludes NOTHING
+# when the lookup comes back empty would show every finished request in the
+# queue.
+_FALLBACK_TERMINAL_STATES = frozenset({"fulfilled", "rejected", "cancelled"})
+
+
+async def terminal_states_for_tenant(db: AsyncSession, tenant_id: int) -> frozenset[str]:
+    """The states in which a request needs nobody's attention.
+
+    Derived from the tenant's own templates rather than hardcoded: tenant
+    configurability is the whole reason this entity uses lifecycle templates
+    instead of a fixed status enum, so a tenant that renames `fulfilled` or
+    adds a `withdrawn` terminal must not get a queue that keeps showing
+    finished work.
+
+    Where a tenant has several environment_request templates, the union is
+    used. A state terminal in one template is therefore excluded everywhere,
+    which is the safe direction to be wrong in: the cost is a request briefly
+    missing from a queue, not a finished one lingering in it forever.
+    """
+    definitions = (
+        await db.execute(
+            select(LifecycleTemplate.definition).where(
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.entity_type == ENTITY_TYPE,
+                LifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    terminal = {
+        state["key"]
+        for definition in definitions
+        for state in (definition or {}).get("states", [])
+        if state.get("is_terminal")
+    }
+    return frozenset(terminal) or _FALLBACK_TERMINAL_STATES
+
+REQUEST_SORTS = {
+    "status": EnvironmentRequest.status,
+    "kind": EnvironmentRequest.kind,
+    "needed_by": EnvironmentRequest.needed_by,
+    "created_at": EnvironmentRequest.created_at,
+}
+
+
+def _actionable_clause(user_id: int, is_admin: bool):
+    """"Requests my team must action."
+
+    Deliberately does NOT fold in the Admin group-bypass. An Admin sees
+    new-environment requests plus access requests for teams they are actually
+    in; folding the bypass in would return the whole tenant for every Admin,
+    making the queue useless for the one user most likely to need it. The
+    bypass exists so a transition is never impossible — it is not a claim about
+    whose queue a request belongs in.
+    """
+    member_exists = (
+        select(UserGroupMember.id)
+        .where(
+            UserGroupMember.group_id == Environment.operations_group_id,
+            UserGroupMember.user_id == user_id,
+        )
+        .correlate(Environment)
+        .exists()
+    )
+    access_clause = and_(
+        EnvironmentRequest.kind == "access",
+        member_exists,
+    )
+    if is_admin:
+        return or_(access_clause, EnvironmentRequest.kind == "new_environment")
+    return access_clause
+
+
+async def list_requests(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
+    status_filter: Optional[str] = None,
+    kind: Optional[str] = None,
+    environment_id: Optional[int] = None,
+    mine_for_user_id: Optional[int] = None,
+    actionable_for: Optional[tuple[int, bool]] = None,
+) -> tuple[list[EnvironmentRequestView], int]:
+    """Requests for a tenant, plus the unwindowed total.
+
+    Every filter is applied in SQL. A filter applied in Python after the query
+    would window the page before the filter and return quietly wrong results —
+    see docs/pagination.md.
+    """
+    query = _view_query(tenant_id)
+    if status_filter is not None:
+        query = query.where(EnvironmentRequest.status == status_filter)
+    if kind is not None:
+        query = query.where(EnvironmentRequest.kind == kind)
+    if environment_id is not None:
+        query = query.where(EnvironmentRequest.environment_id == environment_id)
+    if mine_for_user_id is not None:
+        query = query.where(EnvironmentRequest.requested_by == mine_for_user_id)
+    if actionable_for is not None:
+        user_id, is_admin = actionable_for
+        terminal = await terminal_states_for_tenant(db, tenant_id)
+        query = query.where(
+            EnvironmentRequest.status.notin_(terminal),
+            EnvironmentRequest.requested_by != user_id,
+            _actionable_clause(user_id, is_admin),
+        )
+    query = apply_sort(query, sort).order_by(EnvironmentRequest.id)
+    rows, total = await fetch_page_rows(db, query, page)
+    return [_to_view(r) for r in rows], total
