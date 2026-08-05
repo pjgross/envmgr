@@ -149,6 +149,59 @@ async def test_delete_blocked_message_reports_the_true_remainder(
 
 
 @pytest.mark.asyncio
+async def test_patch_explicit_null_clears_the_description(
+    client, auth_headers, db_session, test_tenant
+):
+    """`if data.description is not None` could not tell an explicit null apart
+    from an omitted key, so a client-emptied description silently reverted to
+    its old value after a 200. Same contract environment_service gives
+    expires_at/operations_group_id: the service keys on model_fields_set."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Described")
+    group.description = "before"
+    await db_session.commit()
+
+    cleared = await client.patch(
+        f"/api/v1/tenant/groups/{group.id}",
+        json={"description": None},
+        headers=auth_headers,
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["description"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_omitting_description_leaves_it_alone(
+    client, auth_headers, db_session, test_tenant
+):
+    group = await ensure_user_group(db_session, test_tenant.id, name="Untouched")
+    group.description = "keep me"
+    await db_session.commit()
+
+    unchanged = await client.patch(
+        f"/api/v1/tenant/groups/{group.id}",
+        json={"name": "Untouched"},
+        headers=auth_headers,
+    )
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["description"] == "keep me"
+
+
+@pytest.mark.asyncio
+async def test_patch_explicit_null_name_is_a_422(client, auth_headers, db_session, test_tenant):
+    """`name` is NOT NULL with min_length=1 — unlike description, an explicit
+    null must never reach the service as a way to clear it."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Named")
+    await db_session.commit()
+
+    refused = await client.patch(
+        f"/api/v1/tenant/groups/{group.id}",
+        json={"name": None},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 422, refused.text
+
+
+@pytest.mark.asyncio
 async def test_unknown_sort_by_is_422_not_a_silent_fallback(client, auth_headers):
     bad = await client.get(
         "/api/v1/tenant/groups?sort_by=nonsense", headers=auth_headers

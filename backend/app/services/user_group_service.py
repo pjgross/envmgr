@@ -72,7 +72,6 @@ async def list_groups(
     *,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
-    search: Optional[str] = None,
 ) -> tuple[list[UserGroupView], int]:
     """Groups for a tenant, plus the unwindowed total.
 
@@ -80,8 +79,6 @@ async def list_groups(
     would window the page before the filter — see docs/pagination.md.
     """
     query = _view_query(tenant_id)
-    if search:
-        query = query.where(UserGroup.name.ilike(f"%{search}%"))
     # Names are unique per tenant, but the case fold in apply_sort means two
     # names differing only in case stop being distinct keys — so the id
     # tiebreaker is what makes the order total.
@@ -165,12 +162,22 @@ async def create_group(
 async def update_group(
     db: AsyncSession, group_id: int, data: UserGroupUpdate, tenant_id: int
 ) -> UserGroupView:
+    """`description` keys on `model_fields_set`: an omitted key means "leave
+    alone", only an explicit null clears it — the same contract
+    environment_service.update_environment gives expires_at and
+    operations_group_id. `data.description is not None` could not tell an
+    explicit `null` apart from an omitted key, so a client-emptied description
+    silently reverted to its old value after a 200. `name` has no such
+    "explicit null clears it" state — the schema's field_validator already
+    rejects a null name with a 422 before this function runs, so `is not
+    None` remains correct for it.
+    """
     group = await get_group(db, group_id, tenant_id)
     if data.name is not None and data.name.strip().lower() != group.name.lower():
         await _assert_name_free(db, tenant_id, data.name, exclude_id=group_id)
     if data.name is not None:
         group.name = data.name.strip()
-    if data.description is not None:
+    if "description" in data.model_fields_set:
         group.description = data.description
     await db.flush()
     return await get_group_view(db, group_id, tenant_id)

@@ -227,6 +227,8 @@ async def _validate_client_foreign_keys(
     tier_id: Optional[int],
     owner_user_id: Optional[int],
     operations_group_id: Optional[int] = None,
+    *,
+    current_operations_group_id: Optional[int] = None,
 ) -> None:
     """All three are client-supplied foreign keys, so all are checked against
     the caller's tenant — this is the IDOR-class gap the 2026-07-16 isolation
@@ -259,11 +261,23 @@ async def _validate_client_foreign_keys(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found"
             )
     if operations_group_id is not None:
-        # Scoped to the ACTIVE tenant. Under master-admin impersonation
-        # current_user.id and active_tenant_id belong to different tenants, and
-        # scoping this to the wrong one 404s a legitimate request — the bug
-        # that killed an entire spreadsheet upload in B1.
-        await user_group_service.get_group(db, operations_group_id, tenant_id)
+        if operations_group_id == current_operations_group_id:
+            # Unchanged from what this environment already stores: accept it
+            # even if the group has since been soft-deleted. This mirrors
+            # owner_user_id above, which deliberately never checks is_active —
+            # an environment can legitimately keep pointing at a retired
+            # owner, and the UI (EnvironmentDetail/EnvironmentList) keeps a
+            # soft-deleted group selectable with a "(deleted)" label for the
+            # same reason. Only a NEW assignment must resolve to a live group;
+            # re-submitting the same id (which the UI's full-form PATCH
+            # always does) must not 404 a save of an unrelated field.
+            pass
+        else:
+            # Scoped to the ACTIVE tenant. Under master-admin impersonation
+            # current_user.id and active_tenant_id belong to different
+            # tenants, and scoping this to the wrong one 404s a legitimate
+            # request — the bug that killed an entire spreadsheet upload in B1.
+            await user_group_service.get_group(db, operations_group_id, tenant_id)
 
 
 async def create_environment(
@@ -390,7 +404,12 @@ async def update_environment(
             ),
         )
     await _validate_client_foreign_keys(
-        db, tenant_id, data.tier_id, effective_owner, data.operations_group_id
+        db,
+        tenant_id,
+        data.tier_id,
+        effective_owner,
+        data.operations_group_id,
+        current_operations_group_id=env.operations_group_id,
     )
 
     if data.tier_id is not None:

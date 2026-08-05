@@ -47,7 +47,7 @@ async def _seed(db_session, tenant_id, owner_id):
 
 
 @pytest.mark.asyncio
-async def test_governance_gap_returns_only_the_rows_missing_an_owner(
+async def test_governance_gap_true_discriminates_missing_owner(
     client, auth_headers, db_session, test_tenant, test_user
 ):
     """A null expiry means "no expiry planned" — a legitimate state, not a gap.
@@ -58,8 +58,8 @@ async def test_governance_gap_returns_only_the_rows_missing_an_owner(
     owned row here also has a group (see `_seed`), so `no-owner` — missing
     both — is still the only row that surfaces. This test's body only
     discriminates the owner half, though — it would pass unchanged under an
-    owner-only rule; the group half is covered by
-    test_environment_operations_group.py::test_governance_gap_false_excludes_a_row_missing_only_the_group.
+    owner-only rule; the group half is covered by the gap=true test
+    test_environment_operations_group.py::test_governance_gap_reports_a_missing_operations_group.
     """
     await _seed(db_session, test_tenant.id, test_user.id)
 

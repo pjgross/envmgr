@@ -20,7 +20,6 @@ from app.api.v1.incidents import INCIDENT_SORTS
 from app.api.v1.infrastructure_components import INFRASTRUCTURE_SORTS
 from app.api.v1.releases import RELEASE_SORTS
 from app.api.v1.systems import SYSTEM_SORTS
-from app.api.v1.user_groups import USER_GROUP_SORTS
 
 CONTRACT = (
     Path(__file__).resolve().parents[2]
@@ -41,7 +40,11 @@ WHITELISTS = {
     "incidents": (INCIDENT_SORTS, "detected_at", "desc"),
     "deployments": (DEPLOYMENT_SORTS, "deployed_at", "desc"),
     "builds": (BUILD_SORTS, "commit_timestamp", "desc"),
-    "tenant-groups": (USER_GROUP_SORTS, "name", "asc"),
+    # "tenant-groups" is deliberately absent, the same way "environment-tiers"
+    # is: USER_GROUP_SORTS and the endpoint's sorting() stay in place as a
+    # valid API contract, but UserGroups.tsx renders a client-side DataGrid
+    # (no sortingMode="server"), so nothing on the frontend sorts this
+    # endpoint server-side. Add it back the day a grid actually does.
 }
 
 

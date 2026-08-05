@@ -1,6 +1,4 @@
-from typing import Optional
-
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.user_group import (
@@ -30,7 +28,6 @@ USER_GROUP_SORTS = {
 @router.get("/groups", response_model=list[UserGroupResponse])
 async def list_user_groups(
     response: Response,
-    search: Optional[str] = Query(None, description="Case-insensitive name match."),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(USER_GROUP_SORTS, default="name")),
     db: AsyncSession = Depends(get_db),
@@ -40,7 +37,7 @@ async def list_user_groups(
     user to see which team operates an environment, and the environment form
     needs the list as its picker source."""
     views, total = await user_group_service.list_groups(
-        db, current_user.active_tenant_id, page=page, sort=sort, search=search
+        db, current_user.active_tenant_id, page=page, sort=sort
     )
     set_total_count(response, total)
     return [UserGroupResponse.from_view(v) for v in views]
