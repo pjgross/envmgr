@@ -15,8 +15,15 @@ platform**, and neither teams nor the environment→team association existed:
   lifecycle, and the Welcome Pack.
 
 B3a's spec fixed a line that this spec inherits and now spends: *"B3b introduces the first
-behaviour that reads membership."* That behaviour is defined here, and it is exactly one thing —
-who may transition a request. Nothing else in the application starts consulting group membership.
+behaviour that reads membership."* Membership is read in exactly **two** places here, both named
+and both narrow:
+
+1. **Who may transition a request** — the routing rule that is the point of the feature.
+2. **Who may author an environment's handover fields** — the operating team, via one dedicated
+   endpoint that touches no other environment field.
+
+Nothing else in the application starts consulting group membership. Every other authorization
+rule stays role-based.
 
 ## What the code actually looks like today
 
@@ -42,7 +49,8 @@ Checked against the code, not the roadmap.
 
 **In scope**
 
-1. Six handover fields on `Environment`, authored by the team that operates it.
+1. Six handover fields on `Environment`, plus a dedicated endpoint letting the operating team
+   author them without granting any other environment edit.
 2. An `environment_request` entity with two modes, on the existing lifecycle-template machinery.
 3. Routing and transition authorization keyed on the target environment's operations group.
 4. Fulfilment of a new-environment request creating the `Environment`.
@@ -62,16 +70,8 @@ Checked against the code, not the roadmap.
 - **Per-environment access control.** An access request records and authorises a handover; it
   grants nothing technically. It is a paperwork and audit trail, which is useful and is not
   security. Anyone reading this later should not assume the request flow is a control.
-- **Scoping handover-field edits to the operating team.** That would be a *second*
-  membership-reading behaviour; this sub-project introduces exactly one. Natural follow-on for B5.
-  **Know the consequence before accepting it:** `PATCH /environments/{id}` is gated on
-  `require_tenant_admin()`, so in B3b the six handover fields can only be written by a tenant
-  Admin — not by the operating team, which is precisely the group that knows the access URL, the
-  VPN route and the support contact. In a tenant with several platforms this makes the Admin a
-  bottleneck for knowledge they do not have, and the likely failure mode is packs that stay empty.
-  It is accepted here to keep this sub-project to one authorization change, and it is the first
-  thing to revisit: a narrow `PATCH /environments/{id}/handover` gated on
-  ops-group-or-Admin would close it without touching any other environment field.
+- **Broadening group membership beyond the two reads named above.** It does not become a general
+  authorization axis: it does not confer environment edit, booking, or anything else.
 
 ## Data model
 
@@ -173,7 +173,34 @@ GET    /environment-requests/{id}               any member
 PATCH  /environment-requests/{id}               requester or Admin, draft only
 POST   /environment-requests/{id}/transition    role + group gated
 GET    /environment-requests/{id}/welcome-pack  any member; 409 unless fulfilled
+
+PATCH  /environments/{id}/handover              operating team or Admin
 ```
+
+**`PATCH /environments/{id}/handover` is deliberately a separate endpoint, not a widening of
+`PATCH /environments/{id}`.** The latter is gated on `require_tenant_admin()` and edits tier,
+owner, expiry, status and the operations group itself — fields whose control must stay with
+Admins. If the operating team's write access were expressed by relaxing that endpoint, a member
+of a team could change which team operates the environment, or clear its owner. A dedicated
+endpoint accepting **only the six handover fields** cannot do any of that, whatever its
+authorization says. The narrow surface is the safety property; the authorization rule is second.
+
+```
+may_edit_handover(environment, actor) =
+      actor ∈ environment.operations_group
+   OR actor.role == 'Admin'
+```
+
+The six fields are **never added to `EnvironmentUpdate`**, so there is exactly one write path for
+them and no second one to keep in step.
+An environment with no operating team is editable by Admins only, which is the same graceful
+degradation the transition rule uses.
+
+This is the **second and last** place membership is read. It is worth stating why it earns that:
+without it, only a tenant Admin could author the access URL, VPN route and support contact for
+every environment in the estate — knowledge that lives with the operating teams, not with Admins.
+The predictable outcome is packs that stay empty, which would make the Welcome Pack a feature in
+name only.
 
 **`?actionable=true` is the filter that carries the feature** — "requests my team must action".
 **In SQL, never Python**: this endpoint is bounded, and a Python-side filter would window the page
@@ -225,6 +252,8 @@ false. Decide this against the built grid, not in advance.
 | A transition the actor's role does not allow | 403 |
 | A transition for a group the actor is not in | 403 |
 | Welcome pack requested before fulfilment | 409 |
+| Editing handover fields for an environment whose team the actor is not in | 403 |
+| Any non-handover field sent to `PATCH /environments/{id}/handover` | 422 — the endpoint accepts six keys and no others |
 
 ## The Welcome Pack
 
@@ -266,7 +295,12 @@ A new **Environment Requests** entry under Environment Management.
   Mode-dependent validation mirrors the service's.
 - **Detail** — the request, the transitions **this actor may actually make** (not every transition
   rendered disabled), and the Welcome Pack inline once fulfilled.
-- **Handover section** on Environment detail for the six new fields, following the Governance
+- **Handover section** on Environment detail for the six new fields, editable by the operating
+  team as well as Admins — so its edit affordance is gated on `may_edit_handover`, not on the
+  Admin check the Governance section uses. A member of the operating team who is not an Admin
+  sees the Governance section read-only and the Handover section editable, on the same page.
+  That asymmetry is the point of the feature and should look deliberate rather than broken: label
+  the section so it is clear *why* they can edit one and not the other. Following the Governance
   section's existing edit pattern.
 
 Redux thunks reject with `rejectWithValue(formatApiError(err, ...))` and components read
@@ -307,6 +341,15 @@ Both engines; CI gates on SQLite and PostgreSQL.
   admin-only left 83 tests green, and opening its writes left 16 green. Here the matrix is
   role × group × kind × Admin-bypass. Each cell needs a test that fails when the rule is inverted,
   not merely one that passes today.
+- **The handover endpoint needs the same treatment, plus one test the authorization cannot give
+  it:** that it *rejects* every non-handover key. Its safety rests on the narrow surface, not on
+  the permission — a test asserting a member of the operating team cannot change `tier_id`,
+  `owner_user_id` or `operations_group_id` through it is the one that matters, because that is
+  the escalation an over-broad implementation would allow. Assert it by sending those keys, not
+  by reading the schema.
+- **Both membership reads must be tested for the empty-group and no-group cases** — an
+  environment with a null `operations_group_id`, and one whose group has no members. Both must
+  degrade to Admin-only rather than to nobody or to everybody.
 - **`?actionable=true` needs a differential test** — the SQL result compared against an
   independently computed expected set, not "returns some rows". A subtly wrong filter returns a
   plausible list.
@@ -324,9 +367,10 @@ Both engines; CI gates on SQLite and PostgreSQL.
 
 ## Sizing
 
-Larger than B3a: roughly nine or ten implementation tasks against B3a's seven. It remains one
-coherent sub-project and one spec, but the plan is worth executing in two passes — backend, then
-frontend — rather than straight through.
+Larger than B3a: roughly ten or eleven implementation tasks against B3a's seven, the handover
+endpoint and its UI accounting for one of them. It remains one coherent sub-project and one spec,
+but the plan is worth executing in two passes — backend, then frontend — rather than straight
+through.
 
 ## Open questions
 
@@ -334,3 +378,10 @@ None. Every fork raised during brainstorming was decided: structured handover fi
 text or custom fields; lifecycle templates over a fixed enum; role AND group with an Admin bypass;
 new-environment requests routed to Admins; fulfilment creating an inactive environment; and a
 live-rendered pack over a stored snapshot.
+
+One decision was revised after the spec was first written. The handover fields were initially
+left to `PATCH /environments/{id}`, which is Admin-gated — meaning only Admins could author the
+pack's content, and the predictable result was empty packs. A dedicated
+`PATCH /environments/{id}/handover`, open to the operating team, was pulled into B3b rather than
+deferred. It takes the count of membership-reading behaviours from one to two, which is stated
+plainly above rather than left to be discovered.
