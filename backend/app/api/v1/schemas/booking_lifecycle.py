@@ -41,6 +41,21 @@ ENTITY_FIELD_SPECS: dict[str, dict[str, set[str]]] = {
         },
         "mandatory": set(),
     },
+    "environment_request": {
+        "valid": {
+            "kind", "justification", "needed_by", "environment_id",
+            "proposed_name", "tier_id", "expires_at", "operations_group_id",
+        },
+        # Empty, matching "release": the seeded default definition uses
+        # field_permissions={}, and a non-empty mandatory set here would
+        # require the initial state to carry a field_permissions entry with a
+        # non-empty editable_by list for each — which the plain seeded default
+        # deliberately doesn't have. 'kind' and 'justification' are still
+        # required at submission time; that requirement is enforced in
+        # environment_request_service, which can name the missing field in
+        # its message, not through this lifecycle machinery.
+        "mandatory": set(),
+    },
 }
 
 # Back-compat aliases — booking-specific code paths still import these names.

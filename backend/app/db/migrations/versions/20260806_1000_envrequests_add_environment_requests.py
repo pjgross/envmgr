@@ -81,8 +81,65 @@ def upgrade() -> None:
     ):
         op.add_column("environment", sa.Column(column, type_, nullable=True))
 
+    # Seed the default lifecycle for tenants that already exist. A literal copy
+    # of DEFAULT_REQUEST_LIFECYCLE rather than an import: a migration
+    # reproduces the past and must not change meaning when that module gains a
+    # seventh state. mandatory=set() in ENTITY_FIELD_SPECS (booking_lifecycle.py)
+    # is why field_permissions is {} here — a non-empty mandatory set would
+    # require an editable_by entry per field in the initial state, which this
+    # plain default deliberately doesn't carry; 'kind'/'justification' are
+    # enforced by the service at submission time instead.
+    conn = op.get_bind()
+    tenant_ids = [row[0] for row in conn.execute(sa.text("SELECT id FROM tenant"))]
+    definition = {
+        "states": [
+            {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+            {"key": "approved", "label": "Approved", "is_initial": False, "is_terminal": False},
+            {"key": "fulfilled", "label": "Fulfilled", "is_initial": False, "is_terminal": True},
+            {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
+            {"key": "cancelled", "label": "Cancelled", "is_initial": False, "is_terminal": True},
+        ],
+        "transitions": [
+            {"from_state": "draft", "to_state": "submitted", "label": "Submit",
+             "allowed_roles": ["Admin", "Release Manager", "Test Manager", "Developer", "Viewer"]},
+            {"from_state": "draft", "to_state": "cancelled", "label": "Cancel",
+             "allowed_roles": ["Admin", "Release Manager", "Test Manager", "Developer", "Viewer"]},
+            {"from_state": "submitted", "to_state": "approved", "label": "Approve",
+             "allowed_roles": ["Admin", "Release Manager", "Test Manager"]},
+            {"from_state": "submitted", "to_state": "rejected", "label": "Reject",
+             "allowed_roles": ["Admin", "Release Manager", "Test Manager"]},
+            {"from_state": "submitted", "to_state": "draft", "label": "Return for Revision",
+             "allowed_roles": ["Admin", "Release Manager", "Test Manager"]},
+            {"from_state": "approved", "to_state": "fulfilled", "label": "Mark Fulfilled",
+             "allowed_roles": ["Admin", "Release Manager", "Test Manager"]},
+        ],
+        "field_permissions": {},
+    }
+    import json as _json
+    for tenant_id in tenant_ids:
+        conn.execute(
+            sa.text(
+                "INSERT INTO lifecycle_template "
+                "(tenant_id, entity_type, name, description, is_default, is_system, definition) "
+                "VALUES (:t, 'environment_request', 'Standard Request', "
+                ":d, :is_default, :is_system, :def)"
+            ),
+            {
+                "t": tenant_id,
+                "d": "Raise, approve and fulfil environment requests.",
+                "is_default": True,
+                "is_system": False,
+                "def": _json.dumps(definition),
+            },
+        )
+
 
 def downgrade() -> None:
+    op.get_bind().execute(
+        sa.text("DELETE FROM lifecycle_template WHERE entity_type = 'environment_request'")
+    )
+
     for column in (
         "decommission_notes", "known_limitations", "sla_notes",
         "support_contact", "connection_notes", "access_url",

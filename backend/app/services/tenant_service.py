@@ -11,6 +11,9 @@ from app.services import change_request_service, scope_change_rule_service, raid
 from app.services.release_defaults import seed_release_defaults_for_tenant
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
 from app.services.environment_tier_defaults import seed_environment_tier_defaults_for_tenant
+from app.services.environment_request_defaults import (
+    seed_environment_request_defaults_for_tenant,
+)
 
 
 async def list_tenants(
@@ -49,6 +52,8 @@ async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
     await seed_incident_defaults_for_tenant(db, tenant.id)
     # Seed the eight standard environment tiers.
     await seed_environment_tier_defaults_for_tenant(db, tenant.id)
+    # Seed default environment-request lifecycle template.
+    await seed_environment_request_defaults_for_tenant(db, tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return tenant
