@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.project import ProjectCreate, ProjectUpdate, UsageAgreementCreate
@@ -216,33 +216,64 @@ async def update_project(
 
 
 async def delete_project(db: AsyncSession, project_id: int, tenant_id: int) -> None:
-    """Soft delete, never refused.
+    """Soft delete, never refused. Cascades to the project's live usage
+    agreements; leaves bookings and releases alone.
 
     Deliberately unlike user_group_service.delete_group, which 409s while any
     environment references it. A group operates a handful of environments; a
     project accumulates every booking and release it ever had, so a reference
     check would make every project permanently undeletable the moment someone
-    booked against it. Existing references keep rendering the name; `is_active`
-    is what removes it from pickers going forward.
+    booked against it.
+
+    Bookings and releases are historical records of an event with a life of
+    their own — they keep rendering the project's name after this, exactly as
+    before. A usage agreement is different: it is a live statement of
+    permission ("project P may use environment E"), not a record of something
+    that happened, so it is meaningless once P is gone. Soft-delete it in the
+    same transaction, or an environment owner is told forever that a defunct
+    project uses their environment — see _agreement_query, whose join filters
+    also make this true for rows that predate this cascade.
+
+    `is_active` (unaffected here) is what removes a still-referenced project
+    from pickers going forward.
     """
     project = await get_project(db, project_id, tenant_id)
     project.deleted_at = datetime.now(timezone.utc)
+    await db.execute(
+        update(UsageAgreement)
+        .where(
+            UsageAgreement.tenant_id == tenant_id,
+            UsageAgreement.project_id == project_id,
+            UsageAgreement.deleted_at.is_(None),
+        )
+        .values(deleted_at=project.deleted_at)
+    )
     await db.flush()
 
 
 def _agreement_query(tenant_id: int):
-    """One select carrying both ends' names, tenant-qualified on each join."""
+    """One select carrying both ends' names, tenant-qualified on each join.
+
+    Both joins also require the counterparty to still be live. Unlike
+    _view_query's UserGroup join — which deliberately keeps an archived
+    team's name on a live project — an agreement whose project or
+    environment is gone is meaningless and must be invisible from both
+    directions, whether it got that way via delete_project's cascade or (for
+    an environment, which nothing cascades onto) a row that predates it.
+    """
     return (
         select(UsageAgreement, Project.name, Environment.name)
         .join(
             Project,
             and_(Project.id == UsageAgreement.project_id,
-                 Project.tenant_id == tenant_id),
+                 Project.tenant_id == tenant_id,
+                 Project.deleted_at.is_(None)),
         )
         .join(
             Environment,
             and_(Environment.id == UsageAgreement.environment_id,
-                 Environment.tenant_id == tenant_id),
+                 Environment.tenant_id == tenant_id,
+                 Environment.deleted_at.is_(None)),
         )
         .where(
             UsageAgreement.tenant_id == tenant_id,

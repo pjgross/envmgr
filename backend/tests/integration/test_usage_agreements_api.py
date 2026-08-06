@@ -2,8 +2,10 @@
 import pytest
 from sqlalchemy import select
 
-from app.core.pagination import MAX_LIMIT, TOTAL_COUNT_HEADER
+from app.api.v1.schemas.project import UsageAgreementCreate
+from app.core.pagination import MAX_LIMIT, Page, TOTAL_COUNT_HEADER
 from app.db.models.project import UsageAgreement
+from app.services import project_service
 from tests.factories import ensure_environment, ensure_project
 
 
@@ -178,6 +180,155 @@ async def test_deleting_an_agreement_soft_deletes_it(
     )).json()
     assert listed == []
 
+    # A 204 and absence from the list are both equally true of a hard delete —
+    # the row itself must still exist, with deleted_at set, to prove this was
+    # a soft delete and not `await db.delete(agreement)`.
+    row = (
+        await db_session.execute(
+            select(UsageAgreement).where(UsageAgreement.id == aid)
+        )
+    ).scalar_one()
+    assert row.deleted_at is not None
+
+
+# ── Finding 1: an agreement must not outlive either counterparty ────────────
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_project_removes_the_agreement_from_the_environment_side(
+    client, auth_headers, db_session, test_tenant
+):
+    """Deleting P must not leave the environment owner told forever that a
+    defunct project uses their environment. Needs BOTH the delete_project
+    cascade (so the row's own deleted_at gets set) AND _agreement_query's
+    Project.deleted_at filter (so a pre-cascade row is also caught) — see the
+    two mutation mini-tests immediately after this one, which disable each
+    independently."""
+    project = await ensure_project(db_session, test_tenant.id, name="Doomed")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id}, headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = await client.delete(
+        f"/api/v1/projects/{project.id}", headers=auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    by_env = await client.get(
+        f"/api/v1/environments/{env.id}/usage-agreements", headers=auth_headers
+    )
+    assert by_env.status_code == 200, by_env.text
+    assert by_env.json() == []
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_project_soft_deletes_its_live_agreements(
+    db_session, test_tenant
+):
+    """The cascade itself, independent of the query filter: the agreement row
+    must carry its own deleted_at after delete_project, not merely be hidden
+    by a join. Proves finding 1(a) directly against the DB."""
+    project = await ensure_project(db_session, test_tenant.id, name="Doomed Too")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.flush()
+
+    row = await project_service.create_agreement(
+        db_session, project.id,
+        UsageAgreementCreate(environment_id=env.id),
+        test_tenant.id,
+    )
+    agreement_id = row[0].id
+    await db_session.commit()
+
+    await project_service.delete_project(db_session, project.id, test_tenant.id)
+    await db_session.commit()
+
+    stored = (
+        await db_session.execute(
+            select(UsageAgreement).where(UsageAgreement.id == agreement_id)
+        )
+    ).scalar_one()
+    assert stored.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_environment_removes_the_agreement_from_the_project_side(
+    client, auth_headers, db_session, test_tenant
+):
+    """The other direction: soft-deleting E (nothing cascades onto the
+    agreement here) must still make it disappear from the project-side list,
+    purely via _agreement_query's Environment.deleted_at filter — finding
+    1(b). The agreement itself stays deletable via the API, unlike the
+    project-deleted case above."""
+    project = await ensure_project(db_session, test_tenant.id, name="Still Here")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id}, headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = await client.delete(
+        f"/api/v1/environments/{env.id}", headers=auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    by_project = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert by_project.status_code == 200, by_project.text
+    assert by_project.json() == []
+
+    # And still deletable through the API, unlike an orphaned-by-project one.
+    still_there = (
+        await db_session.execute(select(UsageAgreement).where(
+            UsageAgreement.project_id == project.id,
+            UsageAgreement.environment_id == env.id,
+        ))
+    ).scalar_one()
+    removed = await client.delete(
+        f"/api/v1/projects/{project.id}/usage-agreements/{still_there.id}",
+        headers=auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+
+
+@pytest.mark.asyncio
+async def test_environment_side_list_ignores_an_agreement_whose_project_predates_the_cascade(
+    db_session, test_tenant
+):
+    """Isolates finding 1(b)'s Project-join filter from 1(a)'s cascade: the
+    project here is soft-deleted directly (bypassing delete_project), so the
+    agreement's OWN deleted_at is still null — only the join filter in
+    _agreement_query can hide it. Without this row-level cascade, this is
+    exactly what a row created before the cascade shipped looks like."""
+    from datetime import datetime, timezone
+
+    project = await ensure_project(db_session, test_tenant.id, name="Predates Cascade")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.flush()
+
+    row = await project_service.create_agreement(
+        db_session, project.id, UsageAgreementCreate(environment_id=env.id),
+        test_tenant.id,
+    )
+    agreement_id = row[0].id
+    project.deleted_at = datetime.now(timezone.utc)  # bypass delete_project
+    await db_session.commit()
+
+    listed_rows, total = await project_service.list_agreements_for_environment(
+        db_session, env.id, test_tenant.id,
+    )
+    assert total == 0
+    assert agreement_id not in [r[0].id for r in listed_rows]
+
 
 # ── Defence in depth: a malformed row must not surface another tenant's name ──
 # (the same pattern as test_projects_api's _view_query tests and
@@ -272,3 +423,49 @@ async def test_cannot_delete_an_agreement_whose_own_tenant_id_is_not_ours(
     ).scalar_one()
     await db_session.refresh(row)
     assert row.deleted_at is None, "must not be deleted by another tenant's admin"
+
+
+# ── Finding 4: list_agreements_for_project's pagination tiebreaker ──────────
+
+
+@pytest.mark.asyncio
+async def test_paging_over_tied_environment_names_sees_each_agreement_once(
+    db_session, test_tenant
+):
+    """Every agreement here points at the SAME environment, so they all tie
+    on `func.lower(Environment.name)` — list_agreements_for_project's leading
+    sort key. Without the `UsageAgreement.id` tiebreaker, LIMIT/OFFSET over an
+    incomplete order can return a row on more than one page and drop another
+    entirely. Same shape as test_projects_api.py's
+    test_paging_over_tied_names_sees_each_row_once.
+
+    Known from Task 2: this class of mutation is stable-sort-lucky on
+    SQLite and only fails on PostgreSQL — run both engines.
+    """
+    project = await ensure_project(db_session, test_tenant.id, name="Tied Project")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.flush()
+
+    total_rows = 21
+    for _ in range(total_rows):
+        db_session.add(UsageAgreement(
+            tenant_id=test_tenant.id, project_id=project.id, environment_id=env.id,
+        ))
+    await db_session.flush()
+
+    seen: list[int] = []
+    page_size = 5
+    offset = 0
+    while True:
+        rows, total = await project_service.list_agreements_for_project(
+            db_session, project.id, test_tenant.id,
+            page=Page(limit=page_size, offset=offset),
+        )
+        assert total == total_rows
+        if not rows:
+            break
+        seen.extend(agreement.id for agreement, _project_name, _env_name in rows)
+        offset += page_size
+
+    assert len(seen) == total_rows, f"expected {total_rows} rows, saw {len(seen)}"
+    assert len(set(seen)) == total_rows, "a row was returned on more than one page"

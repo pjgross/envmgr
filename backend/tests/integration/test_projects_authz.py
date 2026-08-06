@@ -13,7 +13,7 @@ import pytest
 
 from app.core.security import get_password_hash
 from app.db.models.user import User
-from tests.factories import ensure_project, ensure_user_group
+from tests.factories import ensure_environment, ensure_project, ensure_user_group
 
 
 async def _login_as(client, db_session, test_tenant, username, role):
@@ -89,3 +89,84 @@ async def test_a_non_admin_cannot_perform_any_of_the_three_writes(
         f"/api/v1/projects/{project.id}", headers=headers
     )
     assert deleted.status_code == 403, deleted.text
+
+
+# ── Finding 3: the same read/write split, for the usage-agreement routes ────
+#
+# `GET .../usage-agreements` (both directions) is readable by any tenant
+# member; `POST`/`DELETE .../usage-agreements` require Admin. Nothing before
+# this proved either direction: swapping require_tenant_admin() for
+# get_current_user on the create route left every test in
+# test_usage_agreements_api.py passing, because auth_headers is always Admin.
+
+
+@pytest.mark.asyncio
+async def test_a_non_admin_can_read_usage_agreements_from_both_directions(
+    client, auth_headers, db_session, test_tenant
+):
+    project = await ensure_project(db_session, test_tenant.id, name="Readable Agreement")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    headers = await _login_as(
+        client, db_session, test_tenant, "agreements-viewer", role="Viewer"
+    )
+
+    by_project = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=headers
+    )
+    assert by_project.status_code == 200, by_project.text
+    assert [a["environment_name"] for a in by_project.json()] == [env.name]
+
+    by_env = await client.get(
+        f"/api/v1/environments/{env.id}/usage-agreements", headers=headers
+    )
+    assert by_env.status_code == 200, by_env.text
+    assert [a["project_name"] for a in by_env.json()] == ["Readable Agreement"]
+
+
+@pytest.mark.asyncio
+async def test_a_non_admin_cannot_create_or_delete_a_usage_agreement(
+    client, auth_headers, db_session, test_tenant
+):
+    project = await ensure_project(db_session, test_tenant.id, name="Guarded Agreement")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    existing = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert existing.status_code == 201, existing.text
+    agreement_id = existing.json()["id"]
+
+    headers = await _login_as(
+        client, db_session, test_tenant, "agreements-developer", role="Developer"
+    )
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id, "notes": "should not land"},
+        headers=headers,
+    )
+    assert created.status_code == 403, created.text
+
+    deleted = await client.delete(
+        f"/api/v1/projects/{project.id}/usage-agreements/{agreement_id}",
+        headers=headers,
+    )
+    assert deleted.status_code == 403, deleted.text
+
+    # Refused, not silently accepted: the original agreement is still there.
+    still_listed = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert [a["id"] for a in still_listed.json()] == [agreement_id]
