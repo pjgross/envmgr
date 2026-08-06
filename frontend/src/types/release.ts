@@ -154,6 +154,7 @@ export interface ReleaseListFilters {
   date_from?: string;
   date_to?: string;
   system_id?: number | string;
+  project_id?: number | string;
   search?: string;
   /**
    * `actionable` narrows to releases whose scope window is open or closing

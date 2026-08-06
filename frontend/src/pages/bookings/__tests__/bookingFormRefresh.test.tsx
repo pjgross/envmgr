@@ -38,6 +38,11 @@ vi.mock('../../../services/tenantAdminService', () => ({
     listUsers: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
   },
 }));
+vi.mock('../../../services/projectService', () => ({
+  projectService: {
+    listProjects: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
+  },
+}));
 // BookingForm doesn't touch this directly, but if the Finding-1 regression
 // is reintroduced (a bare dispatch(fetchBookings())) it does, and an
 // unmocked call would hit real HTTP.
@@ -50,6 +55,7 @@ vi.mock('../../../services/bookingService', () => ({
 import { bookingRequestService } from '../../../services/bookingRequestService';
 import { environmentService } from '../../../services/environmentService';
 import { bookingLifecycleService } from '../../../services/bookingLifecycleService';
+import { projectService } from '../../../services/projectService';
 
 const ENV: EnvironmentResponse = {
   id: 1,
@@ -129,7 +135,7 @@ async function fillAndSubmit() {
 
   // `required` on these fields makes MUI append a literal " *" to the
   // rendered label, so match loosely rather than the exact prop string.
-  fireEventChange(screen.getByLabelText(/Project Name/), 'Test Project');
+  fireEventChange(screen.getByLabelText(/^Purpose/), 'Test Project');
   fireEventChange(screen.getByLabelText(/Start Date & Time/), '2026-08-10T09:00');
   fireEventChange(screen.getByLabelText(/End Date & Time/), '2026-08-11T09:00');
 
@@ -152,11 +158,29 @@ function fireEventChange(el: HTMLElement, value: string) {
   input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+const PROJECT = {
+  id: 3,
+  tenant_id: 1,
+  name: 'Mortgage',
+  code: 'MTG',
+  description: null,
+  team_group_id: null,
+  team_group_name: null,
+  environment_count: 0,
+  is_active: true,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+};
+
 describe('BookingForm create-success refresh', () => {
   beforeEach(() => {
     vi.mocked(bookingRequestService.create).mockReset().mockResolvedValue(CREATE_RESPONSE);
     vi.mocked(environmentService.listEnvironments).mockResolvedValue({ rows: [ENV], total: 1 });
     vi.mocked(bookingLifecycleService.listBookingTypes).mockResolvedValue([BOOKING_TYPE]);
+    vi.mocked(projectService.listProjects).mockReset().mockResolvedValue({
+      rows: [PROJECT],
+      total: 1,
+    });
 
     // BookingForm now sources its environment picker from useAllEnvironments,
     // which calls environmentService.listEnvironments directly (mocked
@@ -197,5 +221,80 @@ describe('BookingForm create-success refresh', () => {
     expect(dispatchedBareFetchBookings).toBe(false);
 
     dispatchSpy.mockRestore();
+  });
+});
+
+// Task 7: the Project picker (linked project_id) and the Purpose relabel
+// (the pre-existing free-text projectName field). The two are different
+// values on the wire — conflating them is the bug these tests exist to catch.
+describe('BookingForm project picker and Purpose relabel', () => {
+  beforeEach(() => {
+    vi.mocked(bookingRequestService.create).mockReset().mockResolvedValue(CREATE_RESPONSE);
+    vi.mocked(environmentService.listEnvironments).mockResolvedValue({ rows: [ENV], total: 1 });
+    vi.mocked(bookingLifecycleService.listBookingTypes).mockResolvedValue([BOOKING_TYPE]);
+    vi.mocked(projectService.listProjects).mockReset().mockResolvedValue({
+      rows: [PROJECT],
+      total: 1,
+    });
+  });
+
+  function renderForm() {
+    return render(
+      <Provider store={store}>
+        <MemoryRouter>
+          <BookingForm open onClose={vi.fn()} />
+        </MemoryRouter>
+      </Provider>
+    );
+  }
+
+  it('labels the free-text field "Purpose", not "Project Name"', async () => {
+    renderForm();
+    expect(await screen.findByLabelText(/^Purpose/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Project Name/)).not.toBeInTheDocument();
+  });
+
+  it('fetches only active projects for the picker (drops is_active: true otherwise)', async () => {
+    renderForm();
+    await waitFor(() =>
+      expect(projectService.listProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ is_active: true })
+      )
+    );
+  });
+
+  it('sends project_id when a project is chosen, and project_name stays the Purpose text', async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.click(screen.getByLabelText('Environments *'));
+    await user.click(await screen.findByText('Env A'));
+
+    await user.click(screen.getByLabelText('Project (optional)'));
+    await user.click(await screen.findByText('Mortgage'));
+
+    fireEventChange(screen.getByLabelText(/^Purpose/), 'Regression sweep');
+    fireEventChange(screen.getByLabelText(/Start Date & Time/), '2026-08-10T09:00');
+    fireEventChange(screen.getByLabelText(/End Date & Time/), '2026-08-11T09:00');
+
+    await screen.findByText('Standard');
+    await user.click(screen.getByRole('button', { name: 'Create Booking' }));
+
+    await waitFor(() => expect(bookingRequestService.create).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(bookingRequestService.create).mock.calls[0][0];
+    // The two are different values — sending one where the other belongs is
+    // the bug this test exists to prevent.
+    expect(payload.project_id).toBe(PROJECT.id);
+    expect(payload.project_name).toBe('Regression sweep');
+  });
+
+  it('omits project_id entirely when no project is chosen', async () => {
+    renderForm();
+    await fillAndSubmit();
+
+    await waitFor(() => expect(bookingRequestService.create).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(bookingRequestService.create).mock.calls[0][0];
+    expect(payload.project_id).toBeUndefined();
+    expect(payload.project_name).toBe('Test Project');
   });
 });

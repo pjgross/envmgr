@@ -30,6 +30,7 @@ import {
 } from '../../store/bookingLifecycleSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { createRelease, updateRelease, fetchRelease } from '../../store/releaseSlice';
+import { fetchProjects } from '../../store/projectSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import LifecycleAwareFieldsPanel, {
   type FieldPermissionsMap,
@@ -94,9 +95,17 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
   const customFieldDefs = useSelector(
     (s: RootState) => s.customField.definitions['release'] ?? []
   );
+  const projects = useSelector((s: RootState) => s.project.projects);
 
   const [kind, setKind] = useState<'project' | 'enterprise'>(
     (release?.release_kind as 'project' | 'enterprise') ?? 'project'
+  );
+  // The Owning project, distinct from `kind` above (release_kind='project'
+  // means "not enterprise" — an unrelated toggle). Kept as its own piece of
+  // state, deliberately rendered away from the Kind/Type block so the two
+  // are never visually confused.
+  const [owningProjectId, setOwningProjectId] = useState<number | null>(
+    release?.owning_project_id ?? null
   );
   const [lifecycleTemplateId, setLifecycleTemplateId] = useState<number | null>(
     release?.lifecycle_template_id ?? null
@@ -113,6 +122,10 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
     if (open) {
       dispatch(fetchLifecycleTemplates('release'));
       dispatch(fetchDefinitions('release'));
+      // Archived projects must not be offered — a release that already holds
+      // one keeps it selectable via the archived-value MenuItem below, the
+      // same shape as EnvironmentDetail's Owner/Operations Group selects.
+      dispatch(fetchProjects({ is_active: true }));
     }
   }, [dispatch, open]);
 
@@ -123,6 +136,7 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
       setCustomFieldValues((release?.custom_fields ?? {}) as Record<string, unknown>);
       setLifecycleTemplateId(release?.lifecycle_template_id ?? null);
       setKind((release?.release_kind as 'project' | 'enterprise') ?? 'project');
+      setOwningProjectId(release?.owning_project_id ?? null);
     }
   }, [open, release]);
 
@@ -222,6 +236,12 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           actual_date: toIsoDatetime(standardValues.actual_date),
           scope_deadline:
             kind === 'project' ? toIsoDatetime(standardValues.scope_deadline) : undefined,
+          // Sent unconditionally, like every other field in this fixed-shape
+          // payload — including when unchanged. The backend's carve-out
+          // (release_service.py) tolerates resubmitting the release's own
+          // already-archived project id; it only re-validates when the value
+          // actually changes.
+          owning_project_id: owningProjectId,
           custom_fields: customFieldValues,
         };
         await dispatch(updateRelease({ id: release.id, data: payload })).unwrap();
@@ -235,6 +255,7 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
           description: (standardValues.description as string) || null,
           release_type: selectedTpl?.name ?? (standardValues.release_type as string) ?? '',
           release_kind: kind,
+          owning_project_id: owningProjectId,
           lifecycle_template_id: lifecycleTemplateId ?? undefined,
           target_date: toIsoDatetime(standardValues.target_date),
           scope_deadline:
@@ -321,6 +342,42 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
               helperText="Baseline for scope creep. Setting this adds a Scope Sign-off gate for the Release Manager."
             />
           )}
+
+          {/* Owning project (optional) — deliberately away from the Kind/Type
+              block above so it is never confused with release_kind='project'
+              (which means "not enterprise", an unrelated toggle). */}
+          <TextField
+            select
+            label="Owning project"
+            fullWidth
+            value={owningProjectId ?? ''}
+            onChange={(e) =>
+              setOwningProjectId(e.target.value === '' ? null : Number(e.target.value))
+            }
+            helperText="Optional — which project this release belongs to."
+          >
+            <MenuItem value="">No project</MenuItem>
+            {/* An archived project stays selectable only when it is the one
+                already on this release, so opening this form after its
+                project was archived doesn't blank a valid value — same shape
+                as EnvironmentDetail's Owner/Operations Group selects. The
+                backend still returns owning_project_name for an archived
+                project, so the label is available even though
+                fetchProjects({ is_active: true }) no longer lists it. */}
+            {release &&
+              release.owning_project_id != null &&
+              owningProjectId === release.owning_project_id &&
+              !projects.some((p) => p.id === owningProjectId) && (
+                <MenuItem value={owningProjectId}>
+                  {release.owning_project_name ?? `#${owningProjectId}`} (archived)
+                </MenuItem>
+              )}
+            {projects.map((p) => (
+              <MenuItem key={p.id} value={p.id}>
+                {p.name}
+              </MenuItem>
+            ))}
+          </TextField>
 
           {/* Lifecycle-driven fields */}
           {panelHasAnyFields ? (

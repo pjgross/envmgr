@@ -20,6 +20,7 @@ import DataTable from '../../components/DataTable';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import { AppDispatch, RootState } from '../../store';
 import { fetchReleases, fetchBacklogChanges } from '../../store/releaseSlice';
+import { fetchProjects } from '../../store/projectSlice';
 import type { ReleaseListItemResponse } from '../../types/release';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 import ReleaseForm from './ReleaseForm';
@@ -36,6 +37,20 @@ const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
 
 const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
 
+/**
+ * The URL spells "no project filter" as `any`, never `all`. `all` is
+ * `buildParams`' own "no selection" sentinel and would be dropped before a
+ * request is ever built — see ScopeWindowsTable's identical `apiScopeWindow`
+ * for the shape of the bug this avoids: two states of a toggle collapsing to
+ * byte-identical params so the grid never refetches.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function apiProjectId(urlValue: string | number | undefined): number | undefined {
+  if (urlValue === undefined || urlValue === 'any') return undefined;
+  const n = Number(urlValue);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export default function ReleaseList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
@@ -47,6 +62,12 @@ export default function ReleaseList() {
   // will become SystemCatalog's current filtered page, so this filter
   // dropdown would silently offer a subset.
   const { systems, truncated: systemsTruncated } = useAllSystems();
+  // Archived projects still render their name on a release that references
+  // them (see releaseColumns' owning_project_name column), but must not be
+  // offered as a filter choice — there can never be a release currently
+  // showing as filtered-on-an-archived-project the way ReleaseForm's edit
+  // mode has an existing value to preserve.
+  const projects = useSelector((s: RootState) => s.project.projects);
   const [formOpen, setFormOpen] = useState(false);
 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -54,11 +75,16 @@ export default function ReleaseList() {
 
   const grid = useServerGrid({
     endpoint: 'releases',
-    filterKeys: ['status', 'release_type', 'release_kind', 'system_id'],
+    filterKeys: ['status', 'release_type', 'release_kind', 'system_id', 'project_id'],
     total,
     totalPending: listLoading,
-    onFetch: (params) => dispatch(fetchReleases(params)),
+    onFetch: (params) =>
+      dispatch(fetchReleases({ ...params, project_id: apiProjectId(params.project_id) })),
   });
+
+  useEffect(() => {
+    dispatch(fetchProjects({ is_active: true }));
+  }, [dispatch]);
 
   useEffect(() => {
     if (tab === 1) {
@@ -199,6 +225,20 @@ export default function ReleaseList() {
               <MenuItem value="all">All systems</MenuItem>
               {systems.map((s) => (
                 <MenuItem key={s.id} value={String(s.id)}>{s.name}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Project"
+              size="small"
+              value={grid.filters.project_id ?? 'any'}
+              onChange={(e) => grid.setFilter('project_id', e.target.value)}
+              sx={{ minWidth: 180 }}
+              disabled={projects.length === 0}
+            >
+              <MenuItem value="any">All projects</MenuItem>
+              {projects.map((p) => (
+                <MenuItem key={p.id} value={String(p.id)}>{p.name}</MenuItem>
               ))}
             </TextField>
           </Box>

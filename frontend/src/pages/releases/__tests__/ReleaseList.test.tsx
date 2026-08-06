@@ -4,7 +4,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import ReleaseList from '../ReleaseList';
+import ReleaseList, { apiProjectId } from '../ReleaseList';
 
 // No HTTP — this test is about the wiring between the Status control and the
 // dispatched fetch, not about what the server returns.
@@ -18,6 +18,14 @@ vi.mock('../../../services/releaseService', () => ({
 vi.mock('../../../services/systemService', () => ({
   systemService: {
     listSystems: vi.fn().mockResolvedValue({ rows: [{ id: 7, name: 'Payments' }], total: 1 }),
+  },
+}));
+
+vi.mock('../../../services/projectService', () => ({
+  projectService: {
+    listProjects: vi
+      .fn()
+      .mockResolvedValue({ rows: [{ id: 3, name: 'Mortgage' }], total: 1 }),
   },
 }));
 
@@ -116,5 +124,71 @@ describe('ReleaseList status filter wiring', () => {
         expect.objectContaining({ release_kind: 'enterprise', offset: 0 })
       )
     );
+  });
+
+  it('dispatches the list fetch with the selected project id and a reset offset', async () => {
+    renderPage('/releases?page=2');
+
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+    vi.mocked(releaseService.list).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
+    const option = await screen.findByRole('option', { name: 'Mortgage' });
+    await userEvent.click(option);
+
+    await waitFor(() =>
+      expect(releaseService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ project_id: 3, offset: 0 })
+      )
+    );
+  });
+
+  it('sends no project_id at all once "All projects" is re-selected, not the string "any"', async () => {
+    renderPage('/releases?page=2');
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Mortgage' }));
+    await waitFor(() =>
+      expect(releaseService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ project_id: 3 })
+      )
+    );
+    vi.mocked(releaseService.list).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'All projects' }));
+
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+    const params = vi.mocked(releaseService.list).mock.calls[0][0] as Record<string, unknown>;
+    expect(params.project_id).toBeUndefined();
+  });
+
+  it('spells the project filter\'s "no selection" state `any`, never `all` (buildParams sentinel collision)', async () => {
+    // `all` is buildParams' own "no selection" sentinel and is dropped
+    // before a request is built. If this option were spelled `all`, the
+    // URL would never distinguish it from the raw default at all — see
+    // ScopeWindowsTable's identical apiScopeWindow.
+    renderPage();
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
+    const allOption = await screen.findByRole('option', { name: 'All projects' });
+    expect(allOption).toHaveAttribute('data-value', 'any');
+  });
+});
+
+describe('apiProjectId', () => {
+  it('treats "any" as no filter, not a value to send to the server', () => {
+    expect(apiProjectId('any')).toBeUndefined();
+  });
+
+  it('treats an absent filter as no filter', () => {
+    expect(apiProjectId(undefined)).toBeUndefined();
+  });
+
+  it('passes a chosen project id through as a number', () => {
+    expect(apiProjectId('7')).toBe(7);
+    expect(apiProjectId(7)).toBe(7);
   });
 });

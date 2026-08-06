@@ -25,7 +25,7 @@ export default function ReleaseBookingsTable({ bookings, phases, loading }: Prop
       { field: 'id', headerName: 'ID', width: 70 },
       {
         field: 'project_name',
-        headerName: 'Project',
+        headerName: 'Purpose',
         flex: 1,
         minWidth: 150,
       },

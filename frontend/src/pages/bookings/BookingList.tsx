@@ -97,7 +97,7 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 export const bookingColumns: GridColDef<BookingResponse>[] = [
   {
     field: 'project_name',
-    headerName: 'Project',
+    headerName: 'Purpose',
     flex: 1.5,
     hideable: false,
     sortable: false,

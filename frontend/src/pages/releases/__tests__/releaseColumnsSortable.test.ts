@@ -30,3 +30,25 @@ describe('release grid columns', () => {
     });
   });
 });
+
+describe('owning_project_name column', () => {
+  it('renders the linked project name, not project_name (a different, external-tracker field)', () => {
+    const column = releaseColumns.find((c) => c.field === 'owning_project_name');
+    expect(column).toBeDefined();
+    expect(column?.sortable).toBe(false);
+
+    const rendered = column?.renderCell?.({
+      row: { owning_project_name: 'Mortgage', owning_project_id: 3, project_name: 'wrong field' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    expect(rendered).toBe('Mortgage');
+  });
+
+  it('renders a missing project as prose, not a blank cell', () => {
+    const column = releaseColumns.find((c) => c.field === 'owning_project_name');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rendered = column?.renderCell?.({ row: { owning_project_name: null } } as any);
+    expect(rendered).not.toBe(null);
+    expect(rendered).not.toBe('');
+  });
+});

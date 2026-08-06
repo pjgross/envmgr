@@ -21,7 +21,9 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
 // `id` is not in the whitelist, so it stops being sortable — and the six computed
 // columns (phase_count, scope_count, scope_change_count, blocker_count,
 // overdue_criterion_count, systems) never were and never can be: none is backed by
-// a single column the database could order by.
+// a single column the database could order by. `owning_project_name` joins the
+// same way (a batched name lookup after the query), so it's permanently
+// unsortable too, not merely unwhitelisted for now.
 export const releaseColumns: GridColDef<ReleaseListItemResponse>[] = [
   { field: 'id', headerName: 'ID', width: 70, sortable: false },
   {
@@ -50,6 +52,20 @@ export const releaseColumns: GridColDef<ReleaseListItemResponse>[] = [
         variant="outlined"
       />
     ),
+  },
+  {
+    // Joined — resolved by a batched project_service.get_project_names
+    // lookup after the query, never a column the database could order by.
+    // Renders owning_project_name, never owning_project_id or project_name
+    // (a different, external-tracker field on ReleaseChange — see ScopeTable).
+    field: 'owning_project_name',
+    headerName: 'Project',
+    width: 160,
+    sortable: false,
+    renderCell: (params) =>
+      params.row.owning_project_name ?? (
+        <Typography variant="body2" color="text.secondary">—</Typography>
+      ),
   },
   {
     field: 'status',
