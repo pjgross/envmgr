@@ -34,7 +34,8 @@ from app.api.v1.schemas.infrastructure_component import (
     HostAttachment,
 )
 from app.api.v1.schemas.environment_comparison import EnvironmentComparisonResponse
-from app.services import environment_comparison_service
+from app.api.v1.schemas.project import UsageAgreementResponse
+from app.services import environment_comparison_service, project_service
 
 router = APIRouter()
 
@@ -417,3 +418,25 @@ async def delete_version(
     current_user=Depends(require_tenant_admin()),
 ):
     await version_service.delete_version(db, version_id, env_id, current_user.active_tenant_id)
+
+
+# ---------------------------------------------------------------------------
+# Usage agreements (environment direction)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{env_id}/usage-agreements", response_model=list[UsageAgreementResponse])
+async def list_environment_usage_agreements(
+    env_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """"Which projects have agreed to use this environment." A1 records these;
+    nothing checks them — that is A3."""
+    rows, total = await project_service.list_agreements_for_environment(
+        db, env_id, current_user.active_tenant_id, page=page
+    )
+    set_total_count(response, total)
+    return [UsageAgreementResponse.from_row(r) for r in rows]

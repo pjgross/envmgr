@@ -61,3 +61,43 @@ class ProjectResponse(BaseModel):
             is_active=p.is_active,
             created_at=p.created_at, updated_at=p.updated_at,
         )
+
+
+class UsageAgreementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment_id: int
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class UsageAgreementResponse(BaseModel):
+    """Both display names travel with the row: this list is read from the
+    project side AND the environment side, and neither page should resolve the
+    other end against a capped collection."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tenant_id: int
+    project_id: int
+    project_name: str
+    environment_id: int
+    environment_name: str
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row) -> "UsageAgreementResponse":
+        agreement, project_name, environment_name = row
+        return cls(
+            id=agreement.id, tenant_id=agreement.tenant_id,
+            project_id=agreement.project_id, project_name=project_name,
+            environment_id=agreement.environment_id,
+            environment_name=environment_name,
+            starts_at=agreement.starts_at, ends_at=agreement.ends_at,
+            notes=agreement.notes, created_at=agreement.created_at,
+        )

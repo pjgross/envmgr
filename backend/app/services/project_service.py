@@ -12,8 +12,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.project import ProjectCreate, ProjectUpdate
+from app.api.v1.schemas.project import ProjectCreate, ProjectUpdate, UsageAgreementCreate
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
+from app.db.models.environment import Environment
 from app.db.models.project import Project, UsageAgreement
 from app.db.models.user_group import UserGroup
 
@@ -226,4 +227,153 @@ async def delete_project(db: AsyncSession, project_id: int, tenant_id: int) -> N
     """
     project = await get_project(db, project_id, tenant_id)
     project.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
+def _agreement_query(tenant_id: int):
+    """One select carrying both ends' names, tenant-qualified on each join."""
+    return (
+        select(UsageAgreement, Project.name, Environment.name)
+        .join(
+            Project,
+            and_(Project.id == UsageAgreement.project_id,
+                 Project.tenant_id == tenant_id),
+        )
+        .join(
+            Environment,
+            and_(Environment.id == UsageAgreement.environment_id,
+                 Environment.tenant_id == tenant_id),
+        )
+        .where(
+            UsageAgreement.tenant_id == tenant_id,
+            UsageAgreement.deleted_at.is_(None),
+        )
+    )
+
+
+async def list_agreements_for_project(
+    db: AsyncSession, project_id: int, tenant_id: int, *, page: Optional[Page] = None
+):
+    await get_project(db, project_id, tenant_id)  # 404s for another tenant's project
+    query = (
+        _agreement_query(tenant_id)
+        .where(UsageAgreement.project_id == project_id)
+        .order_by(func.lower(Environment.name), UsageAgreement.id)
+    )
+    return await fetch_page_rows(db, query, page)
+
+
+async def list_agreements_for_environment(
+    db: AsyncSession, environment_id: int, tenant_id: int, *, page: Optional[Page] = None
+):
+    found = (
+        await db.execute(
+            select(Environment.id).where(
+                Environment.id == environment_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+    query = (
+        _agreement_query(tenant_id)
+        .where(UsageAgreement.environment_id == environment_id)
+        .order_by(func.lower(Project.name), UsageAgreement.id)
+    )
+    return await fetch_page_rows(db, query, page)
+
+
+async def create_agreement(
+    db: AsyncSession, project_id: int, data: UsageAgreementCreate, tenant_id: int
+):
+    await get_project(db, project_id, tenant_id)
+
+    if (
+        data.starts_at is not None
+        and data.ends_at is not None
+        and data.ends_at < data.starts_at
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "ends_at must not be earlier than starts_at",
+        )
+
+    env = (
+        await db.execute(
+            select(Environment.id).where(
+                Environment.id == data.environment_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if env is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+
+    # Only an EXACT duplicate is refused. Overlapping windows are a statement
+    # about intent, not a contradiction the system must resolve — deciding what
+    # an overlap means is A3's job, once something reads them.
+    duplicate = (
+        await db.execute(
+            select(UsageAgreement.id).where(
+                UsageAgreement.tenant_id == tenant_id,
+                UsageAgreement.project_id == project_id,
+                UsageAgreement.environment_id == data.environment_id,
+                UsageAgreement.starts_at.is_(data.starts_at)
+                if data.starts_at is None
+                else UsageAgreement.starts_at == data.starts_at,
+                UsageAgreement.ends_at.is_(data.ends_at)
+                if data.ends_at is None
+                else UsageAgreement.ends_at == data.ends_at,
+                UsageAgreement.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if duplicate is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This project already has an agreement for that environment over "
+            "exactly that window",
+        )
+
+    agreement = UsageAgreement(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        environment_id=data.environment_id,
+        starts_at=data.starts_at,
+        ends_at=data.ends_at,
+        notes=data.notes,
+    )
+    db.add(agreement)
+    await db.flush()
+
+    row = (
+        await db.execute(
+            _agreement_query(tenant_id).where(UsageAgreement.id == agreement.id)
+        )
+    ).first()
+    return row
+
+
+async def delete_agreement(
+    db: AsyncSession, project_id: int, agreement_id: int, tenant_id: int
+) -> None:
+    await get_project(db, project_id, tenant_id)
+    agreement = (
+        await db.execute(
+            select(UsageAgreement).where(
+                UsageAgreement.id == agreement_id,
+                UsageAgreement.project_id == project_id,
+                UsageAgreement.tenant_id == tenant_id,
+                UsageAgreement.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if agreement is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usage agreement not found")
+    # Soft, not hard: an agreement is a statement of intent with a history, and
+    # A3 will want to know one was withdrawn rather than find it absent.
+    agreement.deleted_at = datetime.now(timezone.utc)
     await db.flush()

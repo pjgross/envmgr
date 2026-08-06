@@ -3,7 +3,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
+from app.api.v1.schemas.project import (
+    ProjectCreate,
+    ProjectResponse,
+    ProjectUpdate,
+    UsageAgreementCreate,
+    UsageAgreementResponse,
+)
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.base import get_db
@@ -74,3 +80,50 @@ async def delete_project(
     current_user=Depends(require_tenant_admin()),
 ):
     await project_service.delete_project(db, project_id, current_user.active_tenant_id)
+
+
+@router.get("/{project_id}/usage-agreements", response_model=list[UsageAgreementResponse])
+async def list_project_usage_agreements(
+    project_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    rows, total = await project_service.list_agreements_for_project(
+        db, project_id, current_user.active_tenant_id, page=page
+    )
+    set_total_count(response, total)
+    return [UsageAgreementResponse.from_row(r) for r in rows]
+
+
+@router.post(
+    "/{project_id}/usage-agreements",
+    response_model=UsageAgreementResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_project_usage_agreement(
+    project_id: int,
+    data: UsageAgreementCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    row = await project_service.create_agreement(
+        db, project_id, data, current_user.active_tenant_id
+    )
+    return UsageAgreementResponse.from_row(row)
+
+
+@router.delete(
+    "/{project_id}/usage-agreements/{agreement_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_project_usage_agreement(
+    project_id: int,
+    agreement_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    await project_service.delete_agreement(
+        db, project_id, agreement_id, current_user.active_tenant_id
+    )
