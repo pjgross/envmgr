@@ -387,3 +387,41 @@ async def test_is_active_filter_reports_the_filtered_total_not_the_whole_tenant(
     assert inactive_only.status_code == 200, inactive_only.text
     assert len(inactive_only.json()) == 2
     assert int(inactive_only.headers[TOTAL_COUNT_HEADER]) == 2
+
+
+@pytest.mark.asyncio
+async def test_an_archived_teams_name_still_renders_on_its_projects(
+    client, auth_headers, db_session, test_tenant
+):
+    """_view_query's UserGroup join deliberately does NOT filter deleted_at.
+
+    Blanking the name would lose information the row still carries — the same
+    call B3a made for a soft-deleted operations group. Added after the Task 3
+    fix review found nothing discriminated here: adding
+    `UserGroup.deleted_at.is_(None)` to that join left every project test green,
+    including the two that look like they cover it (one never archives the
+    group, the other never asserts team_group_name at all).
+
+    Note this is the OPPOSITE judgement from _agreement_query, whose joins DO
+    filter deleted_at. There we decide whether a row whose counterparty is gone
+    should appear; here we render the name of an archived thing on a live row.
+    """
+    group = await ensure_user_group(db_session, test_tenant.id, name="Wound Down Team")
+    await db_session.commit()
+    pid = (await client.post(
+        "/api/v1/projects",
+        json={"name": "Still Running", "team_group_id": group.id},
+        headers=auth_headers,
+    )).json()["id"]
+
+    # Archived directly rather than through delete_group, which refuses while
+    # anything still references the group — the state we need is the archived
+    # one, not the route that produces it.
+    from datetime import datetime, timezone
+
+    group.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    still = await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)
+    assert still.status_code == 200, still.text
+    assert still.json()["team_group_name"] == "Wound Down Team"

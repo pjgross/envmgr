@@ -469,3 +469,39 @@ async def test_paging_over_tied_environment_names_sees_each_agreement_once(
 
     assert len(seen) == total_rows, f"expected {total_rows} rows, saw {len(seen)}"
     assert len(set(seen)) == total_rows, "a row was returned on more than one page"
+
+
+@pytest.mark.asyncio
+async def test_the_cascade_does_not_reach_another_tenants_malformed_row(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards delete_project's cascade tenant filter.
+
+    Added after the fix review proved it unguarded: dropping
+    `UsageAgreement.tenant_id == tenant_id` from the cascade's bulk UPDATE left
+    all 36 tests green, while deleting our project silently soft-deleted
+    another tenant's row. Same shape as the three joins above, which are each
+    guarded — this one query got the risk without the scrutiny.
+    """
+    from sqlalchemy import select
+
+    mine = await ensure_project(db_session, test_tenant.id, name="Mine")
+    env = await ensure_environment(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    await db_session.commit()
+
+    # A malformed row: it points at OUR project, but belongs to another tenant.
+    stray = UsageAgreement(
+        tenant_id=other_tenant.id, project_id=mine.id, environment_id=env.id
+    )
+    db_session.add(stray)
+    await db_session.commit()
+
+    gone = await client.delete(f"/api/v1/projects/{mine.id}", headers=auth_headers)
+    assert gone.status_code == 204, gone.text
+
+    await db_session.refresh(stray)
+    stored = (await db_session.execute(
+        select(UsageAgreement.deleted_at).where(UsageAgreement.id == stray.id)
+    )).scalar_one()
+    assert stored is None, "the cascade reached across a tenant boundary"
