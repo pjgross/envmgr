@@ -198,7 +198,6 @@ describe('EnvironmentRequestForm', () => {
       operations_group_id: null,
       operations_group_name: null,
       created_environment_id: null,
-      custom_fields: null,
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
     });

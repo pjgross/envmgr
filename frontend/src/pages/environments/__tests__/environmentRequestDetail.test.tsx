@@ -51,7 +51,6 @@ const BASE_REQUEST: EnvironmentRequestResponse = {
   operations_group_id: 7,
   operations_group_name: 'Platform Ops',
   created_environment_id: null,
-  custom_fields: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 };
