@@ -23,6 +23,7 @@ from app.db.models.environment import Environment
 from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.project import Project
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
 from app.db.models.user_group import UserGroup
@@ -143,6 +144,33 @@ async def ensure_user_group(
     db.add(group)
     await db.flush()
     return group
+
+
+async def ensure_project(
+    db: AsyncSession, tenant_id: int, name: str = "fk-parent-project"
+) -> Project:
+    """A project for `tenant_id`. Idempotent per (tenant, name).
+
+    `booking_request.project_id`, `release.owning_project_id` and
+    `usage_agreement.project_id` are all real FKs, so tests must never pass a
+    bare `1`.
+    """
+    existing = (
+        await db.execute(
+            select(Project).where(
+                Project.tenant_id == tenant_id,
+                Project.name == name,
+                Project.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    project = Project(tenant_id=tenant_id, name=name)
+    db.add(project)
+    await db.flush()
+    return project
 
 
 async def ensure_environment_tier(

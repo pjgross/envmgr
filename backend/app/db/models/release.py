@@ -16,6 +16,12 @@ class Release(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     release_type: Mapped[str] = mapped_column(String(50), nullable=False)
     release_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="project")
+    # `owning_project_id`, not `project_id`: `release_kind='project'` above
+    # already means "not an enterprise release", and two things called project
+    # on one row is how a future reader gets it wrong.
+    owning_project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("project.id"), nullable=True, index=True
+    )
     parent_release_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("release.id", use_alter=True, name="fk_release_parent"),
         nullable=True,
