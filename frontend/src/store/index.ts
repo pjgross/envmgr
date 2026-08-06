@@ -27,6 +27,7 @@ import enterpriseMembershipReducer from './enterpriseMembershipSlice';
 import raidReducer from './raidSlice';
 import incidentReducer from './incidentSlice';
 import userGroupReducer from './userGroupSlice';
+import environmentRequestReducer from './environmentRequestSlice';
 
 export const store = configureStore({
   reducer: {
@@ -58,6 +59,7 @@ export const store = configureStore({
     raid: raidReducer,
     incident: incidentReducer,
     userGroup: userGroupReducer,
+    environmentRequest: environmentRequestReducer,
   },
 });
 
