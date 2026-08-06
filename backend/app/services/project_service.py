@@ -199,7 +199,13 @@ async def update_project(
 
     if "name" in fields and fields["name"].strip().lower() != project.name.lower():
         await _assert_name_free(db, tenant_id, fields["name"], exclude_id=project_id)
-    if "team_group_id" in fields:
+    if "team_group_id" in fields and fields["team_group_id"] != project.team_group_id:
+        # Resubmitting the CURRENT value must not re-validate it — a group
+        # can be soft-deleted after being assigned, and a PATCH editing some
+        # unrelated field still round-trips the existing team_group_id. Same
+        # exemption as the name check just above, and the same rule B1 gave
+        # environment.operations_group_id: accept an archived group when it
+        # equals the stored value, reject it as a new assignment.
         await _assert_team_is_ours(db, tenant_id, fields["team_group_id"])
 
     for key, value in fields.items():
