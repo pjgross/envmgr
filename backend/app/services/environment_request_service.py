@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.environment_request import (
@@ -18,7 +19,7 @@ from app.api.v1.schemas.environment_request import (
 )
 from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
-from app.db.models.environment import Environment
+from app.db.models.environment import Environment, EnvironmentStatus
 from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
@@ -536,6 +537,77 @@ async def _assert_routable(db: AsyncSession, req: EnvironmentRequest, tenant_id:
         )
 
 
+async def _fulfil_new_environment(
+    db: AsyncSession, req: EnvironmentRequest, tenant_id: int
+) -> Environment:
+    """Create the environment this request asked for.
+
+    INACTIVE, not ACTIVE: the register must not claim an environment is
+    available before anyone has built it. That drift between the register and
+    reality is what this product exists to prevent — an admin flips it active
+    once the infrastructure exists.
+
+    The governance fields are populated by construction (tier, owner,
+    expiry, operations team all come straight from the request), so a
+    request-created environment can never appear in `?governance_gap=true`.
+    The six handover fields stay null: there is nothing to hand over until it
+    is built.
+    """
+    if req.operations_group_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This request has no operations team assigned. An admin must "
+            "choose which team will operate the environment before it can be "
+            "fulfilled.",
+        )
+
+    # An app-level guard, not merely test convenience for the Postgres-only
+    # partial unique index (`uq_environment_tenant_name`, migration
+    # `nameuniqguard`): that index is a raw `op.create_index(...)` gated to
+    # `if dialect.name != "postgresql": return` and isn't declared on the
+    # Environment model, so it's invisible to both test databases (both are
+    # built with `Base.metadata.create_all`, never `alembic upgrade head`).
+    # This check is what actually makes two live same-named environments
+    # impossible everywhere this suite runs; the IntegrityError catch below
+    # is the last-resort net for a race this check can't see.
+    clash = (
+        await db.execute(
+            select(Environment.id).where(
+                Environment.tenant_id == tenant_id,
+                Environment.name == req.proposed_name,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if clash is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"An environment named '{req.proposed_name}' already exists in "
+            "this tenant.",
+        )
+
+    env = Environment(
+        tenant_id=tenant_id,
+        name=req.proposed_name,
+        description=req.justification,
+        tier_id=req.tier_id,
+        owner_user_id=req.requested_by,
+        expires_at=req.expires_at,
+        operations_group_id=req.operations_group_id,
+        status=EnvironmentStatus.INACTIVE,
+    )
+    db.add(env)
+    try:
+        await db.flush()
+    except IntegrityError as e:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Could not create an environment named '{req.proposed_name}' "
+            "for this request.",
+        ) from e
+    return env
+
+
 async def transition(
     db: AsyncSession,
     request_id: int,
@@ -555,8 +627,17 @@ async def transition(
     if to_state == "submitted":
         await _assert_routable(db, req, tenant_id)
 
+    created: Optional[Environment] = None
+    if to_state == "fulfilled" and req.kind == "new_environment":
+        # Before the status write: a failure here must abort the transition
+        # too. get_db() wraps the request in one transaction, so raising
+        # rolls back the flush above with it.
+        created = await _fulfil_new_environment(db, req, tenant_id)
+
     from_state = req.status
     req.status = to_state
+    if created is not None:
+        req.created_environment_id = created.id
     await db.flush()
 
     await publish_event(
