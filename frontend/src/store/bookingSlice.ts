@@ -38,6 +38,7 @@ export const fetchBookings = createAsyncThunk(
     start?: string;
     end?: string;
     booking_status?: string;
+    project_id?: number;
     limit?: number;
     offset?: number;
     sort_by?: string;

@@ -275,6 +275,7 @@ async def list_bookings(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
+    project_id: Optional[int] = None,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
 ) -> tuple[list[Booking], int]:
@@ -295,6 +296,16 @@ async def list_bookings(
         query = query.where(Booking.start_date < end, Booking.end_date > start)
     if booking_status is not None:
         query = query.where(Booking.status == booking_status)
+    if project_id is not None:
+        # In SQL, on the parent request's project_id — the endpoint is bounded
+        # (fetch_page below), so a Python-side filter would window the page
+        # before filtering and quietly return the wrong rows. booking_request_id
+        # is NOT NULL, so this inner join drops no legitimate row, and it's a
+        # plain many-to-one (one booking_request per booking) so it can't fan
+        # out duplicates the way a one-to-many join would.
+        query = query.join(BookingRequest, Booking.booking_request_id == BookingRequest.id).where(
+            BookingRequest.project_id == project_id
+        )
     query = apply_sort(query, sort).order_by(Booking.start_date.asc(), Booking.id)
     return await fetch_page(db, query, page)
 

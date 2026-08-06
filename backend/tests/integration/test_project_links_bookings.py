@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from tests.factories import ensure_environment, ensure_project
 
@@ -347,3 +348,145 @@ async def test_a_malformed_cross_tenant_project_row_does_not_leak_its_name(
     fetched = await client.get(f"/api/v1/booking-requests/{req.id}", headers=auth_headers)
     assert fetched.status_code == 200, fetched.text
     assert fetched.json()["project_name_link"] is None
+
+
+# ── GET /bookings (per-environment BookingResponse rows) ────────────────────
+#
+# BookingList.tsx renders GET /bookings, not GET /booking-requests — the
+# per-environment shape, one row per Booking, is what Task 7 could not
+# convert (only booking_request carries project_id). These tests cover the
+# gap closed here: the same project_id/project_name_link pair added to
+# BookingResponse the same way, populated from the parent booking_request in
+# app/api/v1/bookings.py's _to_response.
+
+
+@pytest.mark.asyncio
+async def test_the_bookings_list_carries_project_link_distinct_from_purpose(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """project_name (free text, labelled "Purpose" in the UI) and
+    project_name_link (the linked project's name) are different values on the
+    same row and must stay distinguishable — never swapped."""
+    project = await ensure_project(db_session, test_tenant.id, name="Mortgage")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id, project_id=project.id),
+        headers=auth_headers,
+    )
+    assert created.status_code in (200, 201), created.text
+    booking_id = created.json()["request"]["bookings"][0]["id"]
+
+    listed = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    row = next(b for b in listed.json() if b["id"] == booking_id)
+    assert row["project_id"] == project.id
+    assert row["project_name_link"] == "Mortgage"
+    assert row["project_name"] == "Regression sweep"  # the free-text Purpose, untouched
+
+
+@pytest.mark.asyncio
+async def test_a_booking_without_a_project_link_still_lists(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id),
+        headers=auth_headers,
+    )
+    assert created.status_code in (200, 201), created.text
+    booking_id = created.json()["request"]["bookings"][0]["id"]
+
+    listed = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    row = next(b for b in listed.json() if b["id"] == booking_id)
+    assert row["project_id"] is None
+    assert row["project_name_link"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_bookings_list_filters_by_project_in_sql(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """The endpoint is bounded (pagination()), so the filter must run in SQL —
+    a Python-side filter applied after fetch_page would window the page
+    before filtering, and X-Total-Count would still describe the unfiltered
+    set."""
+    mortgage = await ensure_project(db_session, test_tenant.id, name="Mortgage")
+    savings = await ensure_project(db_session, test_tenant.id, name="Savings")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    booking_ids = {}
+    for project in (mortgage, savings):
+        made = await client.post(
+            "/api/v1/booking-requests",
+            json=_payload(test_booking_type.id, env.id, project_id=project.id),
+            headers=auth_headers,
+        )
+        assert made.status_code in (200, 201), made.text
+        booking_ids[project.name] = made.json()["request"]["bookings"][0]["id"]
+
+    filtered = await client.get(
+        f"/api/v1/bookings/?project_id={mortgage.id}", headers=auth_headers
+    )
+    assert filtered.status_code == 200, filtered.text
+    rows = filtered.json()
+    assert [r["id"] for r in rows] == [booking_ids["Mortgage"]]
+    assert rows[0]["project_name_link"] == "Mortgage"
+    # A Python-side filter applied after the query would leave this describing
+    # the unfiltered set (2), not the filtered one (1).
+    assert int(filtered.headers["X-Total-Count"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_bookings_list_does_not_leak_a_cross_tenant_projects_name(
+    client, auth_headers, db_session, test_tenant, test_user, test_booking_type,
+    second_tenant_factory,
+):
+    """GET /bookings resolves project_name_link via the same tenant-scoped
+    project_service.get_project_names lookup as booking-requests, but at its
+    own call site — guard it there too, since dropping the tenant_id argument
+    in app/api/v1/bookings.py would not be caught by the booking-requests
+    test above."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_project(db_session, other_tenant.id, name="Not Ours")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    # No write path can produce this row (both create and update on
+    # booking-requests refuse a cross-tenant project id) — construct it
+    # directly, as the equivalent booking-requests guard above does.
+    req = BookingRequest(
+        tenant_id=test_tenant.id,
+        project_name="Regression sweep",
+        project_id=theirs.id,
+        booking_type_id=test_booking_type.id,
+        start_date=datetime.now(timezone.utc),
+        end_date=datetime.now(timezone.utc) + timedelta(days=1),
+        booked_by=test_user.id,
+    )
+    db_session.add(req)
+    await db_session.flush()
+    booking = Booking(
+        tenant_id=test_tenant.id,
+        booking_request_id=req.id,
+        environment_id=env.id,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        status="draft",
+    )
+    db_session.add(booking)
+    await db_session.commit()
+    await db_session.refresh(booking)
+
+    listed = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    row = next(b for b in listed.json() if b["id"] == booking.id)
+    assert row["project_id"] == theirs.id
+    assert row["project_name_link"] is None

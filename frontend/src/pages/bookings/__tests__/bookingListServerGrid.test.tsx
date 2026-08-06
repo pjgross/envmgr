@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import BookingList, { bookingColumns, buildCustomFieldColumns } from '../BookingList';
+import BookingList, { apiProjectId, bookingColumns, buildCustomFieldColumns } from '../BookingList';
 
 // No HTTP — this test is about the wiring between the URL/filters and the
 // dispatched fetch, not about what the server returns.
@@ -19,6 +20,15 @@ vi.mock('../../../services/bookingService', () => ({
 vi.mock('../../../services/customFieldService', () => ({
   customFieldService: {
     listDefinitions: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+// And the Project filter's own picker source — fetchProjects({ is_active: true }).
+vi.mock('../../../services/projectService', () => ({
+  projectService: {
+    listProjects: vi
+      .fn()
+      .mockResolvedValue({ rows: [{ id: 3, name: 'Mortgage' }], total: 1 }),
   },
 }));
 
@@ -57,8 +67,83 @@ describe('BookingList server-side grid', () => {
     expect(byField.end_date.sortable).not.toBe(false);
     expect(byField.status.sortable).not.toBe(false);
 
-    ['project_name', 'environment_name', 'booked_by_username', 'booking_type_id', 'conflicts', 'actions']
-      .forEach((field) => expect(byField[field].sortable).toBe(false));
+    [
+      'project_name',
+      'project_name_link',
+      'environment_name',
+      'booked_by_username',
+      'booking_type_id',
+      'conflicts',
+      'actions',
+    ].forEach((field) => expect(byField[field].sortable).toBe(false));
+  });
+
+  it('reads the Project column from project_name_link and the Purpose column from project_name, never swapped', () => {
+    // The two are different values on the same row — project_name is the
+    // free-text "Purpose" field, project_name_link is the linked project's
+    // resolved name. A row where they visibly differ pins that neither
+    // column reads the other's field.
+    const byField = Object.fromEntries(bookingColumns.map((c) => [c.field, c]));
+    const row = {
+      id: 1,
+      project_name: 'Regression sweep',
+      project_name_link: 'Mortgage',
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const purposeCell = byField.project_name.renderCell?.({ row } as any) as any;
+    expect(purposeCell.props.children).toBe('Regression sweep');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const projectValue = (byField.project_name_link.valueGetter as any)({ row });
+    expect(projectValue).toBe('Mortgage');
+  });
+
+  it('marks the Project column unsortable (resolved by a batch lookup, not a whitelisted column)', () => {
+    const byField = Object.fromEntries(bookingColumns.map((c) => [c.field, c]));
+    expect(byField.project_name_link.sortable).toBe(false);
+  });
+
+  it('dispatches the list fetch with the selected project id and a reset offset', async () => {
+    render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={['/bookings?page=2']}>
+          <BookingList />
+        </MemoryRouter>
+      </Provider>
+    );
+
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+    vi.mocked(bookingService.listBookings).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
+    const option = await screen.findByRole('option', { name: 'Mortgage' });
+    await userEvent.click(option);
+
+    await waitFor(() =>
+      expect(bookingService.listBookings).toHaveBeenLastCalledWith(
+        expect.objectContaining({ project_id: 3, offset: 0 })
+      )
+    );
+  });
+
+  it('spells the project filter\'s "no selection" state `any`, never `all` (buildParams sentinel collision)', async () => {
+    // `all` is buildParams' own "no selection" sentinel and is dropped before
+    // a request is built — two states of the toggle would collapse to
+    // byte-identical params and the grid would never refetch. See
+    // ReleaseList's identical guard.
+    render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={['/bookings']}>
+          <BookingList />
+        </MemoryRouter>
+      </Provider>
+    );
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
+    const allOption = await screen.findByRole('option', { name: 'All projects' });
+    expect(allOption).toHaveAttribute('data-value', 'any');
   });
 
   it('disables the column filter, which would filter only the loaded page', async () => {
@@ -183,5 +268,20 @@ describe('BookingList server-side grid', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((column.valueGetter as any)({ row })).toBe('high');
+  });
+});
+
+describe('apiProjectId', () => {
+  it('treats "any" as no filter, not a value to send to the server', () => {
+    expect(apiProjectId('any')).toBeUndefined();
+  });
+
+  it('treats an absent filter as no filter', () => {
+    expect(apiProjectId(undefined)).toBeUndefined();
+  });
+
+  it('passes a chosen project id through as a number', () => {
+    expect(apiProjectId('7')).toBe(7);
+    expect(apiProjectId(7)).toBe(7);
   });
 });

@@ -11,6 +11,12 @@ export interface BookingResponse {
   environment_id: number;
   environment_name: string | null;
   project_name: string;
+  // The project this booking's parent request links to — id plus a
+  // batch-resolved display name. Distinct from project_name above, which is
+  // the free-text "Purpose" field on the same booking_request; the two must
+  // never be conflated.
+  project_id: number | null;
+  project_name_link: string | null;
   booked_by: number;
   booked_by_username: string | null;
   start_date: string;
