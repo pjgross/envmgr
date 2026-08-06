@@ -10,6 +10,8 @@ export interface ReleaseResponse {
   description: string | null;
   release_type: string;
   release_kind: ReleaseKind;
+  owning_project_id: number | null;
+  owning_project_name: string | null;
   parent_release_id: number | null;
   template_id: number | null;
   lifecycle_template_id: number;
@@ -121,6 +123,7 @@ export interface ReleaseCreatePayload {
   description?: string | null;
   release_type: string;
   release_kind?: ReleaseKind;
+  owning_project_id?: number | null;
   template_id?: number | null;
   lifecycle_template_id?: number | null;
   target_date?: string | null;
@@ -132,6 +135,7 @@ export interface ReleaseUpdatePayload {
   name?: string;
   description?: string | null;
   release_type?: string;
+  owning_project_id?: number | null;
   target_date?: string | null;
   scope_deadline?: string | null;
   actual_date?: string | null;

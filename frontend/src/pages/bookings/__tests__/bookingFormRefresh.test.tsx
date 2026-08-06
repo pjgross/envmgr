@@ -94,6 +94,8 @@ const CREATE_RESPONSE: BookingRequestCreateResponse = {
     id: 1,
     tenant_id: 1,
     project_name: 'Test Project',
+    project_id: null,
+    project_name_link: null,
     booking_type_id: 5,
     start_date: '2026-08-10T09:00:00Z',
     end_date: '2026-08-11T09:00:00Z',
