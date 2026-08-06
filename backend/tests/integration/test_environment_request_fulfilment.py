@@ -361,3 +361,67 @@ async def test_fulfilling_is_refused_to_a_non_admin_outside_the_operating_team(
     assert matching == [], (
         "no environment must be created by an unauthorized fulfil attempt"
     )
+
+
+@pytest.mark.asyncio
+async def test_c1_recovers_a_groupless_approved_request_through_to_fulfilment(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """C1 end-to-end: before the fix, an approved new_environment request
+    with no operations group was a dead end — no PATCH would take (edits
+    409 once a request leaves draft), no further transition existed off
+    'approved' except the one that itself 409s on the null group, and the
+    request was never terminal so it sat in the admin queue forever. Approve
+    groupless, confirm the dead end, fix the group via the new carve-out,
+    then fulfil and confirm a real environment gets created."""
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-E2E")
+    await db_session.commit()
+
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "new_environment", "justification": "e2e recovery",
+              "proposed_name": "C1 Recovered Env", "tier_id": tier.id,
+              "expires_at": "2027-01-01T00:00:00Z"},
+        headers=auth_headers,
+    )).json()["id"]
+
+    for state in ("submitted", "approved"):
+        r = await client.post(
+            f"/api/v1/environment-requests/{rid}/transition",
+            json={"to_state": state}, headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+
+    still_ungrouped = await client.get(
+        f"/api/v1/environment-requests/{rid}", headers=auth_headers
+    )
+    assert still_ungrouped.json()["operations_group_id"] is None
+
+    # Before the fix this is a permanent dead end.
+    dead_end = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "fulfilled"}, headers=auth_headers,
+    )
+    assert dead_end.status_code == 409, dead_end.text
+
+    fixed = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=auth_headers,
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["status"] == "approved"
+
+    done = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "fulfilled"}, headers=auth_headers,
+    )
+    assert done.status_code == 200, done.text
+    env_id = done.json()["created_environment_id"]
+    assert env_id is not None
+
+    env = (await db_session.execute(
+        select(Environment).where(Environment.id == env_id)
+    )).scalar_one()
+    assert env.name == "C1 Recovered Env"
+    assert env.operations_group_id == group.id

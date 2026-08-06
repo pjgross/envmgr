@@ -17,6 +17,12 @@ interface EnvironmentRequestState {
   current: EnvironmentRequestResponse | null;
   allowedTransitions: AllowedTransition[];
   welcomePack: WelcomePack | null;
+  // Scoped separately from `error` below (I3/minor): the pack shares this
+  // slice with fetchEnvironmentRequest/fetchEnvironmentRequests, and both of
+  // those write the shared `error` field on rejection. WelcomePack must never
+  // render a request-list or request-detail failure as if it were its own.
+  welcomePackLoading: boolean;
+  welcomePackError: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -27,6 +33,8 @@ const initialState: EnvironmentRequestState = {
   current: null,
   allowedTransitions: [],
   welcomePack: null,
+  welcomePackLoading: false,
+  welcomePackError: null,
   loading: false,
   error: null,
 };
@@ -161,12 +169,27 @@ const environmentRequestSlice = createSlice({
         state.loading = false;
         state.error = action.payload ?? 'Failed to load requests';
       })
+      // I1/I2: the list thunk's `.pending` was the only one that ever set
+      // `loading` — a direct navigation to /environment-requests/:id left
+      // `loading` false and `current` null, so `if (!current) return null`
+      // rendered a permanently blank page on a slow or failed fetch, with no
+      // skeleton and no error shown. And with no `.pending` clearing
+      // `current`, opening request 8 over a store still holding request 7
+      // briefly rendered request 7's name/status/kind/group and — worse —
+      // its allowed-transition GATING, until request 8's fetch resolved.
+      .addCase(fetchEnvironmentRequest.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.current = null;
+      })
       .addCase(fetchEnvironmentRequest.fulfilled, (state, action) => {
         state.current = action.payload;
         state.error = null;
+        state.loading = false;
       })
       .addCase(fetchEnvironmentRequest.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load the request';
+        state.loading = false;
       })
       .addCase(transitionEnvironmentRequest.fulfilled, (state, action) => {
         // The detail page's own record, not the list — see the note below.
@@ -175,13 +198,26 @@ const environmentRequestSlice = createSlice({
       .addCase(fetchAllowedTransitions.fulfilled, (state, action) => {
         state.allowedTransitions = action.payload;
       })
+      // Same I2 reasoning as fetchEnvironmentRequest.pending above: a
+      // fulfilled request's pack must never keep showing the PREVIOUS
+      // request's pack while the new one loads — wrong environment, wrong
+      // team, wrong connection details, in a document whose whole purpose is
+      // to be authoritative. Error is scoped to welcomePackError, not the
+      // shared `error` — see the interface note above.
+      .addCase(fetchWelcomePack.pending, (state) => {
+        state.welcomePack = null;
+        state.welcomePackLoading = true;
+        state.welcomePackError = null;
+      })
       .addCase(fetchWelcomePack.fulfilled, (state, action) => {
         state.welcomePack = action.payload;
-        state.error = null;
+        state.welcomePackLoading = false;
+        state.welcomePackError = null;
       })
       .addCase(fetchWelcomePack.rejected, (state, action) => {
         state.welcomePack = null;
-        state.error = action.payload ?? 'Failed to load the welcome pack';
+        state.welcomePackLoading = false;
+        state.welcomePackError = action.payload ?? 'Failed to load the welcome pack';
       });
     // Deliberately NO fulfilled handler splicing `requests` for create, update
     // or transition: the list is one server-paged window, and local surgery

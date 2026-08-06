@@ -45,13 +45,21 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
   cancelled: 'default',
 };
 
+// A sentinel distinct from every real group id (which start at 1), so the
+// Select can represent "no group" as a real, selectable option — not just
+// the picker's own initial/unset state. Without this an admin could ASSIGN
+// a group but never CLEAR one back to null, even though the backend accepts
+// an explicit `operations_group_id: null` PATCH.
+const NO_GROUP = 'none' as const;
+type GroupSelection = number | typeof NO_GROUP;
+
 export default function EnvironmentRequestDetail() {
   const { id } = useParams<{ id: string }>();
   const requestId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
 
-  const { current, allowedTransitions, loading } = useSelector(
+  const { current, allowedTransitions, error } = useSelector(
     (state: RootState) => state.environmentRequest
   );
   const user = useSelector((state: RootState) => state.auth.user);
@@ -60,9 +68,14 @@ export default function EnvironmentRequestDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
 
-  const [groupId, setGroupId] = useState<number | ''>('');
+  const [groupId, setGroupId] = useState<GroupSelection>(NO_GROUP);
   const [groupError, setGroupError] = useState<string | null>(null);
   const [savingGroup, setSavingGroup] = useState(false);
+
+  const load = () => {
+    dispatch(fetchEnvironmentRequest(requestId));
+    dispatch(fetchAllowedTransitions(requestId));
+  };
 
   useEffect(() => {
     dispatch(fetchEnvironmentRequest(requestId));
@@ -70,22 +83,38 @@ export default function EnvironmentRequestDetail() {
   }, [dispatch, requestId]);
 
   useEffect(() => {
-    setGroupId(current?.operations_group_id ?? '');
+    setGroupId(current?.operations_group_id ?? NO_GROUP);
   }, [current?.operations_group_id]);
 
   const isAdmin = user?.role === 'Admin' || user?.is_master_admin === true;
 
-  // A new-environment request cannot be fulfilled without an
-  // operations_group_id (fulfilment 409s otherwise). The picker only ever
-  // works while the request is still 'draft': PATCH /environment-requests/{id}
-  // 409s once a request has left draft ("A request can only be edited while
-  // it is a draft" — environment_request_service.update_request), so an
-  // admin must assign the team before the request is submitted, not after.
-  const showGroupPicker = isAdmin && current?.kind === 'new_environment' && current?.status === 'draft';
+  // C1: an approved new-environment request with no operations group was
+  // otherwise unrecoverable — fulfilment 409s forever on the null group,
+  // the seeded template gives 'approved' exactly one outgoing edge
+  // (approved -> fulfilled), and the request is never terminal so it sits in
+  // the admin queue permanently. environment_request_service.update_request
+  // now carves out operations_group_id ALONE, for an Admin, on a
+  // new_environment request, from 'draft', 'submitted' OR 'approved' — so
+  // the picker must offer all three, not just 'draft'.
+  const showGroupPicker =
+    isAdmin &&
+    current?.kind === 'new_environment' &&
+    (current?.status === 'draft' || current?.status === 'submitted' || current?.status === 'approved');
 
   useEffect(() => {
     if (showGroupPicker) dispatch(fetchUserGroups({}));
   }, [dispatch, showGroupPicker]);
+
+  // Minor: the Select's `value` must always match one of its MenuItems, or
+  // MUI logs an out-of-range warning. `groups` is fetched separately and can
+  // still be empty/loading on first render, so the currently-assigned group
+  // (if any) is added back in as a fallback option whenever `groups` hasn't
+  // caught up with it yet — once the real fetch resolves and includes it,
+  // this option is simply not added (no duplicate).
+  const groupOptions =
+    typeof groupId === 'number' && !groups.some((g) => g.id === groupId)
+      ? [{ id: groupId, name: current?.operations_group_name ?? 'Loading…' }, ...groups]
+      : groups;
 
   const handleTransition = async (toState: string) => {
     setTransitioning(true);
@@ -102,16 +131,21 @@ export default function EnvironmentRequestDetail() {
     // The allowed set changes with the state — re-fetch both rather than
     // trust the slice's own transitionEnvironmentRequest.fulfilled handler,
     // which only updates `current`.
-    dispatch(fetchEnvironmentRequest(requestId));
-    dispatch(fetchAllowedTransitions(requestId));
+    load();
   };
 
+  // Not `if (!groupId) return` any more (minor): that made a group
+  // ASSIGNABLE but never CLEARABLE, even though the backend accepts an
+  // explicit `operations_group_id: null` PATCH — NO_GROUP is a real,
+  // selectable value now, so there is nothing left to early-return on.
   const handleGroupSave = async () => {
-    if (!groupId) return;
     setSavingGroup(true);
     setGroupError(null);
     const result = await dispatch(
-      updateEnvironmentRequest({ id: requestId, data: { operations_group_id: Number(groupId) } })
+      updateEnvironmentRequest({
+        id: requestId,
+        data: { operations_group_id: groupId === NO_GROUP ? null : groupId },
+      })
     );
     setSavingGroup(false);
     if (updateEnvironmentRequest.rejected.match(result)) {
@@ -122,7 +156,30 @@ export default function EnvironmentRequestDetail() {
     dispatch(fetchEnvironmentRequest(requestId));
   };
 
-  if (loading && !current) {
+  // I1: fetchEnvironmentRequest.pending now sets `loading` (it used to be
+  // set ONLY by the list thunk, so a direct navigation here left `loading`
+  // false and `!current` rendered an empty document — no skeleton, no error,
+  // nothing). `error` is checked before `loading`/absence-of-`current`
+  // generically, so a page that hasn't started fetching yet (the render that
+  // happens before the mount effect has run) falls through to the skeleton
+  // rather than flashing a spurious "failed to load" with nothing to retry.
+  if (!current) {
+    if (error) {
+      return (
+        <Box sx={{ p: 3 }}>
+          <Alert
+            severity="error"
+            action={
+              <Button color="inherit" size="small" onClick={load}>
+                Retry
+              </Button>
+            }
+          >
+            {error}
+          </Alert>
+        </Box>
+      );
+    }
     return (
       <Box sx={{ p: 3 }}>
         <Skeleton variant="text" width={300} height={40} />
@@ -130,8 +187,6 @@ export default function EnvironmentRequestDetail() {
       </Box>
     );
   }
-
-  if (!current) return null;
 
   const target =
     current.kind === 'access'
@@ -230,8 +285,8 @@ export default function EnvironmentRequestDetail() {
             Operations Group
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            A new-environment request cannot be fulfilled until an operating team is assigned —
-            set it before submitting this request.
+            A new-environment request cannot be fulfilled until an operating team is assigned.
+            Set it now, or fix it here later if it was missed before approval.
           </Typography>
           {groupError && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -245,20 +300,21 @@ export default function EnvironmentRequestDetail() {
                 labelId="request-operations-group-label"
                 label="Operations Group"
                 value={groupId}
-                onChange={(e) => setGroupId(e.target.value as number)}
+                onChange={(e) =>
+                  setGroupId(e.target.value === NO_GROUP ? NO_GROUP : Number(e.target.value))
+                }
               >
-                {groups.map((g) => (
+                <MenuItem value={NO_GROUP}>
+                  <em>No group</em>
+                </MenuItem>
+                {groupOptions.map((g) => (
                   <MenuItem key={g.id} value={g.id}>
                     {g.name}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
-            <Button
-              variant="contained"
-              onClick={handleGroupSave}
-              disabled={!groupId || savingGroup}
-            >
+            <Button variant="contained" onClick={handleGroupSave} disabled={savingGroup}>
               Save
             </Button>
           </Stack>

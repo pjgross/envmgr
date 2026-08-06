@@ -36,14 +36,20 @@ function asText(value: unknown): string {
 
 export default function WelcomePack({ requestId }: WelcomePackProps) {
   const dispatch = useDispatch<AppDispatch>();
-  const { welcomePack, error } = useSelector((state: RootState) => state.environmentRequest);
+  // welcomePackError, NEVER the slice-wide `error` — that field is also
+  // written by fetchEnvironmentRequest/fetchEnvironmentRequests, so reading
+  // it here would render an unrelated request-list or request-detail
+  // failure as if it were the pack's own.
+  const { welcomePack, welcomePackError } = useSelector(
+    (state: RootState) => state.environmentRequest
+  );
 
   useEffect(() => {
     dispatch(fetchWelcomePack(requestId));
   }, [dispatch, requestId]);
 
   if (!welcomePack) {
-    return error ? <Alert severity="error">{error}</Alert> : null;
+    return welcomePackError ? <Alert severity="error">{welcomePackError}</Alert> : null;
   }
 
   const { environment, access, support, caveats, offboarding, context } = welcomePack;

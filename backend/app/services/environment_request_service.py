@@ -251,19 +251,38 @@ async def update_request(
     view = await get_request_view(db, request_id, tenant_id)
     req = view.request
 
-    if req.status != "draft":
+    is_admin = current_user.role == "Admin"
+    fields = data.model_dump(exclude_unset=True)
+
+    # Carve-out (C1): an approved new-environment request with no operations
+    # group is otherwise unrecoverable. _fulfil_new_environment 409s forever
+    # on the null group, this guard 409s any edit that would fix it, and the
+    # seeded template gives 'approved' exactly one outgoing edge
+    # (approved -> fulfilled) — so a request that reaches 'approved' with no
+    # group assigned has no path out at all. Scoped as narrowly as the hole:
+    # only an Admin, only operations_group_id alone, only on a
+    # new_environment request, only from 'submitted' or 'approved'.
+    group_only = set(fields) == {"operations_group_id"}
+    recoverable_group_fix = (
+        group_only
+        and is_admin
+        and req.kind == "new_environment"
+        and req.status in {"submitted", "approved"}
+    )
+    if req.status != "draft" and not recoverable_group_fix:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"A request can only be edited while it is a draft (this one is '{req.status}')",
+            f"A request can only be edited while it is a draft (this one is "
+            f"'{req.status}'), except that an admin may assign the "
+            "operations group alone on a submitted or approved "
+            "new-environment request.",
         )
-    is_admin = current_user.role == "Admin"
     if req.requested_by != current_user.id and not is_admin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Only the requester or an admin can edit this request",
         )
 
-    fields = data.model_dump(exclude_unset=True)
     await _assert_targets_are_ours(
         db, tenant_id,
         environment_id=fields.get("environment_id"),

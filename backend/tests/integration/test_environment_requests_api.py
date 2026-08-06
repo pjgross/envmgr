@@ -263,3 +263,163 @@ async def test_patch_cannot_change_kind(
     )
     assert patched.status_code == 200, patched.text
     assert patched.json()["kind"] == "access"
+
+
+# ---------------------------------------------------------------------------
+# Fix pass: C1 — an approved new-environment request with no operations group
+# was unrecoverable (fulfilment 409s forever on the null group, editing 409s
+# because the request has left draft, and the seeded template gives
+# 'approved' exactly one outgoing edge). update_request now carves out
+# operations_group_id ALONE, for an Admin, on a new_environment request, from
+# 'submitted' or 'approved'.
+# ---------------------------------------------------------------------------
+
+
+async def _groupless_new_env_request(client, auth_headers, db_session, test_tenant, to_status):
+    """A new_environment request with NO operations group, walked to
+    `to_status` ('submitted' or 'approved') via the real API.
+    `_assert_routable` only gates 'access' requests, so this is exactly how a
+    real request reaches 'approved' with a null operations_group_id."""
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "new_environment", "justification": "no team yet",
+              "proposed_name": f"Groupless {to_status}", "tier_id": tier.id,
+              "expires_at": "2027-01-01T00:00:00Z"},
+        headers=auth_headers,
+    )).json()["id"]
+    for state in ("submitted", "approved"):
+        r = await client.post(
+            f"/api/v1/environment-requests/{rid}/transition",
+            json={"to_state": state}, headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        if state == to_status:
+            break
+    return rid
+
+
+@pytest.mark.asyncio
+async def test_admin_can_fix_a_groupless_submitted_new_environment_request(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-Fix-Submitted")
+    await db_session.commit()
+    rid = await _groupless_new_env_request(
+        client, auth_headers, db_session, test_tenant, to_status="submitted"
+    )
+
+    fixed = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=auth_headers,
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["operations_group_id"] == group.id
+    assert fixed.json()["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_fix_a_groupless_approved_new_environment_request(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """The actual failure mode C1 fixes: 'approved' has exactly one outgoing
+    edge (approved -> fulfilled) and fulfilment 409s forever without a group —
+    this is the point of no return the fix reopens."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-Fix-Approved")
+    await db_session.commit()
+    rid = await _groupless_new_env_request(
+        client, auth_headers, db_session, test_tenant, to_status="approved"
+    )
+
+    fixed = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=auth_headers,
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["operations_group_id"] == group.id
+    assert fixed.json()["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_use_the_group_only_carve_out(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """The carve-out is Admin-only — a non-Admin is still refused while the
+    request is non-draft, even for operations_group_id alone."""
+    from app.core.security import get_password_hash
+    from app.db.models.user import User as UserModel
+
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-NonAdmin")
+    await db_session.commit()
+    rid = await _groupless_new_env_request(
+        client, auth_headers, db_session, test_tenant, to_status="submitted"
+    )
+
+    non_admin = UserModel(
+        tenant_id=test_tenant.id, username="c1-non-admin",
+        email="c1-non-admin@example.com",
+        password_hash=get_password_hash("password123"),
+        role="Test Manager", is_active=True,
+    )
+    db_session.add(non_admin)
+    await db_session.commit()
+    login = await client.post("/api/v1/auth/login", json={
+        "username": "c1-non-admin", "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    refused = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=headers,
+    )
+    assert refused.status_code == 409, refused.text
+
+
+@pytest.mark.asyncio
+async def test_group_plus_another_field_on_non_draft_is_still_409(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """The carve-out is exact: operations_group_id ALONE, nothing else."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-Plus-Field")
+    await db_session.commit()
+    rid = await _groupless_new_env_request(
+        client, auth_headers, db_session, test_tenant, to_status="submitted"
+    )
+
+    refused = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id, "justification": "also this"},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 409, refused.text
+
+
+@pytest.mark.asyncio
+async def test_an_access_request_is_still_409_on_a_non_draft_group_only_patch(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """The carve-out is scoped to kind == 'new_environment' — an access
+    request's operations group comes from its target environment, not the
+    request itself, and must not become independently editable post-draft."""
+    env = await _env(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-Access-Kind")
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=auth_headers,
+    )).json()["id"]
+    submitted = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "submitted"}, headers=auth_headers,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    refused = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=auth_headers,
+    )
+    assert refused.status_code == 409, refused.text
