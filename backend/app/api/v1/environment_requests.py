@@ -102,7 +102,7 @@ async def transition_environment_request(
 ):
     view = await environment_request_service.transition(
         db, request_id, data.to_state, current_user,
-        current_user.active_tenant_id, notes=data.notes,
+        current_user.active_tenant_id,
     )
     return EnvironmentRequestResponse.from_view(view)
 

@@ -423,23 +423,23 @@ async def _is_in_operations_group(
     return found is not None
 
 
-async def assert_may_transition(
-    db: AsyncSession,
-    req: EnvironmentRequest,
-    to_state: str,
-    current_user: User,
-    tenant_id: int,
-) -> LifecycleTemplate:
-    """The one place in this application that reads group membership for
-    authorization, alongside environment_service.assert_may_edit_handover.
+# The states whose decision belongs to the operating team. Moves OUT of the
+# initial state — submit, cancel — need only the role gate the template
+# already controls: the person requesting access is by definition not in the
+# team that operates the environment, so gating their own submission on
+# membership makes the primary user journey impossible. Product decision
+# 2026-08; reproduced live as a Viewer getting 403 submitting their own draft.
+APPROVAL_TARGET_STATES = frozenset({"approved", "rejected", "fulfilled"})
 
-        may = role AND (group OR Admin)
 
-    Admin bypasses the GROUP check but not the ROLE check, so a request can
-    never become permanently unactionable because a team was emptied — while
-    the lifecycle template still means something.
-    """
-    tpl = (
+async def _get_template_for_request(
+    db: AsyncSession, req: EnvironmentRequest, tenant_id: int
+) -> Optional[LifecycleTemplate]:
+    """The one tenant-scoped, non-deleted lookup of a request's lifecycle
+    template — shared by assert_may_transition and allowed_transitions so
+    they can never disagree about which template (or which tenant's copy of
+    it) governs a request."""
+    return (
         await db.execute(
             select(LifecycleTemplate).where(
                 LifecycleTemplate.id == req.lifecycle_id,
@@ -448,6 +448,32 @@ async def assert_may_transition(
             )
         )
     ).scalar_one_or_none()
+
+
+async def assert_may_transition(
+    db: AsyncSession,
+    req: EnvironmentRequest,
+    to_state: str,
+    current_user: User,
+    tenant_id: int,
+) -> None:
+    """The one place in this application that reads group membership for
+    authorization, alongside environment_service.assert_may_edit_handover.
+
+        may = role_allows(template, from, to, actor.role)
+              AND ( to_state not in APPROVAL_TARGET_STATES
+                    OR actor in target_environment.operations_group
+                    OR actor.role == 'Admin' )
+
+    The group check is gated on the TARGET state, not applied to every
+    transition: it exists to keep the operating team in control of the
+    decisions that are theirs (approve / reject / mark fulfilled), not to
+    stop a requester submitting or cancelling their own draft — see
+    APPROVAL_TARGET_STATES. Admin bypasses the GROUP check but not the ROLE
+    check, so a request can never become permanently unactionable because a
+    team was emptied — while the lifecycle template still means something.
+    """
+    tpl = await _get_template_for_request(db, req, tenant_id)
     if tpl is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Lifecycle template not found")
 
@@ -470,7 +496,7 @@ async def assert_may_transition(
         )
 
     is_admin = current_user.role == "Admin"
-    if not is_admin:
+    if to_state in APPROVAL_TARGET_STATES and not is_admin:
         in_group = await _is_in_operations_group(
             db, req.environment_id, current_user.id, tenant_id
         )
@@ -480,7 +506,6 @@ async def assert_may_transition(
                 "Only the operating team for this environment, or an admin, "
                 "can action this request",
             )
-    return tpl
 
 
 async def _assert_routable(db: AsyncSession, req: EnvironmentRequest, tenant_id: int) -> None:
@@ -517,15 +542,18 @@ async def transition(
     to_state: str,
     current_user: User,
     tenant_id: int,
-    notes: Optional[str] = None,
 ) -> EnvironmentRequestView:
     view = await get_request_view(db, request_id, tenant_id)
     req = view.request
 
+    # Authorization before business rules: an unauthorized caller must get a
+    # 403, never a 409 that leaks *why* the transition would fail if they
+    # were allowed to attempt it (e.g. "this environment has no operations
+    # team").
+    await assert_may_transition(db, req, to_state, current_user, tenant_id)
+
     if to_state == "submitted":
         await _assert_routable(db, req, tenant_id)
-
-    await assert_may_transition(db, req, to_state, current_user, tenant_id)
 
     from_state = req.status
     req.status = to_state
@@ -545,19 +573,18 @@ async def transition(
 async def allowed_transitions(
     db: AsyncSession, request_id: int, current_user: User, tenant_id: int
 ) -> list[dict]:
-    """Transitions this actor may ACTUALLY make — role and group both applied.
+    """Transitions this actor may ACTUALLY make — role and group both applied,
+    mirroring assert_may_transition's per-transition APPROVAL_TARGET_STATES
+    gate exactly.
 
-    The detail page renders these as buttons. Returning role-allowed
-    transitions the group check would then refuse produces a button that
-    always 403s.
+    The detail page renders these as buttons. Returning a transition
+    assert_may_transition would then refuse produces a button that always
+    403s — and, since C1, a transition it would *wrongly* refuse (e.g. a
+    requester's own submit) must not be hidden either.
     """
     view = await get_request_view(db, request_id, tenant_id)
     req = view.request
-    tpl = (
-        await db.execute(
-            select(LifecycleTemplate).where(LifecycleTemplate.id == req.lifecycle_id)
-        )
-    ).scalar_one_or_none()
+    tpl = await _get_template_for_request(db, req, tenant_id)
     if tpl is None:
         return []
 
@@ -566,7 +593,12 @@ async def allowed_transitions(
     )
     if current_user.role == "Admin":
         return by_role
+
+    gated = [t for t in by_role if t["to_state"] in APPROVAL_TARGET_STATES]
+    ungated = [t for t in by_role if t["to_state"] not in APPROVAL_TARGET_STATES]
+    if not gated:
+        return ungated
     in_group = await _is_in_operations_group(
         db, req.environment_id, current_user.id, tenant_id
     )
-    return by_role if in_group else []
+    return by_role if in_group else ungated

@@ -6,6 +6,7 @@ import pytest
 
 from app.core.security import get_password_hash
 from app.db.models.environment_request import EnvironmentRequest
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.user import User
 from app.db.models.user_group import UserGroupMember
 from tests.factories import ensure_environment, ensure_user_group
@@ -264,3 +265,362 @@ async def test_the_group_check_resolves_against_the_impersonated_tenant(
         json={"to_state": "approved"}, headers=headers,
     )
     assert ok.status_code == 200, ok.text
+
+
+# ---------------------------------------------------------------------------
+# Fix pass: C1, C2, I1, I2, I3, I4
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_requester_may_submit_their_own_draft(
+    client, db_session, test_tenant, environment_request_lifecycle
+):
+    """C1: the group gate must not block a requester from submitting — the
+    person requesting access is by definition not on the team that operates
+    the environment. Reproduced live as a 403 before this fix."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-C1-submit")
+    env.operations_group_id = group.id
+    await db_session.commit()
+    await _member(db_session, test_tenant, "viewer-submit", "Viewer", None)
+
+    headers = await _login(client, test_tenant.slug, "viewer-submit")
+    created = await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+
+    ok = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "submitted"}, headers=headers,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_a_requester_may_cancel_their_own_draft(
+    client, db_session, test_tenant, environment_request_lifecycle
+):
+    """C1, the 'cancel' half: 'draft' is not an APPROVAL_TARGET_STATE either."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-C1-cancel")
+    env.operations_group_id = group.id
+    await db_session.commit()
+    await _member(db_session, test_tenant, "viewer-cancel", "Viewer", None)
+
+    headers = await _login(client, test_tenant.slug, "viewer-cancel")
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=headers,
+    )).json()["id"]
+
+    ok = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "cancelled"}, headers=headers,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_a_viewer_still_cannot_approve(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """C1 widens who may SUBMIT; it must not widen who may APPROVE. 'approved'
+    stays in APPROVAL_TARGET_STATES, and a Viewer fails the ROLE gate on it
+    regardless of group membership."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    await _member(db_session, test_tenant, "viewer-noapprove", "Viewer", None)
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "viewer-noapprove")
+    refused = await client.post(
+        f"/api/v1/environment-requests/{req.id}/transition",
+        json={"to_state": "approved"}, headers=headers,
+    )
+    assert refused.status_code == 403, refused.text
+
+
+@pytest.mark.asyncio
+async def test_admin_is_refused_a_transition_the_template_excludes_them_from(
+    client, db_session, test_tenant, test_user, auth_headers, environment_request_lifecycle
+):
+    """C2: 'Admin bypasses the group, never the role' is untestable under the
+    seeded template, where Admin sits in every transition's allowed_roles.
+    Build a bespoke template that excludes Admin from one transition and
+    prove an Admin is actually refused it — auth_headers is an Admin who is
+    a member of no group, so the group bypass alone would let them through
+    if the role gate did not independently bind."""
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id, entity_type="environment_request",
+        name="No-Admin-Approve",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+                {"key": "approved", "label": "Approved", "is_initial": False, "is_terminal": False},
+            ],
+            "transitions": [
+                {"from_state": "submitted", "to_state": "approved", "label": "Approve",
+                 "allowed_roles": ["Test Manager"]},
+            ],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    env = await ensure_environment(db_session, test_tenant.id)
+    req = EnvironmentRequest(
+        tenant_id=test_tenant.id, kind="access", status="submitted",
+        lifecycle_id=tpl.id, requested_by=test_user.id,
+        justification="j", environment_id=env.id,
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    refused = await client.post(
+        f"/api/v1/environment-requests/{req.id}/transition",
+        json={"to_state": "approved"}, headers=auth_headers,
+    )
+    assert refused.status_code == 403, refused.text
+
+
+@pytest.mark.asyncio
+async def test_membership_of_a_different_group_is_refused(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """I1: membership of ANY group in the tenant must not satisfy the check —
+    only membership of the environment's OWN operating group. The outsider
+    here is in group B; the environment is operated by group A."""
+    group_a = await ensure_user_group(db_session, test_tenant.id, name="Ops A")
+    group_b = await ensure_user_group(db_session, test_tenant.id, name="Ops B")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group_a.id
+    await db_session.commit()
+    await _member(db_session, test_tenant, "tm-groupb", "Test Manager", group_b)
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "tm-groupb")
+    refused = await client.post(
+        f"/api/v1/environment-requests/{req.id}/transition",
+        json={"to_state": "approved"}, headers=headers,
+    )
+    assert refused.status_code == 403, refused.text
+
+
+@pytest.mark.asyncio
+async def test_a_membership_row_denormalized_to_the_wrong_tenant_is_refused(
+    client, db_session, test_tenant, test_user, second_tenant_factory,
+    environment_request_lifecycle,
+):
+    """I2: the tenant_id filters in _is_in_operations_group are defence in
+    depth, same as Task 4's actionable-clause finding. This row's group_id
+    points at the REAL operating group, but its denormalized tenant_id
+    disagrees — only a query that actually checks tenant_id refuses it."""
+    other_tenant, _ = await second_tenant_factory("Other Org I2", "other-org-i2")
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-I2")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    await db_session.commit()
+    actor = await _member(db_session, test_tenant, "tm-bad-tenant", "Test Manager", None)
+    db_session.add(UserGroupMember(
+        tenant_id=other_tenant.id, group_id=group.id, user_id=actor.id
+    ))
+    await db_session.commit()
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "tm-bad-tenant")
+    refused = await client.post(
+        f"/api/v1/environment-requests/{req.id}/transition",
+        json={"to_state": "approved"}, headers=headers,
+    )
+    assert refused.status_code == 403, refused.text
+
+
+@pytest.mark.asyncio
+async def test_allowed_transitions_offers_approve_to_an_in_group_approver(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """I3: the UI drives its buttons from this endpoint — it must offer
+    what will actually succeed."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-I3-a")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    await db_session.commit()
+    await _member(db_session, test_tenant, "tm-i3-in", "Test Manager", group)
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "tm-i3-in")
+    resp = await client.get(
+        f"/api/v1/environment-requests/{req.id}/allowed-transitions", headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "approved" in {t["to_state"] for t in resp.json()}
+
+
+@pytest.mark.asyncio
+async def test_allowed_transitions_resolves_against_the_impersonated_tenant(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """I3: switching the endpoint's tenant argument to current_user.tenant_id
+    would resolve the template lookup against the caller's HOME tenant under
+    impersonation, missing it entirely and returning []. Mirrors
+    test_the_group_check_resolves_against_the_impersonated_tenant."""
+    from app.core.security import create_access_token
+    from app.db.models.user import Tenant
+
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-I3-imp")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    await db_session.commit()
+
+    home = Tenant(name="System Org I3", slug="system-req-imp-i3")
+    db_session.add(home)
+    await db_session.flush()
+    master = User(
+        tenant_id=home.id, username="req-masteradmin-i3", email="rm-i3@imp.com",
+        password_hash=get_password_hash("password123"), role="Test Manager",
+        is_active=True, is_master_admin=True,
+    )
+    db_session.add(master)
+    await db_session.flush()
+    db_session.add(UserGroupMember(
+        tenant_id=test_tenant.id, group_id=group.id, user_id=master.id
+    ))
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+    await db_session.commit()
+
+    token = create_access_token({
+        "sub": str(master.id),
+        "tenant_id": home.id,
+        "impersonating_tenant_id": test_tenant.id,
+    })
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.get(
+        f"/api/v1/environment-requests/{req.id}/allowed-transitions", headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "approved" in {t["to_state"] for t in resp.json()}
+
+
+@pytest.mark.asyncio
+async def test_allowed_transitions_hides_group_gated_transitions_from_an_outsider(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """I3: dropping the group gate here leaves 29/29 green elsewhere — this
+    is the dedicated coverage. An approver-role outsider must not see
+    'approved' or 'rejected' offered."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-I3-b")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    await db_session.commit()
+    await _member(db_session, test_tenant, "tm-i3-out", "Test Manager", None)
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "tm-i3-out")
+    resp = await client.get(
+        f"/api/v1/environment-requests/{req.id}/allowed-transitions", headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    to_states = {t["to_state"] for t in resp.json()}
+    assert to_states.isdisjoint({"approved", "rejected", "fulfilled"})
+
+
+@pytest.mark.asyncio
+async def test_allowed_transitions_still_applies_the_role_gate(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """I3: dropping the ROLE gate specifically would leak 'draft' (Return
+    for Revision, an APPROVER-only transition that is NOT group-gated under
+    C1) to a Viewer who has no role permission for anything out of
+    'submitted'. Membership doesn't matter here — role alone must produce
+    an empty list."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    await _member(db_session, test_tenant, "viewer-i3-role", "Viewer", None)
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "viewer-i3-role")
+    resp = await client.get(
+        f"/api/v1/environment-requests/{req.id}/allowed-transitions", headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_allowed_transitions_still_offers_submit_to_the_requester(
+    client, db_session, test_tenant, environment_request_lifecycle
+):
+    """I3, after C1: a requester who is not on the operating team must still
+    be offered 'submitted' for their own draft."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-I3-c")
+    env.operations_group_id = group.id
+    await db_session.commit()
+    await _member(db_session, test_tenant, "viewer-i3-submit", "Viewer", None)
+
+    headers = await _login(client, test_tenant.slug, "viewer-i3-submit")
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=headers,
+    )).json()["id"]
+
+    resp = await client.get(
+        f"/api/v1/environment-requests/{rid}/allowed-transitions", headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "submitted" in {t["to_state"] for t in resp.json()}
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_submit_is_403_not_409_even_with_no_operations_team(
+    client, db_session, test_tenant, environment_request_lifecycle
+):
+    """I4: authorization must be checked before the routability business
+    rule — an unauthorized caller must never learn 'this environment has no
+    operations team' (409) instead of simply being refused (403). Uses a
+    bespoke template that excludes the actor's role from draft->submitted,
+    on an environment with no operations team, so the OLD ordering would
+    surface the 409 first."""
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id, entity_type="environment_request",
+        name="Admin-Only-Submit",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+            ],
+            "transitions": [
+                {"from_state": "draft", "to_state": "submitted", "label": "Submit",
+                 "allowed_roles": ["Admin"]},
+            ],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = None
+    viewer = await _member(db_session, test_tenant, "viewer-i4", "Viewer", None)
+    req = EnvironmentRequest(
+        tenant_id=test_tenant.id, kind="access", status="draft",
+        lifecycle_id=tpl.id, requested_by=viewer.id,
+        justification="j", environment_id=env.id,
+    )
+    db_session.add(req)
+    await db_session.commit()
+
+    headers = await _login(client, test_tenant.slug, "viewer-i4")
+    refused = await client.post(
+        f"/api/v1/environment-requests/{req.id}/transition",
+        json={"to_state": "submitted"}, headers=headers,
+    )
+    assert refused.status_code == 403, refused.text

@@ -31,8 +31,13 @@ class EnvironmentRequestUpdate(BaseModel):
 
 
 class EnvironmentRequestTransition(BaseModel):
+    """No `notes` field: there is no history table for this entity, so any
+    text sent here would be accepted and silently discarded rather than
+    persisted anywhere an approver's rejection reason could be read back.
+    Removed rather than wired up — adding a history table is out of scope
+    for this task; reconsider if/when one exists."""
+
     to_state: str
-    notes: Optional[str] = None
 
 
 class EnvironmentRequestResponse(BaseModel):
