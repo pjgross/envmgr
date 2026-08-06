@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -10,6 +10,11 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
+import {
+  CANVAS_BOTTOM_GAP,
+  CANVAS_MIN_HEIGHT,
+  computeCanvasHeight,
+} from './canvasHeight';
 import { NODE_WIDTH, NODE_HEIGHT } from './SubsystemNode';
 import { type ElkRenderContext, type RenderSubsystem } from './topologyElkGraph';
 import { computeCollapseModel, type Grouping } from './topologyModel';
@@ -31,6 +36,10 @@ export interface TopologyCanvasProps {
   colorFor: (componentType: string) => string;
   nodeTypes: NodeTypes;
   findDependency: (id: number) => ComponentDependencyResponse | null;
+  /**
+   * Fixed height in pixels. Omit — the default — to fill the viewport below
+   * wherever the canvas starts, which is what a tall monitor wants.
+   */
   height?: number;
   emptyMessage?: string;
   headerControls?: React.ReactNode; // rendered inline beside the toolbar; default none
@@ -44,7 +53,7 @@ export default function TopologyCanvas({
   colorFor,
   nodeTypes,
   findDependency,
-  height = 500,
+  height,
   emptyMessage = 'No components yet.',
   headerControls,
 }: TopologyCanvasProps) {
@@ -53,6 +62,44 @@ export default function TopologyCanvas({
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const rfRef = useRef<ReactFlowInstance | null>(null);
+
+  // Fill the viewport below wherever this canvas happens to start. The two
+  // pages that mount it carry different chrome above, so a `calc(100vh - Npx)`
+  // constant would be wrong on one of them — and wrong again the moment either
+  // page gains a row. Measuring is self-correcting.
+  //
+  // A CALLBACK ref, not useRef + an effect: this container renders only in the
+  // loaded branch, so on the first render (spinner) there is no node to measure
+  // and an effect keyed on anything else never runs again once it appears. The
+  // callback fires exactly when React attaches the node.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [measuredHeight, setMeasuredHeight] = useState<number>(CANVAS_MIN_HEIGHT);
+
+  const measure = useCallback(() => {
+    const node = containerRef.current;
+    if (!node || height !== undefined) return; // caller pinned it; don't fight them
+    setMeasuredHeight(
+      computeCanvasHeight({
+        top: node.getBoundingClientRect().top,
+        viewportHeight: window.innerHeight,
+        bottomGap: CANVAS_BOTTOM_GAP,
+      })
+    );
+  }, [height]);
+
+  const attachContainer = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = node;
+      if (node) measure();
+    },
+    [measure]
+  );
+
+  useLayoutEffect(() => {
+    if (height !== undefined) return;
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [height, measure]);
 
   // Reset transient state when the underlying graph changes (e.g. entity switch).
   useEffect(() => {
@@ -244,9 +291,10 @@ export default function TopologyCanvas({
 
   return (
     <Box
+      ref={attachContainer}
       sx={{
         display: 'flex',
-        height,
+        height: height ?? measuredHeight,
         border: 1,
         borderColor: 'divider',
         borderRadius: 1,
