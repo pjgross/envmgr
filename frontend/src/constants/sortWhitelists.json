@@ -43,5 +43,10 @@
     "sortable": ["git_branch", "build_number", "commit_timestamp"],
     "default": "commit_timestamp",
     "default_dir": "desc"
+  },
+  "environment-requests": {
+    "sortable": ["status", "kind", "needed_by", "created_at"],
+    "default": "created_at",
+    "default_dir": "desc"
   }
 }

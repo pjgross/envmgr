@@ -1519,6 +1519,58 @@ async def test_actionable_excludes_terminal_requests(
 
 
 @pytest.mark.asyncio
+async def test_terminal_states_come_from_the_tenants_own_template(
+    client, auth_headers, db_session, test_tenant, test_user
+):
+    """A tenant that renames its terminal states must not get a queue that
+    keeps showing finished work.
+
+    Tenant configurability is the whole reason this entity uses lifecycle
+    templates rather than a fixed enum; a hardcoded terminal set would quietly
+    break exactly the customer that design serves.
+    """
+    from sqlalchemy import select
+    from app.db.models.lifecycle import LifecycleTemplate
+
+    group = await ensure_user_group(db_session, test_tenant.id, name="Mine")
+    db_session.add(UserGroupMember(
+        tenant_id=test_tenant.id, group_id=group.id, user_id=test_user.id
+    ))
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    other = await ensure_user(db_session, test_tenant.id, username="colleague")
+
+    # Rename this tenant's terminal state to something the code cannot know.
+    tpl = (await db_session.execute(
+        select(LifecycleTemplate).where(
+            LifecycleTemplate.tenant_id == test_tenant.id,
+            LifecycleTemplate.entity_type == "environment_request",
+        )
+    )).scalars().first()
+    definition = dict(tpl.definition)
+    definition["states"] = [
+        {**s, "key": "provisioned"} if s["key"] == "fulfilled" else s
+        for s in definition["states"]
+    ]
+    tpl.definition = definition
+    await db_session.commit()
+
+    from app.db.models.environment_request import EnvironmentRequest
+
+    db_session.add(EnvironmentRequest(
+        tenant_id=test_tenant.id, kind="access", status="provisioned",
+        lifecycle_id=tpl.id, requested_by=other.id,
+        justification="finished", environment_id=env.id,
+    ))
+    await db_session.commit()
+
+    body = (await client.get(
+        "/api/v1/environment-requests?actionable=true", headers=auth_headers
+    )).json()
+    assert body == [], "a renamed terminal state must still be excluded"
+
+
+@pytest.mark.asyncio
 async def test_mine_returns_only_my_requests(
     client, auth_headers, db_session, test_tenant
 ):
@@ -1564,12 +1616,43 @@ Append to `backend/app/services/environment_request_service.py`:
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
 from app.db.models.user_group import UserGroupMember
 
-# States in which a request needs nobody's attention. Kept here rather than
-# read from the lifecycle definition because the filter runs in SQL, and a
-# per-tenant terminal set cannot be expressed in one query. A tenant that
-# renames these in its template gets a queue that ignores its custom terminals
-# — documented as a known limitation rather than silently wrong.
-TERMINAL_REQUEST_STATES = ("fulfilled", "rejected", "cancelled")
+# Fallback only, for a tenant with no environment_request template at all —
+# which the seeder makes near-impossible, but a filter that excludes NOTHING
+# when the lookup comes back empty would show every finished request in the
+# queue.
+_FALLBACK_TERMINAL_STATES = frozenset({"fulfilled", "rejected", "cancelled"})
+
+
+async def terminal_states_for_tenant(db: AsyncSession, tenant_id: int) -> frozenset[str]:
+    """The states in which a request needs nobody's attention.
+
+    Derived from the tenant's own templates rather than hardcoded: tenant
+    configurability is the whole reason this entity uses lifecycle templates
+    instead of a fixed status enum, so a tenant that renames `fulfilled` or
+    adds a `withdrawn` terminal must not get a queue that keeps showing
+    finished work.
+
+    Where a tenant has several environment_request templates, the union is
+    used. A state terminal in one template is therefore excluded everywhere,
+    which is the safe direction to be wrong in: the cost is a request briefly
+    missing from a queue, not a finished one lingering in it forever.
+    """
+    definitions = (
+        await db.execute(
+            select(LifecycleTemplate.definition).where(
+                LifecycleTemplate.tenant_id == tenant_id,
+                LifecycleTemplate.entity_type == ENTITY_TYPE,
+                LifecycleTemplate.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    terminal = {
+        state["key"]
+        for definition in definitions
+        for state in (definition or {}).get("states", [])
+        if state.get("is_terminal")
+    }
+    return frozenset(terminal) or _FALLBACK_TERMINAL_STATES
 
 REQUEST_SORTS = {
     "status": EnvironmentRequest.status,
@@ -1636,8 +1719,9 @@ async def list_requests(
         query = query.where(EnvironmentRequest.requested_by == mine_for_user_id)
     if actionable_for is not None:
         user_id, is_admin = actionable_for
+        terminal = await terminal_states_for_tenant(db, tenant_id)
         query = query.where(
-            EnvironmentRequest.status.notin_(TERMINAL_REQUEST_STATES),
+            EnvironmentRequest.status.notin_(terminal),
             EnvironmentRequest.requested_by != user_id,
             _actionable_clause(user_id, is_admin),
         )

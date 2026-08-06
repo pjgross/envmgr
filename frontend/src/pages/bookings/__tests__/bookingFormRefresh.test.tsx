@@ -67,6 +67,12 @@ const ENV: EnvironmentResponse = {
   custom_fields: null,
   operations_group_id: null,
   operations_group_name: null,
+  access_url: null,
+  connection_notes: null,
+  support_contact: null,
+  sla_notes: null,
+  known_limitations: null,
+  decommission_notes: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 };

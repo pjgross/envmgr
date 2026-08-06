@@ -11,6 +11,14 @@ production actually uses:
 That matters because several migrations and constraints are dialect-gated — the
 partial unique indexes guarded by `if dialect.name != "postgresql": return` are
 inert under SQLite, so a SQLite-only run cannot exercise them. CI runs both.
+NOTE: neither leg actually exercises those partial indexes even on
+PostgreSQL — both `db_engine` fixtures below build schema with
+`Base.metadata.create_all`, never `alembic upgrade head`, and the indexes
+are declared only in migration DDL, not on any model's `__table_args__`.
+Running against a real PostgreSQL catches ordinary collation/dialect
+differences, not those migration-only constraints; see
+test_migration_schema_drift.py and environment_request_service's
+_fulfil_new_environment docstring for the app-level guard this gap forced.
 
 The app's get_db dependency is overridden to inject the test session.
 """
@@ -38,6 +46,9 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.booking import Booking
 from app.db.models.system import System
 from app.core.security import get_password_hash
+from app.services.environment_request_defaults import (
+    seed_environment_request_defaults_for_tenant,
+)
 from datetime import datetime, timezone, timedelta
 
 # `or` not a get() default: an empty value (e.g. a CI matrix leg that sets the
@@ -156,6 +167,12 @@ async def realistic_client(db_engine):
     write surviving (or not surviving) a request that raises. `client` shares
     one session with the test body and never rolls back, so it cannot catch a
     write that only get_db's real rollback would discard.
+
+    `client` and `realistic_client` both assign into the same global
+    `app.dependency_overrides[get_db]`, and neither depends on the other, so
+    a test that requests both fixtures by name gets `client`'s override
+    silently — not a mix of the two, and not necessarily this fixture's
+    commit/rollback semantics even though it was asked for.
     """
     Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -424,3 +441,18 @@ async def release_lifecycle_template(db_session, tenant) -> LifecycleTemplate:
     await db_session.commit()
     await db_session.refresh(template)
     return template
+
+
+@pytest_asyncio.fixture(scope="function")
+async def environment_request_lifecycle(db_session, test_tenant) -> None:
+    """Seeds the environment_request lifecycle template for `test_tenant`.
+
+    `test_tenant` builds a bare Tenant row directly, bypassing
+    tenant_service.create_tenant — the only place that calls this seeder — so
+    any test that creates an environment request needs it seeded by hand.
+    Explicit rather than autouse (unlike the B3b module fixture this replaces)
+    so a test that wants a different template can simply not request it,
+    matching test_booking_type / test_change_requests.py's test_cr_lifecycle.
+    """
+    await seed_environment_request_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()

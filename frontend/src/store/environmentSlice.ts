@@ -1,5 +1,13 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { environmentService } from '../services/environmentService';
+// HandoverSection (components/environments) dispatches this thunk, which
+// lives in environmentRequestSlice.ts alongside the rest of the B3b request
+// workflow. Listening for its `.fulfilled` here — rather than adding a
+// reducer case in that slice, which has no `currentEnvironment` of its own —
+// is what keeps EnvironmentDetail's copy of the environment in sync after a
+// handover save; without this the page silently shows stale access/support
+// fields until the next full navigation.
+import { updateEnvironmentHandover } from './environmentRequestSlice';
 import type {
   EnvironmentResponse,
   EnvironmentSystemsResponse,
@@ -299,6 +307,15 @@ const environmentSlice = createSlice({
       .addCase(updateEnvSubsystem.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message ?? 'Failed to update subsystem';
+      })
+      // updateEnvironmentHandover (dispatched by HandoverSection) — see the
+      // import note above. Mirrors updateEnvironment.fulfilled: only touches
+      // `currentEnvironment`, and only when it's the same environment, since
+      // this is a single-record view, not the server-paged list.
+      .addCase(updateEnvironmentHandover.fulfilled, (state, action) => {
+        if (state.currentEnvironment?.id === action.payload.id) {
+          state.currentEnvironment = action.payload;
+        }
       });
   },
 });

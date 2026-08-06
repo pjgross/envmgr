@@ -112,12 +112,19 @@ already matched, so it is unaffected.
 | `GET /incidents` | `title`, `severity`, `status`, `detected_at`, `resolved_at` | `detected_at` desc | — |
 | `GET /deployments` | `status`, `deployer_name`, `deployed_at` | `deployed_at` desc | `environment_search`, `release_search` |
 | `GET /builds` | `git_branch`, `build_number`, `commit_timestamp` | `commit_timestamp` desc | `subsystem_search` |
+| `GET /environment-requests` **§** | `status`, `kind`, `needed_by`, `created_at` | `created_at` desc | `status`, `kind`, `environment_id`, `mine`, `actionable` |
 
-Four of the nine — releases, incidents, change-requests, deployments — declare
+Four of the nine C1-era endpoints — releases, incidents, change-requests, deployments — declare
 `default_dir="desc"` because that was each endpoint's pre-existing default order, and adopting
 `sorting()` was not allowed to change a default page's contents. That has a sharp edge for
 anyone building a client against this table; see point 3 under *What sub-project C3 must
 honour* below.
+
+**§** `GET /environment-requests` is not part of C1's original nine — it shipped later, with
+sub-project B3b — but it joins the same two-sided contract (`REQUEST_SORTS` ↔
+`sortWhitelists.json`'s `"environment-requests"` entry ↔ `test_sort_whitelist_contract.py`) and
+is bound by the same rules below, including the `default_dir="desc"` hazard in point 3: a
+client that omits `sort_dir` on this endpoint gets **descending**, not ascending.
 
 Every whitelisted field is a plain column reachable directly off the queried entity. No joined
 column (`environment_name` on a booking, `release_name` on a deployment) is sortable yet — each
@@ -204,6 +211,18 @@ file that does not ship with the repository, so they're recorded here instead �
    matching `name` only to `name` **or** `provider` **or** `region` — a change to an existing
    parameter's semantics, though inert today since no frontend page passes `search` to that
    endpoint.
+
+7. **A tenth endpoint, `GET /environment-requests`, joined this same contract later (sub-project
+   B3b) and inherits point 2's discipline exactly.** `target` (the request's environment name or
+   proposed name, depending on `kind`) and `requester_username` are **permanently unsortable** —
+   `target` because it isn't a column at all, it's computed client-side from two mutually
+   exclusive fields, and `requester_username` because it's a joined column, the same category
+   point 2's twelve already cover ("no joined column is sortable yet — each would need its join
+   shape checked individually for whether sorting by it could change which rows come back").
+   Neither is a key in `REQUEST_SORTS`, and `EnvironmentRequestList.tsx` marks both
+   `sortable: false` for exactly that reason. This endpoint is also one of the `default_dir="desc"`
+   set (see the table above and its **§** note) — a client must always send an explicit `sort_dir`,
+   never rely on the omitted-direction default meaning ascending.
 
 ## The C3 pilot
 
@@ -989,6 +1008,17 @@ Verified against the endpoint caps, in severity order:
 5. **`IncidentForm` / `ChangeRequestEditDialog` id lookups** into the `useAllX` collections.
    Those hooks do expose `truncated`, so the information exists; these call sites do not use
    it. **Recorded, not fixed.**
+6. **`HandoverSection.tsx` (sub-project B3b), found after this sweep closed.** It derives an
+   *authorization* affordance — whether the Edit button on an environment's Handover section
+   renders at all — from an unpaged `userGroupService.listMembers` call, taking the first page
+   (`res.rows`) and checking `.some(m => m.user_id === user.id)`. That's the `.find()`-into-a-
+   capped-collection shape this sweep exists to catch, one level removed: past the cap, a real
+   member of the operating team silently fails the membership check and loses their edit
+   affordance rather than rendering as `—`. **Bounded risk today** — `listMembers` caps at the
+   same 1000 as every other list endpoint, and an operations group with more than 1000 members
+   is not a realistic tenant shape — but it is the same defect class, decided by the same code
+   path, and belongs on this record for the next person who widens what a group can be.
+   **Recorded, not fixed.**
 
 Everything else the greps turned up filters tenant configuration (custom-field definitions,
 lifecycle states, booking types) or one entity's own children — bounded by structure, not by
@@ -1056,6 +1086,7 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 | `GET /releases/{id}/membership` **†** | `enterprise_membership_service.list_history_for_project` — bounds the `history` list only | 1000 |
 | `GET /tenant/groups` | `user_group_service.list_groups` — new with the B3a user-groups branch, not part of the 51/28/24 counts below, which predate it **‡** | 1000 |
 | `GET /tenant/groups/{group_id}/members` | `user_group_service.list_members`, row variant — same branch **‡** | 1000 |
+| `GET /environment-requests` | `environment_request_service.list_requests`, row variant — new with the B3b branch, likewise postdates the 51/28/24 counts **‡**; `X-Total-Count` set, ordered with an `EnvironmentRequest.id` tiebreaker | 1000 |
 
 **†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
 not a bare array, so it was never part of the `list[...]` count above or below. `current` is at
@@ -1093,6 +1124,13 @@ so nothing sorts this endpoint server-side either, the same reason as `environme
 because the backend whitelist doesn't exist. `/members` has no `sorting()` at all — it is always
 ordered `(lower(username), id)` — so it was never a WHITELISTS candidate in the first place.
 
+`GET /environment-requests` (`backend/app/api/v1/environment_requests.py`), added by the B3b
+branch, is the first of these post-C1 additions that **is** in the two-sided contract —
+`EnvironmentRequestList.tsx` renders `sortingMode="server"`, so its whitelist entry lives in both
+`REQUEST_SORTS` and `frontend/src/constants/sortWhitelists.json`, and `test_sort_whitelist_contract.py`
+enforces the two agree. See *What sub-project C3 must honour* below for its own entry in the
+sortable-column contract table.
+
 ## Not yet bounded
 
 This section originally covered the endpoints examined during the first sweep, then gained four
@@ -1126,6 +1164,20 @@ The remaining not-bounded endpoints below have **not** been re-enumerated agains
 greps and re-check this file before trusting any number here as current — it has now drifted out
 of sync with the code three times, and the counts above are a record of two known deltas, not a
 fresh audit.
+
+**As of the B3b branch (2026-08-06), the first grep returns 55 and `set_total_count(response`
+returns 40.** The "52" recorded immediately above was already stale *before* this branch —
+checked against `main` at this branch's merge-base (`e2704b93`), the actual counts there were
+**54** and **39**, two ahead of the document on both. That pre-existing +2/+2 gap is the B3a
+`tenant/groups` pair (`GET /tenant/groups` and `GET /tenant/groups/{group_id}/members`, both
+already bounded and already `set_total_count`-ing): the "Bounded so far" table already carried
+them with a **‡** footnote explaining they postdate the 52, but the number in this paragraph was
+never bumped to match. Recording the delta rather than silently re-baselining: **this branch adds
+exactly one first-grep hit and one `set_total_count` call**, both `GET /environment-requests`
+(54→55, 39→40) — it is the only new `response_model=list[...]` endpoint B3b ships. Nothing else
+this document tracks moved. As with the last two passes, the groups below have **not** been
+re-checked against either new count; treat both figures as of this paragraph's own date, not as a
+fresh audit of the sections that follow.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
 never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged

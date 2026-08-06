@@ -11,12 +11,13 @@ This guide is for **Release Managers, Test Managers, Developers, and Viewers** u
 3. [Concepts in 5 minutes](#3-concepts-in-5-minutes)
 4. [Browsing systems and environments](#4-browsing-systems-and-environments)
 5. [Booking environments](#5-booking-environments)
-6. [Raising change requests](#6-raising-change-requests)
-7. [Working with releases](#7-working-with-releases)
-8. [Builds and deployments](#8-builds-and-deployments)
-9. [Topology and dependency views](#9-topology-and-dependency-views)
-10. [Tips and common workflows](#10-tips-and-common-workflows)
-11. [Appendix: status lifecycles cheat sheet](#11-appendix-status-lifecycles-cheat-sheet)
+6. [Requesting environments](#6-requesting-environments)
+7. [Raising change requests](#7-raising-change-requests)
+8. [Working with releases](#8-working-with-releases)
+9. [Builds and deployments](#9-builds-and-deployments)
+10. [Topology and dependency views](#10-topology-and-dependency-views)
+11. [Tips and common workflows](#11-tips-and-common-workflows)
+12. [Appendix: status lifecycles cheat sheet](#12-appendix-status-lifecycles-cheat-sheet)
 
 ## 1. Introduction
 
@@ -27,8 +28,8 @@ EnvManager keeps track of the systems, environments, and release work going on a
 **How to read this guide.** Three orientation pointers:
 
 - For the big picture, read [ch. 3 (Concepts in 5 minutes)](#3-concepts-in-5-minutes) first — it diagrams how the entities fit together.
-- For day-to-day workflows, [ch. 5 (Booking environments)](#5-booking-environments) and [ch. 7 (Working with releases)](#7-working-with-releases) are the meatiest chapters.
-- For quick recipes, [ch. 10 (Tips and common workflows)](#10-tips-and-common-workflows) has cookbook-style scenarios.
+- For day-to-day workflows, [ch. 5 (Booking environments)](#5-booking-environments) and [ch. 8 (Working with releases)](#8-working-with-releases) are the meatiest chapters.
+- For quick recipes, [ch. 11 (Tips and common workflows)](#11-tips-and-common-workflows) has cookbook-style scenarios.
 
 If you're standing up a new tenant or modelling your platform, see [`admin-guide.md`](admin-guide.md). If you're working on EnvManager itself, see [`../CLAUDE.md`](../CLAUDE.md).
 
@@ -67,14 +68,15 @@ The sidebar is the same for every authenticated user. *Bookings* and *Releases* 
 | *Environments* | `/environments` | Environment inventory and detail. | [ch. 4](#4-browsing-systems-and-environments) |
 | *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | [ch. 5](#5-booking-environments) |
 | *Bookings → List* | `/bookings/list` | Tabular view of reservations. | [ch. 5](#5-booking-environments) |
-| *Builds* | `/builds` | CI build feed per subsystem. | [ch. 8](#8-builds-and-deployments) |
-| *Change Requests* | `/change-requests` | Change-request inbox. | [ch. 6](#6-raising-change-requests) |
-| *Deployments* | `/deployments` | Deployment feed per environment. | [ch. 8](#8-builds-and-deployments) |
-| *Releases → List* | `/releases` | Release inventory. | [ch. 7](#7-working-with-releases) |
-| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | [ch. 7](#7-working-with-releases) |
-| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | [ch. 7](#7-working-with-releases) |
-| *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints (read-only for non-Admins). | [`admin-guide.md` ch. 9](admin-guide.md#9-release-templates) |
-| *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 7](admin-guide.md#7-modelling-infrastructure-hosts) |
+| *Builds* | `/builds` | CI build feed per subsystem. | [ch. 9](#9-builds-and-deployments) |
+| *Change Requests* | `/change-requests` | Change-request inbox. | [ch. 7](#7-raising-change-requests) |
+| *Environment Requests* | `/environment-requests` | Request access to an environment, or a new one; track and action requests. | [ch. 6](#6-requesting-environments) |
+| *Deployments* | `/deployments` | Deployment feed per environment. | [ch. 9](#9-builds-and-deployments) |
+| *Releases → List* | `/releases` | Release inventory. | [ch. 8](#8-working-with-releases) |
+| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | [ch. 8](#8-working-with-releases) |
+| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | [ch. 8](#8-working-with-releases) |
+| *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints (read-only for non-Admins). | [`admin-guide.md` ch. 10](admin-guide.md#9-release-templates) |
+| *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 8](admin-guide.md#7-modelling-infrastructure-hosts) |
 | *Import* | `/import` | Bulk Excel import (Admin write — readable nav for everyone). | [`admin-guide.md` ch. 12](admin-guide.md#12-importexport) |
 
 Admin-only pages — user management and tenant configuration — appear under an extra *Admin* sidebar entry that's hidden unless your role is *Admin*.
@@ -126,14 +128,14 @@ Read this diagram from left to right. *Systems* on the left are owned by your pl
 - **Subsystem** — One deployable unit of a system (e.g. *payments-api*, *payments-web*). Each subsystem maps 1:1 to a CI build target. Also covered in [admin guide ch. 5](admin-guide.md#5-modelling-your-platform-systems-and-subsystems).
 - **Environment** — A logical instance of one or more systems (e.g. *UAT-1*, *PROD-EU*) — what humans book, change, and release into. Modelled by your Admin; see [admin guide ch. 6](admin-guide.md#6-modelling-environments). You'll browse them in [ch. 4](#4-browsing-systems-and-environments).
 - **Booking** — A time-bounded reservation of an environment for a test cycle, dry run, or other use. Anyone in the tenant can raise one; see [ch. 5](#5-booking-environments).
-- **Change Request** — A planned change against an environment, with a *kind* (e.g. *Code Deploy*, *Config Change*) and a status lifecycle. Covered in [ch. 6](#6-raising-change-requests).
-- **Release** — A coordinated rollout that groups change requests, scope items, gates, and target environments into a single deliverable. Driven by Release Managers; see [ch. 7](#7-working-with-releases).
-- **Build** — A CI artefact produced for a subsystem. Builds are read-only in EnvManager — they're pushed in by your CI system via webhook. See [ch. 8](#8-builds-and-deployments).
-- **Deployment** — A specific build deployed to an environment instance. Also read-only and pushed in by CI; see [ch. 8](#8-builds-and-deployments).
+- **Change Request** — A planned change against an environment, with a *kind* (e.g. *Code Deploy*, *Config Change*) and a status lifecycle. Covered in [ch. 7](#7-raising-change-requests).
+- **Release** — A coordinated rollout that groups change requests, scope items, gates, and target environments into a single deliverable. Driven by Release Managers; see [ch. 8](#8-working-with-releases).
+- **Build** — A CI artefact produced for a subsystem. Builds are read-only in EnvManager — they're pushed in by your CI system via webhook. See [ch. 9](#9-builds-and-deployments).
+- **Deployment** — A specific build deployed to an environment instance. Also read-only and pushed in by CI; see [ch. 9](#9-builds-and-deployments).
 
 ### What you'll usually do
 
-Day-to-day, you'll spend most of your time in five workflows: browse systems and environments to see what's where ([ch. 4](#4-browsing-systems-and-environments)); book an environment for a test cycle ([ch. 5](#5-booking-environments)); raise a change request when you're about to alter one ([ch. 6](#6-raising-change-requests)); plan, drive, and close out a release ([ch. 7](#7-working-with-releases)); and watch CI builds and deployments land in real time ([ch. 8](#8-builds-and-deployments)). For step-by-step recipes that combine these, see [ch. 10](#10-tips-and-common-workflows).
+Day-to-day, you'll spend most of your time in six workflows: browse systems and environments to see what's where ([ch. 4](#4-browsing-systems-and-environments)); book an environment for a test cycle ([ch. 5](#5-booking-environments)); ask for access to one, or for a new one, when nothing you can already reach fits ([ch. 6](#6-requesting-environments)); raise a change request when you're about to alter one ([ch. 7](#7-raising-change-requests)); plan, drive, and close out a release ([ch. 8](#8-working-with-releases)); and watch CI builds and deployments land in real time ([ch. 9](#9-builds-and-deployments)). For step-by-step recipes that combine these, see [ch. 11](#11-tips-and-common-workflows).
 
 ## 4. Browsing systems and environments
 
@@ -283,9 +285,81 @@ There is no dedicated *Cancel* button — cancellation is achieved by **deleting
 
 Deletion is a soft delete — the slot is freed immediately and the booking disappears from the calendar and list, but the row is retained for audit. *Rejected* and *Closed* are the lifecycle's two terminal exits, reached via the transition buttons (Admin / Release Manager only).
 
-If your test cycle is part of a release, see [ch. 7 (Working with releases)](#7-working-with-releases) — releases can have linked bookings.
+If your test cycle is part of a release, see [ch. 8 (Working with releases)](#8-working-with-releases) — releases can have linked bookings.
 
-## 6. Raising change requests
+## 6. Requesting environments
+
+### Concept
+
+An *Environment Request* is how you ask for something a booking can't get you: either **access** to an environment that already exists but that you can't yet reach, or a **brand-new environment** that doesn't exist at all. Every request carries a *justification* and routes to whoever can actually decide it — the team that operates the target environment for an access request, or a tenant Admin for a new one. Raising and cancelling your own request needs nothing more than being signed in; deciding one is where the routing matters. Manage requests at `/environment-requests`.
+
+This is a paperwork and audit trail, not a technical access grant — approving an access request doesn't change what you can click on in EnvManager itself (roles still control that). What it *does* do is give the operating team a record of who asked for what, why, and when, and — once fulfilled — a Welcome Pack telling you how to actually connect.
+
+### Status lifecycle
+
+Both kinds of request share one lifecycle, seeded per tenant as *Standard Request*. Your tenant Admin can extend it (see the admin guide), so treat the diagram below as the default rather than a guarantee.
+
+```
+        ┌───────┐
+        │ draft │  ◄──── (Return for Revision)
+        └───┬───┘                       ▲
+            │ Submit                    │
+            ▼                           │
+      ┌────────────┐                    │
+      │ submitted  │ ───────────────────┘
+      └─┬───────┬──┘
+Approve │       │ Reject
+        ▼       ▼
+   ┌─────────┐ ┌──────────┐
+   │approved │ │ rejected │  (terminal)
+   └────┬────┘ └──────────┘
+        │ Mark Fulfilled       Reject (also reachable from approved)
+        ▼
+   ┌───────────┐
+   │ fulfilled │  (terminal)
+   └───────────┘
+```
+
+*Cancel* is available from both *draft* and *submitted* — you can withdraw your own request either before or after you've sent it for review. Nobody but you (or an Admin) can edit or cancel it; nobody but the target environment's operating team (or an Admin) can approve, reject, or mark it fulfilled. You cannot approve your own request, whichever team you're on.
+
+A new request starts in *draft* — creating one does **not** submit it. Open it from the list and click *Submit* when it's ready.
+
+### List view
+
+Navigate to `/environment-requests` to see every request in your tenant — both kinds, in one grid, with columns for *Target* (the environment name for an access request, the proposed name for a new one), *Kind*, *Requested by*, *Status*, and *Needed by*. Three chips above the grid scope the list:
+
+- **All** — every request in the tenant, the default view.
+- **Mine** — requests you raised, whatever their status.
+- **For my team** — requests that need *your* attention. Precisely: a request is here if it is **not yet in a terminal status**, it was **not raised by you**, and it **targets an environment your team operates** (an access request against an environment whose operations group you belong to). A new-environment request shows up here for an Admin instead, since there's no environment yet to belong to a team. This is an inbox, not a mirror of your own activity — a request you raised against your own team's environment shows up under *Mine*, not here, even though you could technically action it; find it via *All* if you need to.
+
+Click any row to open its detail page, where the *Actions* panel shows only the transitions you're actually allowed to make right now.
+
+### Walkthrough: requesting access
+
+1. Open `/environment-requests` and click *New Request*.
+2. Leave the mode toggle on **Access**.
+3. Pick the **Environment** you need from the dropdown.
+4. Fill in **Justification** — why you need it. This is required either way.
+5. Click *Submit request*. The request is created in *draft*.
+6. Open it from the list and click *Submit* to send it to the operating team. If the environment has no operating team assigned, submission is refused with a message naming the environment — ask an Admin to assign one before trying again.
+
+### Walkthrough: requesting a new environment
+
+1. Open `/environment-requests` and click *New Request*.
+2. Switch the mode toggle to **New environment**.
+3. Fill in **Proposed name**, **Tier**, and **Expiry** — all required, the same as creating an environment directly.
+4. Fill in **Justification**.
+5. Click *Submit request*, then open it and click *Submit*.
+6. This kind always goes to an Admin, since there's no environment yet to have an operating team. The approving Admin also picks which team will operate the environment once it exists — you'll see that reflected on the request once it's approved.
+7. Once an Admin clicks *Mark Fulfilled*, the environment is created — **inactive**, not active yet, since nothing has actually been built. An Admin flips it active once the real infrastructure is ready.
+
+### Reading your Welcome Pack
+
+Once your request reaches *fulfilled*, its detail page grows a **Welcome Pack** — environment summary, how to connect, support contacts and the operating team's members, known limitations, and offboarding notes.
+
+The pack is rendered **live**, not a snapshot taken at fulfilment — if the operating team updates the VPN endpoint or the support contact next month, you'll see the new value the next time you open the pack, not what was there when your request was approved. Any field the operating team hasn't filled in yet reads **"Not provided"** rather than being left blank — that's not an error, it just means nobody has documented that part yet; check back later or ask the operating team directly (their names are listed right there in the *Support* section).
+
+## 7. Raising change requests
 
 ### Concept
 
@@ -351,7 +425,7 @@ The *Actions* panel on the detail page renders one button per transition allowed
 
 Environments and hosts are linked at creation via the multi-select fields above, and edited later from the *Edit* button on the detail page (which reopens the same dialog). The links power the audit trail — CRs are queryable by environment or host on the list filters and on the environment schedule view — and let bookings and deployments report which CR they relate to.
 
-## 7. Working with releases
+## 8. Working with releases
 
 ### Concept
 
@@ -421,10 +495,10 @@ The detail page at `/releases/:id` is tab-based:
 - **Main** — release metadata, target/actual dates, type, kind, current state, and the buttons that drive the lifecycle. Header icons open the *Status history* and *Event log* drawers.
 - **Gates & Test Phases** — read-only phase Gantt at the top, editable phases table below, and the gates list with criteria.
 - **Environments** — target environments for this release.
-- **Linked Requests** — change requests pulled into this release (see ch. 6).
+- **Linked Requests** — change requests pulled into this release (see ch. 7).
 - **Scope** — granular scope items, each with a *change_kind* (story / defect / task / spike) that tenant rules use to decide whether a late edit counts as a *scope change* (admin guide ch. 8).
 - **Enterprise** — for project releases, shows the current bundle (if any) and a history of past membership requests. For enterprise releases, the page swaps to a layout that lets you triage admission requests.
-- **Deployments** — populated by the CI deployment webhook (see [ch. 8](#8-builds-and-deployments)). Read-only.
+- **Deployments** — populated by the CI deployment webhook (see [ch. 9](#9-builds-and-deployments)). Read-only.
 
 Honest API note: every release endpoint is guarded by *get_current_user* only — no `require_role`. Role checks come from the lifecycle template's `allowed_roles` per transition, so whoever configures the template (your Tenant Admin) decides who can advance the release. See admin guide ch. 13, footnote 3.
 
@@ -455,7 +529,7 @@ The *RAID* tab tracks the four things a release manager watches: **Risks**, **As
 - **Filter and triage.** Each sub-tab has *status*, *owner*, *RAG*, and *overdue reviews* filters. An item whose *review date* has passed and isn't closed shows its review date in red and counts toward the *Overdue reviews* stat.
 - **Summary and heat-map.** The cards at the top of the tab count items by type, open issues, overdue reviews, and risk/issue RAG. *Show probability × impact heat-map* opens the grid: every cell is coloured by its severity band and lists the ref-codes scored there — the classic 5×5 risk matrix.
 - **Promote a risk to an issue.** When a risk materialises, open it and click *Promote to Issue*. EnvManager creates a new issue (copying title, description, owner, and scoring), links it back to the risk (`promoted_from`), and marks the source risk *promoted* — you keep the full trail. Assumptions and dependencies can likewise be promoted to a risk or issue.
-- **Link items to scope for PM visibility.** In an item's dialog, use *Link a scope item* to attach it to one or more release scope items (ch. 7 — Gates and scope). This is how a project manager sees that a risk or dependency touches their requirement. Use *Related items* to record `relates_to` / `caused_by` / `duplicates` / `blocks` links between two RAID items.
+- **Link items to scope for PM visibility.** In an item's dialog, use *Link a scope item* to attach it to one or more release scope items (ch. 8 — Gates and scope). This is how a project manager sees that a risk or dependency touches their requirement. Use *Related items* to record `relates_to` / `caused_by` / `duplicates` / `blocks` links between two RAID items.
 
 On an **enterprise release**, the *RAID Rollup* tab aggregates RAID across every accepted member release: counts by type and RAG, open-issue and overdue totals, and a top-risks-by-severity table.
 
@@ -467,9 +541,9 @@ A project release joins one enterprise release at a time (the live FK is `parent
 
 The header's history icon opens the *Status history* drawer — a read-only audit trail of every state transition: who, when, from-state, to-state, and notes. Useful for compliance reviews and post-go-live retros. The *Event log* icon opens the freeform *Release events* drawer (reschedule reasons, scope-change notes, stakeholder updates, post-go-live incidents) — typed entries you record manually.
 
-Once a release is in flight, see [ch. 8 (Builds and deployments)](#8-builds-and-deployments) for what your CI populates.
+Once a release is in flight, see [ch. 9 (Builds and deployments)](#9-builds-and-deployments) for what your CI populates.
 
-## 8. Builds and deployments
+## 9. Builds and deployments
 
 ### Concept
 
@@ -563,9 +637,9 @@ Walkthrough:
 
 This calls `POST /api/v1/deployments/{id}/link-change` and isn't role-gated server-side — any authenticated tenant user can do it. If your policy reserves audit-relinking for Admins, enforce that through process.
 
-If a deployment failed, see [ch. 10 (Tips and common workflows)](#10-tips-and-common-workflows) for the recipe.
+If a deployment failed, see [ch. 11 (Tips and common workflows)](#11-tips-and-common-workflows) for the recipe.
 
-## 9. Topology and dependency views
+## 10. Topology and dependency views
 
 ### Where to find topology views
 
@@ -602,7 +676,7 @@ The *Verify environment* action on the *Overview* tab populates the mocked / not
 - **Impact analysis**: if subsystem X is going down, inbound edges show every subsystem (and parent system) that depends on it.
 - **Onboarding**: a new team member can see the platform shape at a glance.
 
-## 10. Tips and common workflows
+## 11. Tips and common workflows
 
 These recipes chain steps from earlier chapters — refer back to chapters 4–9 for the underlying screens. Each scenario assumes you have the relevant role or template permissions; if a button isn't visible, your tenant's lifecycle template may have role-restricted that step.
 
@@ -616,7 +690,7 @@ These recipes chain steps from earlier chapters — refer back to chapters 4–9
 6. *(Optional)* On the *Linked Requests* tab, link a pre-existing CR. If you skip this, the deployment webhook will auto-create a `code_deployment` CR.
 7. Back on *Main*, run the *Emergency* template's two pre-deploy transitions: from *draft*, click *Approve* (*draft → approved*); from *approved*, click *Start Release* (*approved → in_progress*). The Emergency template skips *submitted* and *ready_for_release* but it still gates a release behind an explicit approval.
 8. Trigger your CI pipeline. CI calls `POST /api/v1/webhooks/deployment` (admin guide ch. 10). EnvManager upserts the Build, creates the Deployment, and (if you skipped step 6) auto-creates the CR. The Deployment appears on the release's *Deployments* tab.
-9. On *Gates & Test Phases*, mark gates *passed* via *Decide*, then transition through to *completed* on *Main*. Gates are UX cues, not enforced preconditions (see ch. 7).
+9. On *Gates & Test Phases*, mark gates *passed* via *Decide*, then transition through to *completed* on *Main*. Gates are UX cues, not enforced preconditions (see ch. 8).
 
 ### Recipe 2: I need to book UAT for a 2-week test cycle
 
@@ -641,7 +715,7 @@ These recipes chain steps from earlier chapters — refer back to chapters 4–9
 2. Click into the failing deployment.
 3. Read the header: *Environment*, linked *Release*, *Deployed* timestamp, *by* deployer name, and the status chip — *failed* (or *rolled_back* if a recovery rollout followed).
 4. In the *Build* card, click *View full build* to jump to `/builds/:id`. The *Pipeline steps* section shows one row per step with status and duration — the first non-success step is your starting point.
-5. Pivot back to the deployment and click into the *Change request* card. If it's the auto-created `Code Deployment` CR, the title anchors what was being deployed; the CR's status will have auto-transitioned to *failed* per the deployment lifecycle (ch. 8).
+5. Pivot back to the deployment and click into the *Change request* card. If it's the auto-created `Code Deployment` CR, the title anchors what was being deployed; the CR's status will have auto-transitioned to *failed* per the deployment lifecycle (ch. 9).
 6. If CI re-runs the deployment, the new event upserts the same Build (matched on subsystem + git_sha) and creates a fresh Deployment row keyed on `event_id`. The failed row stays in history.
 7. To swap the auto-CR for a human-authored RFC, click *Link a different change request* on the *Change request* card. The button greys out after one swap.
 
@@ -663,9 +737,9 @@ Two paths — pick whichever is more direct.
 3. Page back to the last 7 days. Each deployment block links to its detail page; bookings and CRs in the same window give you the why-context (was someone testing? was a config change running?).
 4. The *Deployments* tab on the same env page is the unfiltered feed for that environment if you'd rather scroll a list than read a calendar.
 
-## 11. Appendix: status lifecycles cheat sheet
+## 12. Appendix: status lifecycles cheat sheet
 
-This appendix collects the four entity lifecycles described in earlier chapters into a single quick-reference card. Booking, Change Request, and Release lifecycles are template-driven — your tenant Admin may have customised them. Deployment is the only fixed-enum lifecycle. Each diagram links back to the chapter where the entity is described in detail.
+This appendix collects the five entity lifecycles described in earlier chapters into a single quick-reference card. Booking, Environment Request, Change Request, and Release lifecycles are template-driven — your tenant Admin may have customised them. Deployment is the only fixed-enum lifecycle. Each diagram links back to the chapter where the entity is described in detail.
 
 ### Booking
 
@@ -701,9 +775,34 @@ A booking reserves an environment for a time window; see [ch. 5 (Booking environ
           rejected
 ```
 
+### Environment Request
+
+An environment request asks for access to an environment, or for a new one; see [ch. 6 (Requesting environments)](#6-requesting-environments). Both kinds share this lifecycle.
+
+```
+        ┌───────┐
+        │ draft │  ◄──── (Return for Revision)
+        └───┬───┘                       ▲
+            │ Submit                    │
+            ▼                           │
+      ┌────────────┐                    │
+      │ submitted  │ ───────────────────┘
+      └─┬───────┬──┘
+Approve │       │ Reject
+        ▼       ▼
+   ┌─────────┐ ┌──────────┐
+   │approved │ │ rejected │  (terminal)
+   └────┬────┘ └──────────┘
+        │ Mark Fulfilled       Reject (also reachable from approved)
+        ▼
+   ┌───────────┐
+   │ fulfilled │  (terminal)
+   └───────────┘
+```
+
 ### Change Request
 
-A CR describes a planned change against environments or hosts; see [ch. 6 (Raising change requests)](#6-raising-change-requests). Three default templates ship with each tenant.
+A CR describes a planned change against environments or hosts; see [ch. 7 (Raising change requests)](#7-raising-change-requests). Three default templates ship with each tenant.
 
 *Simple Approval* (default human flow):
 
@@ -752,7 +851,7 @@ A CR describes a planned change against environments or hosts; see [ch. 6 (Raisi
 
 ### Release
 
-A release groups CRs, scope, gates, and deployments under a shippable unit; see [ch. 7 (Working with releases)](#7-working-with-releases). The lifecycle is picked by release *type*.
+A release groups CRs, scope, gates, and deployments under a shippable unit; see [ch. 8 (Working with releases)](#8-working-with-releases). The lifecycle is picked by release *type*.
 
 *Major* (full ten-state flow):
 
@@ -811,7 +910,7 @@ A release groups CRs, scope, gates, and deployments under a shippable unit; see 
 
 ### Deployment
 
-A deployment is a build landing on an environment instance; see [ch. 8 (Builds and deployments)](#8-builds-and-deployments). All transitions come from the CI webhook — this is the only fixed-enum lifecycle.
+A deployment is a build landing on an environment instance; see [ch. 9 (Builds and deployments)](#9-builds-and-deployments). All transitions come from the CI webhook — this is the only fixed-enum lifecycle.
 
 ```
  pending --> in_progress --+--> success --+--> rolled_back

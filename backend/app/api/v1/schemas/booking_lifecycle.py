@@ -41,6 +41,25 @@ ENTITY_FIELD_SPECS: dict[str, dict[str, set[str]]] = {
         },
         "mandatory": set(),
     },
+    "environment_request": {
+        "valid": {
+            "kind", "justification", "needed_by", "environment_id",
+            "proposed_name", "tier_id", "expires_at", "operations_group_id",
+        },
+        # Empty: a non-empty mandatory set here requires the initial state to
+        # carry a populated field_permissions entry (a non-empty editable_by
+        # list per mandatory field), and this template ships
+        # field_permissions={} — deliberately plain, see
+        # environment_request_defaults.py. "release" also has an empty
+        # mandatory set, but for an unrelated reason: its own default
+        # templates (release_defaults.py) enforce required-ness through
+        # field_permissions[state]["required_fields"], read by
+        # lifecycle_service at transition time, not through this mandatory
+        # set at all. 'kind' and 'justification' here are enforced in
+        # environment_request_service instead, which can name the missing
+        # field in its message.
+        "mandatory": set(),
+    },
 }
 
 # Back-compat aliases — booking-specific code paths still import these names.
@@ -67,6 +86,34 @@ def validate_definition_for_entity(
         # Unknown entity — skip strict checks rather than block new entity
         # types before their spec is registered.
         return
+
+    # C1(b): environment_request_service keys FIVE places on literal state
+    # strings — create_request's initial write (now the template's own
+    # is_initial state, not a literal, per C1(a)), transition()'s fulfilment
+    # and submission-routing branches, build_welcome_pack's fulfilled gate,
+    # and APPROVAL_TARGET_STATES. A template that renames 'submitted',
+    # 'approved', 'rejected' or 'fulfilled' doesn't get a smaller version of
+    # this feature — it silently loses the group-gate authorization check
+    # entirely (a state the service never recognises as an
+    # APPROVAL_TARGET_STATE needs no group membership to reach) and/or wedges
+    # every request in a status the template has no transitions out of. A
+    # tenant may still add states, add a second review step, and rewire
+    # transitions freely — this only pins the four names the service's own
+    # logic depends on. "Exactly one is_initial" is already enforced for
+    # every entity by LifecycleDefinition.validate_one_initial above; the
+    # INITIAL state's name itself is deliberately not pinned here, since
+    # create_request now reads it from the template rather than assuming
+    # 'draft'.
+    if entity_type == "environment_request":
+        required_states = {"submitted", "approved", "rejected", "fulfilled"}
+        state_keys = {s.key for s in definition.states}
+        missing = required_states - state_keys
+        if missing:
+            raise ValueError(
+                "An environment_request lifecycle must define states named "
+                f"{sorted(required_states)} (the service's own logic keys on "
+                f"these names) — missing: {sorted(missing)}."
+            )
 
     valid = spec["valid"]
     mandatory = spec["mandatory"]

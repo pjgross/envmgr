@@ -22,6 +22,13 @@ export interface EnvironmentResponse {
   custom_fields: Record<string, unknown> | null;
   operations_group_id: number | null;
   operations_group_name: string | null;
+  /** The Welcome Pack's content — read-only here; written only via PATCH /environments/{id}/handover. */
+  access_url: string | null;
+  connection_notes: string | null;
+  support_contact: string | null;
+  sla_notes: string | null;
+  known_limitations: string | null;
+  decommission_notes: string | null;
   created_at: string;
   updated_at: string;
 }

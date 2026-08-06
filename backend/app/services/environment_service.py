@@ -22,8 +22,12 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
-from app.db.models.user_group import UserGroup
-from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
+from app.db.models.user_group import UserGroup, UserGroupMember
+from app.api.v1.schemas.environment import (
+    EnvironmentCreate,
+    EnvironmentUpdate,
+    EnvironmentHandoverUpdate,
+)
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
 from app.services import user_group_service
@@ -280,6 +284,33 @@ async def _validate_client_foreign_keys(
             await user_group_service.get_group(db, operations_group_id, tenant_id)
 
 
+async def assert_name_available(
+    db: AsyncSession, tenant_id: int, name: str
+) -> None:
+    """Refuse a name already used by a live environment in this tenant.
+
+    Shared by create_environment_record and
+    environment_request_service._fulfil_new_environment — the only two places
+    that can mint an Environment row — so the check cannot drift out of
+    lockstep between them (it used to be copy-pasted). Excludes soft-deleted
+    rows: a name freed by deleting an environment stays reusable.
+    """
+    existing = (
+        await db.execute(
+            select(Environment.id).where(
+                Environment.name == name,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An environment named '{name}' already exists in this tenant.",
+        )
+
+
 async def create_environment(
     db: AsyncSession, data: EnvironmentCreate, tenant_id: int
 ) -> Environment:
@@ -318,19 +349,7 @@ async def create_environment_record(
     the caller. `env_status` rather than `status` — the module-level `status`
     is FastAPI's status-code namespace, used by the raises below.
     """
-    # Check name uniqueness within tenant (active records only)
-    existing = await db.execute(
-        select(Environment).where(
-            Environment.name == name,
-            Environment.tenant_id == tenant_id,
-            Environment.deleted_at.is_(None),
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An environment with this name already exists in this tenant",
-        )
+    await assert_name_available(db, tenant_id, name)
     await validate_custom_fields(db, tenant_id, "environment", custom_fields)
     await _validate_client_foreign_keys(
         db, tenant_id, tier_id, owner_user_id, operations_group_id
@@ -441,6 +460,68 @@ async def update_environment(
         tenant_id=env.tenant_id,
     )
     return env
+
+
+async def assert_may_edit_handover(
+    db: AsyncSession, environment_id: int, current_user: User, tenant_id: int
+) -> None:
+    """The operating team, or an Admin.
+
+    This is the second of exactly two places in the application that read
+    group membership for authorization; the other is
+    environment_request_service.assert_may_transition. An environment with no
+    operating team (operations_group_id is NULL) degrades to Admin-only — the
+    membership query below simply finds no group to join against, never a
+    group that matches everyone or no one incorrectly.
+    """
+    # M1: is_master_admin satisfies this bypass too, matching the rest of the
+    # app (booking_service) and environment_request_service.assert_may_transition
+    # — both frontend gates on this action already check is_master_admin, so
+    # without this a master admin whose own row isn't role 'Admin' sees an
+    # enabled control that then 403s.
+    if current_user.role == "Admin" or current_user.is_master_admin:
+        return
+    found = (
+        await db.execute(
+            select(UserGroupMember.id)
+            .join(Environment, Environment.operations_group_id == UserGroupMember.group_id)
+            .where(
+                Environment.id == environment_id,
+                Environment.tenant_id == tenant_id,
+                UserGroupMember.user_id == current_user.id,
+                UserGroupMember.tenant_id == tenant_id,
+            )
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the operating team for this environment, or an admin, can "
+            "edit its handover details",
+        )
+
+
+async def update_handover(
+    db: AsyncSession,
+    environment_id: int,
+    data: EnvironmentHandoverUpdate,
+    current_user: User,
+    tenant_id: int,
+) -> EnvironmentView:
+    """Write the Welcome Pack's content.
+
+    The narrow surface (EnvironmentHandoverUpdate accepts only the six
+    handover keys) is the safety property here, not this permission check —
+    a member of the operating team cannot reach tier_id, owner_user_id,
+    operations_group_id, status or name through this schema no matter what
+    the authorization rule below decides.
+    """
+    env = await get_environment(db, environment_id, tenant_id)  # 404s cross-tenant/missing
+    await assert_may_edit_handover(db, environment_id, current_user, tenant_id)
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(env, key, value)
+    await db.flush()
+    return await get_environment_view(db, environment_id, tenant_id)
 
 
 async def delete_environment(

@@ -1,6 +1,6 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1 and B3a shipped | Roadmap: [../plan.md](../plan.md)
+> Status: 🟡 **In progress** — sub-projects B1, B3a and B3b shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
@@ -32,15 +32,17 @@ A1 gates A3 and A4.
         Pack — it ships no user-visible workflow by itself, only the admin screens and the
         field the rest of B3 needs.
         [Spec](../superpowers/specs/2026-08-04-user-groups-design.md)
-  - [ ] **B3b** The Environment Request Form, routed to the operating team via B3a's
-        membership, its approval flow, and the Welcome Pack generated at handoff. This is
-        where the requirement "an environment must have an operating team" actually gets
-        enforced — B3a leaves `operations_group_id` nullable everywhere.
+  - [x] **B3b** The Environment Request Form, routed to the operating team via B3a's
+        membership, its approval flow, and the Welcome Pack generated at handoff. It does
+        **not** make an operating team mandatory — `operations_group_id` stays nullable and
+        unenforced, same as B3a shipped it. What it enforces is narrower: an access request
+        against a teamless environment cannot be *submitted*.
+        [Spec](../superpowers/specs/2026-08-05-environment-request-form-design.md)
 - [ ] **B4** Soft (preemptible) vs hard (protected) reservations + time-slot bookings
 - [ ] **B5** Decommissioning workflow + idle auto-detection (ghost environments)
 - [ ] **B6** Forward contention as a calendar leading indicator
 
-B1 gates B2, B3 and B5. B3a gates B3b.
+B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
 
 ## What B1 established
 
@@ -99,3 +101,50 @@ B1 gates B2, B3 and B5. B3a gates B3b.
 - **No role within a group, and group membership grants no permissions.** Every
   authorization rule stays role-based; B3b introduces the first behaviour that
   reads membership at all (which requests an ops-team member sees).
+
+## What B3b established
+
+- **The group gate applies to the transition's *target* state, not to every transition.**
+  The spec's original design gated every transition on membership, which meant a Viewer
+  raising an access request got 403 submitting their own draft — the requester is by
+  definition not in the operating team, so the gate made the primary user journey
+  impossible, and since the queue also excludes your own requests, a non-Admin's request
+  could never even reach an approver. `APPROVAL_TARGET_STATES = {approved, rejected,
+  fulfilled}` fixes this: submitting and cancelling need only the role gate the lifecycle
+  template already controls, and only a move *into* one of those three states asks whether
+  the actor is in the target environment's operating team (or is an Admin, who bypasses the
+  group check but never the role check). The bug shipped past 29 green tests before review
+  caught it, because every submission test in the suite happened to use an Admin — the one
+  actor the gate doesn't apply to.
+- **`validate_definition_for_entity` refuses an `environment_request` template that
+  doesn't define `submitted`, `approved`, `rejected` and `fulfilled`, plus exactly one
+  initial state.** The service keys on those four names in five places — routing,
+  fulfilment, the welcome-pack gate, and `APPROVAL_TARGET_STATES` itself — so a tenant
+  renaming one of them wouldn't get a smaller version of the feature, it would silently
+  lose the group-gate check on a state the service no longer recognises as an approval
+  target, or wedge every request in a status with no transition out. A tenant may still add
+  states, add a second review step, and rewire transitions freely; only those four names are
+  pinned. The *initial* state's name is deliberately not pinned — `create_request` reads it
+  from the template's own `is_initial` flag rather than assuming `draft`.
+- **Six handover fields on `Environment`, written through exactly one narrow endpoint.**
+  `PATCH /environments/{id}/handover` accepts only `access_url`, `connection_notes`,
+  `support_contact`, `sla_notes`, `known_limitations` and `decommission_notes` — never a
+  widening of the Admin-gated `PATCH /environments/{id}`, which still controls tier, owner,
+  status and the operations group itself. The fields are never added to `EnvironmentUpdate`,
+  so there is exactly one write path and no second one to keep in step. Authorization on that
+  one path is the operating team *or* an Admin — the second and last place in the application
+  that reads group membership, alongside the transition gate above. Without it, only Admins
+  could author the access URL, VPN route and support contact for every environment in the
+  estate, and the predictable result is packs that stay empty.
+- **Fulfilling a new-environment request creates the `Environment` with `status = INACTIVE`,
+  never `ACTIVE`.** The register must not claim an environment is available before anyone
+  has actually built it — that drift between the register and reality is what this product
+  exists to prevent. An admin flips it active once the infrastructure exists. The six
+  handover fields stay null on creation: there is nothing to hand over until it is built.
+- **The Welcome Pack is a read model, rendered live on every request — never a stored
+  snapshot.** A copy frozen at fulfilment would go stale the moment the operating team
+  updates a VPN endpoint or support contact, and a confidently-stated stale connection
+  detail is worse than no document at all. Every free-text field that hasn't been filled in
+  renders as "Not provided", not a blank section — an empty "How to connect" heading reads
+  as "there is nothing to do", the same absent-versus-checked-and-empty confusion the drift
+  work already had to fix once.

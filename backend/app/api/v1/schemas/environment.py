@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.environment import EnvironmentStatus
 from app.api.v1.schemas.system import SystemResponse
@@ -19,6 +19,14 @@ class EnvironmentCreate(BaseModel):
 
 
 class EnvironmentUpdate(BaseModel):
+    # forbid: the six handover fields (access_url, connection_notes,
+    # support_contact, sla_notes, known_limitations, decommission_notes) are
+    # deliberately absent from this schema — PATCH /environments/{id}/handover
+    # is their only write path. Without extra="forbid" Pydantic silently drops
+    # unknown keys, which would let a client send them here too and have them
+    # quietly ignored rather than rejected — a second, unguarded door.
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     description: Optional[str] = None
     tier_id: Optional[int] = None
@@ -32,6 +40,24 @@ class EnvironmentUpdate(BaseModel):
     expires_at: Optional[datetime] = None
     status: Optional[EnvironmentStatus] = None
     custom_fields: Optional[dict] = None
+
+
+class EnvironmentHandoverUpdate(BaseModel):
+    """The Welcome Pack's content. Six keys and no others.
+
+    `extra="forbid"` is the safety property of this endpoint, not its
+    authorization: whatever the permission rule says, a request body cannot
+    reach tier_id, owner_user_id, operations_group_id or status through here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    access_url: Optional[str] = Field(default=None, max_length=500)
+    connection_notes: Optional[str] = None
+    support_contact: Optional[str] = Field(default=None, max_length=255)
+    sla_notes: Optional[str] = None
+    known_limitations: Optional[str] = None
+    decommission_notes: Optional[str] = None
 
 
 class EnvironmentResponse(BaseModel):
@@ -50,6 +76,14 @@ class EnvironmentResponse(BaseModel):
     expires_at: Optional[datetime] = None
     status: EnvironmentStatus
     reserved_now: bool = False
+    # The Welcome Pack's content — read-only here; written only via
+    # PATCH /environments/{id}/handover.
+    access_url: Optional[str] = None
+    connection_notes: Optional[str] = None
+    support_contact: Optional[str] = None
+    sla_notes: Optional[str] = None
+    known_limitations: Optional[str] = None
+    decommission_notes: Optional[str] = None
     tenant_id: int
     custom_fields: Optional[dict] = None
     created_at: datetime
@@ -79,6 +113,12 @@ class EnvironmentResponse(BaseModel):
             expires_at=env.expires_at,
             status=env.status,
             reserved_now=view.reserved_now,
+            access_url=env.access_url,
+            connection_notes=env.connection_notes,
+            support_contact=env.support_contact,
+            sla_notes=env.sla_notes,
+            known_limitations=env.known_limitations,
+            decommission_notes=env.decommission_notes,
             tenant_id=env.tenant_id,
             custom_fields=env.custom_fields,
             created_at=env.created_at,

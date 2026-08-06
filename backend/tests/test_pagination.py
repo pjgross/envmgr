@@ -291,6 +291,7 @@ BOUNDED_ENDPOINTS: list[tuple[str, str, int, str]] = [
     # The picker list has its own, larger contract — see `list_users_lite`.
     ("tenant_users_lite", "/api/v1/tenant/users/lite", 5000, "auth_headers"),
     ("tenant_groups", "/api/v1/tenant/groups", MAX_LIMIT, "auth_headers"),
+    ("environment_requests", "/api/v1/environment-requests", MAX_LIMIT, "auth_headers"),
 ]
 
 

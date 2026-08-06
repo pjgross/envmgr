@@ -31,6 +31,9 @@ const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
 const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
+const EnvironmentRequestDetail = lazy(() => import('./pages/environments/EnvironmentRequestDetail'));
+const EnvironmentRequestForm = lazy(() => import('./pages/environments/EnvironmentRequestForm'));
+const EnvironmentRequestList = lazy(() => import('./pages/environments/EnvironmentRequestList'));
 const GitHubIntegration = lazy(() => import('./pages/admin/GitHubIntegration'));
 const HealthDashboard = lazy(() => import('./pages/insights/HealthDashboard'));
 const ImportPage = lazy(() => import('./pages/import/ImportPage'));
@@ -173,6 +176,9 @@ function App() {
             <Route path="/environments" element={<EnvironmentList />} />
             <Route path="/environments/compare" element={<EnvironmentCompare />} />
             <Route path="/environments/:id" element={<EnvironmentDetail />} />
+            <Route path="/environment-requests" element={<EnvironmentRequestList />} />
+            <Route path="/environment-requests/new" element={<EnvironmentRequestForm />} />
+            <Route path="/environment-requests/:id" element={<EnvironmentRequestDetail />} />
             <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
             <Route path="/bookings/calendar" element={<BookingCalendar />} />
             <Route path="/bookings/list" element={<BookingList />} />
