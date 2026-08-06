@@ -128,3 +128,26 @@ async def test_release_link_is_named_to_avoid_the_release_kind_collision(
 
     assert release.owning_project_id == project.id
     assert release.release_kind == "project"  # unrelated, and untouched
+
+
+@pytest.mark.asyncio
+async def test_ensure_project_is_scoped_per_tenant_not_per_name(
+    db_session, test_tenant, second_tenant_factory
+):
+    """Two tenants asking for the same project name get two distinct rows.
+
+    Added after the Task 1 review proved the factory's tenant filter was
+    unguarded: dropping `Project.tenant_id == tenant_id` from its lookup left
+    every other test in this file green, and a factory that leaked a row across
+    tenants would make Task 4's IDOR tests pass against broken code.
+    """
+    other_tenant, _other_admin = await second_tenant_factory()
+
+    mine = await ensure_project(db_session, test_tenant.id, name="Shared Name")
+    theirs = await ensure_project(db_session, other_tenant.id, name="Shared Name")
+
+    assert mine.id != theirs.id
+    assert mine.tenant_id == test_tenant.id
+    assert theirs.tenant_id == other_tenant.id
+    # Still idempotent within one tenant.
+    assert (await ensure_project(db_session, test_tenant.id, name="Shared Name")).id == mine.id
