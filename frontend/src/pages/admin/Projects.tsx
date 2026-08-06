@@ -196,7 +196,17 @@ export default function Projects() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Typography variant="h5">Projects</Typography>
         {canWrite && (
-          <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => {
+              // Mirror openEdit and the delete-open click: reset the dialog's
+              // own error before it opens, or a previous failure's message
+              // greets a fresh, untouched form (Finding 1, Task 6 review).
+              setCreateError(null);
+              setCreateOpen(true);
+            }}
+          >
             + New Project
           </Button>
         )}

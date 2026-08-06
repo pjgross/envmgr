@@ -11,6 +11,7 @@ import projectReducer from '../../../store/projectSlice';
 import userGroupReducer from '../../../store/userGroupSlice';
 import { projectService } from '../../../services/projectService';
 import { userGroupService } from '../../../services/userGroupService';
+import { getLastDataGridProps } from '../../../test/dataGridMock';
 
 vi.mock('../../../services/projectService', () => ({
   projectService: {
@@ -197,6 +198,113 @@ describe('Projects', () => {
     expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
   });
+
+  it('clears a previous create failure when the dialog is reopened (Finding 1)', async () => {
+    // Trigger a 409, Cancel, wait for the dialog to unmount, reopen — the
+    // fresh, untouched form must not carry the previous attempt's message.
+    vi.mocked(projectService.createProject).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: "A project named 'Mortgage' already exists in this tenant" },
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /new project/i }));
+    await userEvent.type(screen.getByLabelText(/^name/i), 'Mortgage');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await waitFor(() => expect(screen.getByText(/already exists/i)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /new project/i }));
+    expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the server reason when an edit is refused, not the axios status line', async () => {
+    vi.mocked(projectService.updateProject).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: "A project named 'Mortgage' already exists in this tenant" },
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(screen.getByText(/already exists/i)).toBeInTheDocument());
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the server reason when a delete is refused, not the axios status line', async () => {
+    vi.mocked(projectService.deleteProject).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: 'Cannot delete a project with active usage agreements' },
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    // MUI's Modal marks background content aria-hidden while the dialog is
+    // open, so this second query resolves to the dialog's own Delete button
+    // even though the (now-hidden) row button shares its accessible name.
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/active usage agreements/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('does not offer a per-column filter menu on the grid (docs/pagination.md)', async () => {
+    // A raw DataGrid still offers a Filter menu on unsortable columns, which
+    // would silently filter only the fetched window rather than the
+    // server-paged set. The shared mock does not interpret this prop itself,
+    // so this reads it back from the actual props the grid was rendered with.
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    expect(getLastDataGridProps()?.disableColumnFilter).toBe(true);
+  });
+
+  it('refetches the list after a successful create rather than splicing the row in', async () => {
+    vi.mocked(projectService.createProject).mockResolvedValue({
+      id: 2,
+      tenant_id: 1,
+      name: 'New Project',
+      code: null,
+      description: null,
+      team_group_id: null,
+      team_group_name: null,
+      environment_count: 0,
+      is_active: true,
+      created_at: '2026-01-02T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z',
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    expect(projectService.listProjects).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: /new project/i }));
+    await userEvent.type(screen.getByLabelText(/^name/i), 'New Project');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    // The list is a server-paged window: a fulfilled create has no reducer
+    // handler (see projectSlice.ts), so the only way the new row appears is
+    // a refetch of the whole page.
+    await waitFor(() => expect(projectService.listProjects).toHaveBeenCalledTimes(2));
+  });
 });
 
 function renderDetail(role: 'Admin' | 'Member' = 'Admin') {
@@ -217,6 +325,19 @@ function renderDetail(role: 'Admin' | 'Member' = 'Admin') {
     </Provider>
   );
 }
+
+const AGREEMENT = {
+  id: 10,
+  tenant_id: 1,
+  project_id: 1,
+  project_name: 'Mortgage',
+  environment_id: 9,
+  environment_name: 'staging-a',
+  starts_at: null,
+  ends_at: null,
+  notes: null,
+  created_at: '2026-01-01T00:00:00Z',
+};
 
 describe('ProjectDetail', () => {
   beforeEach(() => {
@@ -249,5 +370,80 @@ describe('ProjectDetail', () => {
     expect(
       screen.getByText(/is a record .* not a rule|nothing here stops/i)
     ).toBeInTheDocument();
+  });
+
+  it('shows the add-agreement form and Remove buttons for an admin (Finding 2)', async () => {
+    vi.mocked(projectService.listAgreementsForProject).mockResolvedValue({
+      rows: [AGREEMENT],
+      total: 1,
+    });
+    renderDetail('Admin');
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    expect(screen.getByRole('combobox', { name: 'Environment' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^add$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^remove$/i })).toBeInTheDocument();
+    // Reads are open to any tenant member — an admin must see them too.
+    expect(screen.getByText('staging-a')).toBeInTheDocument();
+  });
+
+  it('hides the add-agreement form and Remove buttons for a non-admin, who can still read the table (Finding 2)', async () => {
+    vi.mocked(projectService.listAgreementsForProject).mockResolvedValue({
+      rows: [AGREEMENT],
+      total: 1,
+    });
+    renderDetail('Member');
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    expect(screen.queryByRole('combobox', { name: 'Environment' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^add$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
+    // The read/write split is deliberate: GET is open to any tenant member,
+    // only POST/DELETE are Admin-gated (see the module docblock).
+    expect(screen.getByText('staging-a')).toBeInTheDocument();
+  });
+
+  it('surfaces the server reason when adding a usage agreement is refused, not the axios status line', async () => {
+    vi.mocked(projectService.createAgreement).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: 'This environment already has an agreement with this project' },
+      },
+    });
+    renderDetail('Admin');
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Environment' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'staging-a' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/already has an agreement/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the server reason when removing a usage agreement is refused, not the axios status line', async () => {
+    vi.mocked(projectService.listAgreementsForProject).mockResolvedValue({
+      rows: [AGREEMENT],
+      total: 1,
+    });
+    vi.mocked(projectService.deleteAgreement).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: 'Cannot remove: a booking already exists for this environment' },
+      },
+    });
+    renderDetail('Admin');
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /^remove$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/booking already exists/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
   });
 });
