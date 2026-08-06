@@ -11,6 +11,14 @@ production actually uses:
 That matters because several migrations and constraints are dialect-gated — the
 partial unique indexes guarded by `if dialect.name != "postgresql": return` are
 inert under SQLite, so a SQLite-only run cannot exercise them. CI runs both.
+NOTE: neither leg actually exercises those partial indexes even on
+PostgreSQL — both `db_engine` fixtures below build schema with
+`Base.metadata.create_all`, never `alembic upgrade head`, and the indexes
+are declared only in migration DDL, not on any model's `__table_args__`.
+Running against a real PostgreSQL catches ordinary collation/dialect
+differences, not those migration-only constraints; see
+test_migration_schema_drift.py and environment_request_service's
+_fulfil_new_environment docstring for the app-level guard this gap forced.
 
 The app's get_db dependency is overridden to inject the test session.
 """
@@ -159,6 +167,12 @@ async def realistic_client(db_engine):
     write surviving (or not surviving) a request that raises. `client` shares
     one session with the test body and never rolls back, so it cannot catch a
     write that only get_db's real rollback would discard.
+
+    `client` and `realistic_client` both assign into the same global
+    `app.dependency_overrides[get_db]`, and neither depends on the other, so
+    a test that requests both fixtures by name gets `client`'s override
+    silently — not a mix of the two, and not necessarily this fixture's
+    commit/rollback semantics even though it was asked for.
     """
     Session = async_sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
 

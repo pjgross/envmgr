@@ -252,3 +252,31 @@ async def test_an_environment_with_no_team_is_still_refused_to_a_non_admin(
         json={"sla_notes": "best effort"}, headers=headers,
     )
     assert refused.status_code == 403, refused.text
+
+
+@pytest.mark.asyncio
+async def test_m1_a_master_admin_whose_role_is_not_admin_may_author_handover(
+    client, db_session, test_tenant,
+):
+    """M1: the rest of the app (booking_service) treats is_master_admin as
+    satisfying an Admin bypass alongside role == 'Admin', and both frontend
+    gates on this action already check is_master_admin — this backend check
+    didn't, so a master admin whose own row isn't role 'Admin' saw an
+    enabled control that then 403'd."""
+    env, _ = await _env_with_team(db_session, test_tenant)
+    master = User(
+        tenant_id=test_tenant.id, username="m1-handover-master",
+        email="m1-handover-master@example.com",
+        password_hash=get_password_hash("password123"), role="Developer",
+        is_active=True, is_master_admin=True,
+    )
+    db_session.add(master)
+    await db_session.commit()
+    headers = await _login(client, test_tenant.slug, "m1-handover-master")
+
+    ok = await client.patch(
+        f"/api/v1/environments/{env.id}/handover",
+        json={"support_contact": "#m1-support"}, headers=headers,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["support_contact"] == "#m1-support"

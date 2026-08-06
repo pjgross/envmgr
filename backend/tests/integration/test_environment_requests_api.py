@@ -246,9 +246,11 @@ async def test_patch_cannot_target_another_tenants_operations_group(
 async def test_patch_cannot_change_kind(
     client, auth_headers, db_session, test_tenant, environment_request_lifecycle
 ):
-    """EnvironmentRequestUpdate has no `kind` field, so Pydantic silently drops
-    an unknown key rather than erroring — this pins that behaviour so a future
-    schema change can't accidentally make mode-switching possible."""
+    """EnvironmentRequestUpdate has no `kind` field. Before M3
+    (extra="forbid") Pydantic silently dropped the unknown key and returned
+    200 with the kind unchanged; M3 now refuses the whole PATCH instead —
+    still never lets `kind` change, just louder about it, matching M3's
+    fix for `status`/`created_environment_id` doing the same thing."""
     env = await _env(db_session, test_tenant.id)
     rid = (await client.post(
         "/api/v1/environment-requests",
@@ -261,8 +263,60 @@ async def test_patch_cannot_change_kind(
         json={"kind": "new_environment"},
         headers=auth_headers,
     )
-    assert patched.status_code == 200, patched.text
-    assert patched.json()["kind"] == "access"
+    assert patched.status_code == 422, patched.text
+
+    still = (await client.get(
+        f"/api/v1/environment-requests/{rid}", headers=auth_headers
+    )).json()
+    assert still["kind"] == "access"
+
+
+@pytest.mark.asyncio
+async def test_custom_fields_is_not_persisted(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """M4: no tenant can define a custom-field vocabulary for this entity, so
+    `custom_fields` is no longer part of the create schema at all — a value
+    sent for it is simply not there to read back, and the response no longer
+    carries the key."""
+    env = await _env(db_session, test_tenant.id)
+    created = await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j",
+              "custom_fields": {"anything": "goes"}},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    assert "custom_fields" not in created.json()
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_server_controlled_fields(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """M3: EnvironmentRequestUpdate now has extra="forbid". A PATCH carrying
+    `status` or `created_environment_id` — fields the service, not the
+    client, is meant to control — used to return 200 and silently drop both,
+    which looks exactly like a successful edit."""
+    env = await _env(db_session, test_tenant.id)
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "first"},
+        headers=auth_headers,
+    )).json()["id"]
+
+    refused = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"status": "fulfilled", "created_environment_id": 999},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 422, refused.text
+
+    still = (await client.get(
+        f"/api/v1/environment-requests/{rid}", headers=auth_headers
+    )).json()
+    assert still["status"] == "draft"
+    assert still["created_environment_id"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -343,18 +397,23 @@ async def test_admin_can_fix_a_groupless_approved_new_environment_request(
 
 @pytest.mark.asyncio
 async def test_non_admin_cannot_use_the_group_only_carve_out(
-    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+    client, db_session, test_tenant, environment_request_lifecycle
 ):
     """The carve-out is Admin-only — a non-Admin is still refused while the
-    request is non-draft, even for operations_group_id alone."""
+    request is non-draft, even for operations_group_id alone.
+
+    I2 note: the actor here is deliberately the REQUEST'S OWN REQUESTER, not
+    an unrelated third party. Before I2 reordered update_request's
+    authorization-before-business-rule check, this test used a stranger who
+    wasn't the requester either — meaning it passed for the wrong reason:
+    ANY unauthorized caller now correctly gets 403 before this business rule
+    is even reached (see test_i2_a_stranger_patching_a_submitted_request_
+    gets_403_not_409), which would make a stranger's PATCH here 403 too. The
+    actor must pass the "requester or admin" gate to actually reach — and
+    be refused by — the carve-out's Admin-only condition."""
     from app.core.security import get_password_hash
     from app.db.models.user import User as UserModel
-
-    group = await ensure_user_group(db_session, test_tenant.id, name="C1-NonAdmin")
-    await db_session.commit()
-    rid = await _groupless_new_env_request(
-        client, auth_headers, db_session, test_tenant, to_status="submitted"
-    )
+    from tests.factories import ensure_environment_tier
 
     non_admin = UserModel(
         tenant_id=test_tenant.id, username="c1-non-admin",
@@ -363,13 +422,29 @@ async def test_non_admin_cannot_use_the_group_only_carve_out(
         role="Test Manager", is_active=True,
     )
     db_session.add(non_admin)
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="C1-NonAdmin")
     await db_session.commit()
+
     login = await client.post("/api/v1/auth/login", json={
         "username": "c1-non-admin", "password": "password123",
         "tenant_slug": test_tenant.slug,
     })
     assert login.status_code == 200, login.text
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "new_environment", "justification": "no team yet",
+              "proposed_name": "Non-Admin Owned", "tier_id": tier.id,
+              "expires_at": "2027-01-01T00:00:00Z"},
+        headers=headers,
+    )).json()["id"]
+    submitted = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "submitted"}, headers=headers,
+    )
+    assert submitted.status_code == 200, submitted.text
 
     refused = await client.patch(
         f"/api/v1/environment-requests/{rid}",
@@ -423,3 +498,152 @@ async def test_an_access_request_is_still_409_on_a_non_draft_group_only_patch(
         json={"operations_group_id": group.id}, headers=auth_headers,
     )
     assert refused.status_code == 409, refused.text
+
+
+# ---------------------------------------------------------------------------
+# Final review pass: C1(a), I1 (write side), I2, I3
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_c1a_create_request_uses_the_templates_declared_initial_state(
+    client, auth_headers, db_session, test_tenant,
+):
+    """C1(a): before the fix create_request always wrote the literal
+    'draft', regardless of what the template declares. Reproduced live as a
+    201 with status:'draft' for a template whose initial state is actually
+    named 'new' — a state the template has no transitions out of, so every
+    subsequent transition 400s."""
+    definition = {
+        "states": [
+            {"key": "new", "label": "New", "is_initial": True, "is_terminal": False},
+            {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+            {"key": "approved", "label": "Approved", "is_initial": False, "is_terminal": False},
+            {"key": "fulfilled", "label": "Fulfilled", "is_initial": False, "is_terminal": True},
+            {"key": "rejected", "label": "Rejected", "is_initial": False, "is_terminal": True},
+        ],
+        "transitions": [
+            {"from_state": "new", "to_state": "submitted", "label": "Submit",
+             "allowed_roles": ["Admin"]},
+        ],
+        "field_permissions": {},
+    }
+    created_tpl = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "Renamed Initial", "entity_type": "environment_request",
+              "definition": definition},
+    )
+    assert created_tpl.status_code == 201, created_tpl.text
+
+    env = await _env(db_session, test_tenant.id)
+    created = await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["status"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_i1_patch_cannot_contaminate_the_other_modes_field(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """I1 (write side): a new_environment draft PATCHed with an unrelated
+    environment_id must not have it stick — update_request now nulls the
+    off-mode field on every save, the same way create_request never sets it
+    in the first place. Reproduced live as a fulfilled request whose Welcome
+    Pack described a completely different environment's access URL and
+    support contact."""
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    other_env = await _env(db_session, test_tenant.id, group=False)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "new_environment", "justification": "j",
+              "proposed_name": "I1 Env", "tier_id": tier.id,
+              "expires_at": "2027-01-01T00:00:00Z"},
+        headers=auth_headers,
+    )).json()["id"]
+
+    patched = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"environment_id": other_env.id, "justification": "still fine"},
+        headers=auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["environment_id"] is None
+    assert patched.json()["justification"] == "still fine"
+    assert patched.json()["proposed_name"] == "I1 Env"
+
+
+@pytest.mark.asyncio
+async def test_i2_a_stranger_patching_a_submitted_request_gets_403_not_409(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """I2: authorization must run before the draft-only business rule — Task
+    5's fix for transition() never got applied to update_request. Before the
+    fix, a non-requester non-admin PATCHing a submitted request got the
+    workflow 409 ('can only be edited while draft') instead of a 403 — which
+    both confirms the request exists past draft and leaks why an edit would
+    fail to someone with no right to touch it at all."""
+    from app.core.security import get_password_hash
+    from app.db.models.user import User as UserModel
+
+    env = await _env(db_session, test_tenant.id)
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=auth_headers,
+    )).json()["id"]
+    submitted = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "submitted"}, headers=auth_headers,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    stranger = UserModel(
+        tenant_id=test_tenant.id, username="i2-stranger",
+        email="i2-stranger@example.com",
+        password_hash=get_password_hash("password123"),
+        role="Developer", is_active=True,
+    )
+    db_session.add(stranger)
+    await db_session.commit()
+    login = await client.post("/api/v1/auth/login", json={
+        "username": "i2-stranger", "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert login.status_code == 200, login.text
+    stranger_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    refused = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"justification": "trying to edit someone else's request"},
+        headers=stranger_headers,
+    )
+    assert refused.status_code == 403, refused.text
+
+
+@pytest.mark.asyncio
+async def test_i3_patch_with_an_explicit_null_justification_is_422_not_500(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """I3: min_length doesn't fire on an explicit None (only on a too-short
+    string), and the column is NOT NULL — an unguarded setattr flushed
+    straight into an IntegrityError and an unhandled 500."""
+    env = await _env(db_session, test_tenant.id)
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "first"},
+        headers=auth_headers,
+    )).json()["id"]
+
+    refused = await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"justification": None},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 422, refused.text
+    assert "justification" in refused.text

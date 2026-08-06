@@ -540,8 +540,16 @@ async def test_allowed_transitions_still_applies_the_role_gate(
     """I3: dropping the ROLE gate specifically would leak 'draft' (Return
     for Revision, an APPROVER-only transition that is NOT group-gated under
     C1) to a Viewer who has no role permission for anything out of
-    'submitted'. Membership doesn't matter here — role alone must produce
-    an empty list."""
+    'submitted' except cancelling. Membership doesn't matter here — role
+    alone must produce exactly {'cancelled'}, never 'draft'.
+
+    I6 note: this used to assert an empty list. I6 added
+    submitted -> cancelled for _ALL_ROLES (a Viewer must be able to
+    withdraw their own submitted request without finding an approver), so a
+    Viewer now legitimately sees 'cancelled' here too — same as
+    draft -> cancelled already worked before I6. The assertion this test
+    exists for is narrower than "empty": 'draft' (APPROVER-only) must still
+    never appear."""
     env = await ensure_environment(db_session, test_tenant.id)
     await _member(db_session, test_tenant, "viewer-i3-role", "Viewer", None)
     req = await _submitted_request(db_session, test_tenant, env, test_user)
@@ -551,7 +559,7 @@ async def test_allowed_transitions_still_applies_the_role_gate(
         f"/api/v1/environment-requests/{req.id}/allowed-transitions", headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json() == []
+    assert {t["to_state"] for t in resp.json()} == {"cancelled"}
 
 
 @pytest.mark.asyncio
@@ -624,3 +632,98 @@ async def test_unauthorized_submit_is_403_not_409_even_with_no_operations_team(
         json={"to_state": "submitted"}, headers=headers,
     )
     assert refused.status_code == 403, refused.text
+
+
+# ---------------------------------------------------------------------------
+# Final review pass: I6, M1
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_i6_a_requester_can_cancel_their_own_submitted_request(
+    client, db_session, test_tenant, environment_request_lifecycle
+):
+    """I6: submitted -> cancelled did not exist — a Viewer who changed their
+    mind had to find an approver just to withdraw their own request. Same
+    roles as draft -> cancelled, and 'cancelled' is not an
+    APPROVAL_TARGET_STATE, so this is unaffected by the group gate the same
+    way draft -> submitted already is."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="I6-Ops")
+    env.operations_group_id = group.id
+    await _member(db_session, test_tenant, "viewer-i6", "Viewer", None)
+
+    headers = await _login(client, test_tenant.slug, "viewer-i6")
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "access", "environment_id": env.id, "justification": "j"},
+        headers=headers,
+    )).json()["id"]
+    submitted = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "submitted"}, headers=headers,
+    )
+    assert submitted.status_code == 200, submitted.text
+
+    cancelled = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "cancelled"}, headers=headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_m1_a_master_admin_whose_role_is_not_admin_bypasses_the_group(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """M1: the rest of the app (booking_service) treats is_master_admin as
+    satisfying an Admin bypass alongside role == 'Admin'; assert_may_transition
+    didn't, so a master admin whose own row isn't role 'Admin' — both
+    frontend gates on this action already assume they can act — got 403
+    here despite the button being shown."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="M1-Group")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    master = User(
+        tenant_id=test_tenant.id, username="m1-master", email="m1-master@example.com",
+        password_hash=get_password_hash("password123"), role="Test Manager",
+        is_active=True, is_master_admin=True,
+    )
+    db_session.add(master)
+    await db_session.commit()
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "m1-master")
+    ok = await client.post(
+        f"/api/v1/environment-requests/{req.id}/transition",
+        json={"to_state": "approved"}, headers=headers,
+    )
+    assert ok.status_code == 200, ok.text
+
+
+@pytest.mark.asyncio
+async def test_m1_allowed_transitions_offers_approve_to_a_master_admin_not_in_the_group(
+    client, db_session, test_tenant, test_user, environment_request_lifecycle
+):
+    """M1's other call-site: allowed_transitions must match
+    assert_may_transition, or the detail page hides a button that would
+    actually succeed."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="M1-Group-AT")
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = group.id
+    master = User(
+        tenant_id=test_tenant.id, username="m1-master-at", email="m1-master-at@example.com",
+        password_hash=get_password_hash("password123"), role="Test Manager",
+        is_active=True, is_master_admin=True,
+    )
+    db_session.add(master)
+    await db_session.commit()
+    req = await _submitted_request(db_session, test_tenant, env, test_user)
+
+    headers = await _login(client, test_tenant.slug, "m1-master-at")
+    resp = await client.get(
+        f"/api/v1/environment-requests/{req.id}/allowed-transitions", headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "approved" in {t["to_state"] for t in resp.json()}

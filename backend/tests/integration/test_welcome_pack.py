@@ -425,3 +425,95 @@ async def test_whitespace_only_handover_fields_read_as_not_provided(
     assert pack["caveats"]["known_limitations"] == "Not provided"
     assert pack["offboarding"]["decommission_notes"] == "Not provided"
 
+
+# ---------------------------------------------------------------------------
+# Final review pass: I1 (read side), M9
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_i1_pack_selects_by_kind_not_precedence(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """I1, second half: build_welcome_pack must select its environment by
+    `req.kind`, never by `environment_id or created_environment_id`
+    precedence. update_request now stops environment_id from ever being set
+    on a new_environment request through the API (I1, first half) — this is
+    the read-side half of the same fix, and defence in depth against any
+    other path that could leave environment_id non-null on a
+    new_environment request. Reproduced live as a fulfilled request whose
+    pack described a completely different environment's access URL."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="I1 Ops")
+    tier = await ensure_environment_tier(db_session, test_tenant.id, name="I1 Tier")
+    wrong_env = await ensure_environment(db_session, test_tenant.id, slot=9)
+    wrong_env.access_url = "https://WRONG.example.com"
+    await db_session.commit()
+
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "new_environment", "justification": "i1",
+              "proposed_name": "I1 Pack Env", "tier_id": tier.id,
+              "expires_at": "2027-01-01T00:00:00Z"},
+        headers=auth_headers,
+    )).json()["id"]
+    await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=auth_headers,
+    )
+    r = None
+    for state in ("submitted", "approved", "fulfilled"):
+        r = await client.post(
+            f"/api/v1/environment-requests/{rid}/transition",
+            json={"to_state": state}, headers=auth_headers,
+        )
+        assert r.status_code == 200, r.text
+    created_env_id = r.json()["created_environment_id"]
+    assert created_env_id is not None
+
+    # Corrupt environment_id directly — the exact contamination
+    # update_request's I1 (first-half) fix now prevents through the API, so
+    # this isolates build_welcome_pack's own selection logic.
+    req = (await db_session.execute(
+        select(EnvironmentRequest).where(EnvironmentRequest.id == rid)
+    )).scalar_one()
+    req.environment_id = wrong_env.id
+    await db_session.commit()
+
+    pack = (await client.get(
+        f"/api/v1/environment-requests/{rid}/welcome-pack", headers=auth_headers
+    )).json()
+    assert pack["environment"]["id"] == created_env_id
+    assert pack["access"]["access_url"] != "https://WRONG.example.com"
+
+
+@pytest.mark.asyncio
+async def test_m9_pack_lookups_ignore_cross_tenant_tier_owner_and_group(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory,
+    environment_request_lifecycle,
+):
+    """M9: tier_name/owner/group_name were the only three lookups in this
+    module missing a tenant_id filter — env.tier_id/.owner_user_id/
+    .operations_group_id pointing (however it got there) at a row in
+    another tenant must not leak that tenant's tier/user/group name into
+    this tenant's pack, matching the defence-in-depth every other query
+    here already applies."""
+    other_tenant, other_user = await second_tenant_factory("M9 Leak Org", "m9-leak-org")
+    foreign_tier = await ensure_environment_tier(db_session, other_tenant.id, name="Foreign Tier")
+    foreign_group = await ensure_user_group(db_session, other_tenant.id, name="Foreign Group")
+    await db_session.commit()
+
+    rid, env = await _fulfilled_access_request(
+        client, auth_headers, db_session, test_tenant
+    )
+    env.tier_id = foreign_tier.id
+    env.owner_user_id = other_user.id
+    env.operations_group_id = foreign_group.id
+    await db_session.commit()
+
+    pack = (await client.get(
+        f"/api/v1/environment-requests/{rid}/welcome-pack", headers=auth_headers
+    )).json()
+    assert pack["environment"]["tier"] is None
+    assert pack["environment"]["owner"] == "Not provided"
+    assert pack["support"]["operations_group"] == "Not provided"
+
