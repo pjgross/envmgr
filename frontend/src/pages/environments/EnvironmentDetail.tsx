@@ -60,6 +60,7 @@ import { fetchUserGroups } from '../../store/userGroupSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
+import HandoverSection from '../../components/environments/HandoverSection';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import EnvironmentSchedule from './EnvironmentSchedule';
 import EnvironmentDeploymentsTab from './EnvironmentDeploymentsTab';
@@ -940,6 +941,11 @@ export default function EnvironmentDetail() {
               </Box>
             )}
           </Paper>
+
+          {/* Handover section — below Governance, deliberately editable by
+              the operating team as well as Admins (Governance above is
+              Admin-only). See HandoverSection's own docstring. */}
+          {!editMode && currentEnvironment && <HandoverSection environment={currentEnvironment} />}
 
           {/* Verify Environment Panel */}
           {!editMode && (

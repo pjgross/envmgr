@@ -31,6 +31,7 @@ const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
 const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
+const EnvironmentRequestDetail = lazy(() => import('./pages/environments/EnvironmentRequestDetail'));
 const EnvironmentRequestForm = lazy(() => import('./pages/environments/EnvironmentRequestForm'));
 const EnvironmentRequestList = lazy(() => import('./pages/environments/EnvironmentRequestList'));
 const GitHubIntegration = lazy(() => import('./pages/admin/GitHubIntegration'));
@@ -177,7 +178,7 @@ function App() {
             <Route path="/environments/:id" element={<EnvironmentDetail />} />
             <Route path="/environment-requests" element={<EnvironmentRequestList />} />
             <Route path="/environment-requests/new" element={<EnvironmentRequestForm />} />
-            {/* /environment-requests/:id (detail + Welcome Pack + handover) ships with Task 11 */}
+            <Route path="/environment-requests/:id" element={<EnvironmentRequestDetail />} />
             <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
             <Route path="/bookings/calendar" element={<BookingCalendar />} />
             <Route path="/bookings/list" element={<BookingList />} />
