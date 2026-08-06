@@ -148,6 +148,9 @@ async def test_an_admin_may_author_them_without_being_in_the_team(
         json={"support_contact": "#platform-ops"}, headers=auth_headers,
     )
     assert ok.status_code == 200, ok.text
+    # Assert the WRITE, not just the status. A 200 alone would still pass if
+    # update_handover silently no-opped on this path.
+    assert ok.json()["support_contact"] == "#platform-ops"
 
 
 @pytest.mark.asyncio
@@ -163,6 +166,7 @@ async def test_an_environment_with_no_team_is_admin_only(
         json={"sla_notes": "best effort"}, headers=auth_headers,
     )
     assert ok.status_code == 200, ok.text
+    assert ok.json()["sla_notes"] == "best effort"
 
 
 @pytest.mark.asyncio
@@ -219,3 +223,32 @@ async def test_handover_fields_are_absent_from_the_ordinary_update_path(
         json={"access_url": "https://via-the-wrong-door"}, headers=auth_headers,
     )
     assert refused.status_code == 422, refused.text
+
+
+@pytest.mark.asyncio
+async def test_an_environment_with_no_team_is_still_refused_to_a_non_admin(
+    client, db_session, test_tenant
+):
+    """The other half of "no team degrades to Admin-only".
+
+    The suite covered "not nobody" (an Admin succeeds) but never "not
+    everybody". A NULL operations_group_id joins to no membership row, so a
+    non-member is correctly refused — but nothing asserted it.
+    """
+    env = await ensure_environment(db_session, test_tenant.id)
+    env.operations_group_id = None
+    outsider = User(
+        tenant_id=test_tenant.id, username="no-team-outsider",
+        email="no-team-outsider@example.com",
+        password_hash=get_password_hash("password123"), role="Developer",
+        is_active=True,
+    )
+    db_session.add(outsider)
+    await db_session.commit()
+    headers = await _login(client, test_tenant.slug, "no-team-outsider")
+
+    refused = await client.patch(
+        f"/api/v1/environments/{env.id}/handover",
+        json={"sla_notes": "best effort"}, headers=headers,
+    )
+    assert refused.status_code == 403, refused.text
