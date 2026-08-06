@@ -25,7 +25,7 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.user import User
 from app.db.models.user_group import UserGroup, UserGroupMember
-from app.services import lifecycle_service
+from app.services import environment_service, lifecycle_service
 from app.services.environment_request_defaults import ENTITY_TYPE
 
 
@@ -552,6 +552,15 @@ async def _fulfil_new_environment(
     request-created environment can never appear in `?governance_gap=true`.
     The six handover fields stay null: there is nothing to hand over until it
     is built.
+
+    owner_user_id is req.requested_by — current_user.id at the moment the
+    request was CREATED, not active_tenant_id. Under master-admin
+    impersonation those belong to different tenants, so it is validated
+    against `tenant_id` here the same way environment_service's sibling path
+    validates a client-supplied owner_user_id (_validate_client_foreign_keys)
+    — this is the exact "assuming current_user.id belongs to
+    active_tenant_id" class that has already broken an owner check and killed
+    a whole spreadsheet upload in this repo.
     """
     if req.operations_group_id is None:
         raise HTTPException(
@@ -559,6 +568,23 @@ async def _fulfil_new_environment(
             "This request has no operations team assigned. An admin must "
             "choose which team will operate the environment before it can be "
             "fulfilled.",
+        )
+
+    owner_in_tenant = (
+        await db.execute(
+            select(User.id).where(
+                User.id == req.requested_by,
+                User.tenant_id == tenant_id,
+            )
+        )
+    ).first()
+    if owner_in_tenant is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The user who raised this request does not belong to this "
+            "tenant, so it cannot be fulfilled as-is. This can happen when a "
+            "master admin raises a request while impersonating a tenant "
+            "other than their own.",
         )
 
     # An app-level guard, not merely test convenience for the Postgres-only
@@ -569,22 +595,11 @@ async def _fulfil_new_environment(
     # built with `Base.metadata.create_all`, never `alembic upgrade head`).
     # This check is what actually makes two live same-named environments
     # impossible everywhere this suite runs; the IntegrityError catch below
-    # is the last-resort net for a race this check can't see.
-    clash = (
-        await db.execute(
-            select(Environment.id).where(
-                Environment.tenant_id == tenant_id,
-                Environment.name == req.proposed_name,
-                Environment.deleted_at.is_(None),
-            )
-        )
-    ).first()
-    if clash is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"An environment named '{req.proposed_name}' already exists in "
-            "this tenant.",
-        )
+    # is the last-resort net for a race this check can't see. Shared with
+    # environment_service.create_environment_record via
+    # environment_service.assert_name_available so the two checks cannot
+    # drift apart.
+    await environment_service.assert_name_available(db, tenant_id, req.proposed_name)
 
     env = Environment(
         tenant_id=tenant_id,
@@ -605,6 +620,18 @@ async def _fulfil_new_environment(
             f"Could not create an environment named '{req.proposed_name}' "
             "for this request.",
         ) from e
+    await db.refresh(env)
+    # Matching environment_service.create_environment_record's payload shape
+    # so a future consumer sees the same event regardless of which path
+    # created the Environment.
+    await publish_event(
+        db,
+        event_type="EnvironmentCreated",
+        aggregate_id=env.id,
+        aggregate_type="Environment",
+        payload={"id": env.id, "name": env.name, "tenant_id": env.tenant_id},
+        tenant_id=env.tenant_id,
+    )
     return env
 
 

@@ -215,3 +215,149 @@ async def test_a_failed_creation_rolls_back_the_transition(
         "the second (failed) fulfilment must not leave an orphan "
         "environment row — only the first request's environment survives"
     )
+
+
+@pytest.mark.asyncio
+async def test_fulfilling_a_request_raised_under_impersonation_by_an_outside_user_is_refused(
+    client, db_session, test_tenant, environment_request_lifecycle
+):
+    """req.owner_user_id is set to req.requested_by, which is
+    current_user.id at request-CREATE time — not active_tenant_id. Under
+    master-admin impersonation those belong to different tenants: a master
+    admin can raise (and later fulfil) a new_environment request while
+    impersonating a tenant that is not their home tenant. Without a tenant
+    check on the owner, fulfilment would create an Environment in
+    test_tenant whose owner_user_id points at a user in a different tenant —
+    the exact "current_user.id doesn't belong to active_tenant_id" class
+    CLAUDE.md already records as having broken an owner check elsewhere in
+    this repo.
+
+    The master admin's role is 'Admin' so the role/group gates on every
+    transition pass on their own merits — the only way this reaches 409 is
+    the dedicated owner-tenant check in _fulfil_new_environment.
+    """
+    from app.core.security import create_access_token, get_password_hash
+    from app.db.models.user import Tenant, User
+
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops-owner-imp")
+    await db_session.commit()
+
+    home = Tenant(name="System Org Owner Imp", slug="system-owner-imp")
+    db_session.add(home)
+    await db_session.flush()
+    master = User(
+        tenant_id=home.id, username="owner-masteradmin",
+        email="owner-masteradmin@example.com",
+        password_hash=get_password_hash("password123"), role="Admin",
+        is_active=True, is_master_admin=True,
+    )
+    db_session.add(master)
+    await db_session.commit()
+
+    token = create_access_token({
+        "sub": str(master.id),
+        "tenant_id": home.id,
+        "impersonating_tenant_id": test_tenant.id,
+    })
+    headers = {"Authorization": f"Bearer {token}"}
+
+    rid = (await client.post(
+        "/api/v1/environment-requests",
+        json={"kind": "new_environment", "justification": "owner-imp",
+              "proposed_name": "Owner Imp Env", "tier_id": tier.id,
+              "expires_at": "2027-01-01T00:00:00Z"},
+        headers=headers,
+    )).json()["id"]
+    await client.patch(
+        f"/api/v1/environment-requests/{rid}",
+        json={"operations_group_id": group.id}, headers=headers,
+    )
+    for state in ("submitted", "approved"):
+        r = await client.post(
+            f"/api/v1/environment-requests/{rid}/transition",
+            json={"to_state": state}, headers=headers,
+        )
+        assert r.status_code == 200, r.text
+
+    refused = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "fulfilled"}, headers=headers,
+    )
+    assert refused.status_code == 409, refused.text
+
+    still = (await client.get(
+        f"/api/v1/environment-requests/{rid}", headers=headers
+    )).json()
+    assert still["status"] == "approved", "the transition must not have stuck"
+    assert still["created_environment_id"] is None
+
+    matching = (await db_session.execute(
+        select(Environment).where(
+            Environment.tenant_id == test_tenant.id,
+            Environment.name == "Owner Imp Env",
+        )
+    )).scalars().all()
+    assert matching == [], (
+        "no environment must be created when the requester does not belong "
+        "to the tenant the request is being fulfilled in"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fulfilling_is_refused_to_a_non_admin_outside_the_operating_team(
+    client, auth_headers, db_session, test_tenant, environment_request_lifecycle
+):
+    """Authorization must be checked BEFORE fulfilment executes.
+
+    A reviewer swapped assert_may_transition and the fulfilment block in
+    `transition()` and every other test in this suite stayed green — nothing
+    guarded against an unauthorized caller triggering environment creation
+    before the 403. This is the dedicated coverage: a non-Admin outside the
+    environment's operating team must be refused, and — the part the swap
+    would break — no Environment may exist afterwards.
+    """
+    from app.core.security import get_password_hash
+    from app.db.models.user import User as UserModel
+
+    rid, tier, group = await _approved_new_env_request(
+        client, auth_headers, db_session, test_tenant
+    )
+
+    outsider = UserModel(
+        tenant_id=test_tenant.id, username="tm-outsider-fulfil",
+        email="tm-outsider-fulfil@example.com",
+        password_hash=get_password_hash("password123"),
+        role="Test Manager", is_active=True,
+    )
+    db_session.add(outsider)
+    await db_session.commit()
+
+    login = await client.post("/api/v1/auth/login", json={
+        "username": "tm-outsider-fulfil", "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert login.status_code == 200, login.text
+    outsider_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    refused = await client.post(
+        f"/api/v1/environment-requests/{rid}/transition",
+        json={"to_state": "fulfilled"}, headers=outsider_headers,
+    )
+    assert refused.status_code == 403, refused.text
+
+    still = (await client.get(
+        f"/api/v1/environment-requests/{rid}", headers=auth_headers
+    )).json()
+    assert still["status"] == "approved", "the transition must not have stuck"
+    assert still["created_environment_id"] is None
+
+    matching = (await db_session.execute(
+        select(Environment).where(
+            Environment.tenant_id == test_tenant.id,
+            Environment.name == "Mortgage PERF",
+        )
+    )).scalars().all()
+    assert matching == [], (
+        "no environment must be created by an unauthorized fulfil attempt"
+    )

@@ -280,6 +280,33 @@ async def _validate_client_foreign_keys(
             await user_group_service.get_group(db, operations_group_id, tenant_id)
 
 
+async def assert_name_available(
+    db: AsyncSession, tenant_id: int, name: str
+) -> None:
+    """Refuse a name already used by a live environment in this tenant.
+
+    Shared by create_environment_record and
+    environment_request_service._fulfil_new_environment — the only two places
+    that can mint an Environment row — so the check cannot drift out of
+    lockstep between them (it used to be copy-pasted). Excludes soft-deleted
+    rows: a name freed by deleting an environment stays reusable.
+    """
+    existing = (
+        await db.execute(
+            select(Environment.id).where(
+                Environment.name == name,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An environment named '{name}' already exists in this tenant.",
+        )
+
+
 async def create_environment(
     db: AsyncSession, data: EnvironmentCreate, tenant_id: int
 ) -> Environment:
@@ -318,19 +345,7 @@ async def create_environment_record(
     the caller. `env_status` rather than `status` — the module-level `status`
     is FastAPI's status-code namespace, used by the raises below.
     """
-    # Check name uniqueness within tenant (active records only)
-    existing = await db.execute(
-        select(Environment).where(
-            Environment.name == name,
-            Environment.tenant_id == tenant_id,
-            Environment.deleted_at.is_(None),
-        )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An environment with this name already exists in this tenant",
-        )
+    await assert_name_available(db, tenant_id, name)
     await validate_custom_fields(db, tenant_id, "environment", custom_fields)
     await _validate_client_foreign_keys(
         db, tenant_id, tier_id, owner_user_id, operations_group_id
