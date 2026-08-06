@@ -474,7 +474,12 @@ async def assert_may_edit_handover(
     membership query below simply finds no group to join against, never a
     group that matches everyone or no one incorrectly.
     """
-    if current_user.role == "Admin":
+    # M1: is_master_admin satisfies this bypass too, matching the rest of the
+    # app (booking_service) and environment_request_service.assert_may_transition
+    # — both frontend gates on this action already check is_master_admin, so
+    # without this a master admin whose own row isn't role 'Admin' sees an
+    # enabled control that then 403s.
+    if current_user.role == "Admin" or current_user.is_master_admin:
         return
     found = (
         await db.execute(

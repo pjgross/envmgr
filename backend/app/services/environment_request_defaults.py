@@ -36,6 +36,13 @@ DEFAULT_REQUEST_LIFECYCLE: dict[str, Any] = {
          "allowed_roles": _ALL_ROLES},
         {"from_state": "draft", "to_state": "cancelled", "label": "Cancel",
          "allowed_roles": _ALL_ROLES},
+        # I6: a requester who changes their mind must be able to withdraw
+        # their own submitted request without finding an approver — same
+        # roles as draft -> cancelled, and 'cancelled' is not an
+        # APPROVAL_TARGET_STATE, so this is unaffected by the group gate the
+        # same way draft -> submitted already is.
+        {"from_state": "submitted", "to_state": "cancelled", "label": "Cancel",
+         "allowed_roles": _ALL_ROLES},
         {"from_state": "submitted", "to_state": "approved", "label": "Approve",
          "allowed_roles": _APPROVER_ROLES},
         {"from_state": "submitted", "to_state": "rejected", "label": "Reject",
@@ -43,6 +50,13 @@ DEFAULT_REQUEST_LIFECYCLE: dict[str, Any] = {
         {"from_state": "submitted", "to_state": "draft", "label": "Return for Revision",
          "allowed_roles": _APPROVER_ROLES},
         {"from_state": "approved", "to_state": "fulfilled", "label": "Mark Fulfilled",
+         "allowed_roles": _APPROVER_ROLES},
+        # C2: 'approved' otherwise has exactly one outgoing edge. A request
+        # that reaches 'approved' and then can never be fulfilled (a
+        # proposed_name clash with an existing environment, discovered only
+        # at fulfilment) had no way out at all — approved -> rejected gives
+        # it one, mirroring submitted -> rejected's role gate.
+        {"from_state": "approved", "to_state": "rejected", "label": "Reject",
          "allowed_roles": _APPROVER_ROLES},
     ],
     "field_permissions": {},

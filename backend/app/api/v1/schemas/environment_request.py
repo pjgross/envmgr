@@ -5,6 +5,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EnvironmentRequestCreate(BaseModel):
+    # M4: no `custom_fields` here — no tenant can define a custom-field
+    # vocabulary for this entity (VALID_ENTITY_TYPES in
+    # api/v1/schemas/custom_field.py has no `environment_request` entry), so
+    # this was the only entity in the app accepting an arbitrary, unvalidated
+    # JSON blob. Removed rather than left dead: dead-but-accepted input
+    # surface is still surface.
     kind: str = Field(pattern="^(access|new_environment)$")
     justification: str = Field(min_length=1)
     needed_by: Optional[datetime] = None
@@ -14,10 +20,15 @@ class EnvironmentRequestCreate(BaseModel):
     proposed_name: Optional[str] = Field(default=None, max_length=200)
     tier_id: Optional[int] = None
     expires_at: Optional[datetime] = None
-    custom_fields: Optional[dict] = None
 
 
 class EnvironmentRequestUpdate(BaseModel):
+    # M3: extra="forbid" — {"status": ..., "created_environment_id": ...}
+    # used to return 200 and silently ignore both keys rather than refuse
+    # them, which is the same "looks like it worked" hazard M4 removes for
+    # custom_fields and the earlier `kind` test pins for the same reason.
+    model_config = ConfigDict(extra="forbid")
+
     justification: Optional[str] = Field(default=None, min_length=1)
     needed_by: Optional[datetime] = None
     environment_id: Optional[int] = None
@@ -27,7 +38,6 @@ class EnvironmentRequestUpdate(BaseModel):
     # Set by the approving Admin on a new-environment request; becomes the
     # created environment's operating team.
     operations_group_id: Optional[int] = None
-    custom_fields: Optional[dict] = None
 
 
 class EnvironmentRequestTransition(BaseModel):
@@ -69,7 +79,10 @@ class EnvironmentRequestResponse(BaseModel):
     operations_group_id: Optional[int] = None
     operations_group_name: Optional[str] = None
     created_environment_id: Optional[int] = None
-    custom_fields: Optional[dict] = None
+    # M4: no `custom_fields` — see EnvironmentRequestCreate's docstring. The
+    # underlying model column is left in place (dead, always null) rather
+    # than migrated away, matching this repo's existing precedent for an
+    # unused-but-undropped column (InfrastructureComponentSource.TERRAFORM).
     created_at: datetime
     updated_at: datetime
 
@@ -88,7 +101,6 @@ class EnvironmentRequestResponse(BaseModel):
             operations_group_id=r.operations_group_id,
             operations_group_name=view.operations_group_name,
             created_environment_id=r.created_environment_id,
-            custom_fields=r.custom_fields,
             created_at=r.created_at, updated_at=r.updated_at,
         )
 

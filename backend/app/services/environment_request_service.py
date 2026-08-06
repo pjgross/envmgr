@@ -183,6 +183,27 @@ def _assert_mode_fields(
         )
 
 
+def _initial_state(tpl: LifecycleTemplate) -> str:
+    """The template's declared initial state — never the literal 'draft'.
+
+    Mirrors change_request_service._initial_state. A tenant that renames
+    'draft' to something else (a template is only tenant-configurable in
+    substance if a rename doesn't break the service that drives it — see
+    validate_definition_for_entity's environment_request rule, which pins
+    the four states this service keys on by name but deliberately leaves
+    the INITIAL one free to be called whatever the tenant likes) must not
+    have every request it raises created in a state the template doesn't
+    define, which 400s every subsequent transition.
+    """
+    for s in tpl.definition.get("states", []):
+        if s.get("is_initial"):
+            return s["key"]
+    raise HTTPException(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "Lifecycle template has no initial state",
+    )
+
+
 async def _default_lifecycle(db: AsyncSession, tenant_id: int) -> LifecycleTemplate:
     tpl = (
         await db.execute(
@@ -225,7 +246,7 @@ async def create_request(
     req = EnvironmentRequest(
         tenant_id=tenant_id,
         kind=data.kind,
-        status="draft",
+        status=_initial_state(tpl),
         lifecycle_id=tpl.id,
         requested_by=requested_by,
         justification=data.justification,
@@ -234,7 +255,6 @@ async def create_request(
         proposed_name=data.proposed_name if data.kind == "new_environment" else None,
         tier_id=data.tier_id if data.kind == "new_environment" else None,
         expires_at=data.expires_at if data.kind == "new_environment" else None,
-        custom_fields=data.custom_fields,
     )
     db.add(req)
     await db.flush()
@@ -254,17 +274,30 @@ async def update_request(
     is_admin = current_user.role == "Admin"
     fields = data.model_dump(exclude_unset=True)
 
-    # Carve-out (C1): an approved new-environment request with no operations
-    # group is otherwise unrecoverable. _fulfil_new_environment 409s forever
-    # on the null group, this guard 409s any edit that would fix it, and the
-    # seeded template gives 'approved' exactly one outgoing edge
-    # (approved -> fulfilled) — so a request that reaches 'approved' with no
-    # group assigned has no path out at all. Scoped as narrowly as the hole:
-    # only an Admin, only operations_group_id alone, only on a
+    # I2: authorization before business rules — the same ordering fix
+    # transition() already applies (see its comment). An unauthorized caller
+    # must get a 403, never the 409 workflow message that leaks *why* the
+    # edit would be refused if they were actually allowed to make it. This
+    # must run before the draft-only guard below, not after.
+    if req.requested_by != current_user.id and not is_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the requester or an admin can edit this request",
+        )
+
+    # Carve-out (C1 + C2): an approved new-environment request can otherwise
+    # become permanently unrecoverable two different ways — no operations
+    # group (fulfilment 409s forever on the null group) or a proposed_name
+    # that collides with an existing environment (fulfilment 409s on the
+    # name clash, and the seeded template gives 'approved' exactly one
+    # outgoing edge). Both guards 409 any edit that would fix either one, so
+    # both fields join this carve-out, on the same conditions: only an
+    # Admin, only these fields (either or both, nothing else), only on a
     # new_environment request, only from 'submitted' or 'approved'.
-    group_only = set(fields) == {"operations_group_id"}
+    recoverable_fields = frozenset({"operations_group_id", "proposed_name"})
+    recoverable_fields_only = bool(fields) and set(fields) <= recoverable_fields
     recoverable_group_fix = (
-        group_only
+        recoverable_fields_only
         and is_admin
         and req.kind == "new_environment"
         and req.status in {"submitted", "approved"}
@@ -274,13 +307,18 @@ async def update_request(
             status.HTTP_409_CONFLICT,
             f"A request can only be edited while it is a draft (this one is "
             f"'{req.status}'), except that an admin may assign the "
-            "operations group alone on a submitted or approved "
-            "new-environment request.",
+            "operations group and/or rename the proposed environment on a "
+            "submitted or approved new-environment request.",
         )
-    if req.requested_by != current_user.id and not is_admin:
+
+    # I3: min_length doesn't fire on an explicit None (only on a too-short
+    # string), and the column is NOT NULL — an unguarded setattr would flush
+    # straight into an IntegrityError and a 500. Named the same way
+    # _assert_mode_fields names a missing field.
+    if "justification" in fields and fields["justification"] is None:
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Only the requester or an admin can edit this request",
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "justification cannot be cleared",
         )
 
     await _assert_targets_are_ours(
@@ -291,6 +329,21 @@ async def update_request(
     )
     for key, value in fields.items():
         setattr(req, key, value)
+
+    # I1: a field belonging to the OTHER mode must never survive a PATCH,
+    # the same way create_request never sets it in the first place — a
+    # request's `kind` cannot change (EnvironmentRequestUpdate has no `kind`
+    # field), so any off-mode value on the row is contamination, not data.
+    # Nulling unconditionally on every save (not just when the payload
+    # mentions it) is what stops build_welcome_pack's environment lookup
+    # from ever being able to resolve the wrong environment through a stale
+    # or mismatched off-mode field.
+    if req.kind == "access":
+        req.proposed_name = None
+        req.tier_id = None
+        req.expires_at = None
+    else:
+        req.environment_id = None
 
     _assert_mode_fields(
         req.kind,
@@ -517,7 +570,12 @@ async def assert_may_transition(
             or f"Transition from '{req.status}' to '{to_state}' is not allowed",
         )
 
-    is_admin = current_user.role == "Admin"
+    # M1: the rest of the app treats is_master_admin as satisfying an Admin
+    # bypass alongside role == 'Admin' (see booking_service); this one and
+    # environment_service.assert_may_edit_handover didn't, so a master admin
+    # whose own row isn't role 'Admin' saw the transition button (both
+    # frontend gates already check is_master_admin) but got 403 on click.
+    is_admin = current_user.role == "Admin" or current_user.is_master_admin
     if to_state in APPROVAL_TARGET_STATES and not is_admin:
         in_group = await _is_in_operations_group(
             db, req.environment_id, current_user.id, tenant_id
@@ -590,6 +648,22 @@ async def _fulfil_new_environment(
             "choose which team will operate the environment before it can be "
             "fulfilled.",
         )
+
+    # I4: req.tier_id and req.operations_group_id are trusted as of the time
+    # they were set (creation, or the C1/C2 admin carve-out) — but time can
+    # pass between approval and fulfilment, and either can be soft-deleted in
+    # the interim. Without this, fulfilment creates a real Environment
+    # referencing a row delete_group/delete_tier would themselves refuse to
+    # let an existing environment reference — the exact state those guards
+    # exist to prevent, reached by a back door — and leaves the deleted
+    # group's former members holding handover-write rights via
+    # assert_may_edit_handover's membership join. Re-runs the same
+    # tenant+active check create_request and update_request already apply to
+    # a client-supplied tier_id/operations_group_id.
+    await _assert_targets_are_ours(
+        db, tenant_id,
+        tier_id=req.tier_id, operations_group_id=req.operations_group_id,
+    )
 
     owner_in_tenant = (
         await db.execute(
@@ -720,7 +794,9 @@ async def allowed_transitions(
     by_role = lifecycle_service.get_allowed_transitions(
         tpl.definition, req.status, current_user.role
     )
-    if current_user.role == "Admin":
+    # M1: matches the is_master_admin bypass in assert_may_transition — this
+    # endpoint must not offer a button assert_may_transition will then 403.
+    if current_user.role == "Admin" or current_user.is_master_admin:
         return by_role
 
     gated = [t for t in by_role if t["to_state"] in APPROVAL_TARGET_STATES]
@@ -745,10 +821,18 @@ async def build_welcome_pack(
     Stored nowhere: a snapshot frozen at fulfilment would go stale the moment
     the operating team updates a VPN endpoint or support contact, and a
     confidently-stated stale connection detail is worse than no document at
-    all. `environment_id or created_environment_id` handles both request
-    kinds with no special case at the call site — access requests point at
-    an existing environment, new_environment requests point at the one
-    fulfilment created.
+    all.
+
+    I1: selects by `req.kind`, never `environment_id or created_environment_id`.
+    That precedence read as "whichever is set" and happened to match every
+    legitimate row, but it is not actually a `kind` check — a `new_environment`
+    request whose `environment_id` was contaminated (a stale value, or a bug
+    upstream of this fix) would silently win the `or` and describe a
+    completely different environment's access URL and support contact in the
+    one document this project promises is authoritative. `update_request`
+    now nulls the off-mode field on every save, but this is the second half
+    of that fix: the field this reads must be chosen by what the request
+    actually IS, not by which of two columns happens to be non-null.
     """
     view = await get_request_view(db, request_id, tenant_id)
     req = view.request
@@ -758,7 +842,7 @@ async def build_welcome_pack(
             "The welcome pack is available once the request has been fulfilled",
         )
 
-    env_id = req.environment_id or req.created_environment_id
+    env_id = req.environment_id if req.kind == "access" else req.created_environment_id
     env = (
         await db.execute(
             select(Environment).where(
@@ -769,13 +853,25 @@ async def build_welcome_pack(
     if env is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
 
+    # M9: tenant-qualified like every other lookup in this module — a
+    # malformed/cross-tenant row (env.tier_id, .owner_user_id or
+    # .operations_group_id denormalized to the wrong tenant) must not surface
+    # another tenant's tier/user/group name in this tenant's pack, the same
+    # defence-in-depth _view_query's joins and the member-list query below
+    # already apply.
     tier_name = (
         await db.execute(
-            select(EnvironmentTier.name).where(EnvironmentTier.id == env.tier_id)
+            select(EnvironmentTier.name).where(
+                EnvironmentTier.id == env.tier_id, EnvironmentTier.tenant_id == tenant_id,
+            )
         )
     ).scalar_one_or_none()
     owner = (
-        await db.execute(select(User.username).where(User.id == env.owner_user_id))
+        await db.execute(
+            select(User.username).where(
+                User.id == env.owner_user_id, User.tenant_id == tenant_id,
+            )
+        )
     ).scalar_one_or_none()
 
     group_name = None
@@ -783,7 +879,10 @@ async def build_welcome_pack(
     if env.operations_group_id is not None:
         group_name = (
             await db.execute(
-                select(UserGroup.name).where(UserGroup.id == env.operations_group_id)
+                select(UserGroup.name).where(
+                    UserGroup.id == env.operations_group_id,
+                    UserGroup.tenant_id == tenant_id,
+                )
             )
         ).scalar_one_or_none()
         members = list(
