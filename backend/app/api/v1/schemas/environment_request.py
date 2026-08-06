@@ -91,3 +91,23 @@ class EnvironmentRequestResponse(BaseModel):
             custom_fields=r.custom_fields,
             created_at=r.created_at, updated_at=r.updated_at,
         )
+
+
+NOT_PROVIDED = "Not provided"
+
+
+class WelcomePackResponse(BaseModel):
+    """Rendered live from the environment; stored nowhere.
+
+    Every free-text field falls back to "Not provided" rather than null or an
+    empty string. A blank "How to connect" section reads as "there is nothing
+    to do", which is the absent-versus-checked-and-empty confusion this
+    codebase has been burned by before.
+    """
+
+    environment: dict
+    access: dict
+    support: dict
+    caveats: dict
+    offboarding: dict
+    context: dict

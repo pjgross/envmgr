@@ -14,8 +14,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.environment_request import (
+    NOT_PROVIDED,
     EnvironmentRequestCreate,
     EnvironmentRequestUpdate,
+    WelcomePackResponse,
 )
 from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
@@ -710,3 +712,99 @@ async def allowed_transitions(
         db, req.environment_id, current_user.id, tenant_id
     )
     return by_role if in_group else ungated
+
+
+def _or_not_provided(value: Optional[str]) -> str:
+    return value if (value and value.strip()) else NOT_PROVIDED
+
+
+async def build_welcome_pack(
+    db: AsyncSession, request_id: int, tenant_id: int
+) -> WelcomePackResponse:
+    """The pack, rendered live from the environment's handover fields.
+
+    Stored nowhere: a snapshot frozen at fulfilment would go stale the moment
+    the operating team updates a VPN endpoint or support contact, and a
+    confidently-stated stale connection detail is worse than no document at
+    all. `environment_id or created_environment_id` handles both request
+    kinds with no special case at the call site — access requests point at
+    an existing environment, new_environment requests point at the one
+    fulfilment created.
+    """
+    view = await get_request_view(db, request_id, tenant_id)
+    req = view.request
+    if req.status != "fulfilled":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The welcome pack is available once the request has been fulfilled",
+        )
+
+    env_id = req.environment_id or req.created_environment_id
+    env = (
+        await db.execute(
+            select(Environment).where(
+                Environment.id == env_id, Environment.tenant_id == tenant_id
+            )
+        )
+    ).scalar_one_or_none()
+    if env is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+
+    tier_name = (
+        await db.execute(
+            select(EnvironmentTier.name).where(EnvironmentTier.id == env.tier_id)
+        )
+    ).scalar_one_or_none()
+    owner = (
+        await db.execute(select(User.username).where(User.id == env.owner_user_id))
+    ).scalar_one_or_none()
+
+    group_name = None
+    members: list[str] = []
+    if env.operations_group_id is not None:
+        group_name = (
+            await db.execute(
+                select(UserGroup.name).where(UserGroup.id == env.operations_group_id)
+            )
+        ).scalar_one_or_none()
+        members = list(
+            (
+                await db.execute(
+                    select(User.username)
+                    .join(UserGroupMember, UserGroupMember.user_id == User.id)
+                    .where(
+                        UserGroupMember.group_id == env.operations_group_id,
+                        UserGroupMember.tenant_id == tenant_id,
+                    )
+                    .order_by(User.username)
+                )
+            ).scalars().all()
+        )
+
+    return WelcomePackResponse(
+        environment={
+            "id": env.id,
+            "name": env.name,
+            "tier": tier_name,
+            "status": env.status.value if hasattr(env.status, "value") else env.status,
+            "owner": owner or NOT_PROVIDED,
+            "expires_at": env.expires_at.isoformat() if env.expires_at else None,
+        },
+        access={
+            "access_url": _or_not_provided(env.access_url),
+            "connection_notes": _or_not_provided(env.connection_notes),
+            "support_contact": _or_not_provided(env.support_contact),
+        },
+        support={
+            "sla_notes": _or_not_provided(env.sla_notes),
+            "operations_group": group_name or NOT_PROVIDED,
+            "operations_group_members": members,
+        },
+        caveats={"known_limitations": _or_not_provided(env.known_limitations)},
+        offboarding={"decommission_notes": _or_not_provided(env.decommission_notes)},
+        context={
+            "requested_by": view.requester_username,
+            "justification": req.justification,
+            "kind": req.kind,
+        },
+    )

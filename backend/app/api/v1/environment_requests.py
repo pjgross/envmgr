@@ -8,6 +8,7 @@ from app.api.v1.schemas.environment_request import (
     EnvironmentRequestResponse,
     EnvironmentRequestTransition,
     EnvironmentRequestUpdate,
+    WelcomePackResponse,
 )
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.core.security import get_current_user
@@ -115,4 +116,15 @@ async def get_allowed_transitions(
 ):
     return await environment_request_service.allowed_transitions(
         db, request_id, current_user, current_user.active_tenant_id
+    )
+
+
+@router.get("/{request_id}/welcome-pack", response_model=WelcomePackResponse)
+async def get_welcome_pack(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_request_service.build_welcome_pack(
+        db, request_id, current_user.active_tenant_id
     )
