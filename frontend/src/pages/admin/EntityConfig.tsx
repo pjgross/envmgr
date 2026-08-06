@@ -21,6 +21,7 @@ const ENTITY_LABELS: Record<string, string> = {
   build: 'Builds',
   deployment: 'Deployments',
   incident: 'Incidents',
+  'environment-request': 'Environment Requests',
 };
 
 // URL-style entity slug (dash) → internal EntityType (underscore) where they differ.
@@ -35,10 +36,18 @@ const ENTITY_SLUG_TO_TYPE: Record<string, EntityType> = {
   build: 'build',
   deployment: 'deployment',
   incident: 'incident',
+  'environment-request': 'environment_request',
 };
 
 // Entities whose Lifecycle tab is fully supported.
-const LIFECYCLE_SUPPORTED: EntityType[] = ['booking', 'change_request', 'release', 'incident'];
+// I5: environment_request was missing here — the spec's whole justification
+// for reusing lifecycle templates rather than a fixed status enum is that a
+// tenant edits the template in this admin UI, which was untrue as shipped.
+// Safe to add now that C1(b) refuses a template that renames a required
+// state at save time, rather than accepting it and degrading silently.
+const LIFECYCLE_SUPPORTED: EntityType[] = [
+  'booking', 'change_request', 'release', 'incident', 'environment_request',
+];
 
 // Entities that have event types config.
 const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];

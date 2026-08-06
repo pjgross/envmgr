@@ -270,12 +270,19 @@ export default function EnvironmentRequestDetail() {
               {current.needed_by ? new Date(current.needed_by).toLocaleDateString() : '—'}
             </Typography>
           </Box>
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              Operations group
-            </Typography>
-            <Typography variant="body2">{current.operations_group_name ?? '— no group'}</Typography>
-          </Box>
+          {/* M7: an access request's operating team comes from its TARGET
+              environment, not the request row itself (operations_group_id
+              is only ever set on a new_environment request) — this row
+              always read "— no group" for an access request, which looks
+              like a data problem rather than "not applicable here". */}
+          {current.kind === 'new_environment' && (
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Operations group
+              </Typography>
+              <Typography variant="body2">{current.operations_group_name ?? '— no group'}</Typography>
+            </Box>
+          )}
         </Stack>
       </Paper>
 

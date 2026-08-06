@@ -21,6 +21,7 @@ import BuildIcon from '@mui/icons-material/Build';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 
 const DRAWER_WIDTH = 220;
 
@@ -75,6 +76,13 @@ const entityNavItems = [
     label: 'Incidents',
     path: '/admin/config/incident',
     icon: <BugReportIcon fontSize="small" />,
+  },
+  {
+    // I5: without a link here the page is reachable only by typing the URL —
+    // "edit it in the admin UI" isn't true if there's nothing to click.
+    label: 'Environment Requests',
+    path: '/admin/config/environment-request',
+    icon: <AssignmentIcon fontSize="small" />,
   },
   {
     label: 'Scope change rules',

@@ -37,10 +37,27 @@ export const environmentRequestColumns: GridColDef<EnvironmentRequestResponse>[]
         ? (params.row.environment_name ?? '—')
         : `${params.row.proposed_name ?? '—'} (new)`,
   },
-  { field: 'kind', headerName: 'Kind', width: 150 },
+  {
+    field: 'kind',
+    headerName: 'Kind',
+    width: 150,
+    // M6: matches the detail page's rendering of the same field — the grid
+    // was the only place in the app still showing the raw 'access' /
+    // 'new_environment' literal.
+    valueFormatter: (params) =>
+      params.value === 'access' ? 'Access' : 'New environment',
+  },
   { field: 'requester_username', headerName: 'Requested by', width: 160, sortable: false },
   { field: 'status', headerName: 'Status', width: 130 },
-  { field: 'needed_by', headerName: 'Needed by', width: 140 },
+  {
+    field: 'needed_by',
+    headerName: 'Needed by',
+    width: 140,
+    // M6: matches the detail page's `new Date(...).toLocaleDateString()` —
+    // the grid was showing the raw ISO timestamp.
+    valueFormatter: (params) =>
+      params.value ? new Date(params.value as string).toLocaleDateString() : '—',
+  },
 ];
 
 type QueueFilter = 'any' | 'mine' | 'team';

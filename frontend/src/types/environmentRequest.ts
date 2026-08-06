@@ -20,7 +20,8 @@ export interface EnvironmentRequestResponse {
   operations_group_id: number | null;
   operations_group_name: string | null;
   created_environment_id: number | null;
-  custom_fields: Record<string, unknown> | null;
+  // M4: no custom_fields — the backend no longer accepts or returns it (no
+  // tenant can define a vocabulary for this entity's custom fields).
   created_at: string;
   updated_at: string;
 }

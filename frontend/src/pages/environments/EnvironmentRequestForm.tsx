@@ -7,9 +7,9 @@
  * split (see `_assert_mode_fields` in environment_request_service.py):
  * access requests need an environment; new-environment requests need a
  * proposed name, tier and expiry. Justification is required either way.
- * `custom_fields` is deliberately not exposed here — it exists on the
- * backend schema but this form has no UI for it, and adding the field
- * without one would be dead surface.
+ * There is no `custom_fields` field here (M4): no tenant can define a
+ * custom-field vocabulary for this entity, and the backend no longer
+ * accepts or persists one.
  */
 import { useState } from 'react';
 import { useDispatch } from 'react-redux';
