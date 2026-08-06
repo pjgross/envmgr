@@ -15,6 +15,7 @@ from app.services import version_service, change_request_service
 from app.api.v1.schemas.environment import (
     EnvironmentCreate,
     EnvironmentUpdate,
+    EnvironmentHandoverUpdate,
     EnvironmentResponse,
     EnvironmentSystemCreate,
     EnvironmentSystemUpdate,
@@ -155,6 +156,25 @@ async def update_environment(
     return EnvironmentResponse.from_view(
         await environment_service.get_environment_view(
             db, env_id, current_user.active_tenant_id
+        )
+    )
+
+
+@router.patch("/{env_id}/handover", response_model=EnvironmentResponse)
+async def update_environment_handover(
+    env_id: int,
+    data: EnvironmentHandoverUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """The Welcome Pack's content, authored by the team that operates this
+    environment. Deliberately NOT part of PATCH /environments/{id}, which is
+    Admin-gated and also edits tier, owner, expiry, status and the operations
+    group itself — fields whose control must stay with Admins.
+    """
+    return EnvironmentResponse.from_view(
+        await environment_service.update_handover(
+            db, env_id, data, current_user, current_user.active_tenant_id
         )
     )
 

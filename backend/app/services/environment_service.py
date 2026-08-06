@@ -22,8 +22,12 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
-from app.db.models.user_group import UserGroup
-from app.api.v1.schemas.environment import EnvironmentCreate, EnvironmentUpdate
+from app.db.models.user_group import UserGroup, UserGroupMember
+from app.api.v1.schemas.environment import (
+    EnvironmentCreate,
+    EnvironmentUpdate,
+    EnvironmentHandoverUpdate,
+)
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
 from app.services import user_group_service
@@ -456,6 +460,63 @@ async def update_environment(
         tenant_id=env.tenant_id,
     )
     return env
+
+
+async def assert_may_edit_handover(
+    db: AsyncSession, environment_id: int, current_user: User, tenant_id: int
+) -> None:
+    """The operating team, or an Admin.
+
+    This is the second of exactly two places in the application that read
+    group membership for authorization; the other is
+    environment_request_service.assert_may_transition. An environment with no
+    operating team (operations_group_id is NULL) degrades to Admin-only — the
+    membership query below simply finds no group to join against, never a
+    group that matches everyone or no one incorrectly.
+    """
+    if current_user.role == "Admin":
+        return
+    found = (
+        await db.execute(
+            select(UserGroupMember.id)
+            .join(Environment, Environment.operations_group_id == UserGroupMember.group_id)
+            .where(
+                Environment.id == environment_id,
+                Environment.tenant_id == tenant_id,
+                UserGroupMember.user_id == current_user.id,
+                UserGroupMember.tenant_id == tenant_id,
+            )
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the operating team for this environment, or an admin, can "
+            "edit its handover details",
+        )
+
+
+async def update_handover(
+    db: AsyncSession,
+    environment_id: int,
+    data: EnvironmentHandoverUpdate,
+    current_user: User,
+    tenant_id: int,
+) -> EnvironmentView:
+    """Write the Welcome Pack's content.
+
+    The narrow surface (EnvironmentHandoverUpdate accepts only the six
+    handover keys) is the safety property here, not this permission check —
+    a member of the operating team cannot reach tier_id, owner_user_id,
+    operations_group_id, status or name through this schema no matter what
+    the authorization rule below decides.
+    """
+    env = await get_environment(db, environment_id, tenant_id)  # 404s cross-tenant/missing
+    await assert_may_edit_handover(db, environment_id, current_user, tenant_id)
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(env, key, value)
+    await db.flush()
+    return await get_environment_view(db, environment_id, tenant_id)
 
 
 async def delete_environment(
