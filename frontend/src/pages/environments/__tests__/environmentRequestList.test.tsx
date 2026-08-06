@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { configureStore } from '@reduxjs/toolkit';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -17,46 +16,16 @@ vi.mock('../../../services/environmentRequestService', () => ({
   },
 }));
 
-// See userGroups.test.tsx / environmentListServerGrid.test.tsx: the real
-// DataGrid virtualizes columns by container width and jsdom reports zero
-// width, so this stand-in renders every column's cell for every row using
-// the column's own renderCell/valueGetter — the `target` column below is
-// valueGetter-only (see EnvironmentRequestList's environmentRequestColumns),
-// so the fallback must cover that case too, not just renderCell.
+// See src/test/dataGridMock.tsx: the real DataGrid virtualizes columns by
+// container width and jsdom reports zero width, so this stand-in renders
+// every column's cell for every row using the column's own
+// renderCell/valueGetter — the `target` column below is valueGetter-only
+// (see EnvironmentRequestList's environmentRequestColumns), so the fallback
+// must cover that case too, not just renderCell.
 vi.mock('@mui/x-data-grid', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@mui/x-data-grid')>();
-  return {
-    ...actual,
-    DataGrid: (props: Record<string, unknown>) => {
-      const rows = props.rows as Array<Record<string, unknown>>;
-      const columns = props.columns as Array<{
-        field: string;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        renderCell?: (params: any) => ReactNode;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        valueGetter?: (params: any) => unknown;
-      }>;
-      return (
-        <table>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={String(row.id)}>
-                {columns.map((col) => (
-                  <td key={col.field}>
-                    {col.renderCell
-                      ? col.renderCell({ row, value: row[col.field], id: row.id })
-                      : col.valueGetter
-                        ? String(col.valueGetter({ row }))
-                        : String(row[col.field] ?? '')}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
-    },
-  };
+  const { createDataGridMock } = await import('../../../test/dataGridMock');
+  return { ...actual, ...createDataGridMock() };
 });
 
 const ACCESS_REQUEST: EnvironmentRequestResponse = {
@@ -170,6 +139,36 @@ describe('EnvironmentRequestList', () => {
         expect.objectContaining({ mine: true })
       )
     );
+  });
+
+  it('toggling from team back to All refetches with neither actionable nor mine', async () => {
+    // `any` is the URL's spelling of "no queue filter" precisely so it
+    // doesn't collide with `buildParams`' own "no selection" sentinel,
+    // `all` — see queueParams' docstring. If that guard regressed and both
+    // states built byte-identical params, this toggle would never refetch:
+    // the grid would keep displaying the team queue's rows after clicking
+    // All.
+    renderList();
+    await waitFor(() => expect(screen.getByText('Mortgage SIT')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /for my team/i }));
+    await waitFor(() =>
+      expect(environmentRequestService.listRequests).toHaveBeenCalledWith(
+        expect.objectContaining({ actionable: true })
+      )
+    );
+    const callsAfterTeam = vi.mocked(environmentRequestService.listRequests).mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: /^all$/i }));
+    await waitFor(() =>
+      expect(vi.mocked(environmentRequestService.listRequests).mock.calls.length).toBeGreaterThan(
+        callsAfterTeam
+      )
+    );
+    const calls = vi.mocked(environmentRequestService.listRequests).mock.calls;
+    const lastCall = calls[calls.length - 1]?.[0];
+    expect(lastCall).not.toHaveProperty('actionable');
+    expect(lastCall).not.toHaveProperty('mine');
   });
 
   it('reads the For my team filter back out of the URL on mount, not just writes it', async () => {
