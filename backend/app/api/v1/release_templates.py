@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import release_template_service
+from app.services import release_template_service, project_service
 from app.api.v1.schemas.release_template import (
     ReleaseTemplateCreate,
     ReleaseTemplateUpdate,
@@ -73,6 +73,18 @@ async def instantiate_template(
     current_user=Depends(get_current_user),
 ):
     """Create a release (with phases and gates) from this template."""
-    return await release_template_service.instantiate(
+    release = await release_template_service.instantiate(
         db, template_id, data, current_user.active_tenant_id, current_user.id
     )
+    resp = ReleaseRead.model_validate(release)
+    if release.owning_project_id is not None:
+        # release_template_service.instantiate never sets owning_project_id
+        # today, so this is unreachable in practice — but the day a template
+        # can carry one, this must not silently render null the way the bare
+        # ORM object did (see app/api/v1/releases.py's _release_with_permissions
+        # for the same lookup on every other ReleaseRead producer).
+        names = await project_service.get_project_names(
+            db, {release.owning_project_id}, current_user.active_tenant_id
+        )
+        resp.owning_project_name = names.get(release.owning_project_id)
+    return resp

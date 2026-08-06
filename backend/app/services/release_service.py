@@ -380,9 +380,21 @@ async def update_release(
             "scope_deadline is only valid on project releases",
         )
 
-    if "owning_project_id" in update_data and update_data["owning_project_id"] is not None:
+    if (
+        "owning_project_id" in update_data
+        and update_data["owning_project_id"] is not None
+        and update_data["owning_project_id"] != release.owning_project_id
+    ):
         # Scoped to the ACTIVE tenant — see the identical comment in
-        # create_release for why.
+        # create_release for why. Resubmitting the CURRENT value must not
+        # re-validate it — a project can be archived after being assigned,
+        # and a PUT saving some unrelated field still round-trips the
+        # existing owning_project_id (ReleaseForm.tsx sends a fixed
+        # whitelist payload on every save). Same exemption as
+        # project_service.update_project gives team_group_id and
+        # environment_service gives operations_group_id: accept an archived
+        # project when it equals the stored value, reject it as a new
+        # assignment.
         await project_service.get_project(db, update_data["owning_project_id"], tenant_id)
 
     for field, value in update_data.items():

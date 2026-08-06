@@ -49,7 +49,7 @@ def _rollup(children) -> str:
     return "mixed"
 
 
-def _to_response(req, project_name_link: str | None = None) -> BookingRequestResponse:
+def _to_response(req, project_name_link: str | None) -> BookingRequestResponse:
     return BookingRequestResponse(
         id=req.id, tenant_id=req.tenant_id, project_name=req.project_name,
         project_id=req.project_id, project_name_link=project_name_link,

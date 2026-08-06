@@ -7,8 +7,10 @@ project on one row is how a future reader gets it wrong.
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.db.base import get_db
+from app.db.models.release import Release
 from app.main import app
 from tests.factories import ensure_project
 
@@ -132,3 +134,155 @@ async def test_the_release_list_filters_by_project_in_sql(
     assert len(rows) == 1
     assert rows[0]["owning_project_name"] == "Mortgage"
     assert int(filtered.headers["X-Total-Count"]) == 1
+
+
+# ── Finding 1: resubmitting the release's OWN archived project must not 404 ─
+
+
+@pytest.mark.asyncio
+async def test_resubmitting_the_same_archived_project_on_update_succeeds(
+    authed_client, db_session, tenant, release_lifecycle_template
+):
+    """A full-form PUT resubmitting the release's own project id — now
+    archived — while changing an unrelated field must not 404. Reproduced
+    against the unfixed code: project_service.get_project filters
+    deleted_at IS NULL, so this 404'd even though the project link itself
+    was not changing. ReleaseForm.tsx sends a fixed whitelist payload on
+    every save, so this is what Task 5 makes reachable in the UI."""
+    project = await ensure_project(db_session, tenant.id, name="Archived Later")
+    await db_session.commit()
+    rid = (await authed_client.post(
+        "/api/v1/releases",
+        json=_payload(release_lifecycle_template.id, owning_project_id=project.id),
+    )).json()["id"]
+
+    archived = await authed_client.delete(f"/api/v1/projects/{project.id}")
+    assert archived.status_code == 204, archived.text
+
+    saved = await authed_client.put(
+        f"/api/v1/releases/{rid}",
+        json={
+            "name": "Rel renamed",
+            "release_type": "Test Major",
+            "owning_project_id": project.id,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["name"] == "Rel renamed"
+    assert body["owning_project_id"] == project.id
+    assert body["owning_project_name"] == "Archived Later"
+
+
+@pytest.mark.asyncio
+async def test_assigning_a_different_archived_project_on_update_still_404s(
+    authed_client, db_session, tenant, release_lifecycle_template
+):
+    """The exemption is narrow: it only covers resubmitting the CURRENT
+    value. A NEW assignment to a different archived project must still 404."""
+    original = await ensure_project(db_session, tenant.id, name="Original")
+    other = await ensure_project(db_session, tenant.id, name="Also Archived")
+    await db_session.commit()
+    rid = (await authed_client.post(
+        "/api/v1/releases",
+        json=_payload(release_lifecycle_template.id, owning_project_id=original.id),
+    )).json()["id"]
+
+    archived = await authed_client.delete(f"/api/v1/projects/{other.id}")
+    assert archived.status_code == 204, archived.text
+
+    refused = await authed_client.put(
+        f"/api/v1/releases/{rid}",
+        json={
+            "name": "Rel",
+            "release_type": "Test Major",
+            "owning_project_id": other.id,
+        },
+    )
+    assert refused.status_code == 404, refused.text
+
+
+# ── Finding 2: the update path's happy case was never asserted at all ───────
+
+
+@pytest.mark.asyncio
+async def test_the_owning_project_link_persists_after_update(
+    authed_client, db_session, tenant, release_lifecycle_template
+):
+    """PUT the link onto a release that had none, assert the response
+    carries both the id and the resolved name, then re-GET and confirm it
+    stuck."""
+    project = await ensure_project(db_session, tenant.id, name="Newly Linked")
+    await db_session.commit()
+    rid = (await authed_client.post(
+        "/api/v1/releases", json=_payload(release_lifecycle_template.id)
+    )).json()["id"]
+
+    saved = await authed_client.put(
+        f"/api/v1/releases/{rid}",
+        json={
+            "name": "Rel",
+            "release_type": "Test Major",
+            "owning_project_id": project.id,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["owning_project_id"] == project.id
+    assert saved.json()["owning_project_name"] == "Newly Linked"
+
+    reget = await authed_client.get(f"/api/v1/releases/{rid}")
+    assert reget.status_code == 200, reget.text
+    assert reget.json()["owning_project_id"] == project.id
+    assert reget.json()["owning_project_name"] == "Newly Linked"
+
+
+# ── Finding 3: owning_project_name was unguarded on GET, PUT and /transition ─
+
+
+@pytest.mark.asyncio
+async def test_get_after_create_carries_the_owning_project_name(
+    authed_client, db_session, tenant, release_lifecycle_template
+):
+    """create_release's response was the only place this was exercised.
+    Re-GET the same release and confirm the name is still there — this is
+    what actually exercises _release_with_permissions's lookup."""
+    project = await ensure_project(db_session, tenant.id, name="Re-GET Me")
+    await db_session.commit()
+    rid = (await authed_client.post(
+        "/api/v1/releases",
+        json=_payload(release_lifecycle_template.id, owning_project_id=project.id),
+    )).json()["id"]
+
+    reget = await authed_client.get(f"/api/v1/releases/{rid}")
+    assert reget.status_code == 200, reget.text
+    assert reget.json()["owning_project_id"] == project.id
+    assert reget.json()["owning_project_name"] == "Re-GET Me"
+
+
+# ── Finding 5: get_project_names' own tenant filter, unreachable via the API ─
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_cross_tenant_project_row_does_not_leak_its_name(
+    authed_client, db_session, tenant, release_lifecycle_template, second_tenant_factory
+):
+    """No write path can produce this row — both create and update refuse a
+    cross-tenant project id. This guards get_project_names' own tenant
+    filter directly, in case that write-side defence is ever the only thing
+    standing between a malformed row and a name leak."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_project(db_session, other_tenant.id, name="Not Ours")
+    await db_session.commit()
+    rid = (await authed_client.post(
+        "/api/v1/releases", json=_payload(release_lifecycle_template.id)
+    )).json()["id"]
+
+    release = (
+        await db_session.execute(select(Release).where(Release.id == rid))
+    ).scalar_one()
+    release.owning_project_id = theirs.id
+    await db_session.commit()
+
+    fetched = await authed_client.get(f"/api/v1/releases/{rid}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["owning_project_name"] is None

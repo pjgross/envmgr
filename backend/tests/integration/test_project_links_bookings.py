@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.db.models.booking_request import BookingRequest
 from tests.factories import ensure_environment, ensure_project
 
 
@@ -169,3 +170,180 @@ async def test_an_archived_projects_name_still_renders_on_its_bookings(
     still = await client.get(f"/api/v1/booking-requests/{rid}", headers=auth_headers)
     assert still.status_code == 200, still.text
     assert still.json()["project_name_link"] == "Wound Down"
+
+
+# ── Finding 1: resubmitting the row's OWN archived project must not 404 ─────
+
+
+@pytest.mark.asyncio
+async def test_resubmitting_the_same_archived_project_on_update_succeeds(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """A full-form PATCH resubmitting the row's own project id — now archived —
+    while changing an unrelated field must not 404. Reproduced against the
+    unfixed code: project_service.get_project filters deleted_at IS NULL, so
+    this 404'd even though nothing about the project link was changing."""
+    project = await ensure_project(db_session, test_tenant.id, name="Archived Later")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id, project_id=project.id),
+        headers=auth_headers,
+    )).json()["request"]["id"]
+
+    archived = await client.delete(f"/api/v1/projects/{project.id}", headers=auth_headers)
+    assert archived.status_code == 204, archived.text
+
+    saved = await client.patch(
+        f"/api/v1/booking-requests/{rid}/standard-fields",
+        json={"project_name": "renamed", "project_id": project.id},
+        headers=auth_headers,
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["project_name"] == "renamed"
+    assert body["project_id"] == project.id
+    assert body["project_name_link"] == "Archived Later"
+
+
+@pytest.mark.asyncio
+async def test_assigning_a_different_archived_project_on_update_still_404s(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """The exemption is narrow: it only covers resubmitting the CURRENT value.
+    A NEW assignment to a different archived project must still 404."""
+    original = await ensure_project(db_session, test_tenant.id, name="Original")
+    other = await ensure_project(db_session, test_tenant.id, name="Also Archived")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id, project_id=original.id),
+        headers=auth_headers,
+    )).json()["request"]["id"]
+
+    archived = await client.delete(f"/api/v1/projects/{other.id}", headers=auth_headers)
+    assert archived.status_code == 204, archived.text
+
+    refused = await client.patch(
+        f"/api/v1/booking-requests/{rid}/standard-fields",
+        json={"project_id": other.id},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 404, refused.text
+
+
+# ── Finding 2: the update path's happy case was never asserted at all ───────
+
+
+@pytest.mark.asyncio
+async def test_the_project_link_persists_after_update(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """PATCH the link onto a row that had none, assert the response carries
+    both the id and the resolved name, then re-GET and confirm it stuck."""
+    project = await ensure_project(db_session, test_tenant.id, name="Newly Linked")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id),
+        headers=auth_headers,
+    )).json()["request"]["id"]
+
+    saved = await client.patch(
+        f"/api/v1/booking-requests/{rid}/standard-fields",
+        json={"project_id": project.id},
+        headers=auth_headers,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["project_id"] == project.id
+    assert saved.json()["project_name_link"] == "Newly Linked"
+
+    reget = await client.get(f"/api/v1/booking-requests/{rid}", headers=auth_headers)
+    assert reget.status_code == 200, reget.text
+    assert reget.json()["project_id"] == project.id
+    assert reget.json()["project_name_link"] == "Newly Linked"
+
+
+# ── Finding 4: both PATCH responses must carry the name, not just project_id ─
+
+
+@pytest.mark.asyncio
+async def test_standard_fields_patch_response_carries_the_project_name(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    project = await ensure_project(db_session, test_tenant.id, name="Standard Path")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id, project_id=project.id),
+        headers=auth_headers,
+    )).json()["request"]["id"]
+
+    # Patch an unrelated standard field — the project link is untouched.
+    saved = await client.patch(
+        f"/api/v1/booking-requests/{rid}/standard-fields",
+        json={"notes": "updated notes"},
+        headers=auth_headers,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["project_name_link"] == "Standard Path"
+
+
+@pytest.mark.asyncio
+async def test_custom_fields_patch_response_carries_the_project_name(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    project = await ensure_project(db_session, test_tenant.id, name="Custom Path")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    rid = (await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id, project_id=project.id),
+        headers=auth_headers,
+    )).json()["request"]["id"]
+
+    saved = await client.patch(
+        f"/api/v1/booking-requests/{rid}/custom-fields",
+        json={"values": {"colour": "blue"}},
+        headers=auth_headers,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["project_name_link"] == "Custom Path"
+
+
+# ── Finding 5: get_project_names' own tenant filter, unreachable via the API ─
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_cross_tenant_project_row_does_not_leak_its_name(
+    client, auth_headers, db_session, test_tenant, test_user, test_booking_type,
+    second_tenant_factory,
+):
+    """No write path can produce this row — both create and update refuse a
+    cross-tenant project id. This guards get_project_names' own tenant filter
+    directly, in case that write-side defence is ever the only thing standing
+    between a malformed row and a name leak."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_project(db_session, other_tenant.id, name="Not Ours")
+    await db_session.commit()
+
+    req = BookingRequest(
+        tenant_id=test_tenant.id,
+        project_name="Regression sweep",
+        project_id=theirs.id,
+        booking_type_id=test_booking_type.id,
+        start_date=datetime.now(timezone.utc),
+        end_date=datetime.now(timezone.utc) + timedelta(days=1),
+        booked_by=test_user.id,
+    )
+    db_session.add(req)
+    await db_session.commit()
+    await db_session.refresh(req)
+
+    fetched = await client.get(f"/api/v1/booking-requests/{req.id}", headers=auth_headers)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["project_name_link"] is None

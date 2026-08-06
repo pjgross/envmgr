@@ -306,9 +306,19 @@ async def update_standard_fields(
     if unknown:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown fields: {unknown}")
 
-    if "project_id" in values and values["project_id"] is not None:
+    if (
+        "project_id" in values
+        and values["project_id"] is not None
+        and values["project_id"] != req.project_id
+    ):
         # Scoped to the ACTIVE tenant — see the identical comment in
-        # create_request for why.
+        # create_request for why. Resubmitting the CURRENT value must not
+        # re-validate it — a project can be archived after being assigned,
+        # and a full-form PATCH still round-trips the existing project_id.
+        # Same exemption as project_service.update_project gives
+        # team_group_id and environment_service gives operations_group_id:
+        # accept an archived project when it equals the stored value, reject
+        # it as a new assignment.
         await project_service.get_project(db, values["project_id"], tenant_id)
 
     # TODO permission gating using lifecycle field_permissions —
