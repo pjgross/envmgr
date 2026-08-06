@@ -138,8 +138,8 @@ The dashboard is a four-card summary above a welcome panel. The cards are static
 
 - *Environments* — *Total environments* visible to your tenant. Use ch. 6 to populate this.
 - *Bookings* — *Active bookings* across the tenant. Filled in once your team starts reserving environments (`user-guide.md` ch. 5).
-- *Changes* — *Pending changes* awaiting approval or implementation (`user-guide.md` ch. 6).
-- *Releases* — *Active releases* currently in flight (`user-guide.md` ch. 7).
+- *Changes* — *Pending changes* awaiting approval or implementation (`user-guide.md` ch. 7).
+- *Releases* — *Active releases* currently in flight (`user-guide.md` ch. 8).
 
 > **Not yet available:** the *Bookings*, *Changes*, and *Releases* cards are wired to placeholder zeros in the current build; only *Environments* reflects live data. Treat the dashboard as a landing page, not a metrics view.
 
@@ -154,12 +154,13 @@ The sidebar is the same for every authenticated user, with one extra entry — *
 | *Environments* | `/environments` | Environment inventory and detail. | ch. 6 |
 | *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | `user-guide.md` ch. 5 |
 | *Bookings → List* | `/bookings/list` | Tabular view of reservations. | `user-guide.md` ch. 5 |
-| *Builds* | `/builds` | CI build feed per subsystem. | `user-guide.md` ch. 8 |
-| *Change Requests* | `/change-requests` | Change-request inbox. | `user-guide.md` ch. 6 |
-| *Deployments* | `/deployments` | Deployment feed per environment. | `user-guide.md` ch. 8 |
-| *Releases → List* | `/releases` | Release inventory. | `user-guide.md` ch. 7 |
-| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | `user-guide.md` ch. 7 |
-| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | `user-guide.md` ch. 7 |
+| *Builds* | `/builds` | CI build feed per subsystem. | `user-guide.md` ch. 9 |
+| *Change Requests* | `/change-requests` | Change-request inbox. | `user-guide.md` ch. 7 |
+| *Environment Requests* | `/environment-requests` | Request access to an environment, or a new one; approve, reject and fulfil requests for teams you operate. | `user-guide.md` ch. 6; ch. 6 below (routing, handover, deploy note) |
+| *Deployments* | `/deployments` | Deployment feed per environment. | `user-guide.md` ch. 9 |
+| *Releases → List* | `/releases` | Release inventory. | `user-guide.md` ch. 8 |
+| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | `user-guide.md` ch. 8 |
+| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | `user-guide.md` ch. 8 |
 | *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints. | ch. 9 |
 | *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | ch. 7 |
 | *Import* | `/import` | Bulk Excel import. | ch. 12 |
@@ -227,6 +228,13 @@ A *User Group* organises users into a team that an environment can name as its o
 - Click a row to open its detail page, where an Admin adds and removes members by username.
 - A group that is still assigned as any environment's operations group cannot be deleted — the 409 response names the environments blocking it (and how many more, past the first ten). Reassign or clear those first.
 - Deleting an unreferenced group soft-deletes it: its name keeps rendering (labelled "(deleted)") on any environment that still names it as the value already stored there, but it drops out of the picker for a *new* assignment.
+
+**What membership buys, beyond being named on an environment.** Group membership on its own grants no permission — every authorization rule in the app is still role-based — with exactly two exceptions, both introduced by the Environment Requests feature (see [ch. 6 §Environment Requests, routing and the Welcome Pack](#environment-requests-routing-and-the-welcome-pack)):
+
+1. **Approving, rejecting and fulfilling access requests** against an environment your group operates. A member of the operating team (or an Admin) can move a *submitted* access request to *approved* or *rejected*, and an *approved* one to *fulfilled*; nobody else can, and an Admin can always step in if a team is emptied or misconfigured.
+2. **Authoring that environment's Handover content** — the six fields (*Access URL*, *How to connect*, *Support contact*, *SLA notes*, *Known limitations*, *Offboarding notes*) a fulfilled requester reads back in their Welcome Pack — via a dedicated *Handover* panel on the environment detail page, editable by the operating team as well as by Admins.
+
+Nothing else changes: a group is still not a scope for booking, change requests, or any other write in the app.
 
 ### Password resets
 
@@ -396,6 +404,58 @@ The *Topology* tab on the environment detail page renders a force-directed graph
 
 You can pan, zoom, and use the minimap. **Click an edge** to open a side panel with the dependency's type, label, protocol/port, and any documented endpoints. Nodes are not draggable — the layout is computed automatically.
 
+### Environment Requests, routing and the Welcome Pack
+
+Any tenant member can raise an *Environment Request* at `/environment-requests` — either **Access**, against an existing environment, or **New environment**, proposing one that doesn't exist yet. Both modes share one status lifecycle, seeded per tenant as *Standard Request*:
+
+```
+        ┌───────┐
+        │ draft │  ◄──── (Return for Revision)
+        └───┬───┘                       ▲
+            │ Submit                    │
+            ▼                           │
+      ┌────────────┐                    │
+      │ submitted  │ ───────────────────┘
+      └─┬───────┬──┘
+Approve │       │ Reject                 Cancel is also available
+        ▼       ▼                        from draft and submitted —
+   ┌─────────┐ ┌──────────┐              the requester can withdraw
+   │approved │ │ rejected │  (terminal)  their own request either way.
+   └────┬────┘ └──────────┘
+        │ Mark Fulfilled      Reject (from approved too — see below)
+        ▼
+   ┌───────────┐
+   │ fulfilled │  (terminal)
+   └───────────┘
+```
+
+**Routing.** Who may move a request into *approved*, *rejected* or *fulfilled* depends on its kind:
+
+- An **access** request routes to the target environment's **operating group** — a member of that group, or an Admin, can act on it. Submitting an access request against an environment with **no** operating group is refused outright (a 409 naming the environment); there is nobody to route it to, and a request only an Admin can see is worse than a clear error telling the requester to ask an Admin to assign one first.
+- A **new-environment** request has no target environment yet, so it always routes to an **Admin** — there is no group to check. The approving Admin is also the one who picks the *operations group* the environment will have once it exists, in a picker on the request's detail page.
+
+Submitting a request and cancelling your own draft or submitted request need only your ordinary tenant role — every role can raise and withdraw their own request, including a Viewer, who is exactly the person most likely to need access. Only the three approval-side moves check group membership.
+
+**Fulfilment creates the environment INACTIVE, not active.** Approving a new-environment request and clicking *Mark Fulfilled* creates the `Environment` row — with the requested name, tier, expiry and operating group already set — but its status starts **inactive**. The register must not claim an environment is available before anyone has actually built it; once the real infrastructure exists, an Admin edits the environment and flips its status to *active* the same way as any other environment (see [ch. 6 §Status lifecycle](#status-lifecycle)). An **access** request's fulfilment does nothing to the environment at all — there's nothing to create.
+
+**Handover vs Governance — the same page, two different write rules, on purpose.** An environment's detail page carries both a *Governance* section (tier, owner, expiry, operations group — Admin-only, see [ch. 6 §Walkthrough: creating an environment](#walkthrough-creating-an-environment)) and a *Handover* section (the six fields listed under [ch. 4 §User Groups](#user-groups)), editable by the operating team as well as Admins. A member of the operating team who isn't an Admin therefore sees Governance read-only and Handover editable on the same screen. That's deliberate, not a bug: the write is narrow by construction — the Handover endpoint accepts only those six keys and nothing else, so a team member can never reach tier, owner, status or which group operates the environment through it, however permissive the check on that one endpoint is. Without this split, only Admins could author connection details, VPN routes and support contacts for every environment in the tenant — content that actually lives with the operating team, not with Admins — and the Welcome Pack would stay empty in practice. The page labels the Handover section to make the asymmetry read as intentional.
+
+**The Welcome Pack** appears on a fulfilled request's detail page: environment summary, how to connect, support (including the operating team and its member list), known limitations, and offboarding notes. It is rendered **live** from the environment's current Handover fields on every view, not a document captured at fulfilment time — so a VPN endpoint the operating team updates next month shows up the next time anyone opens the pack. A field nobody has filled in reads **"Not provided"**, not a blank section; the pack always shows every heading, because an empty "How to connect" section reads as "there is nothing to do" rather than "nobody has documented this yet".
+
+**How far the lifecycle is editable.** *Standard Request* is deliberately plain — the diagram above — and a tenant can extend it like any other lifecycle template, from *Administration → Environment Requests → Lifecycle* (`/admin/config/environment-request`): add a second review step, add states, rewire which roles may make which transition. The one constraint is that a template must still define states named exactly `submitted`, `approved`, `rejected` and `fulfilled`, plus exactly one initial state (any name) — the service's own routing, fulfilment and Welcome-Pack logic key on those four names, so renaming one doesn't shrink the feature, it silently breaks it (a state the service no longer recognises as an approval target skips the group-membership check entirely, or a request reaches a status the template has no way out of). Saving a template that drops one of the four is refused with a 422 naming which is missing.
+
+> **Deploy note.** Migration `envrequests` seeds *Standard Request* into every existing tenant as
+> part of `alembic upgrade head`. If that revision was ever applied to a database *before* this
+> seeding step existed — which happened on the dev box, because the seed block was appended to
+> the migration after `alembic upgrade head` had already run it once — `alembic_version` reads
+> `envrequests` and the seed never runs, and no tenant on that database gets a template. The
+> symptom is every `POST /environment-requests` answering 400 *"This tenant has no
+> environment-request lifecycle configured"*. Check for it, and if found, run
+> `seed_environment_request_defaults_for_tenant` by hand for each affected tenant rather than
+> re-running the migration (which alembic will refuse, having already recorded it as applied). A
+> clean deploy that has never seen an intermediate version of this migration completes the seed
+> once and needs no follow-up.
+
 ## 7. Modelling infrastructure (hosts)
 
 ### Concept
@@ -485,7 +545,7 @@ Keep the change-kind list short — three to six is plenty. Use kind-scoped cust
 
 ### RAID Settings
 
-*RAID Settings* (left nav → **RAID Settings**, Admin only) controls how your tenant scores the **Risks** and **Issues** in every release's RAID log (user guide ch. 7 — RAID log). Each tenant gets a default 5×5 configuration on creation; edit it to match your organisation's risk framework.
+*RAID Settings* (left nav → **RAID Settings**, Admin only) controls how your tenant scores the **Risks** and **Issues** in every release's RAID log (user guide ch. 8 — RAID log). Each tenant gets a default 5×5 configuration on creation; edit it to match your organisation's risk framework.
 
 There are three things to configure:
 
@@ -532,7 +592,7 @@ Templates earn their keep when releases follow a predictable cadence: a monthly 
 
 API keys are tenant-scoped, scope-restricted credentials that let external systems — typically your CI/CD pipelines — write to EnvManager. A key belongs to one tenant, carries one or more named scopes, and is presented in the `X-Api-Key` header. Keys are stored as a SHA-256 hash; the plaintext is shown **once**, on the screen that follows creation. EnvManager has no way to recover a lost plaintext — if you lose it, revoke and re-issue.
 
-Today the only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 8.
+Today the only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 9.
 
 ### Walkthrough: creating an API key
 
@@ -624,7 +684,7 @@ When EnvManager has not seen the `event_id` before, a single call writes:
 2. A **Deployment** row, linked to the build and the resolved environment.
 3. An auto-generated `code_deployment` **Change Request** titled `Deploy <sha8> → <env-slug>`, raised by the API-key owner.
 
-The auto CR is a placeholder so every deployment is auditable. To register the change manually first, send the existing `change_request_id` in the payload to skip auto-create; you can also swap the linked CR after the fact from the *Deployments* page (see user guide ch. 8).
+The auto CR is a placeholder so every deployment is auditable. To register the change manually first, send the existing `change_request_id` in the payload to skip auto-create; you can also swap the linked CR after the fact from the *Deployments* page (see user guide ch. 9).
 
 > **Not yet available:** Jira ticket sync (resolving ticket IDs to live Jira issues, surfacing status / assignees inline) is a Phase 3 Sub-3 deferred item. The webhook stores `jira_tickets` as plain strings today; the Build detail renders them as deep links if a Jira base URL is configured on the system, but no two-way sync exists.
 
