@@ -24,6 +24,7 @@ import InsightsIcon from '@mui/icons-material/Insights';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import GitHubIcon from '@mui/icons-material/GitHub';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -73,6 +74,7 @@ export const navGroups: NavItem[] = [
       { label: 'Bookings — Calendar', path: '/bookings/calendar', icon: <CalendarMonthIcon /> },
       { label: 'Bookings — List', path: '/bookings/list', icon: <ListIcon /> },
       { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
+      { label: 'Environment Requests', path: '/environment-requests', icon: <AssignmentIcon /> },
     ],
   },
   {
