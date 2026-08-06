@@ -18,6 +18,9 @@ class EnvBookingSummary(BaseModel):
 
 class BookingRequestCreate(BaseModel):
     project_name: str
+    # The project this booking belongs to. Distinct from `project_name`, which
+    # is free text the UI now labels "Purpose" — see the spec.
+    project_id: Optional[int] = None
     booking_type_id: int
     start_date: datetime
     end_date: datetime
@@ -31,6 +34,9 @@ class BookingRequestCreate(BaseModel):
 
 class BookingRequestUpdate(BaseModel):
     project_name: Optional[str] = None
+    # The project this booking belongs to. Distinct from `project_name`, which
+    # is free text the UI now labels "Purpose" — see the spec.
+    project_id: Optional[int] = None
     booking_type_id: Optional[int] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -56,6 +62,8 @@ class BookingRequestResponse(BaseModel):
     id: int
     tenant_id: int
     project_name: str
+    project_id: Optional[int] = None
+    project_name_link: Optional[str] = None  # the Project's name, if linked
     booking_type_id: int
     start_date: datetime
     end_date: datetime

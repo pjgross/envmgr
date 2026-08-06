@@ -132,6 +132,33 @@ async def get_project(db: AsyncSession, project_id: int, tenant_id: int) -> Proj
     return project
 
 
+async def get_project_names(
+    db: AsyncSession, project_ids, tenant_id: int
+) -> dict[int, str]:
+    """Names for a set of project ids, tenant-qualified.
+
+    For OTHER entities that merely reference a project (booking_request,
+    release) and want to render its name — never for validating that a
+    caller-supplied id is usable, which stays `get_project`.
+
+    Deliberately does NOT filter `deleted_at`: a soft-deleted project must
+    still render its name on a live booking or release that references it —
+    the row still carries that information, unlike `_agreement_query`, where
+    a gone project makes the referencing row itself meaningless.
+    """
+    ids = {i for i in project_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Project.id, Project.name).where(
+                Project.id.in_(ids), Project.tenant_id == tenant_id
+            )
+        )
+    ).all()
+    return {pid: name for pid, name in rows}
+
+
 async def _assert_team_is_ours(
     db: AsyncSession, tenant_id: int, team_group_id: Optional[int]
 ) -> None:

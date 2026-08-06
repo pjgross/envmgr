@@ -14,7 +14,7 @@ from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
-from app.services import lifecycle_service
+from app.services import lifecycle_service, project_service
 from app.api.v1.schemas.release import ReleaseCreate, ReleaseUpdate
 from app.api.v1.schemas.booking_lifecycle import ENTITY_FIELD_SPECS
 from app.services.custom_field_service import get_active_field_keys
@@ -187,12 +187,19 @@ async def create_release(
             "scope_deadline is only valid on project releases",
         )
 
+    if data.owning_project_id is not None:
+        # Scoped to the ACTIVE tenant: under master-admin impersonation
+        # current_user.id and active_tenant_id belong to different tenants, and
+        # scoping to the wrong one 404s a legitimate request.
+        await project_service.get_project(db, data.owning_project_id, tenant_id)
+
     release = Release(
         tenant_id=tenant_id,
         name=data.name,
         description=data.description,
         release_type=data.release_type,
         release_kind=data.release_kind,
+        owning_project_id=data.owning_project_id,
         template_id=data.template_id,
         lifecycle_template_id=tpl.id,
         status="draft",
@@ -250,6 +257,7 @@ async def list_releases(
     search: Optional[str] = None,
     release_kind: Optional[str] = None,
     system_id: Optional[int] = None,
+    project_id: Optional[int] = None,
     scope_window: Optional[str] = None,
     has_target_date: bool = False,
     date_overlaps_range: bool = False,
@@ -269,6 +277,8 @@ async def list_releases(
         base_where.append(Release.status == status)
     if release_kind is not None:
         base_where.append(Release.release_kind == release_kind)
+    if project_id is not None:
+        base_where.append(Release.owning_project_id == project_id)
     if system_id is not None:
         from app.db.models.release_system import ReleaseSystem
         base_where.append(
@@ -369,6 +379,11 @@ async def update_release(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "scope_deadline is only valid on project releases",
         )
+
+    if "owning_project_id" in update_data and update_data["owning_project_id"] is not None:
+        # Scoped to the ACTIVE tenant — see the identical comment in
+        # create_release for why.
+        await project_service.get_project(db, update_data["owning_project_id"], tenant_id)
 
     for field, value in update_data.items():
         setattr(release, field, value)

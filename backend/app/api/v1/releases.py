@@ -40,6 +40,7 @@ from app.services import (
     release_scope_service,
     release_booking_service,
     release_system_service,
+    project_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -142,6 +143,11 @@ async def _release_with_permissions(
     resp = ReleaseRead.model_validate(release)
     resp.custom_field_permissions = perms["custom_field_permissions"]
     resp.standard_field_permissions = perms["standard_field_permissions"]
+    if release.owning_project_id is not None:
+        names = await project_service.get_project_names(
+            db, {release.owning_project_id}, release.tenant_id
+        )
+        resp.owning_project_name = names.get(release.owning_project_id)
     if release.release_kind == "enterprise" and current_user is not None:
         summary_dict = await enterprise_membership_service.get_membership_summary(
             db, user=current_user, enterprise_id=release.id
@@ -180,6 +186,7 @@ async def list_releases(
     search: Optional[str] = Query(None),
     release_kind: Optional[str] = Query(None, pattern="^(project|enterprise)$"),
     system_id: Optional[int] = Query(None),
+    project_id: Optional[int] = Query(None),
     scope_window: Optional[str] = Query(None, pattern="^(actionable|all)$"),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
@@ -199,6 +206,7 @@ async def list_releases(
         search=search,
         release_kind=release_kind,
         system_id=system_id,
+        project_id=project_id,
         scope_window=scope_window,
         now=now,
         limit=page.limit,
@@ -311,6 +319,10 @@ async def list_releases(
 
     creep_counts = await release_scope_service.scope_creep_counts(db, release_ids, tenant_id)
 
+    project_names = await project_service.get_project_names(
+        db, {r.owning_project_id for r in releases}, tenant_id
+    )
+
     # Systems linked to each release (for the Scope Windows view)
     from app.db.models.release_system import ReleaseSystem
     from app.db.models.system import System
@@ -334,6 +346,7 @@ async def list_releases(
     result = []
     for r in releases:
         item = ReleaseListItemRead.model_validate(r)
+        item.owning_project_name = project_names.get(r.owning_project_id)
         item.phase_count = phase_counts.get(r.id, 0)
         item.scope_count = scope_counts.get(r.id, 0)
         item.blocker_count = gate_counts.get(r.id, 0)
@@ -362,7 +375,13 @@ async def create_release(
     release = await release_service.create_release(
         db, data, tenant_id, current_user.id
     )
-    return release
+    resp = ReleaseRead.model_validate(release)
+    if release.owning_project_id is not None:
+        names = await project_service.get_project_names(
+            db, {release.owning_project_id}, tenant_id
+        )
+        resp.owning_project_name = names.get(release.owning_project_id)
+    return resp
 
 
 @router.get("/calendar")

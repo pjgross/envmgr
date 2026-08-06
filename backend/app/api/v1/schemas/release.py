@@ -12,6 +12,10 @@ class ReleaseCreate(BaseModel):
     description: Optional[str] = None
     release_type: str = Field(..., max_length=50)
     release_kind: str = Field(default="project", max_length=20)
+    # Named owning_project_id, not project_id: release_kind='project' above
+    # already means "not an enterprise release", and two things called
+    # project on one row is how a future reader gets it wrong.
+    owning_project_id: Optional[int] = None
     template_id: Optional[int] = None
     lifecycle_template_id: Optional[int] = None  # service falls back to tenant default
     target_date: Optional[datetime] = None
@@ -23,6 +27,7 @@ class ReleaseUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=250)
     description: Optional[str] = None
     release_type: Optional[str] = Field(None, max_length=50)
+    owning_project_id: Optional[int] = None
     target_date: Optional[datetime] = None
     scope_deadline: Optional[datetime] = None
     actual_date: Optional[datetime] = None
@@ -38,6 +43,8 @@ class ReleaseRead(BaseModel):
     description: Optional[str]
     release_type: str
     release_kind: str
+    owning_project_id: Optional[int] = None
+    owning_project_name: Optional[str] = None
     parent_release_id: Optional[int]
     template_id: Optional[int]
     lifecycle_template_id: int
