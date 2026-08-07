@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.environment_group import (
-    EnvironmentGroupCreate, EnvironmentGroupUpdate,
+    EnvironmentGroupCreate, EnvironmentGroupUpdate, MemberCreate,
 )
 from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
 from app.db.models.environment import Environment
@@ -202,4 +202,151 @@ async def delete_group(db: AsyncSession, group_id: int, tenant_id: int) -> None:
         )
         .values(deleted_at=now)
     )
+    await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Membership: which environments are in a group, readable from both
+# directions. Follows project_service._agreement_query exactly.
+# ---------------------------------------------------------------------------
+
+
+def _member_query(tenant_id: int):
+    """One select carrying both ends' names, tenant-qualified on each join.
+
+    Both joins filter deleted_at: a membership row whose group or environment
+    is gone should not appear from either direction. This is the OPPOSITE
+    judgement from a name-rendering lookup, where an archived thing must still
+    render its name on a live row — here we are asking whether the row should
+    exist at all.
+    """
+    return (
+        select(EnvironmentGroupMember, EnvironmentGroup.name, Environment.name)
+        .join(
+            EnvironmentGroup,
+            and_(
+                EnvironmentGroup.id == EnvironmentGroupMember.group_id,
+                EnvironmentGroup.tenant_id == tenant_id,
+                EnvironmentGroup.deleted_at.is_(None),
+            ),
+        )
+        .join(
+            Environment,
+            and_(
+                Environment.id == EnvironmentGroupMember.environment_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            ),
+        )
+        .where(
+            EnvironmentGroupMember.tenant_id == tenant_id,
+            EnvironmentGroupMember.deleted_at.is_(None),
+        )
+    )
+
+
+async def list_members(
+    db: AsyncSession, group_id: int, tenant_id: int, *, page: Optional[Page] = None
+):
+    await get_group(db, group_id, tenant_id)  # 404s for another tenant's group
+    query = (
+        _member_query(tenant_id)
+        .where(EnvironmentGroupMember.group_id == group_id)
+        .order_by(func.lower(Environment.name), EnvironmentGroupMember.id)
+    )
+    return await fetch_page_rows(db, query, page)
+
+
+async def list_groups_for_environment(
+    db: AsyncSession, environment_id: int, tenant_id: int, *, page: Optional[Page] = None
+):
+    found = (
+        await db.execute(
+            select(Environment.id).where(
+                Environment.id == environment_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+    query = (
+        _member_query(tenant_id)
+        .where(EnvironmentGroupMember.environment_id == environment_id)
+        .order_by(func.lower(EnvironmentGroup.name), EnvironmentGroupMember.id)
+    )
+    return await fetch_page_rows(db, query, page)
+
+
+async def add_member(
+    db: AsyncSession, group_id: int, data: MemberCreate, tenant_id: int
+):
+    group = await get_group(db, group_id, tenant_id)
+
+    env = (
+        await db.execute(
+            select(Environment).where(
+                Environment.id == data.environment_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if env is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Environment not found")
+
+    # Only a LIVE duplicate is refused — a previously removed membership
+    # (soft-deleted) must not block re-adding the same environment, and
+    # re-adding must produce exactly one live row, not two.
+    duplicate = (
+        await db.execute(
+            select(EnvironmentGroupMember.id).where(
+                EnvironmentGroupMember.tenant_id == tenant_id,
+                EnvironmentGroupMember.group_id == group_id,
+                EnvironmentGroupMember.environment_id == data.environment_id,
+                EnvironmentGroupMember.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if duplicate is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"'{env.name}' is already a member of this group",
+        )
+
+    member = EnvironmentGroupMember(
+        tenant_id=tenant_id, group_id=group_id, environment_id=data.environment_id,
+    )
+    db.add(member)
+    await db.flush()
+
+    row = (
+        await db.execute(
+            _member_query(tenant_id).where(EnvironmentGroupMember.id == member.id)
+        )
+    ).first()
+    return row
+
+
+async def remove_member(
+    db: AsyncSession, group_id: int, member_id: int, tenant_id: int
+) -> None:
+    await get_group(db, group_id, tenant_id)  # 404s for another tenant's group
+    member = (
+        await db.execute(
+            select(EnvironmentGroupMember).where(
+                EnvironmentGroupMember.id == member_id,
+                EnvironmentGroupMember.group_id == group_id,
+                EnvironmentGroupMember.tenant_id == tenant_id,
+                EnvironmentGroupMember.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membership not found")
+    # Soft, not hard: a booking against this group records only the group id,
+    # so "which environments did this group hold when that booking was made"
+    # later needs removed rows to still exist.
+    member.deleted_at = datetime.now(timezone.utc)
     await db.flush()

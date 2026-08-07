@@ -17,7 +17,7 @@ import pytest
 
 from app.core.security import get_password_hash
 from app.db.models.user import User
-from tests.factories import ensure_environment_group
+from tests.factories import ensure_environment, ensure_environment_group
 
 
 async def _login_as(client, db_session, test_tenant, username, role):
@@ -103,3 +103,82 @@ async def test_a_non_admin_cannot_perform_any_of_the_three_writes(
         "/api/v1/environment-groups", headers=auth_headers
     )
     assert "Guarded Group" in [g["name"] for g in still_listed.json()]
+
+
+@pytest.mark.asyncio
+async def test_a_non_admin_can_read_membership_from_both_directions(
+    client, auth_headers, db_session, test_tenant
+):
+    """The three member routes get the same read/write split as the CRUD
+    routes above: reads open to any tenant member, writes Admin."""
+    group = await ensure_environment_group(
+        db_session, test_tenant.id, name="Readable Members"
+    )
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await db_session.commit()
+
+    added = await client.post(
+        f"/api/v1/environment-groups/{group.id}/members",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert added.status_code == 201, added.text
+
+    headers = await _login_as(
+        client, db_session, test_tenant, "env-groups-member-viewer", role="Viewer"
+    )
+
+    by_group = await client.get(
+        f"/api/v1/environment-groups/{group.id}/members", headers=headers
+    )
+    assert by_group.status_code == 200, by_group.text
+    assert [m["environment_name"] for m in by_group.json()] == [env.name]
+
+    by_env = await client.get(
+        f"/api/v1/environments/{env.id}/groups", headers=headers
+    )
+    assert by_env.status_code == 200, by_env.text
+    assert [m["group_name"] for m in by_env.json()] == ["Readable Members"]
+
+
+@pytest.mark.asyncio
+async def test_a_non_admin_cannot_add_or_remove_a_member(
+    client, auth_headers, db_session, test_tenant
+):
+    group = await ensure_environment_group(
+        db_session, test_tenant.id, name="Guarded Members"
+    )
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await db_session.commit()
+
+    headers = await _login_as(
+        client, db_session, test_tenant, "env-groups-member-developer", role="Developer"
+    )
+
+    added = await client.post(
+        f"/api/v1/environment-groups/{group.id}/members",
+        json={"environment_id": env.id},
+        headers=headers,
+    )
+    assert added.status_code == 403, added.text
+
+    # Add the member as Admin so there is something to try to remove.
+    created = await client.post(
+        f"/api/v1/environment-groups/{group.id}/members",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    member_id = created.json()["id"]
+
+    removed = await client.delete(
+        f"/api/v1/environment-groups/{group.id}/members/{member_id}",
+        headers=headers,
+    )
+    assert removed.status_code == 403, removed.text
+
+    # Refused, not silently accepted: the member is still there and live.
+    still_listed = await client.get(
+        f"/api/v1/environment-groups/{group.id}/members", headers=auth_headers
+    )
+    assert [m["environment_name"] for m in still_listed.json()] == [env.name]

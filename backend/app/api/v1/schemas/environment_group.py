@@ -61,3 +61,35 @@ class EnvironmentGroupResponse(BaseModel):
             member_count=view.member_count, is_active=g.is_active,
             created_at=g.created_at, updated_at=g.updated_at,
         )
+
+
+class MemberCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment_id: int
+
+
+class MemberResponse(BaseModel):
+    """Both display names travel with the row: this list is read from the
+    group side AND the environment side, and neither page should resolve the
+    other end against a capped collection."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tenant_id: int
+    group_id: int
+    group_name: str
+    environment_id: int
+    environment_name: str
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row) -> "MemberResponse":
+        member, group_name, environment_name = row
+        return cls(
+            id=member.id, tenant_id=member.tenant_id,
+            group_id=member.group_id, group_name=group_name,
+            environment_id=member.environment_id, environment_name=environment_name,
+            created_at=member.created_at,
+        )
