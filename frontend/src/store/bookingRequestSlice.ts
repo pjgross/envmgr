@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { bookingRequestService } from '../services/bookingRequestService';
+import { formatApiError } from '../services/apiError';
 import type {
   BookingRequestResponse,
   BookingRequestCreatePayload,
@@ -24,10 +25,23 @@ export const fetchBookingRequest = createAsyncThunk(
   async (id: number) => await bookingRequestService.get(id)
 );
 
-export const createBookingRequest = createAsyncThunk(
-  'bookingRequest/create',
-  async (payload: BookingRequestCreatePayload) => await bookingRequestService.create(payload)
-);
+// Rejects with `rejectWithValue(formatApiError(...))` rather than letting the
+// axios error escape. RTK's `miniSerializeError` copies only
+// name/message/stack/code — `response.data.detail`, where the backend's
+// group-overlap refusal text lives, is dropped, and a real AxiosError's
+// `.message` is the generic "Request failed with status code 400". Consumers
+// must read `result.payload`, not `result.error.message` — see BookingForm.
+export const createBookingRequest = createAsyncThunk<
+  BookingRequestCreateResponse,
+  BookingRequestCreatePayload,
+  { rejectValue: string }
+>('bookingRequest/create', async (payload, { rejectWithValue }) => {
+  try {
+    return await bookingRequestService.create(payload);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to create booking request'));
+  }
+});
 
 export const addEnvironmentToRequest = createAsyncThunk(
   'bookingRequest/addEnv',

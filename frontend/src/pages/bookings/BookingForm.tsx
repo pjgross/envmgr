@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { useAllProjects } from '../../hooks/useAllProjects';
+import { useAllEnvironmentGroups } from '../../hooks/useAllEnvironmentGroups';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import {
   fetchBookingTypes,
@@ -26,6 +27,7 @@ import {
 } from '../../store/bookingLifecycleSlice';
 import { fetchUsers } from '../../store/tenantAdminSlice';
 import { bookingRequestService } from '../../services/bookingRequestService';
+import { createBookingRequest } from '../../store/bookingRequestSlice';
 import type { BookingRequestCreatePayload } from '../../types/bookingRequest';
 import type { UserResponse } from '../../types';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
@@ -52,8 +54,15 @@ interface BookingFormProps {
   onCreated?: () => void;
 }
 
-const schema = z.object({
-  envIds: z.array(z.number()).min(1, 'Select at least one environment'),
+const baseSchema = z.object({
+  envIds: z.array(z.number()),
+  // A group expands to its current live members server-side — never
+  // client-side, or membership would freeze at whatever the browser last
+  // fetched and duplicate a rule the server owns. Picking a group alone must
+  // be a valid submission, so this is not `.min(1)`'d on its own; the
+  // combined "at least one of envIds/groupIds" rule lives in the `refine`
+  // below, spanning both fields.
+  groupIds: z.array(z.number()),
   projectName: z.string().trim().min(1, 'Purpose is required'),
   // The linked Project, distinct from `projectName` above (free text, "Purpose").
   projectId: z.number().nullable(),
@@ -68,10 +77,19 @@ const schema = z.object({
   customFieldValues: z.record(z.string(), z.unknown()),
 });
 
-type BookingFormValues = z.infer<typeof schema>;
+const schema = baseSchema.refine(
+  (values) => values.envIds.length > 0 || values.groupIds.length > 0,
+  {
+    message: 'Select at least one environment or environment group',
+    path: ['envIds'],
+  }
+);
+
+type BookingFormValues = z.infer<typeof baseSchema>;
 
 const buildDefaults = (envIds: number[]): BookingFormValues => ({
   envIds,
+  groupIds: [],
   projectName: '',
   projectId: null,
   bookingTypeId: null,
@@ -115,6 +133,10 @@ export default function BookingForm({
   // unconditionally, reading `state.project.projects` here would race
   // BookingList's own project-filter fetch over the same slice.
   const { projects, truncated: projectsTruncated } = useAllProjects();
+  // Same "must not silently be a subset" reasoning as environments/projects
+  // above — mirrors useAllProjects, `is_active: true`-scoped, shared-fetch,
+  // truncation-honest.
+  const { groups, truncated: groupsTruncated } = useAllEnvironmentGroups();
 
   const initialEnvIds = useMemo(() => {
     if (defaultEnvIds && defaultEnvIds.length > 0) return defaultEnvIds;
@@ -235,7 +257,18 @@ export default function BookingForm({
       return;
     }
     const payload: BookingRequestCreatePayload = {
+      // Always sent, even empty — the server accepts an empty environment_ids
+      // as long as environment_group_ids supplies at least one group; the
+      // combined-empty case is a 400 from the service, not client-enforced
+      // here beyond the refine above.
       environment_ids: values.envIds,
+      // Group ids only — NEVER expand a group's members into environment_ids
+      // here. This picker has no member list to expand from in the first
+      // place (EnvironmentGroupResponse carries member_count, not member
+      // ids), and expanding client-side would freeze membership at whatever
+      // was last fetched and duplicate a rule the server owns: it resolves
+      // each group to its *current* live members at booking time.
+      ...(values.groupIds.length > 0 ? { environment_group_ids: values.groupIds } : {}),
       project_name: values.projectName.trim(),
       // Omitted entirely, not sent as null, when no project is chosen —
       // distinct from project_name (the free-text Purpose) above.
@@ -253,24 +286,31 @@ export default function BookingForm({
           : undefined,
     };
 
-    try {
-      const response = await bookingRequestService.create(payload);
-      // Not dispatch(fetchBookings()): the slice this once refreshed now
-      // means "the current server-paged/filtered/sorted view" (BookingList)
-      // or is bypassed entirely (BookingCalendar has its own fetch). A bare
-      // unparameterised dispatch would clobber either with the endpoint's
-      // default page-1, unfiltered, default-sort response. The caller knows
-      // which refresh is correct for its own state.
-      onCreated?.();
-      const firstBookingId = response.request.bookings[0]?.id;
-      snackbar.success('Booking created');
-      handleClose();
-      if (firstBookingId) {
-        navigate(`/bookings/${firstBookingId}`);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to create booking request';
-      snackbar.error(msg);
+    // Dispatched through the thunk (not a bare bookingRequestService.create
+    // call) so a refusal — most notably the backend's overlap message naming
+    // the colliding group(s) by name — is readable from `result.payload`.
+    // RTK's default error serialisation drops `response.data.detail`, and a
+    // real AxiosError's `.message` is only the generic HTTP-status text; see
+    // the comment on `createBookingRequest` in bookingRequestSlice.
+    const result = await dispatch(createBookingRequest(payload));
+    if (createBookingRequest.rejected.match(result)) {
+      snackbar.error(result.payload ?? 'Failed to create booking request');
+      return;
+    }
+
+    const response = result.payload;
+    // Not dispatch(fetchBookings()): the slice this once refreshed now
+    // means "the current server-paged/filtered/sorted view" (BookingList)
+    // or is bypassed entirely (BookingCalendar has its own fetch). A bare
+    // unparameterised dispatch would clobber either with the endpoint's
+    // default page-1, unfiltered, default-sort response. The caller knows
+    // which refresh is correct for its own state.
+    onCreated?.();
+    const firstBookingId = response.request.bookings[0]?.id;
+    snackbar.success('Booking created');
+    handleClose();
+    if (firstBookingId) {
+      navigate(`/bookings/${firstBookingId}`);
     }
   };
 
@@ -313,6 +353,45 @@ export default function BookingForm({
               )}
             </Box>
           )}
+        />
+
+        {/* Environment groups (optional) — booking a group is not shorthand
+            for hand-picking its current members: the whole point is that the
+            server resolves the group to its live membership at booking time,
+            not to a snapshot the browser fetched, and the resulting bookings
+            are approved or rejected together as one unit. */}
+        <Controller
+          control={control}
+          name="groupIds"
+          render={({ field }) => {
+            const selected = groups.filter((g) => field.value.includes(g.id));
+            return (
+              <Box>
+                <Autocomplete
+                  multiple
+                  size="small"
+                  options={groups}
+                  getOptionLabel={(g) => g.name}
+                  value={selected}
+                  onChange={(_, next) => field.onChange(next.map((g) => g.id))}
+                  isOptionEqualToValue={(o, v) => o.id === v.id}
+                  renderTags={(vals, getTagProps) =>
+                    vals.map((v, idx) => (
+                      <Chip label={v.name} size="small" {...getTagProps({ index: idx })} key={v.id} />
+                    ))
+                  }
+                  renderInput={(params) => <TextField {...params} label="Environment groups (optional)" />}
+                />
+                <FormHelperText>
+                  Booking a group books all of its current environments; they will be approved or
+                  rejected together.
+                </FormHelperText>
+                {groupsTruncated && (
+                  <FormHelperText>Only the first {groups.length} environment groups are shown.</FormHelperText>
+                )}
+              </Box>
+            );
+          }}
         />
 
         {/* Project (optional) — the linked Project, distinct from the free-text
