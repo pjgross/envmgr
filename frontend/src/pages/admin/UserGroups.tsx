@@ -188,7 +188,18 @@ export default function UserGroups() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Typography variant="h5">User Groups</Typography>
         {canWrite && (
-          <Button variant="contained" size="small" onClick={() => setCreateOpen(true)}>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => {
+              // Reset the dialog's own error before it opens, or a previous
+              // failure's message greets a fresh, untouched form. handleCreate
+              // resets at SUBMIT time, which is too late — the user sees the
+              // stale error the moment the empty dialog appears.
+              setCreateError(null);
+              setCreateOpen(true);
+            }}
+          >
             + New Group
           </Button>
         )}

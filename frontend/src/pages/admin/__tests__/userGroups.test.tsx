@@ -166,4 +166,38 @@ describe('UserGroups', () => {
     expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
   });
+
+  it('clears a previous create failure when the dialog is reopened', async () => {
+    // handleCreate resets createError at SUBMIT time, which is too late: after
+    // a failed create and a Cancel, reopening showed the previous attempt's
+    // message on a fresh, untouched, empty form — the page reading as broken
+    // before the user had typed anything.
+    //
+    // The identical bug was fixed in Projects.tsx, which was modelled on this
+    // file; a review found it here too. Both dialogs now reset at open, the
+    // way openEdit and the delete flow already did.
+    vi.mocked(userGroupService.createGroup).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: "A group named 'Platform Ops' already exists in this tenant" },
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Platform Ops')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /new group/i }));
+    await userEvent.type(screen.getByLabelText(/^name/i), 'Platform Ops');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await waitFor(() => expect(screen.getByText(/already exists/i)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() =>
+      expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument()
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /new group/i }));
+    expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument();
+  });
 });
