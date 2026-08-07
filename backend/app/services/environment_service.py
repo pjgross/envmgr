@@ -209,6 +209,30 @@ async def get_environment_view(
     )
 
 
+async def get_environment_names(
+    db: AsyncSession, environment_ids: set[Optional[int]], tenant_id: int
+) -> dict[int, str]:
+    """Names for a set of environment ids, for rendering on rows that
+    reference them (e.g. booking summaries) — batch, one query, no N+1.
+
+    Deliberately does NOT filter deleted_at, following
+    environment_group_service.get_group_names: a booking against a
+    soft-deleted environment must still render that environment's name, not
+    fall back to `#N`. Keep this apart from `get_environment`, which
+    validates a WRITE and does filter.
+    """
+    ids = {e for e in environment_ids if e is not None}
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(Environment.id, Environment.name).where(
+            Environment.id.in_(ids),
+            Environment.tenant_id == tenant_id,
+        )
+    )).all()
+    return {eid: name for eid, name in rows}
+
+
 async def get_environment(
     db: AsyncSession, env_id: int, tenant_id: int
 ) -> Environment:
