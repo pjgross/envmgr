@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GroupTransitionPanel from '../GroupTransitionPanel';
@@ -179,6 +179,79 @@ describe('GroupTransitionPanel', () => {
     expect(alert.textContent).toContain('Checkout API');
     expect(alert.textContent).toContain('Checkout DB');
     expect(alert.textContent).not.toContain('Request failed with status code');
+  });
+
+  it('refetches allowed transitions when the members states change, even though requestId/groupId stay the same', async () => {
+    // Reproduces the stale-buttons defect: a successful group transition
+    // changes the members' statuses via a new `bookings` prop from the
+    // parent, but never `requestId`/`groupId`. An effect keyed on only
+    // those two would never rerun, and "Approve Group" would keep
+    // rendering after the group had already moved to `approved`.
+    const { rerender } = render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    await screen.findByRole('button', { name: 'Approve Group' });
+    expect(environmentGroupService.groupAllowedTransitions).toHaveBeenCalledTimes(1);
+
+    // Same ids, changed statuses — as if `onTransitioned` had just refreshed
+    // the parent's data after a successful move to `approved`.
+    const MEMBER_A_APPROVED: EnvBookingSummary = { ...MEMBER_A, status: 'approved' };
+    const MEMBER_B_APPROVED: EnvBookingSummary = { ...MEMBER_B, status: 'approved' };
+    vi.mocked(environmentGroupService.groupAllowedTransitions).mockResolvedValue([
+      { from_state: 'approved', to_state: 'closed', label: 'Close Group' },
+    ]);
+
+    rerender(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A_APPROVED, MEMBER_B_APPROVED]}
+      />
+    );
+
+    await waitFor(() =>
+      expect(environmentGroupService.groupAllowedTransitions).toHaveBeenCalledTimes(2)
+    );
+    expect(await screen.findByRole('button', { name: 'Close Group' })).toBeInTheDocument();
+  });
+
+  it('does not refetch on an unrelated re-render where the members statuses are unchanged', async () => {
+    // Guards the fix itself: keying the effect on a freshly-built array (or
+    // on `bookings` by identity) would refetch on every render, which would
+    // make the test above pass for the wrong reason — the component simply
+    // always fetching, discriminating nothing.
+    const { rerender } = render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    await screen.findByRole('button', { name: 'Approve Group' });
+    expect(environmentGroupService.groupAllowedTransitions).toHaveBeenCalledTimes(1);
+
+    // New array references, same ids and statuses as before.
+    rerender(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[{ ...MEMBER_A }, { ...MEMBER_B }]}
+      />
+    );
+
+    // Give any wrongful refetch a chance to happen before asserting it didn't.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(environmentGroupService.groupAllowedTransitions).toHaveBeenCalledTimes(1);
   });
 
   it('renders a load error instead of an eternal skeleton when the group allowed-transitions fetch fails', async () => {

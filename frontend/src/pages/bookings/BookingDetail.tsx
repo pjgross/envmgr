@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -220,6 +220,27 @@ export default function BookingDetail() {
     }
   };
 
+  // One GroupTransitionPanel per distinct group on the request; everything
+  // else (hand-picked environments) stays in EnvironmentsPanel exactly as
+  // before — that contrast (a group panel's single control set vs. a
+  // hand-picked row's own per-booking controls) is the point of this split.
+  //
+  // Memoized on the `bookings` array reference (must run unconditionally, on
+  // every render, ahead of the early returns below — a hook cannot follow a
+  // conditional `return`). This used to be computed directly in the render
+  // body, which built new `groups`/`ungrouped` arrays on every render —
+  // including ones with no relevant change (typing into the Add-Environment
+  // dialog, etc). `EnvironmentsPanel`'s own effect keys on `envBookings` by
+  // identity, so a fresh `ungrouped` array reference every render refetched
+  // every hand-picked booking's transitions on any unrelated state change.
+  // Keying on `bookingRequest?.bookings` keeps the same array reference —
+  // and so the same `ungrouped` reference — across renders where the
+  // underlying bookings haven't changed.
+  const { groups: bookingGroups, ungrouped: ungroupedBookings } = useMemo(
+    () => groupBookingsByEnvironmentGroup(bookingRequest?.bookings ?? []),
+    [bookingRequest?.bookings]
+  );
+
   // --- Render states ---
 
   if (loading) {
@@ -251,14 +272,6 @@ export default function BookingDetail() {
   // deliberately every booking, grouped and hand-picked alike.
   const existingEnvIds = new Set((bookingRequest?.bookings ?? []).map((b) => b.environment_id));
   const availableEnvs = environments.filter((e) => !existingEnvIds.has(e.id));
-
-  // One GroupTransitionPanel per distinct group on the request; everything
-  // else (hand-picked environments) stays in EnvironmentsPanel exactly as
-  // before — that contrast (a group panel's single control set vs. a
-  // hand-picked row's own per-booking controls) is the point of this split.
-  const { groups: bookingGroups, ungrouped: ungroupedBookings } = groupBookingsByEnvironmentGroup(
-    bookingRequest?.bookings ?? []
-  );
 
   // --- Main render ---
 

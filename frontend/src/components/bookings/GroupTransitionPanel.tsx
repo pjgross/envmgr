@@ -48,6 +48,14 @@ export default function GroupTransitionPanel({
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
 
+  // A successful group transition (or any other state change to a member)
+  // does not change `requestId`/`groupId`, so the fetch below must also key
+  // on the members' states — a primitive string, not the `bookings` array
+  // itself, so a parent re-render that rebuilds the array with unchanged
+  // content (a risk this component doesn't control) can't trigger a refetch
+  // by identity the way Finding 2 did one level up in BookingDetail.
+  const statusesKey = bookings.map((b) => `${b.id}:${b.status}`).join('|');
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -66,7 +74,7 @@ export default function GroupTransitionPanel({
     return () => {
       cancelled = true;
     };
-  }, [requestId, groupId]);
+  }, [requestId, groupId, statusesKey]);
 
   // Members CAN diverge — `POST /bookings/{id}/transition` stays open as the
   // repair tool. When they have, the group transition will refuse until
