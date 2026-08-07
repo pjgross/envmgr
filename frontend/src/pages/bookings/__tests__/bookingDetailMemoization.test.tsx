@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -186,11 +186,27 @@ describe('BookingDetail — ungrouped bookings array identity', () => {
     // EnvironmentsPanel row), so anchor on the Add Environment button
     // instead, which only exists once EnvironmentsPanel has mounted.
     await screen.findByRole('button', { name: /add environment/i });
-    const settledCount = await waitFor(() => {
-      const count = vi.mocked(bookingService.getAllowedTransitions).mock.calls.length;
-      expect(count).toBeGreaterThan(0);
-      return count;
-    });
+
+    // Wait for QUIESCENCE, not merely for the first call. `waitFor` returns
+    // the instant its callback stops throwing, so a baseline captured on
+    // "count > 0" races EnvironmentsPanel's own preload: on a slow machine a
+    // second legitimate call lands after the baseline is taken and the final
+    // assertion compares 2 against 1. That is exactly how this test failed in
+    // CI while passing locally — a flaw in the test's baseline, not in the
+    // memoization it guards.
+    const callCount = () =>
+      vi.mocked(bookingService.getAllowedTransitions).mock.calls.length;
+    // Poll until two consecutive observations agree.
+    let settledCount = 0;
+    for (let i = 0; i < 50; i += 1) {
+      const before = callCount();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (before > 0 && callCount() === before) {
+        settledCount = before;
+        break;
+      }
+    }
+    expect(settledCount).toBeGreaterThan(0);
 
     // Trigger a local state change that never touches `bookingRequest`:
     // open the Add-Environment dialog, then type into its Start Date field —
