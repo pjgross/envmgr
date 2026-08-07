@@ -850,7 +850,12 @@ async def test_member_count_list_and_booking_all_agree_on_live_members(
     this drift, between a count and a list, with zero coverage. A
     soft-deleted membership row and a soft-deleted environment each remove a
     member a different way; assert all three surfaces end up agreeing on the
-    one remaining live member."""
+    one remaining live member.
+
+    Note this test is the SOLE guard on _member_count_clause's own membership
+    deleted_at filter: the Task 1-3 group suites do not catch that mutation.
+    Deleting or renaming this test silently unguards a Task 2 predicate.
+    """
     group = await ensure_environment_group(db_session, test_tenant.id, name="Triple Agreement")
     env_live = await ensure_environment(db_session, test_tenant.id, slot=1)
     env_removed = await ensure_environment(db_session, test_tenant.id, slot=2)
@@ -885,3 +890,32 @@ async def test_member_count_list_and_booking_all_agree_on_live_members(
     assert created.status_code == 201, created.text
     bookings = created.json()["request"]["bookings"]
     assert {b["environment_id"] for b in bookings} == {env_live.id}
+
+
+@pytest.mark.asyncio
+async def test_a_hand_picked_environment_from_another_tenant_is_refused(
+    client, auth_headers, db_session, test_booking_type, second_tenant_factory
+):
+    """The ONLY tenant-isolation guard on hand-picked environment_ids.
+
+    Added after the Task 4 fix review proved it unguarded: turning
+    create_request's `len(envs) != len(all_env_ids)` check into a no-op left 35
+    tests green while POSTing another tenant's environment_id returned 201 and
+    CREATED A BOOKING ON IT. The foreign key is satisfied — nothing else scopes
+    a hand-picked id by tenant.
+
+    Group-supplied ids are separately protected by live_member_ids, which
+    filters Environment.tenant_id. Hand-picked ids have only this check, and
+    Task 4 rewrote the exact line it lives on (env_ids -> all_env_ids).
+    """
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id)
+    await db_session.commit()
+
+    refused = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, environment_ids=[theirs.id]),
+        headers=auth_headers,
+    )
+    assert refused.status_code == 400, refused.text
+    assert "not found" in refused.json()["detail"].lower()
