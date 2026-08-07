@@ -21,7 +21,16 @@ class Booking(Base):
     environment_id: Mapped[int] = mapped_column(
         ForeignKey("environment.id"), nullable=False, index=True
     )
-    environment_group_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # no FK yet (Phase 7)
+    # Which group this booking came from. PROVENANCE, NOT A LIVE LINK:
+    # membership is frozen at create, so a booking's environments may
+    # legitimately differ from the group's current members. Never resolve a
+    # booking's environments by re-reading the group.
+    #
+    # It is also the atomic-unit key: bookings sharing
+    # (booking_request_id, environment_group_id) transition together.
+    environment_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("environment_group.id"), nullable=True, index=True
+    )
     start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(100), nullable=False, default="draft")

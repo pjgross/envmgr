@@ -20,6 +20,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
 from app.db.models.environment import Environment
+from app.db.models.environment_group import EnvironmentGroup
 from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
@@ -221,6 +222,32 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
     db.add(environment)
     await db.flush()
     return environment
+
+
+async def ensure_environment_group(
+    db: AsyncSession, tenant_id: int, name: str = "fk-parent-env-group"
+) -> EnvironmentGroup:
+    """An environment group for `tenant_id`. Idempotent per (tenant, name).
+
+    `booking.environment_group_id` and `environment_group_member.group_id` are
+    both real FKs now, so tests must never pass a bare `1`.
+    """
+    existing = (
+        await db.execute(
+            select(EnvironmentGroup).where(
+                EnvironmentGroup.tenant_id == tenant_id,
+                EnvironmentGroup.name == name,
+                EnvironmentGroup.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    group = EnvironmentGroup(tenant_id=tenant_id, name=name)
+    db.add(group)
+    await db.flush()
+    return group
 
 
 async def ensure_environment_request(
