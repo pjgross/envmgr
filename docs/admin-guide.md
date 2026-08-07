@@ -250,8 +250,10 @@ recorded — never enforced — against the environments it uses. Manage them at
   controls hidden.
 - The list shows *Name*, *Code*, *Team*, *Environments* and *Status* — *Team* and *Environments*
   are read from the row the API returned, not resolved against a separately-fetched collection,
-  and *Environments* is a live count of that project's usage agreements. Click a project's
-  *Environments* count to jump to `/environments` filtered to that project.
+  and *Environments* is a live count of the distinct environments that project has a usage
+  agreement for. Click a project's *Environments* count to jump to that project's own detail
+  page, where the same agreements appear in full — `/environments` has no filter for this, so
+  linking there would show the whole unfiltered estate rather than this project's environments.
 - **What a team buys a project.** The *Team* field points at an existing `UserGroup` — the same
   primitive an environment names as its operations group (see above) — rather than a second,
   project-specific membership model. Exactly as with an operations group, **membership grants no

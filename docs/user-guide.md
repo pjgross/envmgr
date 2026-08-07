@@ -203,7 +203,7 @@ Tenant-defined custom fields show up as additional columns in the System and Env
 
 ### Concept
 
-A booking reserves one or more environments for a time window. It records the project, booking type, notes, exclusive-use flag, optional delegates, and tenant custom fields. A single *booking request* can span **several environments at once** — useful when a test campaign needs an app environment plus a database — and each environment gets its own per-env *booking* row that travels through the lifecycle independently.
+A booking reserves one or more environments for a time window. It records a required free-text *Purpose*, an optional linked *Project*, booking type, notes, exclusive-use flag, optional delegates, and tenant custom fields. A single *booking request* can span **several environments at once** — useful when a test campaign needs an app environment plus a database — and each environment gets its own per-env *booking* row that travels through the lifecycle independently.
 
 ### Status lifecycle
 

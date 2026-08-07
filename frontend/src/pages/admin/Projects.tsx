@@ -34,10 +34,17 @@ export const projectColumns: GridColDef<ProjectResponse>[] = [
   { field: 'team_group_name', headerName: 'Team', width: 180, sortable: false,
     renderCell: (params) => (params.value as string | null) ?? '— no team' },
   { field: 'environment_count', headerName: 'Environments', width: 140, sortable: false,
+    // Links to the project's OWN detail page, not a filtered /environments
+    // list — GET /environments accepts no project_id (FastAPI silently drops
+    // unknown query params, the same failure mode CLAUDE.md records for
+    // /releases/calendar), so that link showed the whole unfiltered estate
+    // labelled as this project's environments (Finding I2). The detail
+    // page's usage-agreements table is exactly what this count counts, so
+    // the link is now semantically precise rather than approximately right.
     renderCell: (params) => (
       <Link
         component={RouterLink}
-        to={`/environments?project_id=${params.row.id}`}
+        to={`/tenant/projects/${params.row.id}`}
         onClick={(e) => e.stopPropagation()}
       >
         {params.value}

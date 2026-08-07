@@ -167,15 +167,34 @@ const projectSlice = createSlice({
         state.loading = false;
         state.error = action.payload ?? 'Failed to load projects';
       })
+      // Finding I3: state.project.current and state.agreements are each
+      // shared between call sites that are one click apart —
+      // fetchProjectAgreements (project direction) and
+      // fetchEnvironmentAgreements (environment direction) both write
+      // `agreements`, and navigating project A -> B both write `current`.
+      // Without a `pending` handler, mounting the SECOND consumer while the
+      // FIRST's data is still in state renders that stale data as though it
+      // belonged to the new entity — e.g. EnvironmentProjectsPanel showing a
+      // project's agreements for environments that are not the one it was
+      // asked about, or ProjectDetail flashing the previous project's name.
+      // Clearing on `pending` also clears `error` on all three, so a stale
+      // banner cannot survive under a freshly (and successfully) rendered
+      // table either.
+      .addCase(fetchProject.pending, (state) => {
+        state.current = null;
+        state.error = null;
+      })
       .addCase(fetchProject.fulfilled, (state, action) => {
         state.current = action.payload;
-        // Neither this thunk nor the agreement fetches has a pending
-        // handler, so without this a failed fetch's banner survives a later
-        // successful one and sits on the detail page forever.
         state.error = null;
       })
       .addCase(fetchProject.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load project';
+      })
+      .addCase(fetchProjectAgreements.pending, (state) => {
+        state.agreements = [];
+        state.agreementTotal = 0;
+        state.error = null;
       })
       .addCase(fetchProjectAgreements.fulfilled, (state, action) => {
         state.agreements = action.payload.rows;
@@ -184,6 +203,11 @@ const projectSlice = createSlice({
       })
       .addCase(fetchProjectAgreements.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load usage agreements';
+      })
+      .addCase(fetchEnvironmentAgreements.pending, (state) => {
+        state.agreements = [];
+        state.agreementTotal = 0;
+        state.error = null;
       })
       .addCase(fetchEnvironmentAgreements.fulfilled, (state, action) => {
         state.agreements = action.payload.rows;

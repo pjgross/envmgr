@@ -151,11 +151,15 @@ describe('Projects', () => {
     expect(screen.getByText('4')).toBeInTheDocument();
   });
 
-  it('links the environment count to the project-filtered environments list', async () => {
+  it('links the environment count to the project detail page, not a filter GET /environments does not support (Finding I2)', async () => {
+    // GET /environments has no project_id filter — FastAPI silently drops
+    // unknown query params, so that link used to show the whole unfiltered
+    // estate. The project's own detail page's usage-agreements table is
+    // exactly what this count counts.
     renderPage();
     await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
     const link = screen.getByRole('link', { name: '4' });
-    expect(link).toHaveAttribute('href', '/environments?project_id=1');
+    expect(link).toHaveAttribute('href', '/tenant/projects/1');
   });
 
   it('surfaces the server reason when a create is refused, not the axios status line', async () => {

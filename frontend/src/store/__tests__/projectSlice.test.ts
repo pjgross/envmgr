@@ -3,7 +3,9 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import projectReducer, {
   createProject,
+  fetchEnvironmentAgreements,
   fetchProject,
+  fetchProjectAgreements,
   fetchProjects,
 } from '../projectSlice';
 import { projectService } from '../../services/projectService';
@@ -104,5 +106,79 @@ describe('projectSlice', () => {
     await store.dispatch(fetchProject(1));
 
     expect(store.getState().project.error).toBeNull();
+  });
+
+  // ── Finding I3: state.agreements and state.current are shared between
+  // call sites one click apart, and neither thunk had a `pending` handler ──
+
+  it('does not bleed agreements from the project direction into the environment direction', async () => {
+    // fetchProjectAgreements (ProjectDetail) and fetchEnvironmentAgreements
+    // (EnvironmentProjectsPanel) both write state.agreements. Reproduced:
+    // dispatch fetchProjectAgreements(7) returning rows for OTHER
+    // environments, then start fetchEnvironmentAgreements(3) — without a
+    // `pending` handler, environment 3's panel would render project 7's
+    // agreements for environments that are not environment 3, for the
+    // whole time the second request is in flight.
+    vi.mocked(projectService.listAgreementsForProject).mockResolvedValue({
+      rows: [
+        { id: 1, environment_id: 9, environment_name: 'env-9' },
+        { id: 2, environment_id: 10, environment_name: 'env-10' },
+      ] as never,
+      total: 2,
+    });
+    vi.mocked(projectService.listAgreementsForEnvironment).mockResolvedValue({
+      rows: [],
+      total: 0,
+    });
+    const store = makeStore();
+    await store.dispatch(fetchProjectAgreements(7));
+    expect(store.getState().project.agreements).toHaveLength(2);
+
+    const inFlight = store.dispatch(fetchEnvironmentAgreements(3));
+    // The pending handler must clear the stale rows synchronously, before
+    // the mocked request for environment 3 has any chance to resolve.
+    expect(store.getState().project.agreements).toEqual([]);
+    await inFlight;
+  });
+
+  it('does not leave a stale table rendered under a failed reload', async () => {
+    // EnvironmentProjectsPanel gates only its EMPTY message on a local
+    // `loading` flag; the table itself renders whenever agreements.length >
+    // 0. Without clearing agreements on `pending`, a failed reload left the
+    // previous successful load's rows in state — so the error Alert
+    // rendered with the stale table still below it, persistently, not as a
+    // flash.
+    vi.mocked(projectService.listAgreementsForEnvironment)
+      .mockResolvedValueOnce({ rows: [{ id: 1 } as never], total: 1 })
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        message: 'Request failed with status code 500',
+        response: { status: 500, data: { detail: 'Could not load usage agreements' } },
+      });
+    const store = makeStore();
+    await store.dispatch(fetchEnvironmentAgreements(3));
+    expect(store.getState().project.agreements).toHaveLength(1);
+
+    await store.dispatch(fetchEnvironmentAgreements(3));
+
+    expect(store.getState().project.agreements).toEqual([]);
+    expect(store.getState().project.error).toBeTruthy();
+  });
+
+  it('clears the previous project before the next one loads', async () => {
+    // state.project.current has the same shape as the agreements bleed:
+    // navigating project A -> project B must not momentarily show A's name,
+    // code, team and status chip while B's fetch is in flight.
+    vi.mocked(projectService.getProject)
+      .mockResolvedValueOnce({ id: 1, name: 'Project A' } as never)
+      .mockResolvedValueOnce({ id: 2, name: 'Project B' } as never);
+    const store = makeStore();
+    await store.dispatch(fetchProject(1));
+    expect(store.getState().project.current?.name).toBe('Project A');
+
+    const inFlight = store.dispatch(fetchProject(2));
+    expect(store.getState().project.current).toBeNull();
+    await inFlight;
+    expect(store.getState().project.current?.name).toBe('Project B');
   });
 });

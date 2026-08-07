@@ -105,4 +105,17 @@ describe('EnvironmentProjectsPanel', () => {
     );
     expect(screen.queryByText(/no projects/i)).not.toBeInTheDocument();
   });
+
+  it('renders an agreement with no window as prose, not a bare dash pair (Finding M5)', async () => {
+    // formatWindow used to fall through to `${'—'} – ${'—'}` when neither
+    // date was set, which reads as a rendering fault rather than the
+    // deliberate "no window" state an agreement is allowed to be in.
+    vi.mocked(projectService.listAgreementsForEnvironment).mockResolvedValue({
+      rows: [{ ...agreement, starts_at: null, ends_at: null }],
+      total: 1,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('No window set')).toBeInTheDocument());
+    expect(screen.queryByText('— – —')).not.toBeInTheDocument();
+  });
 });

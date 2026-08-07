@@ -30,8 +30,29 @@ class ProjectView:
 
 
 def _environment_count_clause(tenant_id: int):
+    """The number of DISTINCT environments this project has a live agreement
+    for — must equal len(list_agreements_for_project(...)) exactly.
+
+    Two divergences fixed here (Finding I1): counting `UsageAgreement.id`
+    let two agreements for the SAME environment (different windows —
+    explicitly legal, see create_agreement) double-count it, and the absence
+    of an Environment join meant a soft-deleted environment kept counting
+    after the agreements list correctly stopped returning it. The join below
+    mirrors _agreement_query's Environment join exactly (tenant-qualified,
+    live) — the project's own liveness is already guaranteed by every caller
+    of this clause (_view_query filters Project.deleted_at before this
+    subquery ever correlates to a row).
+    """
     return (
-        select(func.count(UsageAgreement.id))
+        select(func.count(func.distinct(UsageAgreement.environment_id)))
+        .join(
+            Environment,
+            and_(
+                Environment.id == UsageAgreement.environment_id,
+                Environment.tenant_id == tenant_id,
+                Environment.deleted_at.is_(None),
+            ),
+        )
         .where(
             UsageAgreement.project_id == Project.id,
             UsageAgreement.tenant_id == tenant_id,

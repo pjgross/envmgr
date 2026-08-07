@@ -5,9 +5,9 @@ import pytest
 from sqlalchemy import select
 
 from app.core.pagination import TOTAL_COUNT_HEADER, Page
-from app.db.models.project import Project
+from app.db.models.project import Project, UsageAgreement
 from app.services import project_service
-from tests.factories import ensure_project, ensure_user_group
+from tests.factories import ensure_environment, ensure_project, ensure_user_group
 
 
 @pytest.mark.asyncio
@@ -425,3 +425,161 @@ async def test_an_archived_teams_name_still_renders_on_its_projects(
     still = await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)
     assert still.status_code == 200, still.text
     assert still.json()["team_group_name"] == "Wound Down Team"
+
+
+# ── Finding I1: environment_count must equal the list it labels ────────────
+
+
+@pytest.mark.asyncio
+async def test_environment_count_is_distinct_environments_not_agreement_rows(
+    client, auth_headers, db_session, test_tenant
+):
+    """Two agreements for the SAME environment over different windows are
+    both legal (only an exact duplicate is refused, see
+    test_usage_agreements_api.py's overlapping-windows test), so a naive
+    COUNT(UsageAgreement.id) would count this project as touching 2
+    environments when the agreements list shows it touches 1."""
+    project = await ensure_project(db_session, test_tenant.id, name="Double Booked")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    for starts, ends in [
+        ("2026-01-01T00:00:00Z", "2026-06-30T00:00:00Z"),
+        ("2026-07-01T00:00:00Z", "2026-12-31T00:00:00Z"),
+    ]:
+        created = await client.post(
+            f"/api/v1/projects/{project.id}/usage-agreements",
+            json={"environment_id": env.id, "starts_at": starts, "ends_at": ends},
+            headers=auth_headers,
+        )
+        assert created.status_code == 201, created.text
+
+    listed = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert len(listed.json()) == 2, "both windows are legitimately live"
+    distinct_environments = {a["environment_id"] for a in listed.json()}
+    assert distinct_environments == {env.id}
+
+    fetched = await client.get(f"/api/v1/projects/{project.id}", headers=auth_headers)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["environment_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_environment_count_drops_a_soft_deleted_environment(
+    client, auth_headers, db_session, test_tenant
+):
+    """_agreement_query's Environment join requires the environment to be
+    live, so the agreements list correctly returns [] once the environment
+    is soft-deleted. Without the same join filter on
+    _environment_count_clause the column kept the stale count of 1."""
+    project = await ensure_project(db_session, test_tenant.id, name="Orphaned Agreement")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = await client.delete(f"/api/v1/environments/{env.id}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    listed = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert listed.json() == []
+
+    fetched = await client.get(f"/api/v1/projects/{project.id}", headers=auth_headers)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["environment_count"] == 0
+
+
+# ── Finding M2: _environment_count_clause's own tenant_id filter ───────────
+
+
+@pytest.mark.asyncio
+async def test_environment_count_ignores_a_malformed_row_whose_own_tenant_id_is_not_ours(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards _environment_count_clause's `UsageAgreement.tenant_id ==
+    tenant_id` filter, independent of the Environment join's own tenant
+    filter — project_id and environment_id below are legitimately ours, so
+    only that one filter can catch this. Same shape as the malformed-row
+    tests in test_usage_agreements_api.py; dropping the filter leaves 71
+    other tests passing."""
+    project = await ensure_project(db_session, test_tenant.id, name="Undercounted")
+    env = await ensure_environment(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    await db_session.commit()
+
+    db_session.add(UsageAgreement(
+        tenant_id=other_tenant.id, project_id=project.id, environment_id=env.id,
+    ))
+    await db_session.commit()
+
+    fetched = await client.get(f"/api/v1/projects/{project.id}", headers=auth_headers)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["environment_count"] == 0
+
+
+# ── Finding M1: an explicit null on a NOT NULL field is a 422, not a 500 ────
+
+
+@pytest.mark.asyncio
+async def test_patch_with_explicit_null_name_is_422_not_500(
+    client, auth_headers, db_session, test_tenant
+):
+    """`name` is NOT NULL. An explicit null used to reach update_project's
+    blanket `setattr` loop and die in `fields["name"].strip()` with an
+    unhandled AttributeError (500). ProjectUpdate now rejects it at the
+    schema boundary, matching UserGroupUpdate.name."""
+    project = await ensure_project(db_session, test_tenant.id, name="Named")
+    await db_session.commit()
+
+    refused = await client.patch(
+        f"/api/v1/projects/{project.id}", json={"name": None}, headers=auth_headers
+    )
+    assert refused.status_code == 422, refused.text
+
+
+@pytest.mark.asyncio
+async def test_patch_with_explicit_null_is_active_is_422_not_500(
+    client, auth_headers, db_session, test_tenant
+):
+    """`is_active` is NOT NULL. An explicit null used to reach the database
+    as a NOT NULL constraint violation (500) instead of a 422."""
+    project = await ensure_project(db_session, test_tenant.id, name="Active Thing")
+    await db_session.commit()
+
+    refused = await client.patch(
+        f"/api/v1/projects/{project.id}", json={"is_active": None}, headers=auth_headers
+    )
+    assert refused.status_code == 422, refused.text
+
+
+@pytest.mark.asyncio
+async def test_patch_can_still_clear_the_team_with_an_explicit_null(
+    client, auth_headers, db_session, test_tenant
+):
+    """Unlike name/is_active, `team_group_id` IS meant to accept an explicit
+    null — that is how a team gets cleared (model_fields_set: an omitted key
+    means "leave alone", only an explicit null clears it). Pinned so the M1
+    fix cannot accidentally take this contract away too."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Leaving Team")
+    created = await client.post(
+        "/api/v1/projects",
+        json={"name": "Team Leaving", "team_group_id": group.id},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+
+    cleared = await client.patch(
+        f"/api/v1/projects/{pid}", json={"team_group_id": None}, headers=auth_headers
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["team_group_id"] is None

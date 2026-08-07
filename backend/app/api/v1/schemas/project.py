@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProjectCreate(BaseModel):
@@ -16,6 +16,17 @@ class ProjectUpdate(BaseModel):
     """Every field optional. `team_group_id` is `int | None`: the service keys
     on model_fields_set, so an omitted key means "leave alone" and only an
     explicit null clears the team — the same contract B1 gave expires_at.
+
+    `name` and `is_active` do NOT get that contract — both are NOT NULL
+    columns, so an explicit null is never a legal state for either, and
+    `update_project`'s blanket `setattr` has no per-field guard. Without the
+    validators below, `{"name": null}` reaches the service as
+    `fields["name"] is None` and dies in `.strip()` with an unhandled
+    AttributeError (500), and `{"is_active": null}` sails through to a NOT
+    NULL constraint violation (500) instead of a 422. Same shape as
+    UserGroupUpdate.name — the field_validator only fires when the client
+    actually supplies the key (validate_default is off), so an omitted field
+    still leaves the default None, meaning "leave alone", untouched.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -25,6 +36,20 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     team_group_id: Optional[int] = None
     is_active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_cannot_be_cleared(cls, v):
+        if v is None:
+            raise ValueError("name cannot be cleared")
+        return v
+
+    @field_validator("is_active")
+    @classmethod
+    def _is_active_cannot_be_cleared(cls, v):
+        if v is None:
+            raise ValueError("is_active cannot be cleared")
+        return v
 
 
 class ProjectResponse(BaseModel):

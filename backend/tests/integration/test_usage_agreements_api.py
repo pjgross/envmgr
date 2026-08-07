@@ -123,6 +123,27 @@ async def test_ends_before_starts_is_422(client, auth_headers, db_session, test_
 
 
 @pytest.mark.asyncio
+async def test_cannot_list_agreements_for_another_tenants_environment(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Finding M3: list_agreements_for_environment's own Environment.tenant_id
+    filter is what guards this route — without it, GET
+    /environments/{id}/usage-agreements for another tenant's environment id
+    returns 200 + [] instead of 404. No data leaks either way (_agreement_query
+    re-filters on the way out), but the spec's error table requires a
+    cross-tenant environment id to 404, never quietly succeed, and nothing
+    exercised this route's own filter before now."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id)
+    await db_session.commit()
+
+    refused = await client.get(
+        f"/api/v1/environments/{theirs.id}/usage-agreements", headers=auth_headers
+    )
+    assert refused.status_code == 404, refused.text
+
+
+@pytest.mark.asyncio
 async def test_cannot_agree_against_another_tenants_environment(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):

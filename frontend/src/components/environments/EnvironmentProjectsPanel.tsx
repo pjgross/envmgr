@@ -43,6 +43,11 @@ interface EnvironmentProjectsPanelProps {
 }
 
 function formatWindow(startsAt: string | null, endsAt: string | null): string {
+  // Finding M5: with neither date set this used to fall through to the
+  // dash-built string below and render '— – —', which reads as a rendering
+  // fault rather than the deliberate "no window" state an agreement is
+  // allowed to be in.
+  if (!startsAt && !endsAt) return 'No window set';
   const start = startsAt ? new Date(startsAt).toLocaleDateString() : '—';
   const end = endsAt ? new Date(endsAt).toLocaleDateString() : '—';
   return `${start} – ${end}`;
