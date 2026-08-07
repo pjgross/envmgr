@@ -171,4 +171,55 @@ describe('EnvironmentGroupsPanel', () => {
     expect(environmentGroupService.listGroupsForEnvironment).toHaveBeenCalledTimes(2);
     expect(environmentGroupService.listGroupsForEnvironment).toHaveBeenNthCalledWith(2, 4);
   });
+
+  it('shows the newer environment\'s groups when the OLDER request resolves LAST (Task 10 review finding)', async () => {
+    // Unlike the test above (mockResolvedValueOnce, resolved in dispatch
+    // order), this test controls resolution order by hand: the request for
+    // environment 3 is dispatched FIRST but resolves SECOND, after the
+    // request for environment 4 has already landed. Without request
+    // sequencing in the slice, the stale environment-3 response wins because
+    // it lands last, and the panel would show "Payments Squad" for an
+    // environment the user has already navigated away from.
+    let resolveFor3!: (value: { rows: typeof member[]; total: number }) => void;
+    let resolveFor4!: (value: { rows: typeof otherMember[]; total: number }) => void;
+    const for3 = new Promise<{ rows: typeof member[]; total: number }>((res) => {
+      resolveFor3 = res;
+    });
+    const for4 = new Promise<{ rows: typeof otherMember[]; total: number }>((res) => {
+      resolveFor4 = res;
+    });
+    vi.mocked(environmentGroupService.listGroupsForEnvironment)
+      .mockReturnValueOnce(for3)
+      .mockReturnValueOnce(for4);
+
+    const store = makeStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={['/environments/3']}>
+          <EnvironmentGroupsPanel environmentId={3} />
+        </MemoryRouter>
+      </Provider>
+    );
+
+    rerender(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={['/environments/4']}>
+          <EnvironmentGroupsPanel environmentId={4} />
+        </MemoryRouter>
+      </Provider>
+    );
+
+    // Newer request (environment 4) resolves FIRST.
+    resolveFor4({ rows: [otherMember], total: 1 });
+    await waitFor(() => expect(screen.getByText('Data Squad')).toBeInTheDocument());
+
+    // Older request (environment 3) resolves LAST.
+    resolveFor3({ rows: [member], total: 1 });
+
+    // Give the stale promise a turn to (wrongly) apply if the guard is
+    // missing, then assert the newer environment's data is still what's shown.
+    await new Promise((res) => setTimeout(res, 0));
+    expect(screen.getByText('Data Squad')).toBeInTheDocument();
+    expect(screen.queryByText('Payments Squad')).not.toBeInTheDocument();
+  });
 });

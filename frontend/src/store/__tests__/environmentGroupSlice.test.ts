@@ -5,8 +5,24 @@ import environmentGroupReducer, {
   createEnvironmentGroup,
   fetchEnvironmentGroup,
   fetchEnvironmentGroups,
+  fetchGroupMembers,
+  fetchGroupsForEnvironment,
 } from '../environmentGroupSlice';
 import { environmentGroupService } from '../../services/environmentGroupService';
+import type { MemberResponse } from '../../types/environmentGroup';
+
+// A promise this test resolves by hand, so it can control which of two
+// in-flight requests settles first — the whole point of the races below.
+// `Promise.resolve().then(...)`-style sequential mocks (as the rest of this
+// file uses) can only ever resolve in dispatch order, which is exactly why
+// the review finding on Task 10 survived the original suite.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 vi.mock('../../services/environmentGroupService', () => ({
   environmentGroupService: {
@@ -105,5 +121,101 @@ describe('environmentGroupSlice', () => {
     await store.dispatch(fetchEnvironmentGroup(1));
 
     expect(store.getState().environmentGroup.error).toBeNull();
+  });
+
+  // Task 10 review finding: EnvironmentGroupsPanel's effect had no request
+  // sequencing, so an out-of-order response could silently overwrite fresher
+  // data. Both races below resolve requests OUT OF ORDER on purpose — the
+  // existing suite only ever resolved sequentially, which is why this
+  // survived review once already.
+  describe('request races (Task 10 review finding)', () => {
+    const envGroupA: MemberResponse = {
+      id: 101,
+      tenant_id: 1,
+      group_id: 5,
+      group_name: 'Payments Squad',
+      environment_id: 3,
+      environment_name: 'UAT-1',
+      created_at: '2026-08-06T00:00:00Z',
+    };
+    const envGroupB: MemberResponse = {
+      id: 102,
+      tenant_id: 1,
+      group_id: 9,
+      group_name: 'Data Squad',
+      environment_id: 4,
+      environment_name: 'UAT-2',
+      created_at: '2026-08-06T00:00:00Z',
+    };
+    const groupMember: MemberResponse = {
+      id: 20,
+      tenant_id: 1,
+      group_id: 1,
+      group_name: 'Payments regression',
+      environment_id: 9,
+      environment_name: 'staging-a',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+
+    it('discards a stale fetchGroupsForEnvironment response when a newer request for a different environment resolves first (same-component race)', async () => {
+      // Simulates environmentId changing mid-flight (3 -> 4): the FIRST
+      // dispatch (environment 3) is the one that resolves LAST.
+      const forEnv3 = deferred<{ rows: MemberResponse[]; total: number }>();
+      const forEnv4 = deferred<{ rows: MemberResponse[]; total: number }>();
+      vi.mocked(environmentGroupService.listGroupsForEnvironment)
+        .mockReturnValueOnce(forEnv3.promise)
+        .mockReturnValueOnce(forEnv4.promise);
+
+      const store = makeStore();
+      const p1 = store.dispatch(fetchGroupsForEnvironment(3));
+      const p2 = store.dispatch(fetchGroupsForEnvironment(4));
+
+      // Newer request (environment 4) lands FIRST.
+      forEnv4.resolve({ rows: [envGroupB], total: 1 });
+      await p2;
+      expect(store.getState().environmentGroup.environmentGroups).toEqual([envGroupB]);
+
+      // Older request (environment 3) lands LAST — without the requestId
+      // guard this overwrites environment 4's data with environment 3's.
+      forEnv3.resolve({ rows: [envGroupA], total: 1 });
+      await p1;
+
+      expect(store.getState().environmentGroup.environmentGroups).toEqual([envGroupB]);
+      expect(store.getState().environmentGroup.environmentGroupsTotal).toBe(1);
+    });
+
+    it('keeps a group-detail members read in its own slot, unaffected by a slower environment-direction read resolving after it (cross-page race)', async () => {
+      // Simulates the EnvironmentGroupsPanel request still being in flight
+      // when the user has already navigated to the group's own detail page
+      // (whose fetchGroupMembers completes first, then the environment
+      // response lands last).
+      const forEnvironment = deferred<{ rows: MemberResponse[]; total: number }>();
+      vi.mocked(environmentGroupService.listGroupsForEnvironment).mockReturnValue(
+        forEnvironment.promise
+      );
+      vi.mocked(environmentGroupService.listMembers).mockResolvedValue({
+        rows: [groupMember],
+        total: 1,
+      });
+
+      const store = makeStore();
+      const environmentRequest = store.dispatch(fetchGroupsForEnvironment(3));
+
+      // Group detail's own read completes while the environment panel's
+      // request is still pending.
+      await store.dispatch(fetchGroupMembers(1));
+      expect(store.getState().environmentGroup.members).toEqual([groupMember]);
+      expect(store.getState().environmentGroup.memberTotal).toBe(1);
+
+      // The environment-direction response lands last.
+      forEnvironment.resolve({ rows: [envGroupA], total: 1 });
+      await environmentRequest;
+
+      // Group detail's slot is untouched by the later-landing response...
+      expect(store.getState().environmentGroup.members).toEqual([groupMember]);
+      expect(store.getState().environmentGroup.memberTotal).toBe(1);
+      // ...which instead landed in its own field.
+      expect(store.getState().environmentGroup.environmentGroups).toEqual([envGroupA]);
+    });
   });
 });

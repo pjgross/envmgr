@@ -10,13 +10,25 @@
  * hold a stale name for the same id, and may not be loaded on this page at
  * all. Same reasoning as EnvironmentProjectsPanel and docs/pagination.md.
  *
- * `fetchGroupsForEnvironment` is a read thunk that sets `state.error` on
- * failure but shares no `loading` flag with this panel — `state
- * .environmentGroup.loading` is set only by the LIST thunk
- * (`fetchEnvironmentGroups`), which this panel never dispatches. Keying a
- * skeleton on that flag renders a permanently blank panel, the exact bug a
+ * `fetchGroupsForEnvironment` is a read thunk that sets
+ * `state.environmentGroupsError` on failure but shares no `loading` flag with
+ * this panel — `state.environmentGroup.loading` is set only by the LIST
+ * thunk (`fetchEnvironmentGroups`), which this panel never dispatches. Keying
+ * a skeleton on that flag renders a permanently blank panel, the exact bug a
  * previous sub-project shipped from a `loading` flag only the list thunk
  * set. Loading is tracked locally instead.
+ *
+ * Two race conditions a review caught here (Task 10): (1) `environmentId`
+ * changing while a request is in flight can let an older response resolve
+ * after a newer one and win — guarded in the slice by a per-request id, see
+ * `environmentGroupSlice.ts`'s `environmentGroupsRequestId`. (2) this read and
+ * `EnvironmentGroupDetail`'s `fetchGroupMembers` used to share one Redux slot
+ * (`members`/`error`), so a slow response from THIS panel could land after
+ * the group detail page had loaded and overwrite its members list with the
+ * wrong data — fixed by giving this direction its own slot
+ * (`environmentGroups`/`environmentGroupsError`) rather than a stronger
+ * guard on the shared one, since the two reads answer different questions
+ * with different lifetimes and have no reason to occupy the same slot at all.
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -32,8 +44,8 @@ interface EnvironmentGroupsPanelProps {
 
 export default function EnvironmentGroupsPanel({ environmentId }: EnvironmentGroupsPanelProps) {
   const dispatch = useDispatch<AppDispatch>();
-  const members = useSelector((state: RootState) => state.environmentGroup.members);
-  const error = useSelector((state: RootState) => state.environmentGroup.error);
+  const members = useSelector((state: RootState) => state.environmentGroup.environmentGroups);
+  const error = useSelector((state: RootState) => state.environmentGroup.environmentGroupsError);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

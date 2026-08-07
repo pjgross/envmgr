@@ -18,6 +18,28 @@ interface EnvironmentGroupState {
   current: EnvironmentGroupResponse | null;
   members: MemberResponse[];
   memberTotal: number;
+  // The GROUP-detail read (fetchGroupMembers, "which environments belong to
+  // this group"). `EnvironmentGroupDetail` owns this slot.
+  //
+  // `environmentGroups*` below is the mirror-image ENVIRONMENT-detail read
+  // (fetchGroupsForEnvironment, "which groups is this environment a member
+  // of" — EnvironmentGroupsPanel's "Member of" chips). It is deliberately a
+  // SEPARATE field, not a second writer of `members`/`error`: those two
+  // thunks are dispatched from two different pages that can be in flight at
+  // once (the panel's chip links straight to the group detail page it would
+  // otherwise collide with), and a shared slot means whichever response lands
+  // last wins regardless of which page the user is actually looking at. See
+  // the review finding on Task 10 for the reproduction.
+  environmentGroups: MemberResponse[];
+  environmentGroupsTotal: number;
+  environmentGroupsError: string | null;
+  // Guards fetchGroupsForEnvironment against a SAME-slot race: if
+  // `environmentId` changes while a request is in flight, an older request's
+  // response can still resolve after a newer one has already landed. Set to
+  // the dispatching action's `meta.requestId` on `pending`; `fulfilled`/
+  // `rejected` handlers ignore any response whose requestId no longer matches
+  // — i.e. is not the most recently dispatched request for this slot.
+  environmentGroupsRequestId: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -28,6 +50,10 @@ const initialState: EnvironmentGroupState = {
   current: null,
   members: [],
   memberTotal: 0,
+  environmentGroups: [],
+  environmentGroupsTotal: 0,
+  environmentGroupsError: null,
+  environmentGroupsRequestId: null,
   loading: false,
   error: null,
 };
@@ -192,18 +218,27 @@ const environmentGroupSlice = createSlice({
       .addCase(fetchGroupMembers.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load group members';
       })
-      .addCase(fetchGroupsForEnvironment.pending, (state) => {
-        state.members = [];
-        state.memberTotal = 0;
-        state.error = null;
+      .addCase(fetchGroupsForEnvironment.pending, (state, action) => {
+        // Recorded so fulfilled/rejected below can tell a stale response from
+        // the current one — see the field's docblock above.
+        state.environmentGroupsRequestId = action.meta.requestId;
+        state.environmentGroups = [];
+        state.environmentGroupsTotal = 0;
+        state.environmentGroupsError = null;
       })
       .addCase(fetchGroupsForEnvironment.fulfilled, (state, action) => {
-        state.members = action.payload.rows;
-        state.memberTotal = action.payload.total;
-        state.error = null;
+        // A response for a request that is no longer the latest one dispatched
+        // for this slot (environmentId changed again before this one landed)
+        // is discarded rather than applied — applying it would overwrite the
+        // newer environment's groups with the older one's.
+        if (action.meta.requestId !== state.environmentGroupsRequestId) return;
+        state.environmentGroups = action.payload.rows;
+        state.environmentGroupsTotal = action.payload.total;
+        state.environmentGroupsError = null;
       })
       .addCase(fetchGroupsForEnvironment.rejected, (state, action) => {
-        state.error = action.payload ?? 'Failed to load environment groups';
+        if (action.meta.requestId !== state.environmentGroupsRequestId) return;
+        state.environmentGroupsError = action.payload ?? 'Failed to load environment groups';
       });
     // Deliberately no fulfilled handlers for create/update/delete of groups,
     // or for add/remove of members: the lists are server-paged slices, and
