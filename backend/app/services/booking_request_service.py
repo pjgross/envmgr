@@ -14,7 +14,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
 from app.db.models.user import User
-from app.services import conflict_service, project_service
+from app.services import conflict_service, environment_group_service, project_service
 
 
 async def _load_initial_state(db: AsyncSession, booking_type_id: int, tenant_id: int) -> str:
@@ -43,23 +43,67 @@ async def create_request(
     current_user: User,
     tenant_id: int,
 ) -> tuple[BookingRequest, dict[int, list[Booking]]]:
-    env_ids: list[int] = data["environment_ids"]
-    if not env_ids:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "At least one environment_id is required"
-        )
+    env_ids: list[int] = data.get("environment_ids") or []
+    group_ids: list[int] = data.get("environment_group_ids") or []
+
     if len(env_ids) != len(set(env_ids)):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "environment_ids must be unique"
         )
+    if len(group_ids) != len(set(group_ids)):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "environment_group_ids must be unique"
+        )
 
+    # (environment_id, environment_group_id | None), in request order.
+    # Hand-picked first so a clash names the GROUP as the newcomer, which is
+    # the more useful half of the message.
+    pairs: list[tuple[int, Optional[int]]] = [(e, None) for e in env_ids]
+    # environment_id -> the human label of whatever put it here
+    origin: dict[int, str] = {e: "the environments you picked" for e in env_ids}
+
+    for group_id in group_ids:
+        group = await environment_group_service.get_group(db, group_id, tenant_id)
+        # Single definition of "live member", shared with the group detail
+        # page's count and member list (environment_group_service.
+        # live_member_ids) — see its docstring for why this must not drift
+        # from _member_query/_member_count_clause.
+        members = await environment_group_service.live_member_ids(db, group_id, tenant_id)
+
+        if not members:
+            # Refused by name. Without this the caller gets either a silently
+            # partial request or the generic "at least one environment",
+            # neither of which says WHICH group was empty.
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Environment group '{group.name}' has no environments",
+            )
+
+        for env_id in members:
+            if env_id in origin:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"{origin[env_id]} and environment group '{group.name}' both "
+                    f"contain the same environment; an environment can appear "
+                    f"only once on a request",
+                )
+            origin[env_id] = f"environment group '{group.name}'"
+            pairs.append((env_id, group_id))
+
+    if not pairs:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "At least one environment_id or environment_group_id is required",
+        )
+
+    all_env_ids = [e for e, _ in pairs]
     envs = (await db.execute(
         select(Environment).where(
-            Environment.id.in_(env_ids),
+            Environment.id.in_(all_env_ids),
             Environment.tenant_id == tenant_id,
         )
     )).scalars().all()
-    if len(envs) != len(env_ids):
+    if len(envs) != len(all_env_ids):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "One or more environment_ids not found"
         )
@@ -91,7 +135,7 @@ async def create_request(
     await db.flush()
 
     children: list[Booking] = []
-    for env_id in env_ids:
+    for env_id, group_id in pairs:
         child = Booking(
             tenant_id=tenant_id,
             booking_request_id=req.id,
@@ -99,6 +143,7 @@ async def create_request(
             start_date=data["start_date"],
             end_date=data["end_date"],
             status=initial_state,
+            environment_group_id=group_id,
         )
         db.add(child)
         children.append(child)

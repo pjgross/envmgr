@@ -1090,6 +1090,9 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 | `GET /projects` | `project_service.list_projects` — new with the A1 project-entity branch, likewise postdates the 51/28/24 counts **¶** | 1000 |
 | `GET /projects/{id}/usage-agreements` | `project_service.list_agreements_for_project`, row variant — project direction, same branch **¶** | 1000 |
 | `GET /environments/{id}/usage-agreements` | `project_service.list_agreements_for_environment`, row variant — environment direction, same branch **¶**; the read behind `EnvironmentProjectsPanel` | 1000 |
+| `GET /environment-groups` | `environment_group_service.list_groups` — new with the A2 environment-groups branch, likewise postdates the 51/28/24 counts **‖** | 1000 |
+| `GET /environment-groups/{group_id}/members` | `environment_group_service.list_members`, row variant — group direction, same branch **‖** | 1000 |
+| `GET /environments/{id}/groups` | `environment_group_service.list_groups_for_environment`, row variant — environment direction, same branch **‖**; the read behind `EnvironmentGroupsPanel`'s "Member of" | 1000 |
 
 **†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
 not a bare array, so it was never part of the `list[...]` count above or below. `current` is at
@@ -1152,6 +1155,31 @@ sub-project C3 must honour*. Neither is backed by a single column a `sort_by` co
 /projects/{id}/usage-agreements` and `GET /environments/{id}/usage-agreements` (the read behind
 `EnvironmentProjectsPanel`) take no `sort_by` at all — like `/tenant/groups/{group_id}/members`,
 they have no `sorting()` dependency and always return the same order.
+
+**‖** `GET /environment-groups` (`backend/app/api/v1/environment_groups.py`), added by sub-project
+A2, has its own backend whitelist (`ENVIRONMENT_GROUP_SORTS`: sortable `name`, `created_at`;
+default `name` asc) wired through `sorting()` the same way as the endpoints above. `member_count`
+is **permanently unsortable** — `_to_view` unpacks it from a correlated subquery over live
+membership, the same shape as the twelve computed columns in point 2 of *What sub-project C3 must
+honour*; no single column backs it for a `sort_by` to name. `GET /environment-groups` is
+deliberately **absent** from the `WHITELISTS`/JSON contract pair, the same reason as
+`environment-tiers`, `tenant/groups` and `projects`: `EnvironmentGroups.tsx` renders a
+**client-side** `DataGrid` (no `sortingMode="server"`), matching the `tenant-groups` **‡**
+convention exactly — add it to both the JSON contract and `WHITELISTS` the day a grid actually
+paginates and sorts environment groups server-side. `GET /environment-groups/{group_id}/members`
+and `GET /environments/{id}/groups` take no `sort_by` at all, like `/tenant/groups/{group_id}/members`
+— no `sorting()` dependency, always returned in whatever order their query builds.
+
+Two more endpoints ship on the same branch and are worth noting even though neither takes a row in
+the table above: `POST /booking-requests/{request_id}/groups/{group_id}/transition` and
+`GET /booking-requests/{request_id}/groups/{group_id}/allowed-transitions` both declare
+`response_model=list[...]` (`list[BookingResponse]` and `list[AllowedTransitionResponse]`
+respectively) but neither is `pagination()`-bound. Both are bounded in practice without the shared
+primitive — the first by how many environments a group has, the second by how many transitions a
+single lifecycle template can define — the same "single entity's own structure" reasoning as the
+group in *Bounded in practice by tenant configuration or by the entity's own structure* below, so
+neither needs the primitive. Noted here only because the reproducible grep's count moves on this
+branch partly on their account — see the delta paragraph in *Not yet bounded* below.
 
 ## Not yet bounded
 
@@ -1218,6 +1246,37 @@ greps' matched lines directly rather than trusting the counts alone; the reprodu
 already documented as approximate; this is a recorded instance of that, not a new caveat. As with
 the last two passes, the groups below have **not** been re-checked against either new count; treat
 both figures as of this paragraph's own date.
+
+**As of the A2 branch (2026-08-07), the first grep returns 62 and `set_total_count(response`
+returns 46.** The "59"/"43" recorded immediately above was **not** stale going in: checked against
+`main` at this branch's merge-base (`aec09bf5`), the counts there were exactly 59 and 43, matching
+the document — a clean delta, like the A1 pass. Three new `response_model=list[...]` endpoints
+ship on this branch, each already `pagination()`-bound and calling `set_total_count`: `GET
+/environment-groups`, `GET /environment-groups/{group_id}/members` and `GET
+/environments/{id}/groups` (all three in the "Bounded so far" table above under the new **‖**
+footnote) — which accounts for the `set_total_count` delta of exactly 3 on its own.
+
+The raw grep's delta of 3 is not the same three endpoints, though it lands on the same number by
+coincidence. Two things moved it, in opposite directions: `GET
+/booking-requests/{request_id}/groups/{group_id}/allowed-transitions` is a **fourth** new `GET`
+endpoint declaring `response_model=list[AllowedTransitionResponse]` — its `@router.get(` decorator
+sits inside the `-B3` context window, so it satisfies the grep, but it is not `pagination()`-bound,
+so it adds to the first count without adding to the second (see the **‖** footnote above). At the
+same time, the A1-era false positive the previous paragraph flagged —
+`names.get(booking.booking_request.project_id)` inside `bookings.py`'s response-building
+function, incidentally matching within three lines of an unrelated `response_model=list[...]`
+decorator — **fell out** of that window: A2 added `environment_group_id`/`environment_group_name`
+assignments to the same function, pushing the coincidental match further than three lines from the
+next decorator. Confirmed by diffing the two greps' matched lines directly, the same check the A1
+paragraph used. Net: +4 genuine new hits, −1 as the old false positive dropped out, for a raw delta
+of +3 that happens to equal the three genuinely bounded endpoints — coincidence, not the same
+mechanism as the `set_total_count` delta.
+
+`POST /booking-requests/{request_id}/groups/{group_id}/transition` also declares
+`response_model=list[BookingResponse]` but is a `POST`, so it never satisfies the grep's `\.get\(`
+filter at all — invisible to this count in either direction, not merely unbounded. As with the last
+three passes, the groups below have **not** been re-checked against either new count; treat both
+figures as of this paragraph's own date.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
 never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged

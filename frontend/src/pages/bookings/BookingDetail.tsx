@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -30,13 +30,14 @@ import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { bookingService } from '../../services/bookingService';
 import { bookingRequestService } from '../../services/bookingRequestService';
 import type { BookingResponse } from '../../types/booking';
-import type { BookingRequestResponse } from '../../types/bookingRequest';
+import type { BookingRequestResponse, EnvBookingSummary } from '../../types/bookingRequest';
 import type { BookingStatusHistory, AllowedTransition } from '../../types/bookingLifecycle';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
 import EditStandardFieldsDialog from '../../components/bookings/EditStandardFieldsDialog';
 import EditCustomFieldsDialog from '../../components/bookings/EditCustomFieldsDialog';
 import EnvironmentsPanel from '../../components/bookings/EnvironmentsPanel';
+import GroupTransitionPanel from '../../components/bookings/GroupTransitionPanel';
 import ConflictsPanel from '../../components/bookings/ConflictsPanel';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog';
@@ -52,6 +53,52 @@ const STATE_COLOURS: Record<string, 'default' | 'info' | 'warning' | 'success' |
   extension_requested: 'warning',
   closed: 'info',
 };
+
+// --- Grouping ------------------------------------------------------------
+
+/**
+ * Splits a request's bookings into one group per distinct non-null
+ * `environment_group_id`, plus the hand-picked (null-group) remainder.
+ *
+ * Deliberately NOT a single grouped/ungrouped boolean split: a request can
+ * hold bookings from two or more distinct groups side by side, and each
+ * needs its own panel — collapsing on `environment_group_id != null` alone
+ * would merge unrelated groups' members into one control set.
+ *
+ * Exported for direct unit testing of the split, independent of the render
+ * tree that consumes it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function groupBookingsByEnvironmentGroup(bookings: EnvBookingSummary[]): {
+  groups: { groupId: number; groupName: string; bookings: EnvBookingSummary[] }[];
+  ungrouped: EnvBookingSummary[];
+} {
+  const groupOrder: number[] = [];
+  const groupsMap = new Map<
+    number,
+    { groupId: number; groupName: string; bookings: EnvBookingSummary[] }
+  >();
+  const ungrouped: EnvBookingSummary[] = [];
+
+  for (const b of bookings) {
+    const gid = b.environment_group_id;
+    if (gid != null) {
+      if (!groupsMap.has(gid)) {
+        groupOrder.push(gid);
+        groupsMap.set(gid, {
+          groupId: gid,
+          groupName: b.environment_group_name ?? `Group #${gid}`,
+          bookings: [],
+        });
+      }
+      groupsMap.get(gid)!.bookings.push(b);
+    } else {
+      ungrouped.push(b);
+    }
+  }
+
+  return { groups: groupOrder.map((gid) => groupsMap.get(gid)!), ungrouped };
+}
 
 // --- Component ---------------------------------------------------------------
 
@@ -145,6 +192,29 @@ export default function BookingDetail() {
     }
   };
 
+  // Shared repair-path handler: transitions a single booking via the
+  // individual endpoint, then refreshes the request (and the top booking, if
+  // it's the one that moved). Used both by `EnvironmentsPanel` (hand-picked
+  // environments) and by `GroupTransitionPanel`'s per-member controls — the
+  // individual endpoint is deliberately still reachable there as the only
+  // way to repair a group that has gone out of step (see Finding 1).
+  const handleMemberTransition = async (id: number, toState: string, label: string) => {
+    if (!bookingRequest || !booking) return;
+    const notes =
+      toState === 'draft' ? (window.prompt(`Reason for "${label}":`) ?? undefined) : undefined;
+    try {
+      await bookingService.transitionState(id, toState, notes);
+      const req = await bookingRequestService.get(bookingRequest.id);
+      setBookingRequest(req);
+      if (id === booking.id) {
+        const b = await bookingService.getBooking(id);
+        setBooking(b);
+      }
+    } catch (err: unknown) {
+      setError(formatApiError(err, 'Transition failed'));
+    }
+  };
+
   // Reset add-env dialog fields
   const resetAddEnvForm = () => {
     setAddEnvId('');
@@ -173,6 +243,30 @@ export default function BookingDetail() {
     }
   };
 
+  // One GroupTransitionPanel per distinct group on the request; everything
+  // else (hand-picked environments) stays in EnvironmentsPanel exactly as
+  // before. The distinction the split preserves is grouping for the
+  // ALL-OR-NOTHING transition (one intersection-driven control per group,
+  // vs. one independent control per hand-picked booking) — both panels give
+  // every member its own link and its own individual-endpoint repair
+  // control, since that endpoint is the only way to fix a diverged group.
+  //
+  // Memoized on the `bookings` array reference (must run unconditionally, on
+  // every render, ahead of the early returns below — a hook cannot follow a
+  // conditional `return`). This used to be computed directly in the render
+  // body, which built new `groups`/`ungrouped` arrays on every render —
+  // including ones with no relevant change (typing into the Add-Environment
+  // dialog, etc). `EnvironmentsPanel`'s own effect keys on `envBookings` by
+  // identity, so a fresh `ungrouped` array reference every render refetched
+  // every hand-picked booking's transitions on any unrelated state change.
+  // Keying on `bookingRequest?.bookings` keeps the same array reference —
+  // and so the same `ungrouped` reference — across renders where the
+  // underlying bookings haven't changed.
+  const { groups: bookingGroups, ungrouped: ungroupedBookings } = useMemo(
+    () => groupBookingsByEnvironmentGroup(bookingRequest?.bookings ?? []),
+    [bookingRequest?.bookings]
+  );
+
   // --- Render states ---
 
   if (loading) {
@@ -200,7 +294,8 @@ export default function BookingDetail() {
 
   if (!booking) return null;
 
-  // Environments already in this request (to exclude from add-env picker)
+  // Environments already in this request (to exclude from add-env picker) —
+  // deliberately every booking, grouped and hand-picked alike.
   const existingEnvIds = new Set((bookingRequest?.bookings ?? []).map((b) => b.environment_id));
   const availableEnvs = environments.filter((e) => !existingEnvIds.has(e.id));
 
@@ -254,29 +349,42 @@ export default function BookingDetail() {
         </Alert>
       )}
 
-      {/* EnvironmentsPanel — shows all envs in the request with per-env transitions */}
+      {/* GroupTransitionPanel — one per distinct environment group on the
+          request. The panel offers a primary control set driven by the
+          group's allowed-transitions intersection, PLUS a per-member link
+          and individual-endpoint transition control — the repair path for
+          when members have diverged. phase-7.md's own design trade: forbidding
+          the individual endpoint would convert a recoverable mess into a
+          stuck one, so it stays open — and reachable, which is the fix for
+          final-review Finding 1. */}
+      {bookingRequest &&
+        bookingGroups.map((g) => (
+          <GroupTransitionPanel
+            key={g.groupId}
+            requestId={bookingRequest.id}
+            groupId={g.groupId}
+            groupName={g.groupName}
+            bookings={g.bookings}
+            onTransitioned={async () => {
+              const req = await bookingRequestService.get(bookingRequest.id);
+              setBookingRequest(req);
+              if (g.bookings.some((m) => m.id === booking.id)) {
+                const b = await bookingService.getBooking(booking.id);
+                setBooking(b);
+              }
+            }}
+            onMemberTransition={handleMemberTransition}
+          />
+        ))}
+
+      {/* EnvironmentsPanel — hand-picked (null-group) envs only; group
+          members render in their own GroupTransitionPanel above, never here. */}
       {bookingRequest && (
         <EnvironmentsPanel
           requestId={bookingRequest.id}
-          envBookings={bookingRequest.bookings}
+          envBookings={ungroupedBookings}
           highlightBookingId={booking.id}
-          onTransition={async (id, toState, label) => {
-            const notes =
-              toState === 'draft'
-                ? (window.prompt(`Reason for "${label}":`) ?? undefined)
-                : undefined;
-            try {
-              await bookingService.transitionState(id, toState, notes);
-              const req = await bookingRequestService.get(bookingRequest.id);
-              setBookingRequest(req);
-              if (id === booking.id) {
-                const b = await bookingService.getBooking(id);
-                setBooking(b);
-              }
-            } catch (err: unknown) {
-              setError(formatApiError(err, 'Transition failed'));
-            }
-          }}
+          onTransition={handleMemberTransition}
           onRemove={async (id) => {
             try {
               await bookingRequestService.removeEnvironment(bookingRequest.id, id);

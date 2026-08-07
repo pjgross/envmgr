@@ -500,6 +500,25 @@ Submitting a request and cancelling your own draft or submitted request need onl
 > clean deploy that has never seen an intermediate version of this migration completes the seed
 > once and needs no follow-up.
 
+### Environment Groups
+
+An *Environment Group* is a named set of environments that gets booked, and transitions, as one unit — e.g. a *"Payments squad"* group covering that team's UAT, perf and staging environments together, so booking the group books all three in one request instead of three separate ones.
+
+**Concept.** A group is just a name, an optional description, an active/archived flag, and a set of member environments. It carries no schedule, no owner and no tier of its own — those still belong to each member environment individually. Booking a group **expands it to one booking per current member** at the moment the request is created; the group is a convenience for creating and transitioning those bookings together, not a fourth thing alongside environments and instances in the inventory model.
+
+**Walkthrough: creating a group and adding members.**
+
+1. Navigate to `/tenant/environment-groups` and click *+ New Group* (Admin only — any tenant member can view the list and open a group, matching the read/write split on User Groups and Projects).
+2. Fill in **Name** (required, unique within the tenant) and an optional **Description**. Click *Create*.
+3. Open the new row. On the group's detail page, pick an environment from the **Environment** selector and click *Add* to add it as a member. Repeat for each environment the group should cover.
+4. The grid's **Environments** column shows the live member count.
+
+**Membership is frozen at booking time.** The group detail page states this directly, and it is worth restating here because it is easy to assume otherwise: **changing a group's membership never affects any booking already made through it.** Adding an environment to a group does not retroactively add it to bookings already raised against that group; removing one does not cancel or touch a booking already made. Each booking created from a group carries its own fixed list of member environments as of the moment it was booked — the group referenced on that booking is a record of where it came from, not a live link the booking keeps re-reading. If a group's environments and a specific booking's environments need to look the same, that only happens because nothing has changed the group since that booking was raised — not because the booking tracks the group going forward. See `user-guide.md` ch. 5 §Booking a group of environments for what this means from the booking side.
+
+**Deleting a group** removes its membership records but leaves the history of any booking already made through it untouched — deleting a group is not a way to undo or clean up past bookings.
+
+**Sorting and filtering.** The grid is client-side (loads the tenant's groups once, sorts and filters in the browser) — the same convention as `tenant/groups` and `/projects`, appropriate at the scale a tenant's own group list actually reaches. **Name** and **Created** are the only server-backed sortable columns if this grid is ever converted to a server-paged one; **Environments** (the member count) can never be, because it is computed from live membership rather than stored on the group row.
+
 ## 7. Modelling infrastructure (hosts)
 
 ### Concept

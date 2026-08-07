@@ -34,8 +34,9 @@ from app.api.v1.schemas.infrastructure_component import (
     HostAttachment,
 )
 from app.api.v1.schemas.environment_comparison import EnvironmentComparisonResponse
+from app.api.v1.schemas.environment_group import MemberResponse
 from app.api.v1.schemas.project import UsageAgreementResponse
-from app.services import environment_comparison_service, project_service
+from app.services import environment_comparison_service, environment_group_service, project_service
 
 router = APIRouter()
 
@@ -440,3 +441,25 @@ async def list_environment_usage_agreements(
     )
     set_total_count(response, total)
     return [UsageAgreementResponse.from_row(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Environment group membership (environment direction)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{env_id}/groups", response_model=list[MemberResponse])
+async def list_environment_groups_for_environment(
+    env_id: int,
+    response: Response,
+    page: Page = Depends(pagination()),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """"Which groups is this environment in." Answers the question a booking
+    raises: why did this environment get booked?"""
+    rows, total = await environment_group_service.list_groups_for_environment(
+        db, env_id, current_user.active_tenant_id, page=page
+    )
+    set_total_count(response, total)
+    return [MemberResponse.from_row(r) for r in rows]

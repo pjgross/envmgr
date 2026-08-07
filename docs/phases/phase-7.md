@@ -1,6 +1,6 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1, B3a, B3b and A1 shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
+> Status: 🟡 **In progress** — sub-projects B1, B3a, B3b, A1 and A2 shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
@@ -19,17 +19,26 @@ and PR.
       "project" as an adjective for a non-enterprise child release — none of
       the three is a reference to a project at all. See the spec's table.
       [Spec](../superpowers/specs/2026-08-06-project-entity-design.md)
-- [ ] **A2** `EnvironmentGroup` + booking a group as one unit — gives
+- [x] **A2** `EnvironmentGroup` + booking a group as one unit — gives
       `Booking.environment_group_id` the FK it has lacked since the March
       booking migration
+      [Spec](../superpowers/specs/2026-08-07-environment-group-design.md)
 - [ ] **A3** Enforcement of the `usage_agreement` table A1 ships (project A may
       use environment E in window W) — `BookingService` checking agreements,
       plus the cooperation rules of [requirements.md
       §2.12](../requirements.md). A1 deliberately ships the schema whole,
       including its window, so A3 owns only the check and the rules, never the
-      table.
+      table. `usage_agreement` was untouched by A2 as well as A1 — a group
+      booking creates one `Booking` per member the same way a hand-picked
+      multi-environment booking does, so A3's per-environment enforcement
+      needs no group-aware branch.
 - [ ] **A4** Project-aware contention: priority-ordered resolution and
-      escalation with a named owner + response window
+      escalation with a named owner + response window. Must decide whether
+      contention resolves **per environment or per group** — A2's group
+      bookings transition all-or-nothing, so a resolution that reassigns or
+      bumps one member out from under a group booking leaves it no longer a
+      group booking in any sense the UI or the atomic transition endpoint
+      still honours.
 
 A1 gates A3 and A4.
 
@@ -104,6 +113,44 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   on the environment detail page and `ProjectDetail`'s own agreements table
   both read live rows with the project/environment name already on them —
   neither resolves an id against a separately-fetched, capped collection.
+
+## What A2 established
+
+- **The atomic unit is `(booking_request_id, environment_group_id)`, not the
+  group alone.** The same group can be booked on two different requests, and
+  each pairing transitions independently — `_group_bookings` scopes every
+  read and write to that pair, never to `environment_group_id` by itself.
+- **Membership is frozen at booking time.** Booking a group expands it to one
+  `Booking` per current member, each carrying `environment_group_id` as
+  **provenance, not a live link** — nothing re-reads `environment_group_member`
+  to resolve a booking's environments, before or after the booking exists.
+  Adding or removing a member afterwards changes nothing about bookings
+  already created; the group only expands again the next time it is booked.
+  This is also why `usage_agreement` needed no group-aware branch: a group
+  booking is, from that table's point of view, exactly the multi-environment
+  booking it already knew how to check, one row per environment.
+- **The per-booking transition endpoint (`POST /bookings/{booking_id}/transition`)
+  stays open on a group member**, deliberately not superseded by the group
+  endpoint. It is the repair tool for the one journey the design accepts:
+  transition one member individually (an operations reality — a single
+  environment can go down, or approve early, out of step with its group),
+  then the group transition **refuses and names the divergent environment**
+  rather than silently moving the rest. Fixing that one member back into step
+  is what makes the subsequent group transition succeed.
+- **Every failure is collected, not just the first.** `transition_group`
+  validates every member before mutating any of them (all-or-nothing) and
+  reports every member that cannot make the move in one response — an
+  approver needs the whole picture, because repair is manual and per-member.
+- **The group's allowed-transitions endpoint offers only the INTERSECTION**
+  of what every member allows, not the union — offering a transition that
+  only some members could take would show a button that always fails.
+- **Booking two groups that share an environment is refused, and the refusal
+  names both groups** — not just the environment, and not only the first
+  group found.
+- **`usage_agreement` was deliberately untouched.** A2 does not check it, does
+  not read it, and does not gate group creation or group booking on it — A3
+  still owns the entire check and its cooperation rules, exactly as A1 left
+  them for A3.
 
 ## What B1 established
 

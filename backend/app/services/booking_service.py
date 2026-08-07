@@ -310,16 +310,20 @@ async def list_bookings(
     return await fetch_page(db, query, page)
 
 
-async def transition_state(
-    db: AsyncSession,
-    booking_id: int,
-    to_state: str,
-    current_user,
-    notes: str | None = None,
-) -> Booking:
-    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+async def _template_for_booking(db: AsyncSession, booking: Booking) -> LifecycleTemplate:
+    """Resolve the lifecycle template governing `booking`'s transitions, via
+    its booking type. Raises the same 404s `transition_state` always has —
+    extracted so the group path validates by EXACTLY this rule, not a second
+    copy of it that could drift.
 
-    # Load lifecycle template via booking type (from booking_request)
+    FAIL-CLOSED, deliberately: a missing booking type or template means
+    validate_transition has nothing to check a transition against, and
+    silently allowing (or silently refusing) a mutating request on missing
+    configuration data is worse than a 404. Contrast
+    `_template_for_booking_or_none` below, which fails open for read-only
+    permission rendering, where a 404 would break an unrelated page instead
+    of surfacing the real problem.
+    """
     booking_type_id = booking.booking_request.booking_type_id
     result = await db.execute(
         select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
@@ -336,10 +340,15 @@ async def transition_state(
     template = tmpl_result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Lifecycle template not found")
+    return template
 
-    user_role = current_user.role
-    br = booking.booking_request
-    record_values = {
+
+def _record_values(br: BookingRequest) -> dict:
+    """The flat record_values shape `validate_transition` checks
+    `required_fields` against, built from a booking's parent BookingRequest.
+    Extracted from `transition_state` so the group path uses the identical
+    construction — a second copy would drift from what it validates."""
+    return {
         "project_name": br.project_name or "",
         "start_date": br.start_date,
         "end_date": br.end_date,
@@ -349,8 +358,22 @@ async def transition_state(
         "context_tag": br.context_tag.value if br.context_tag else "",
         "custom_fields": br.custom_fields or {},
     }
+
+
+async def transition_state(
+    db: AsyncSession,
+    booking_id: int,
+    to_state: str,
+    current_user,
+    notes: str | None = None,
+) -> Booking:
+    booking = await get_booking(db, booking_id, current_user.active_tenant_id)
+    template = await _template_for_booking(db, booking)
+
+    user_role = current_user.role
     allowed, reason = validate_transition(
-        template.definition, booking.status, to_state, user_role, record_values
+        template.definition, booking.status, to_state, user_role,
+        _record_values(booking.booking_request),
     )
     if not allowed:
         # Distinguish role-blocked (403) from invalid/undefined transition or required fields (400)
@@ -403,22 +426,168 @@ async def get_booking_allowed_transitions(
     db: AsyncSession, booking_id: int, current_user
 ) -> list[dict]:
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
-    booking_type_id = booking.booking_request.booking_type_id
-    result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
-    )
-    booking_type_obj = result.scalar_one_or_none()
-    if not booking_type_obj:
-        raise HTTPException(status_code=404, detail="Booking type not found")
-    tmpl_result = await db.execute(
-        select(LifecycleTemplate).where(
-            LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
-        )
-    )
-    template = tmpl_result.scalar_one_or_none()
-    if not template:
-        raise HTTPException(status_code=404, detail="Lifecycle template not found")
+    template = await _template_for_booking(db, booking)
     return get_allowed_transitions(template.definition, booking.status, current_user.role)
+
+
+async def _group_bookings(
+    db: AsyncSession, request_id: int, group_id: int, tenant_id: int
+) -> list[Booking]:
+    """The live bookings on `request_id` that came from `group_id`.
+
+    Scoped by the (request, group) pair, which is the atomic unit. Ordered by
+    id so error messages and history rows are deterministic. Eager-loads
+    `environment` and `booking_request` (+ `booker`) — `transition_group`
+    reads `booking.environment.name` for its failure messages and
+    `_record_values(booking.booking_request)`, and the route builds
+    `BookingResponse` from the same objects; none of that is safe as a lazy
+    load under AsyncSession.
+    """
+    rows = (await db.execute(
+        select(Booking)
+        .options(
+            selectinload(Booking.environment),
+            selectinload(Booking.booking_request).selectinload(BookingRequest.booker),
+        )
+        .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
+        .where(
+            Booking.booking_request_id == request_id,
+            Booking.environment_group_id == group_id,
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+            BookingRequest.tenant_id == tenant_id,
+            # Defence-in-depth, not a live guard: nothing in the codebase
+            # ever sets BookingRequest.deleted_at, so this clause is
+            # currently unreachable. Kept for the same reason every other
+            # tenant-scoped query here filters it — matches repo convention.
+            BookingRequest.deleted_at.is_(None),
+        )
+        .order_by(Booking.id)
+    )).scalars().all()
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="No bookings for that environment group on this request",
+        )
+    return list(rows)
+
+
+async def transition_group(
+    db: AsyncSession,
+    request_id: int,
+    group_id: int,
+    to_state: str,
+    current_user,
+    notes: str | None = None,
+) -> list[Booking]:
+    """Move every member of a group booking, or none of them.
+
+    ALL-OR-NOTHING, validated before anything mutates. A half-transitioned
+    group is the shape that produced two unrecoverable states on B3b, one of
+    them asserted as correct by that branch's own test.
+
+    Every failure is reported, not just the first: an approver needs to see
+    everything that is wrong at once, because the repair is manual and
+    per-member.
+    """
+    tenant_id = current_user.active_tenant_id
+    bookings = await _group_bookings(db, request_id, group_id, tenant_id)
+    template = await _template_for_booking(db, bookings[0])
+
+    failures: list[str] = []
+    role_blocked = False
+    for booking in bookings:
+        allowed, reason = validate_transition(
+            template.definition, booking.status, to_state, current_user.role,
+            _record_values(booking.booking_request),
+        )
+        if not allowed:
+            env_name = booking.environment.name if booking.environment else str(
+                booking.environment_id
+            )
+            failures.append(f"{env_name} (in '{booking.status}'): {reason}")
+            if reason and ("not allowed" in reason or "role" in reason.lower()):
+                role_blocked = True
+
+    if failures:
+        joined = "; ".join(failures)
+        if role_blocked:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your role cannot make this transition for: {joined}",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The group cannot move to '{to_state}' because its members "
+                f"are not all able to: {joined}"
+            ),
+        )
+
+    for booking in bookings:
+        old_state = booking.status
+        booking.status = to_state
+        db.add(BookingStatusHistory(
+            booking_id=booking.id,
+            from_state=old_state,
+            to_state=to_state,
+            changed_by=current_user.id,
+            changed_at=datetime.now(timezone.utc),
+            notes=notes,
+        ))
+        await publish_event(
+            db,
+            event_type="BookingStateTransitioned",
+            aggregate_id=booking.id,
+            aggregate_type="Booking",
+            payload={
+                "from_state": old_state,
+                "to_state": to_state,
+                "changed_by": current_user.id,
+            },
+            tenant_id=booking.tenant_id,
+        )
+    await db.flush()
+    # `updated_at` has a server-side `onupdate`, so after flush its value on
+    # each mutated ORM object is expired and would trigger a lazy load
+    # during response serialization — not safe under AsyncSession (the same
+    # reason transition_state re-fetches after its own flush). Re-query
+    # rather than db.refresh() each row individually: it also keeps the
+    # eager-loaded relationships (environment, booking_request.booker) the
+    # route's response-building needs.
+    return await _group_bookings(db, request_id, group_id, tenant_id)
+
+
+async def get_group_allowed_transitions(
+    db: AsyncSession, request_id: int, group_id: int, current_user
+) -> list[dict]:
+    """The INTERSECTION of what every member allows.
+
+    A transition not valid for all members must not be offered, or the UI
+    shows a button that always fails — precisely what all-or-nothing exists
+    to prevent.
+    """
+    tenant_id = current_user.active_tenant_id
+    bookings = await _group_bookings(db, request_id, group_id, tenant_id)
+    template = await _template_for_booking(db, bookings[0])
+
+    per_member: list[set[str]] = []
+    by_state: dict[str, dict] = {}
+    for booking in bookings:
+        allowed = get_allowed_transitions(
+            template.definition, booking.status, current_user.role
+        )
+        per_member.append({t["to_state"] for t in allowed})
+        for t in allowed:
+            by_state.setdefault(t["to_state"], t)
+
+    # Defence-in-depth, not a live guard: `_group_bookings` above raises 404
+    # on an empty result, so `bookings` — and therefore `per_member`, built
+    # by iterating it — is never empty here.
+    if not per_member:
+        return []
+    common = set.intersection(*per_member)
+    return [by_state[s] for s in sorted(common)]
 
 
 async def delete_occurrence(db: AsyncSession, booking_id: int, current_user) -> None:
@@ -472,10 +641,20 @@ async def delete_series(db: AsyncSession, booking_id: int, current_user) -> None
     await db.flush()
 
 
-async def _load_booking_template(
+async def _template_for_booking_or_none(
     db: AsyncSession, booking: "Booking"
 ) -> LifecycleTemplate | None:
-    """Resolve the lifecycle template for a booking via its booking_type."""
+    """Resolve the lifecycle template for a booking via its booking_type, or
+    None if either lookup misses.
+
+    FAIL-OPEN, deliberately, unlike `_template_for_booking` above: every
+    caller of this helper is rendering field permissions for display, not
+    validating a mutation, and a booking whose template went missing (a data
+    quality issue, not a request the caller controls) should still degrade
+    to "nothing editable" rather than 404 out of an unrelated read. Do not
+    point a validating call site at this helper — use `_template_for_booking`
+    for that, which raises instead.
+    """
     booking_type_id = booking.booking_request.booking_type_id
     bt = (
         await db.execute(
@@ -497,7 +676,7 @@ async def _booking_field_permissions(
     """Return {custom_field_permissions, standard_field_permissions} for a booking.
     Fail-closed: returns empty custom map + all-not-editable standard map if the
     booking type or template cannot be loaded."""
-    template = await _load_booking_template(db, booking)
+    template = await _template_for_booking_or_none(db, booking)
     if template is None:
         return {
             "custom_field_permissions": {},
@@ -576,25 +755,16 @@ async def update_standard_fields(
 
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
-    # Load template via booking type (from booking_request)
-    booking_type_id = booking.booking_request.booking_type_id
-    bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
-    )
-    booking_type_obj = bt_result.scalar_one_or_none()
-
+    # Same fail-open lookup `_booking_field_permissions` uses: this is a
+    # permission check ahead of a write to two fields, not a transition, and
+    # a missing template must degrade to "nothing editable" (still fails
+    # closed on the ACTUAL permission below), not 404 the whole request.
+    template = await _template_for_booking_or_none(db, booking)
     editable_perm_keys: set[str] = set()
-    if booking_type_obj:
-        tmpl_result = await db.execute(
-            select(LifecycleTemplate).where(
-                LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
-            )
+    if template:
+        editable_perm_keys = get_standard_field_permissions(
+            template.definition, booking.status, current_user.role
         )
-        template = tmpl_result.scalar_one_or_none()
-        if template:
-            editable_perm_keys = get_standard_field_permissions(
-                template.definition, booking.status, current_user.role
-            )
     # Fail-closed: if template not found, editable_perm_keys stays empty
 
     for col_name in values:

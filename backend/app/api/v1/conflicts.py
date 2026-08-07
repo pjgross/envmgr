@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import conflict_service
+from app.services import conflict_service, environment_group_service
 from app.api.v1.schemas.conflict import (
     ConflictAckUpsert,
     ConflictAckRead,
@@ -30,6 +30,14 @@ async def list_conflicts(
         db, booking_id, current_user.active_tenant_id, page=page
     )
     set_total_count(response, total)
+    # Batch-resolved, same as every other EnvBookingSummary/BookingResponse
+    # call site (bookings.py, booking_requests.py) — deliberately not filtering
+    # deleted_at so an archived group still renders its name here too.
+    group_names = await environment_group_service.get_group_names(
+        db,
+        {c.booking.environment_group_id for c in others if c.booking.environment_group_id is not None},
+        current_user.active_tenant_id,
+    )
     items: list[ConflictItem] = []
     for c in others:
         ack = await conflict_service.get_ack(
@@ -44,6 +52,8 @@ async def list_conflicts(
                 start_date=c.booking.start_date,
                 end_date=c.booking.end_date,
                 status=c.booking.status,
+                environment_group_id=c.booking.environment_group_id,
+                environment_group_name=group_names.get(c.booking.environment_group_id),
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))
@@ -83,6 +93,11 @@ async def list_received_feedback(
         db, booking_id, current_user.active_tenant_id, page=page
     )
     set_total_count(response, total)
+    group_names = await environment_group_service.get_group_names(
+        db,
+        {r.source_booking.environment_group_id for r in rows if r.source_booking.environment_group_id is not None},
+        current_user.active_tenant_id,
+    )
     return [
         ReceivedFeedbackItem(
             willing_to_share=r.ack.willing_to_share,
@@ -96,6 +111,8 @@ async def list_received_feedback(
                 start_date=r.source_booking.start_date,
                 end_date=r.source_booking.end_date,
                 status=r.source_booking.status,
+                environment_group_id=r.source_booking.environment_group_id,
+                environment_group_name=group_names.get(r.source_booking.environment_group_id),
             ),
             source_request=RequestContextRef(
                 id=r.source_request.id,

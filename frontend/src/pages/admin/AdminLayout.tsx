@@ -13,6 +13,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import PeopleIcon from '@mui/icons-material/People';
 import GroupsIcon from '@mui/icons-material/Groups';
 import FolderIcon from '@mui/icons-material/Folder';
+import WorkspacesIcon from '@mui/icons-material/Workspaces';
 import StorageIcon from '@mui/icons-material/Storage';
 import MemoryIcon from '@mui/icons-material/Memory';
 import LanguageIcon from '@mui/icons-material/Language';
@@ -31,6 +32,11 @@ const adminNavItems = [
   { label: 'User Management', path: '/tenant/users', icon: <PeopleIcon fontSize="small" /> },
   { label: 'User Groups', path: '/tenant/groups', icon: <GroupsIcon fontSize="small" /> },
   { label: 'Projects', path: '/tenant/projects', icon: <FolderIcon fontSize="small" /> },
+  {
+    label: 'Environment Groups',
+    path: '/tenant/environment-groups',
+    icon: <WorkspacesIcon fontSize="small" />,
+  },
   { label: 'API keys', path: '/tenant/api-keys', icon: <VpnKeyIcon fontSize="small" /> },
   { label: 'RAID Settings', path: '/tenant/raid-settings', icon: <WarningAmberIcon fontSize="small" /> },
 ];

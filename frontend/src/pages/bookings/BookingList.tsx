@@ -153,6 +153,23 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
       params.row.environment_name ?? '—',
   },
   {
+    // Not backed by a single sortable column — resolved via the
+    // `environment_group` join the same way `environment_name` is, and
+    // deliberately never dropped even though bookings from a group render
+    // together on the detail page (GroupTransitionPanel): this list, and its
+    // kebab's per-booking transition action, are the surfaces a Test
+    // Manager actually approves down. Without this column and the note the
+    // kebab menu shows for a group member below, approving row by row here
+    // silently diverges a group with nothing on screen to say one exists —
+    // Finding 3 of the A2 whole-branch review.
+    field: 'environment_group_name',
+    headerName: 'Group',
+    flex: 0.8,
+    sortable: false,
+    valueGetter: (params: GridValueGetterParams<BookingResponse>) =>
+      params.row.environment_group_name ?? '—',
+  },
+  {
     field: 'booked_by_username',
     headerName: 'Booked By',
     flex: 1,
@@ -216,6 +233,23 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
     disableColumnMenu: true,
   },
 ];
+
+// The kebab's transition action must say when transitioning a row alone will
+// diverge its group — Finding 3 of the A2 whole-branch review found no
+// on-screen sign here that a group even existed. Pulled out to a plain
+// function, same reason as `buildCustomFieldColumns` below: @mui/x-data-grid
+// virtualizes columns/cells by container width, and jsdom reports zero
+// layout width, so a real render of this page never gets the `actions`
+// column's kebab button into the DOM for a test to click — this is directly
+// unit-testable instead.
+// eslint-disable-next-line react-refresh/only-export-components
+export function groupDivergenceWarning(
+  row: Pick<BookingResponse, 'environment_group_id' | 'environment_group_name'> | null | undefined
+): string | null {
+  if (!row || row.environment_group_id == null) return null;
+  const name = row.environment_group_name ?? `#${row.environment_group_id}`;
+  return `In group "${name}" — transitioning here alone will not move the rest of the group.`;
+}
 
 // Per-tenant custom-field columns are built at render time (they depend on
 // which fields the tenant has defined), unlike the static `bookingColumns`
@@ -375,6 +409,12 @@ export default function BookingList() {
   // Transitions for the currently open menu row
   const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null;
 
+  // The row behind the currently open menu — looked up from the loaded page,
+  // not a separate fetch, purely to read its group membership for the note
+  // below. `bookings` is this page's rows, and the menu can only be open for
+  // a row that is currently rendered.
+  const menuRow = menuAnchor ? (bookings.find((b) => b.id === menuAnchor.rowId) ?? null) : null;
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -482,6 +522,22 @@ export default function BookingList() {
         <MenuItem onClick={() => menuAnchor && handleOpenDetail(menuAnchor.rowId)}>Open</MenuItem>
         {activeTransitions && activeTransitions.length > 0 && <Divider />}
         {activeTransitions === null && <MenuItem disabled>Loading...</MenuItem>}
+        {/* This booking is a group member — transitioning it here moves only
+            this one row. The group's OTHER members will not follow, which
+            diverges the group (see GroupTransitionPanel's out-of-step repair
+            path on the booking detail page). Said here, not only there,
+            because this menu is the other place a transition actually
+            happens. See `groupDivergenceWarning` above for why the text
+            itself is a plain function rather than computed inline. */}
+        {activeTransitions &&
+          activeTransitions.length > 0 &&
+          groupDivergenceWarning(menuRow) && (
+            <MenuItem disabled divider sx={{ whiteSpace: 'normal', maxWidth: 280 }}>
+              <Typography variant="caption" color="text.secondary">
+                {groupDivergenceWarning(menuRow)}
+              </Typography>
+            </MenuItem>
+          )}
         {activeTransitions?.map((t) => (
           <MenuItem
             key={t.to_state}
