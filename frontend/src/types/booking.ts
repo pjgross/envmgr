@@ -38,6 +38,10 @@ export interface BookingResponse {
   updated_at: string;
   has_unacknowledged_conflicts?: boolean;
   booking_request_id?: number | null;
+  // Provenance, not a live link — set for a booking that arrived via an
+  // environment group, null for a hand-picked environment.
+  environment_group_id: number | null;
+  environment_group_name: string | null;
   request?: {
     id: number;
     project_name: string;

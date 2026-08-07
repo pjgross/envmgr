@@ -29,6 +29,7 @@ import incidentReducer from './incidentSlice';
 import userGroupReducer from './userGroupSlice';
 import environmentRequestReducer from './environmentRequestSlice';
 import projectReducer from './projectSlice';
+import environmentGroupReducer from './environmentGroupSlice';
 
 export const store = configureStore({
   reducer: {
@@ -62,6 +63,7 @@ export const store = configureStore({
     userGroup: userGroupReducer,
     environmentRequest: environmentRequestReducer,
     project: projectReducer,
+    environmentGroup: environmentGroupReducer,
   },
 });
 

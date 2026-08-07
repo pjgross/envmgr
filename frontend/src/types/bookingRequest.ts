@@ -7,6 +7,10 @@ export type EnvBookingSummary = {
   end_date: string;
   status: string;
   has_unacknowledged_conflicts?: boolean;
+  // Provenance, not a live link — set for a booking that arrived via an
+  // environment group, null for a hand-picked environment.
+  environment_group_id: number | null;
+  environment_group_name: string | null;
 };
 
 export type BookingRequestResponse = {
@@ -39,6 +43,10 @@ export type BookingRequestCreatePayload = {
   start_date: string;
   end_date: string;
   environment_ids: number[];
+  // May be empty when environment_ids supplies at least one environment —
+  // the combined "at least one environment" rule is enforced by the
+  // backend service, since it spans both fields.
+  environment_group_ids?: number[];
   notes?: string | null;
   context_tag?: string;
   exclusive_use_requested?: boolean;

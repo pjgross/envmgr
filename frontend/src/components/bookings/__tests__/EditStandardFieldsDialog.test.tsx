@@ -24,6 +24,8 @@ const BOOKING: BookingResponse = {
   test_phase_id: null,
   context_tag: 'none',
   custom_fields: null,
+  environment_group_id: null,
+  environment_group_name: null,
   standard_field_permissions: {
     project_name: { editable: true },
     start_date: { editable: true },
