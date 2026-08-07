@@ -39,9 +39,11 @@ def _scratch_url(driver: str, name: str = SCRATCH_DB) -> str:
     return base.rsplit("/", 1)[0] + f"/{name}"
 
 
-def _alembic(target: str, name: str = SCRATCH_DB) -> subprocess.CompletedProcess:
+def _alembic(
+    target: str, name: str = SCRATCH_DB, command: str = "upgrade"
+) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", target],
+        [sys.executable, "-m", "alembic", command, target],
         cwd=BACKEND_DIR,
         env={**os.environ, "PYTHONPATH": ".", "DATABASE_URL": _scratch_url("asyncpg", name)},
         capture_output=True,
@@ -130,4 +132,122 @@ def test_migrations_create_every_model_column(migrated_schema):
     assert not drift, (
         "columns declared by models but never created by migrations "
         f"(a clean deploy would fail on these tables): {drift}"
+    )
+
+
+def _seed_group_linked_booking(scratch_database) -> int:
+    """Build the full parent chain by hand and insert a booking whose
+    ``environment_group_id`` points at a real, non-null ``environment_group``
+    row. Returns the booking id. Uses AUTOCOMMIT so the row is durably
+    visible to the separate ``alembic`` subprocess invocations that follow."""
+    engine = create_engine(
+        _scratch_url("psycopg2", scratch_database), isolation_level="AUTOCOMMIT"
+    )
+    with engine.connect() as conn:
+        tenant_id = conn.execute(
+            text("INSERT INTO tenant (name, slug) VALUES ('T', 't') RETURNING id")
+        ).scalar_one()
+        user_id = conn.execute(
+            text(
+                'INSERT INTO "user" '
+                "(tenant_id, username, email, password_hash, role, is_active) "
+                "VALUES (:t, 'u', 'u@x.com', 'h', 'Admin', true) RETURNING id"
+            ),
+            {"t": tenant_id},
+        ).scalar_one()
+        tier_id = conn.execute(
+            text(
+                "INSERT INTO environment_tier (tenant_id, name) "
+                "VALUES (:t, 'Tier1') RETURNING id"
+            ),
+            {"t": tenant_id},
+        ).scalar_one()
+        env_id = conn.execute(
+            text(
+                "INSERT INTO environment (name, tenant_id, tier_id) "
+                "VALUES ('Env1', :t, :tier) RETURNING id"
+            ),
+            {"t": tenant_id, "tier": tier_id},
+        ).scalar_one()
+        lifecycle_id = conn.execute(
+            text(
+                "INSERT INTO lifecycle_template "
+                "(tenant_id, name, definition, entity_type) "
+                "VALUES (:t, 'LC', '{}'::jsonb, 'booking') RETURNING id"
+            ),
+            {"t": tenant_id},
+        ).scalar_one()
+        booking_type_id = conn.execute(
+            text(
+                "INSERT INTO booking_type (tenant_id, name, lifecycle_template_id) "
+                "VALUES (:t, 'BT', :lc) RETURNING id"
+            ),
+            {"t": tenant_id, "lc": lifecycle_id},
+        ).scalar_one()
+        group_id = conn.execute(
+            text(
+                "INSERT INTO environment_group (tenant_id, name, is_active) "
+                "VALUES (:t, 'GroupA', true) RETURNING id"
+            ),
+            {"t": tenant_id},
+        ).scalar_one()
+        booking_request_id = conn.execute(
+            text(
+                "INSERT INTO booking_request "
+                "(tenant_id, project_name, booking_type_id, start_date, end_date, booked_by) "
+                "VALUES (:t, 'Regression', :bt, now(), now() + interval '1 day', :u) "
+                "RETURNING id"
+            ),
+            {"t": tenant_id, "bt": booking_type_id, "u": user_id},
+        ).scalar_one()
+        booking_id = conn.execute(
+            text(
+                "INSERT INTO booking "
+                "(environment_id, environment_group_id, start_date, end_date, "
+                "tenant_id, status, booking_request_id) "
+                "VALUES (:env, :grp, now(), now() + interval '1 day', :t, 'draft', :br) "
+                "RETURNING id"
+            ),
+            {"env": env_id, "grp": group_id, "t": tenant_id, "br": booking_request_id},
+        ).scalar_one()
+    engine.dispose()
+    return booking_id
+
+
+def test_upgrade_after_downgrade_nulls_orphaned_booking_group_id(scratch_database):
+    """``envgroups`` downgrade correctly leaves ``booking.environment_group_id``
+    and its value in place while dropping the table that value pointed at —
+    the column predates the revision and downgrade must not destroy it. But
+    that column has been unconstrained since the March booking migration, so
+    an orphaned value there isn't only a downgrade artifact; nothing has ever
+    stopped one arising by other means either. ``upgrade()`` must null any
+    orphan before re-adding the FK, or the very next ``upgrade head`` fails
+    with ForeignKeyViolationError and can never succeed on its own. The fix
+    nulls a dangling reference — it must not touch the booking row itself.
+    """
+    up = _alembic("head", scratch_database)
+    assert up.returncode == 0, up.stderr
+
+    booking_id = _seed_group_linked_booking(scratch_database)
+
+    down = _alembic("-1", scratch_database, command="downgrade")
+    assert down.returncode == 0, down.stderr
+
+    up_again = _alembic("head", scratch_database)
+    assert up_again.returncode == 0, (
+        "upgrade head after downgrade failed — an orphaned "
+        f"booking.environment_group_id was left for the new FK to reject:\n{up_again.stderr}"
+    )
+
+    engine = create_engine(_scratch_url("psycopg2", scratch_database))
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT id, environment_group_id FROM booking WHERE id = :id"),
+            {"id": booking_id},
+        ).one()
+    engine.dispose()
+
+    assert row.id == booking_id, "the booking row itself must survive the cycle"
+    assert row.environment_group_id is None, (
+        "the orphaned reference must be nulled by upgrade(), not left dangling"
     )

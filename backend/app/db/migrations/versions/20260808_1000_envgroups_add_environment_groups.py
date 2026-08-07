@@ -86,7 +86,34 @@ def upgrade() -> None:
         "environment_group_member", ["environment_id"],
     )
 
-    # The column already exists — constraint and index only.
+    # The column already exists, unconstrained, since the March booking
+    # migration — nothing has ever stopped a value being written to it that
+    # doesn't (or no longer does) name a real environment_group row. That
+    # includes a downgrade of this very revision: downgrade correctly leaves
+    # the column and its values in place while dropping the table they
+    # pointed at, so a down-then-up cycle on a database with group-linked
+    # bookings would otherwise leave an orphan here too. Null any orphan
+    # before adding the constraint, or upgrade fails and the next `upgrade
+    # head` can never succeed. Cheap and a no-op on a clean deploy, where the
+    # column is still all NULL.
+    # The column already exists, unconstrained, since the March booking
+    # migration — nothing has ever stopped a value being written to it that
+    # doesn't (or no longer does) name a real environment_group row. That
+    # includes a downgrade of this very revision: downgrade correctly leaves
+    # the column and its values in place while dropping the table they
+    # pointed at, so a down-then-up cycle on a database with group-linked
+    # bookings would otherwise leave an orphan here too. Null any orphan
+    # before adding the constraint, or upgrade fails and the next `upgrade
+    # head` can never succeed. Cheap and a no-op on a clean deploy, where the
+    # column is still all NULL.
+    op.execute(
+        "UPDATE booking SET environment_group_id = NULL "
+        "WHERE environment_group_id IS NOT NULL "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM environment_group "
+        "WHERE environment_group.id = booking.environment_group_id"
+        ")"
+    )
     op.create_foreign_key(
         "fk_booking_environment_group",
         "booking", "environment_group", ["environment_group_id"], ["id"],
