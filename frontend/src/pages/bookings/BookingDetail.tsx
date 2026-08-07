@@ -192,6 +192,29 @@ export default function BookingDetail() {
     }
   };
 
+  // Shared repair-path handler: transitions a single booking via the
+  // individual endpoint, then refreshes the request (and the top booking, if
+  // it's the one that moved). Used both by `EnvironmentsPanel` (hand-picked
+  // environments) and by `GroupTransitionPanel`'s per-member controls — the
+  // individual endpoint is deliberately still reachable there as the only
+  // way to repair a group that has gone out of step (see Finding 1).
+  const handleMemberTransition = async (id: number, toState: string, label: string) => {
+    if (!bookingRequest || !booking) return;
+    const notes =
+      toState === 'draft' ? (window.prompt(`Reason for "${label}":`) ?? undefined) : undefined;
+    try {
+      await bookingService.transitionState(id, toState, notes);
+      const req = await bookingRequestService.get(bookingRequest.id);
+      setBookingRequest(req);
+      if (id === booking.id) {
+        const b = await bookingService.getBooking(id);
+        setBooking(b);
+      }
+    } catch (err: unknown) {
+      setError(formatApiError(err, 'Transition failed'));
+    }
+  };
+
   // Reset add-env dialog fields
   const resetAddEnvForm = () => {
     setAddEnvId('');
@@ -222,8 +245,11 @@ export default function BookingDetail() {
 
   // One GroupTransitionPanel per distinct group on the request; everything
   // else (hand-picked environments) stays in EnvironmentsPanel exactly as
-  // before — that contrast (a group panel's single control set vs. a
-  // hand-picked row's own per-booking controls) is the point of this split.
+  // before. The distinction the split preserves is grouping for the
+  // ALL-OR-NOTHING transition (one intersection-driven control per group,
+  // vs. one independent control per hand-picked booking) — both panels give
+  // every member its own link and its own individual-endpoint repair
+  // control, since that endpoint is the only way to fix a diverged group.
   //
   // Memoized on the `bookings` array reference (must run unconditionally, on
   // every render, ahead of the early returns below — a hook cannot follow a
@@ -324,8 +350,13 @@ export default function BookingDetail() {
       )}
 
       {/* GroupTransitionPanel — one per distinct environment group on the
-          request, each with its own control set driven by the group's
-          allowed-transitions intersection, never a single member's list. */}
+          request. The panel offers a primary control set driven by the
+          group's allowed-transitions intersection, PLUS a per-member link
+          and individual-endpoint transition control — the repair path for
+          when members have diverged. phase-7.md's own design trade: forbidding
+          the individual endpoint would convert a recoverable mess into a
+          stuck one, so it stays open — and reachable, which is the fix for
+          final-review Finding 1. */}
       {bookingRequest &&
         bookingGroups.map((g) => (
           <GroupTransitionPanel
@@ -342,6 +373,7 @@ export default function BookingDetail() {
                 setBooking(b);
               }
             }}
+            onMemberTransition={handleMemberTransition}
           />
         ))}
 
@@ -352,23 +384,7 @@ export default function BookingDetail() {
           requestId={bookingRequest.id}
           envBookings={ungroupedBookings}
           highlightBookingId={booking.id}
-          onTransition={async (id, toState, label) => {
-            const notes =
-              toState === 'draft'
-                ? (window.prompt(`Reason for "${label}":`) ?? undefined)
-                : undefined;
-            try {
-              await bookingService.transitionState(id, toState, notes);
-              const req = await bookingRequestService.get(bookingRequest.id);
-              setBookingRequest(req);
-              if (id === booking.id) {
-                const b = await bookingService.getBooking(id);
-                setBooking(b);
-              }
-            } catch (err: unknown) {
-              setError(formatApiError(err, 'Transition failed'));
-            }
-          }}
+          onTransition={handleMemberTransition}
           onRemove={async (id) => {
             try {
               await bookingRequestService.removeEnvironment(bookingRequest.id, id);

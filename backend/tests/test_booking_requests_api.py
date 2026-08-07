@@ -1,9 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
 
+from app.db.models.booking import Booking
 from app.db.models.environment import Environment
+from tests.factories import ensure_environment, ensure_environment_group
 
 
 @pytest.mark.asyncio
@@ -122,6 +124,79 @@ async def test_get_booking_request_environment_name_survives_soft_delete(
     body = resp.json()
     assert body["bookings"][0]["environment_name"] == test_environment.name
     assert body["bookings"][0]["environment_id"] == test_environment.id
+
+
+# --- Finding 5 (A2 whole-branch review): get_group_names / get_environment_names
+# tenant filters have no malformed-row guard of their own -----------------
+#
+# Both resolvers are plain `WHERE id IN (...) AND tenant_id == :tenant_id`
+# lookups (deliberately not filtering deleted_at — see the module docstring
+# above and environment_group_service.get_group_names). Dropping either
+# tenant_id filter left all 97 backend tests passing. Same "malformed row"
+# shape as test_environment_group_members_api.py / test_usage_agreements_api.py:
+# a booking that is legitimately ours points, via a corrupted FK, at another
+# tenant's environment or group — not reachable through any real API flow
+# (create_request validates both against the caller's tenant), but the two
+# lookups here are a second, independent line of defence and had no test.
+
+
+@pytest.mark.asyncio
+async def test_get_booking_request_environment_name_ignores_a_malformed_cross_tenant_environment_row(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_booking_type,
+    test_environment, second_tenant_factory,
+):
+    """Guards get_environment_names' own Environment.tenant_id filter."""
+    req = await _create_request(client, auth_headers, test_booking_type.id, test_environment.id)
+
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id, slot=1)
+    await db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    db_session.add(Booking(
+        tenant_id=test_tenant.id,
+        booking_request_id=req["id"],
+        environment_id=theirs.id,
+        start_date=now,
+        end_date=now + timedelta(days=1),
+        status="draft",
+    ))
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/booking-requests/{req['id']}", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    names = [b["environment_name"] for b in resp.json()["bookings"]]
+    assert theirs.name not in names
+
+
+@pytest.mark.asyncio
+async def test_get_booking_request_group_name_ignores_a_malformed_cross_tenant_group_row(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_booking_type,
+    test_environment, second_tenant_factory,
+):
+    """Guards get_group_names' own EnvironmentGroup.tenant_id filter."""
+    req = await _create_request(client, auth_headers, test_booking_type.id, test_environment.id)
+
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs_group = await ensure_environment_group(db_session, other_tenant.id, name="Their Group")
+    await db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    db_session.add(Booking(
+        tenant_id=test_tenant.id,
+        booking_request_id=req["id"],
+        environment_id=test_environment.id,
+        environment_group_id=theirs_group.id,
+        start_date=now,
+        end_date=now + timedelta(days=1),
+        status="draft",
+    ))
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/booking-requests/{req['id']}", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    group_names = [b["environment_group_name"] for b in resp.json()["bookings"]]
+    assert "Their Group" not in group_names
 
 
 @pytest.mark.asyncio

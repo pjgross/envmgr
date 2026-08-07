@@ -4,7 +4,12 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import BookingList, { apiProjectId, bookingColumns, buildCustomFieldColumns } from '../BookingList';
+import BookingList, {
+  apiProjectId,
+  bookingColumns,
+  buildCustomFieldColumns,
+  groupDivergenceWarning,
+} from '../BookingList';
 
 // No HTTP — this test is about the wiring between the URL/filters and the
 // dispatched fetch, not about what the server returns.
@@ -73,11 +78,28 @@ describe('BookingList server-side grid', () => {
       'project_name',
       'project_name_link',
       'environment_name',
+      'environment_group_name',
       'booked_by_username',
       'booking_type_id',
       'conflicts',
       'actions',
     ].forEach((field) => expect(byField[field].sortable).toBe(false));
+  });
+
+  // Finding 3 (A2 whole-branch review): BookingList consumes
+  // `BookingResponse`, which carries `environment_group_name`, but had no
+  // column for it — the routine "work down the grid, approve each" journey
+  // gave no on-screen sign a group existed, let alone that transitioning a
+  // member here diverges it.
+  it('renders a Group column reading environment_group_name, "—" when absent', () => {
+    const byField = Object.fromEntries(bookingColumns.map((c) => [c.field, c]));
+    expect(byField.environment_group_name).toBeDefined();
+    expect(byField.environment_group_name.headerName).toBe('Group');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getter = byField.environment_group_name.valueGetter as any;
+    expect(getter({ row: { environment_group_name: 'Checkout Squad' } })).toBe('Checkout Squad');
+    expect(getter({ row: { environment_group_name: null } })).toBe('—');
   });
 
   it('reads the Project column from project_name_link and the Purpose column from project_name, never swapped', () => {
@@ -190,6 +212,34 @@ describe('BookingList server-side grid', () => {
     await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
     const allOption = await screen.findByRole('option', { name: 'All projects' });
     expect(allOption).toHaveAttribute('data-value', 'any');
+  });
+
+  // Finding 3 (A2 whole-branch review): the kebab's transition action must
+  // say when transitioning here alone will diverge the booking's group —
+  // this is the "approve down the grid" journey the review found gave no
+  // warning at all. Unit-tested directly against `groupDivergenceWarning`
+  // rather than through a rendered kebab click — see that function's doc
+  // comment for why (DataGrid column virtualization never puts the kebab
+  // button in the jsdom DOM for this page).
+  it('warns naming the group when a booking belongs to one, and says nothing for a hand-picked booking', () => {
+    expect(
+      groupDivergenceWarning({ environment_group_id: 701, environment_group_name: 'Checkout Squad' })
+    ).toBe(
+      'In group "Checkout Squad" — transitioning here alone will not move the rest of the group.'
+    );
+
+    // Falls back to a numeric label if the name is somehow missing, but
+    // still warns — never silently drops the note.
+    expect(groupDivergenceWarning({ environment_group_id: 701, environment_group_name: null })).toBe(
+      'In group "#701" — transitioning here alone will not move the rest of the group.'
+    );
+
+    // Hand-picked (no group): no warning at all.
+    expect(
+      groupDivergenceWarning({ environment_group_id: null, environment_group_name: null })
+    ).toBeNull();
+    expect(groupDivergenceWarning(null)).toBeNull();
+    expect(groupDivergenceWarning(undefined)).toBeNull();
   });
 
   it('disables the column filter, which would filter only the loaded page', async () => {

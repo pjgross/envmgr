@@ -432,6 +432,54 @@ async def test_environment_side_listing_ignores_a_malformed_cross_tenant_group_r
 
 
 @pytest.mark.asyncio
+async def test_member_count_ignores_a_malformed_cross_tenant_member_row(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards _member_count_clause's own EnvironmentGroupMember.tenant_id
+    filter. Final-review Finding 5 (A2 whole-branch review): dropping this
+    filter left all 97 backend tests passing — it is the one of the three
+    "live member" mechanisms (alongside _member_query and live_member_ids,
+    each independently guarded above) with no malformed-row test of its own,
+    so `member_count` could disagree with `list_members` on the tenant
+    dimension specifically, the one dimension A1's own count-vs-list
+    agreement test does not cover.
+
+    A malformed row — group_id and environment_id both legitimately ours,
+    but its own tenant_id column belongs to another tenant — must not be
+    counted.
+    """
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Pair")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    other_tenant, _other_admin = await second_tenant_factory()
+    await db_session.commit()
+
+    added = await client.post(
+        f"/api/v1/environment-groups/{group.id}/members",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert added.status_code == 201, added.text
+
+    stray = EnvironmentGroupMember(
+        tenant_id=other_tenant.id, group_id=group.id, environment_id=env.id,
+    )
+    db_session.add(stray)
+    await db_session.commit()
+
+    got = await client.get(
+        f"/api/v1/environment-groups/{group.id}", headers=auth_headers
+    )
+    listed = await client.get(
+        f"/api/v1/environment-groups/{group.id}/members", headers=auth_headers
+    )
+    assert got.status_code == 200, got.text
+    assert listed.status_code == 200, listed.text
+    # The stray row must not inflate member_count beyond what list_members
+    # (independently tenant-scoped) actually shows.
+    assert got.json()["member_count"] == len(listed.json()) == 1
+
+
+@pytest.mark.asyncio
 async def test_adding_a_member_ignores_a_duplicate_row_belonging_to_another_tenant(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):

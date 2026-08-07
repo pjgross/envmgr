@@ -1,15 +1,26 @@
+import type { ComponentProps } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GroupTransitionPanel from '../GroupTransitionPanel';
 import type { EnvBookingSummary } from '../../../types/bookingRequest';
 
 // Task 9 — group transitions in the UI. The panel takes a group's members
-// (already filtered by the caller) and renders ONE control set driven by the
-// group endpoint's intersection, never a member's own allowed-transitions
-// list — a button offered from a single member's list could be valid for it
-// and refused for a sibling, which is exactly what the all-or-nothing
-// transition exists to prevent.
+// (already filtered by the caller) and renders ONE primary control set
+// driven by the group endpoint's intersection, never a member's own
+// allowed-transitions list — a button offered from a single member's list
+// could be valid for it and refused for a sibling, which is exactly what the
+// all-or-nothing transition exists to prevent.
+//
+// Final-review Finding 1: each member row ALSO gets its own link and its own
+// individual-endpoint-driven transition control. That is deliberate and
+// distinct from the primary control above — it is the only repair tool for a
+// group that has gone out of step (see `outOfStep` below), and it has to be
+// reachable right next to the divergence it repairs, per phase-7.md's
+// explicit design trade ("forbidding it would convert a recoverable mess
+// into a stuck one"). Every render in this file uses a real Router context
+// (`MemoryRouter`) because of that link.
 
 vi.mock('../../../services/environmentGroupService', () => ({
   environmentGroupService: {
@@ -18,16 +29,16 @@ vi.mock('../../../services/environmentGroupService', () => ({
   },
 }));
 
-// Mocked purely so a mutation that reads a single member's allowed
-// transitions (instead of the group endpoint) is unmissable: this mock
-// returns a deliberately different, distinctively-labelled transition, and
-// the tests assert both that its label never renders and that the mock is
-// never called.
+// Mocked with a deliberately distinctive label so a test can tell "the
+// group's own control" and "a member's own control" apart on screen without
+// ambiguity.
 vi.mock('../../../services/bookingService', () => ({
   bookingService: {
     getAllowedTransitions: vi.fn().mockResolvedValue([
       { from_state: 'submitted', to_state: 'approved', label: 'MEMBER-ONLY BUTTON' },
     ]),
+    transitionState: vi.fn(),
+    getBooking: vi.fn(),
   },
 }));
 
@@ -70,22 +81,33 @@ const MEMBER_B_DRAFT: EnvBookingSummary = { ...MEMBER_B, status: 'draft' };
 
 const GROUP_TRANSITIONS = [{ from_state: 'submitted', to_state: 'approved', label: 'Approve Group' }];
 
-beforeEach(() => {
-  vi.mocked(environmentGroupService.groupAllowedTransitions).mockReset().mockResolvedValue(GROUP_TRANSITIONS);
-  vi.mocked(environmentGroupService.transitionGroup).mockReset();
-  vi.mocked(bookingService.getAllowedTransitions).mockClear();
-});
-
-describe('GroupTransitionPanel', () => {
-  it("renders a group's members together under the group's name, each with its environment and current state", async () => {
-    render(
+function renderPanel(props: Partial<ComponentProps<typeof GroupTransitionPanel>> = {}) {
+  return render(
+    <MemoryRouter>
       <GroupTransitionPanel
         requestId={REQUEST_ID}
         groupId={GROUP_ID}
         groupName={GROUP_NAME}
         bookings={[MEMBER_A, MEMBER_B]}
+        {...props}
       />
-    );
+    </MemoryRouter>
+  );
+}
+
+beforeEach(() => {
+  vi.mocked(environmentGroupService.groupAllowedTransitions).mockReset().mockResolvedValue(GROUP_TRANSITIONS);
+  vi.mocked(environmentGroupService.transitionGroup).mockReset();
+  vi.mocked(bookingService.getAllowedTransitions)
+    .mockReset()
+    .mockResolvedValue([
+      { from_state: 'submitted', to_state: 'approved', label: 'MEMBER-ONLY BUTTON' },
+    ]);
+});
+
+describe('GroupTransitionPanel', () => {
+  it("renders a group's members together under the group's name, each with its environment and current state", async () => {
+    renderPanel();
 
     expect(await screen.findByText(`Group: ${GROUP_NAME}`)).toBeInTheDocument();
     expect(screen.getByText('Checkout API')).toBeInTheDocument();
@@ -93,15 +115,8 @@ describe('GroupTransitionPanel', () => {
     expect(screen.getAllByText('submitted')).toHaveLength(2);
   });
 
-  it("builds its transition buttons from the group endpoint, not any member's own allowed-transitions list", async () => {
-    render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B]}
-      />
-    );
+  it("drives the group's primary control from the group endpoint, and each member's own control from its individual endpoint", async () => {
+    renderPanel();
 
     expect(await screen.findByRole('button', { name: 'Approve Group' })).toBeInTheDocument();
     expect(environmentGroupService.groupAllowedTransitions).toHaveBeenCalledWith(
@@ -109,22 +124,17 @@ describe('GroupTransitionPanel', () => {
       GROUP_ID
     );
 
-    // A per-member fetch never happens, and its distinctive label never
-    // reaches the screen — reading `bookings[0]`'s own list would surface
-    // both.
-    expect(bookingService.getAllowedTransitions).not.toHaveBeenCalled();
-    expect(screen.queryByText('MEMBER-ONLY BUTTON')).not.toBeInTheDocument();
+    // Each member's own individual-endpoint control is the repair path
+    // (Finding 1) — it is fetched per member id and rendered per row,
+    // distinctly labelled here so it can't be confused with the group's own
+    // "Approve Group" button above.
+    expect(bookingService.getAllowedTransitions).toHaveBeenCalledWith(MEMBER_A.id);
+    expect(bookingService.getAllowedTransitions).toHaveBeenCalledWith(MEMBER_B.id);
+    expect(await screen.findAllByRole('button', { name: 'MEMBER-ONLY BUTTON' })).toHaveLength(2);
   });
 
   it('says members are out of step and names the environments, when their states differ', async () => {
-    render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B_DRAFT]}
-      />
-    );
+    renderPanel({ bookings: [MEMBER_A, MEMBER_B_DRAFT] });
 
     const notice = await screen.findByText(/out of step/);
     expect(notice.textContent).toContain('Checkout API (submitted)');
@@ -132,14 +142,7 @@ describe('GroupTransitionPanel', () => {
   });
 
   it('says nothing about being out of step when every member shares one state', async () => {
-    render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B]}
-      />
-    );
+    renderPanel();
 
     await screen.findByText(`Group: ${GROUP_NAME}`);
     expect(screen.queryByText(/out of step/)).not.toBeInTheDocument();
@@ -164,14 +167,7 @@ describe('GroupTransitionPanel', () => {
     });
 
     const user = userEvent.setup();
-    render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B]}
-      />
-    );
+    renderPanel();
 
     await user.click(await screen.findByRole('button', { name: 'Approve Group' }));
 
@@ -188,12 +184,14 @@ describe('GroupTransitionPanel', () => {
     // those two would never rerun, and "Approve Group" would keep
     // rendering after the group had already moved to `approved`.
     const { rerender } = render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B]}
-      />
+      <MemoryRouter>
+        <GroupTransitionPanel
+          requestId={REQUEST_ID}
+          groupId={GROUP_ID}
+          groupName={GROUP_NAME}
+          bookings={[MEMBER_A, MEMBER_B]}
+        />
+      </MemoryRouter>
     );
 
     await screen.findByRole('button', { name: 'Approve Group' });
@@ -208,12 +206,14 @@ describe('GroupTransitionPanel', () => {
     ]);
 
     rerender(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A_APPROVED, MEMBER_B_APPROVED]}
-      />
+      <MemoryRouter>
+        <GroupTransitionPanel
+          requestId={REQUEST_ID}
+          groupId={GROUP_ID}
+          groupName={GROUP_NAME}
+          bookings={[MEMBER_A_APPROVED, MEMBER_B_APPROVED]}
+        />
+      </MemoryRouter>
     );
 
     await waitFor(() =>
@@ -228,12 +228,14 @@ describe('GroupTransitionPanel', () => {
     // make the test above pass for the wrong reason — the component simply
     // always fetching, discriminating nothing.
     const { rerender } = render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B]}
-      />
+      <MemoryRouter>
+        <GroupTransitionPanel
+          requestId={REQUEST_ID}
+          groupId={GROUP_ID}
+          groupName={GROUP_NAME}
+          bookings={[MEMBER_A, MEMBER_B]}
+        />
+      </MemoryRouter>
     );
 
     await screen.findByRole('button', { name: 'Approve Group' });
@@ -241,12 +243,14 @@ describe('GroupTransitionPanel', () => {
 
     // New array references, same ids and statuses as before.
     rerender(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[{ ...MEMBER_A }, { ...MEMBER_B }]}
-      />
+      <MemoryRouter>
+        <GroupTransitionPanel
+          requestId={REQUEST_ID}
+          groupId={GROUP_ID}
+          groupName={GROUP_NAME}
+          bookings={[{ ...MEMBER_A }, { ...MEMBER_B }]}
+        />
+      </MemoryRouter>
     );
 
     // Give any wrongful refetch a chance to happen before asserting it didn't.
@@ -261,17 +265,54 @@ describe('GroupTransitionPanel', () => {
       response: { status: 404, data: { detail: 'Group not found' } },
     });
 
-    render(
-      <GroupTransitionPanel
-        requestId={REQUEST_ID}
-        groupId={GROUP_ID}
-        groupName={GROUP_NAME}
-        bookings={[MEMBER_A, MEMBER_B]}
-      />
-    );
+    renderPanel();
 
     expect(await screen.findByText('Group not found')).toBeInTheDocument();
     // Members still render even though the transition-set fetch failed.
     expect(screen.getByText('Checkout API')).toBeInTheDocument();
+  });
+
+  // --- Finding 1 regression: the repair path must be reachable from here ---
+
+  it('gives each member its own transition control and its own link to the sibling, even when the group control set is empty (Finding 1)', async () => {
+    // The group is out of step and the group's own intersection is empty —
+    // exactly the state the out-of-step banner describes as needing repair.
+    // Before the fix, this left the page with a diagnosis and no way to act
+    // on it: no per-member control, no link to the sibling that needs fixing.
+    vi.mocked(environmentGroupService.groupAllowedTransitions).mockReset().mockResolvedValue([]);
+    vi.mocked(bookingService.getAllowedTransitions)
+      .mockReset()
+      .mockResolvedValue([{ from_state: 'submitted', to_state: 'approved', label: 'Approve' }]);
+
+    renderPanel({ bookings: [MEMBER_A, MEMBER_B_DRAFT] });
+
+    await screen.findByText(/out of step/);
+
+    // A per-member control renders, driven by the individual endpoint, even
+    // though the group's own intersection has nothing to offer.
+    expect(await screen.findAllByRole('button', { name: 'Approve' })).toHaveLength(2);
+
+    // A sibling is reachable from either member's row — this is what lets
+    // someone fix "the other one" without hunting for it elsewhere.
+    const linkToA = screen.getByRole('link', { name: 'Checkout API' });
+    expect(linkToA).toHaveAttribute('href', `/bookings/${MEMBER_A.id}`);
+    const linkToB = screen.getByRole('link', { name: 'Checkout DB' });
+    expect(linkToB).toHaveAttribute('href', `/bookings/${MEMBER_B_DRAFT.id}`);
+  });
+
+  it("calls onMemberTransition with the member's own id when its individual control is clicked", async () => {
+    vi.mocked(bookingService.getAllowedTransitions)
+      .mockReset()
+      .mockResolvedValue([{ from_state: 'submitted', to_state: 'approved', label: 'Approve' }]);
+    const onMemberTransition = vi.fn().mockResolvedValue(undefined);
+
+    const user = userEvent.setup();
+    renderPanel({ onMemberTransition });
+
+    const buttons = await screen.findAllByRole('button', { name: 'Approve' });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[1]);
+
+    expect(onMemberTransition).toHaveBeenCalledWith(MEMBER_B.id, 'approved', 'Approve');
   });
 });

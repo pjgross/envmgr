@@ -168,10 +168,22 @@ async def preview_conflicts(
          if b.environment_group_id is not None},
         current_user.active_tenant_id,
     )
+    # Finding 7 (A2 whole-branch review): this endpoint builds EnvBookingSummary
+    # directly rather than via `_summaries`, which is what left it the one
+    # construction site (of three the review checked) still leaving
+    # environment_name null — a `#N` fallback in the UI. Resolved the same
+    # way `_summaries`/`_env_names_for` do, via the batch lookup this sits
+    # right next to.
+    env_names = await environment_service.get_environment_names(
+        db,
+        {b.environment_id for v in conflicts.values() for b in v},
+        current_user.active_tenant_id,
+    )
     return PreviewConflictsResponse(
         conflicts={
             k: [EnvBookingSummary(
                     id=b.id, environment_id=b.environment_id,
+                    environment_name=env_names.get(b.environment_id),
                     start_date=b.start_date, end_date=b.end_date, status=b.status,
                     environment_group_id=b.environment_group_id,
                     environment_group_name=group_names.get(b.environment_group_id),

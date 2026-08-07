@@ -512,17 +512,27 @@ async def test_a_hand_picked_booking_on_the_same_request_does_not_move(
 async def test_a_refused_member_blocks_the_whole_group_nothing_moves(
     client, auth_headers, db_session, test_tenant,
 ):
-    """A is individually advanced to 'submitted' first (through the real
-    repair-tool endpoint, not by hand-writing a status). B stays 'draft'.
-    Attempting to move the group to 'submitted' is then invalid for A
+    """B is individually advanced to 'submitted' first (through the real
+    repair-tool endpoint, not by hand-writing a status). A stays 'draft'.
+    Attempting to move the group to 'submitted' is then invalid for B
     (submitted->submitted is not a defined transition) even though it would
-    be valid for B — the whole group must refuse, and B must be untouched."""
+    be valid for A — the whole group must refuse, and A must be untouched.
+
+    Deliberately the SECOND member (`b_id`), not the first: `transition_group`
+    iterates `_group_bookings`' result in id order, so A is validated (and,
+    in a buggy apply-and-raise-per-member implementation, would be mutated)
+    before B is ever reached. Final-review Finding 4 — with the refused
+    member first by id, this test passed against a mutation that moved
+    validation inside the mutating loop, because nothing had mutated before
+    the raise regardless of whether validation ran up front or per-member.
+    Refusing on the second member is what makes "nothing moves" the actual
+    property under test rather than a coincidence of iteration order."""
     booking_type_id = await _make_transitionable_booking_type(client, auth_headers)
     rid, group, envs, (a_id, b_id) = await _create_group_request(
         client, auth_headers, db_session, test_tenant, booking_type_id, n=2, group_name="Blocks Whole Group",
     )
 
-    pre = await _individual_transition(client, auth_headers, a_id, "submitted")
+    pre = await _individual_transition(client, auth_headers, b_id, "submitted")
     assert pre.status_code == 200, pre.text
     a_history_before = await _history_count(client, auth_headers, a_id)
     b_history_before = await _history_count(client, auth_headers, b_id)
@@ -530,13 +540,14 @@ async def test_a_refused_member_blocks_the_whole_group_nothing_moves(
     resp = await _group_transition(client, auth_headers, rid, group.id, "submitted")
     assert resp.status_code == 400, resp.text
 
-    # Nothing moved: A stays exactly where its OWN individual transition put
-    # it, B stays exactly where it started, and no history rows were added to
-    # either side of the failed attempt — a plain HTTP-status assertion would
-    # also pass a transition that applied and then rolled back for an
-    # unrelated reason, so check the history count itself.
-    assert await _status_of(client, auth_headers, a_id) == "submitted"
-    assert await _status_of(client, auth_headers, b_id) == "draft"
+    # Nothing moved: A stays exactly where it started (draft) even though a
+    # move to 'submitted' would have been individually valid for it, B stays
+    # exactly where its OWN individual transition put it, and no history rows
+    # were added to either side of the failed attempt — a plain HTTP-status
+    # assertion would also pass a transition that applied and then rolled
+    # back for an unrelated reason, so check the history count itself.
+    assert await _status_of(client, auth_headers, a_id) == "draft"
+    assert await _status_of(client, auth_headers, b_id) == "submitted"
     assert await _history_count(client, auth_headers, a_id) == a_history_before
     assert await _history_count(client, auth_headers, b_id) == b_history_before
 

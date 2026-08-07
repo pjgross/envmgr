@@ -146,6 +146,40 @@ async def test_delete_is_a_soft_delete_and_is_never_refused(
 
 
 @pytest.mark.asyncio
+async def test_a_soft_deleted_group_404s_on_a_write_path(
+    client, auth_headers, db_session, test_tenant
+):
+    """Guards get_group's own deleted_at filter directly.
+
+    Final-review Finding 6 (A2 whole-branch review): dropping that filter
+    fails only test_group_booking_create.py::
+    test_a_group_whose_only_members_were_soft_deleted_is_treated_as_empty,
+    which exercises it indirectly through booking creation's group
+    expansion. update_group, delete_group, list_members, add_member and
+    remove_member all call get_group first (see
+    environment_group_service.py) and had no test of their own here — a
+    soft-deleted group must 404 on every one of them, not just fail to
+    expand into a booking.
+    """
+    from datetime import datetime, timezone
+
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Gone")
+    group.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    patched = await client.patch(
+        f"/api/v1/environment-groups/{group.id}",
+        json={"name": "Resurrected"}, headers=auth_headers,
+    )
+    assert patched.status_code == 404, patched.text
+
+    deleted_again = await client.delete(
+        f"/api/v1/environment-groups/{group.id}", headers=auth_headers
+    )
+    assert deleted_again.status_code == 404, deleted_again.text
+
+
+@pytest.mark.asyncio
 async def test_delete_cascade_does_not_touch_another_tenants_membership_row(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):

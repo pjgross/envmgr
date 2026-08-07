@@ -726,6 +726,11 @@ async def test_preview_conflicts_carries_the_existing_bookings_group_name(
     row = conflicts[str(env.id)][0]
     assert row["environment_group_id"] == group.id
     assert row["environment_group_name"] == "Preview Group"
+    # Finding 7 (A2 whole-branch review): preview_conflicts built
+    # EnvBookingSummary directly rather than via `_summaries`, and was the
+    # one of three checked construction sites that still left
+    # environment_name null — a `#N` fallback in the UI.
+    assert row["environment_name"] == env.name
 
 
 # ── Review Finding 2: the membership deleted_at filter in create_request ────
