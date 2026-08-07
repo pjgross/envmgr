@@ -29,6 +29,8 @@ const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
 const DoraDashboard = lazy(() => import('./pages/insights/DoraDashboard'));
 const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
 const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
+const EnvironmentGroupDetail = lazy(() => import('./pages/admin/EnvironmentGroupDetail'));
+const EnvironmentGroups = lazy(() => import('./pages/admin/EnvironmentGroups'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
 const EnvironmentRequestDetail = lazy(() => import('./pages/environments/EnvironmentRequestDetail'));
@@ -186,6 +188,22 @@ function App() {
               element={
                 <PrivateRoute>
                   <ProjectDetail />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/environment-groups"
+              element={
+                <PrivateRoute>
+                  <EnvironmentGroups />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/environment-groups/:id"
+              element={
+                <PrivateRoute>
+                  <EnvironmentGroupDetail />
                 </PrivateRoute>
               }
             />
