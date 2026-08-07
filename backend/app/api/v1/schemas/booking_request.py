@@ -14,6 +14,10 @@ class EnvBookingSummary(BaseModel):
     end_date: datetime
     status: str
     has_unacknowledged_conflicts: bool = False
+    # Provenance, not a live link — see Booking.environment_group_id. Null for
+    # a hand-picked environment; set for one that arrived via a group.
+    environment_group_id: Optional[int] = None
+    environment_group_name: Optional[str] = None
 
 
 class BookingRequestCreate(BaseModel):
@@ -24,7 +28,11 @@ class BookingRequestCreate(BaseModel):
     booking_type_id: int
     start_date: datetime
     end_date: datetime
-    environment_ids: list[int] = Field(..., min_length=1)
+    # May be empty when environment_group_ids supplies at least one group —
+    # the combined "at least one environment" rule is enforced by the
+    # service, not by Pydantic, because it spans both fields.
+    environment_ids: list[int] = Field(default_factory=list)
+    environment_group_ids: list[int] = Field(default_factory=list)
     notes: Optional[str] = None
     context_tag: str = "none"
     exclusive_use_requested: bool = False

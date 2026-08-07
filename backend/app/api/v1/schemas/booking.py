@@ -77,6 +77,10 @@ class BookingResponse(BaseModel):
     booking_request_id: Optional[int] = None
     request: Optional[BookingRequestSummary] = None
     has_unacknowledged_conflicts: bool = False
+    # Provenance, not a live link — see Booking.environment_group_id. Null for
+    # a hand-picked environment; set for one that arrived via a group.
+    environment_group_id: Optional[int] = None
+    environment_group_name: Optional[str] = None
 
 
 class BookingCreateResponse(BaseModel):

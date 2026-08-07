@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user
-from app.services import booking_request_service, project_service
+from app.services import booking_request_service, environment_group_service, project_service
 from app.api.v1.schemas.booking_request import (
     BookingRequestCreate, BookingRequestCreateResponse, BookingRequestResponse,
     BookingRequestUpdate, BookingRequestCustomFieldsUpdate,
@@ -17,9 +17,16 @@ from app.api.v1.schemas.booking_request import (
 router = APIRouter(prefix="/booking-requests", tags=["booking-requests"])
 
 
-def _summaries(children) -> list[EnvBookingSummary]:
+def _summaries(children, group_names: dict[int, str]) -> list[EnvBookingSummary]:
     # Basic projection — environment_name and has_unacknowledged_conflicts
     # are filled in by the caller for the detail endpoint.
+    #
+    # `group_names` is a batch-resolved id->name map (see
+    # environment_group_service.get_group_names, deliberately not filtering
+    # deleted_at so an archived group still renders on the bookings made
+    # against it) — required-positional, not defaulted, for the same reason
+    # bookings.py's _to_response is: a missing arg here must raise loudly
+    # rather than silently render every group name as null.
     return [
         EnvBookingSummary(
             id=c.id,
@@ -27,6 +34,8 @@ def _summaries(children) -> list[EnvBookingSummary]:
             start_date=c.start_date,
             end_date=c.end_date,
             status=c.status,
+            environment_group_id=c.environment_group_id,
+            environment_group_name=group_names.get(c.environment_group_id),
         )
         for c in children if c.deleted_at is None
     ]
@@ -49,7 +58,8 @@ def _rollup(children) -> str:
     return "mixed"
 
 
-def _to_response(req, project_name_link: str | None) -> BookingRequestResponse:
+def _to_response(req, project_name_link: str | None, group_names: dict[int, str]) -> BookingRequestResponse:
+    """`group_names` is required-positional, not defaulted — see _summaries."""
     return BookingRequestResponse(
         id=req.id, tenant_id=req.tenant_id, project_name=req.project_name,
         project_id=req.project_id, project_name_link=project_name_link,
@@ -58,8 +68,20 @@ def _to_response(req, project_name_link: str | None) -> BookingRequestResponse:
         exclusive_use_requested=req.exclusive_use_requested, custom_fields=req.custom_fields,
         booked_by=req.booked_by, delegate_user_ids=req.delegate_user_ids,
         rollup_status=_rollup(req.bookings),
-        bookings=_summaries(req.bookings),
+        bookings=_summaries(req.bookings, group_names),
     )
+
+
+async def _group_names_for(db: AsyncSession, requests, tenant_id: int) -> dict[int, str]:
+    """Batch-resolve group names for every child booking across one or more
+    BookingRequest ORM objects (their .bookings must already be loaded)."""
+    ids = {
+        c.environment_group_id
+        for req in requests
+        for c in req.bookings
+        if c.environment_group_id is not None
+    }
+    return await environment_group_service.get_group_names(db, ids, tenant_id)
 
 
 @router.post("", response_model=BookingRequestCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -73,8 +95,15 @@ async def create_booking_request(
     )
     await db.refresh(req, attribute_names=["bookings"])
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
+    group_names = await environment_group_service.get_group_names(
+        db,
+        {c.environment_group_id for c in req.bookings if c.environment_group_id is not None}
+        | {c.booking.environment_group_id for v in detected.values() for c in v
+           if c.booking.environment_group_id is not None},
+        current_user.active_tenant_id,
+    )
     return BookingRequestCreateResponse(
-        request=_to_response(req, names.get(req.project_id)),
+        request=_to_response(req, names.get(req.project_id), group_names),
         detected_conflicts={
             k: [EnvBookingSummary(
                     id=c.booking.id,
@@ -84,6 +113,8 @@ async def create_booking_request(
                     start_date=c.booking.start_date,
                     end_date=c.booking.end_date,
                     status=c.booking.status,
+                    environment_group_id=c.booking.environment_group_id,
+                    environment_group_name=group_names.get(c.booking.environment_group_id),
                 ) for c in v]
             for k, v in detected.items()
         },
@@ -101,11 +132,19 @@ async def preview_conflicts(
         start_date=data.start_date, end_date=data.end_date,
         tenant_id=current_user.active_tenant_id,
     )
+    group_names = await environment_group_service.get_group_names(
+        db,
+        {b.environment_group_id for v in conflicts.values() for b in v
+         if b.environment_group_id is not None},
+        current_user.active_tenant_id,
+    )
     return PreviewConflictsResponse(
         conflicts={
             k: [EnvBookingSummary(
                     id=b.id, environment_id=b.environment_id,
                     start_date=b.start_date, end_date=b.end_date, status=b.status,
+                    environment_group_id=b.environment_group_id,
+                    environment_group_name=group_names.get(b.environment_group_id),
                 ) for b in v]
             for k, v in conflicts.items()
         }
@@ -127,7 +166,8 @@ async def list_booking_requests(
     names = await project_service.get_project_names(
         db, {r.project_id for r in rows}, current_user.active_tenant_id
     )
-    return [_to_response(r, names.get(r.project_id)) for r in rows]
+    group_names = await _group_names_for(db, rows, current_user.active_tenant_id)
+    return [_to_response(r, names.get(r.project_id), group_names) for r in rows]
 
 
 @router.get("/{request_id}", response_model=BookingRequestResponse)
@@ -139,7 +179,8 @@ async def get_booking_request(
     req = await booking_request_service._get_request(db, request_id, current_user.active_tenant_id)
     await db.refresh(req, attribute_names=["bookings"])
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
-    return _to_response(req, names.get(req.project_id))
+    group_names = await _group_names_for(db, [req], current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id), group_names)
 
 
 @router.patch("/{request_id}/standard-fields", response_model=BookingRequestResponse)
@@ -156,7 +197,8 @@ async def update_request_standard_fields(
     )
     await db.refresh(req, attribute_names=["bookings"])
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
-    return _to_response(req, names.get(req.project_id))
+    group_names = await _group_names_for(db, [req], current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id), group_names)
 
 
 @router.patch("/{request_id}/custom-fields", response_model=BookingRequestResponse)
@@ -172,7 +214,8 @@ async def update_request_custom_fields(
     )
     await db.refresh(req, attribute_names=["bookings"])
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
-    return _to_response(req, names.get(req.project_id))
+    group_names = await _group_names_for(db, [req], current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id), group_names)
 
 
 @router.post("/{request_id}/environments", response_model=EnvBookingSummary, status_code=status.HTTP_201_CREATED)

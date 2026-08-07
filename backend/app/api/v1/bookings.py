@@ -8,7 +8,10 @@ from app.db.base import get_db
 from app.core.security import get_current_user
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.models.booking import Booking
-from app.services import booking_service, booking_request_service, conflict_service, project_service
+from app.services import (
+    booking_service, booking_request_service, conflict_service,
+    environment_group_service, project_service,
+)
 from app.api.v1.schemas.booking import (
     BookingCreate,
     BookingResponse,
@@ -30,12 +33,20 @@ BOOKING_SORTS = {
 }
 
 
-def _to_response(booking, project_name_link: str | None) -> BookingResponse:
+def _to_response(booking, project_name_link: str | None, group_name: str | None) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
 
     `project_name_link` is a batch-resolved name the caller must fetch via
     `project_service.get_project_names` (tenant-scoped, deliberately not
     filtering deleted_at) — never looked up per-row here.
+
+    `group_name` is likewise batch-resolved, via
+    `environment_group_service.get_group_names` — the name of the group
+    (archived or not) this booking's `environment_group_id` points at, or
+    None for a hand-picked environment. Required-positional, not defaulted:
+    A1's review found a defaulted equivalent (`project_name_link=None`) left
+    four of five call sites silently rendering null, because Pydantic
+    silently defaults a missing non-column attribute rather than raising.
     """
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
@@ -51,6 +62,8 @@ def _to_response(booking, project_name_link: str | None) -> BookingResponse:
     resp.notes = req.notes
     resp.context_tag = req.context_tag
     resp.custom_fields = req.custom_fields
+    resp.environment_group_id = booking.environment_group_id
+    resp.environment_group_name = group_name
     return resp
 
 
@@ -89,9 +102,14 @@ async def list_bookings(
     names = await project_service.get_project_names(
         db, {b.booking_request.project_id for b in bookings}, current_user.active_tenant_id
     )
+    group_names = await environment_group_service.get_group_names(
+        db, {b.environment_group_id for b in bookings}, current_user.active_tenant_id
+    )
     responses: list[BookingResponse] = []
     for b in bookings:
-        resp = _to_response(b, names.get(b.booking_request.project_id))
+        resp = _to_response(
+            b, names.get(b.booking_request.project_id), group_names.get(b.environment_group_id)
+        )
         resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
             db, b.id, current_user.active_tenant_id
         )
@@ -109,8 +127,15 @@ async def create_booking(
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
+    group_names = await environment_group_service.get_group_names(
+        db, {booking.environment_group_id}, current_user.active_tenant_id
+    )
     return BookingCreateResponse(
-        booking=_to_response(booking, names.get(booking.booking_request.project_id)),
+        booking=_to_response(
+            booking,
+            names.get(booking.booking_request.project_id),
+            group_names.get(booking.environment_group_id),
+        ),
         overlap_warnings=warnings,
     )
 
@@ -125,7 +150,14 @@ async def get_booking(
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
-    resp = _to_response(booking, names.get(booking.booking_request.project_id))
+    group_names = await environment_group_service.get_group_names(
+        db, {booking.environment_group_id}, current_user.active_tenant_id
+    )
+    resp = _to_response(
+        booking,
+        names.get(booking.booking_request.project_id),
+        group_names.get(booking.environment_group_id),
+    )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
     )
@@ -154,7 +186,14 @@ async def update_standard_fields(
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
-    resp = _to_response(booking, names.get(booking.booking_request.project_id))
+    group_names = await environment_group_service.get_group_names(
+        db, {booking.environment_group_id}, current_user.active_tenant_id
+    )
+    resp = _to_response(
+        booking,
+        names.get(booking.booking_request.project_id),
+        group_names.get(booking.environment_group_id),
+    )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
     )
@@ -175,7 +214,14 @@ async def transition_booking_state(
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
-    return _to_response(booking, names.get(booking.booking_request.project_id))
+    group_names = await environment_group_service.get_group_names(
+        db, {booking.environment_group_id}, current_user.active_tenant_id
+    )
+    return _to_response(
+        booking,
+        names.get(booking.booking_request.project_id),
+        group_names.get(booking.environment_group_id),
+    )
 
 
 @router.get("/{booking_id}/history", response_model=list[BookingStatusHistoryResponse])

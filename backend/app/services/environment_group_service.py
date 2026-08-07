@@ -126,6 +126,29 @@ async def get_group(
     return group
 
 
+async def get_group_names(
+    db: AsyncSession, group_ids: set[Optional[int]], tenant_id: int
+) -> dict[int, str]:
+    """Names for a set of group ids, for rendering on rows that reference them.
+
+    Deliberately does NOT filter deleted_at: an archived or deleted group must
+    still render its name on the bookings made against it. That is the
+    opposite of `get_group`, which validates a WRITE and does filter — keep
+    the two apart. A1 shipped exactly this pair and a reviewer had to check
+    nobody had "unified" them.
+    """
+    ids = {g for g in group_ids if g is not None}
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(EnvironmentGroup.id, EnvironmentGroup.name).where(
+            EnvironmentGroup.id.in_(ids),
+            EnvironmentGroup.tenant_id == tenant_id,
+        )
+    )).all()
+    return {gid: name for gid, name in rows}
+
+
 async def _assert_name_free(
     db: AsyncSession, tenant_id: int, name: str, exclude_id: Optional[int] = None
 ) -> None:
