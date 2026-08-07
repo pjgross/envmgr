@@ -86,4 +86,23 @@ describe('EnvironmentProjectsPanel', () => {
     renderPanel();
     await waitFor(() => expect(screen.getByText(/no projects/i)).toBeInTheDocument());
   });
+
+  it('shows a failed load rather than looking like an empty environment', async () => {
+    // This thunk sets state.error but NO loading flag, so there is no skeleton
+    // to fall back to — without the error branch a failed fetch renders the
+    // empty state, and the page reads "no projects use this environment" when
+    // the truth is "we could not find out". A blank page from a skeleton keyed
+    // on a flag only the list thunk set is how this went wrong last time.
+    vi.mocked(projectService.listAgreementsForEnvironment).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 500',
+      response: { status: 500, data: { detail: 'Could not load usage agreements' } },
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not load usage agreements/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/no projects/i)).not.toBeInTheDocument();
+  });
 });

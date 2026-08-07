@@ -25,7 +25,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
-  Box,
   Paper,
   Table,
   TableBody,
@@ -77,29 +76,20 @@ export default function EnvironmentProjectsPanel({
         Projects using this environment
       </Typography>
       {/*
-        Deliberately plain text, not an MUI `Alert`: `Alert` defaults to
-        `role="alert"`, and this copy is a permanent disclaimer rather than a
-        transient/important notification — a static banner claiming that ARIA
-        role would also collide with any page-level `queryByRole('alert')`
-        absence check elsewhere on this page (it did, against
-        EnvironmentDetailGovernanceForm.test.tsx, before this was changed).
-        The error Alert below keeps the default role — a failed load *is*
-        exactly what that role is for.
+        `role="status"` rather than Alert's default `role="alert"`: this is a
+        permanent disclaimer, not a transient notification, and `alert` is for
+        the latter. It also collided with a page-level `queryByRole('alert')`
+        absence check in EnvironmentDetailGovernanceForm.test.tsx. Overriding
+        the role keeps both — the visual prominence ProjectDetail's identical
+        copy already has, and a role assistive tech can actually announce.
+        The error Alert below keeps the default role; a failed load IS what
+        that role is for.
       */}
-      <Box
-        sx={{
-          mb: 2,
-          p: 1.5,
-          borderRadius: 1,
-          bgcolor: 'action.hover',
-        }}
-      >
-        <Typography variant="body2" color="text.secondary">
-          This is a record, not a rule — usage agreements are not enforced. A project may
-          still book this environment with no agreement in place; nothing here warns or
-          refuses it.
-        </Typography>
-      </Box>
+      <Alert severity="info" role="status" sx={{ mb: 2 }}>
+        This is a record, not a rule — usage agreements are not enforced. A project may
+        still book this environment with no agreement in place; nothing here warns or
+        refuses it.
+      </Alert>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
