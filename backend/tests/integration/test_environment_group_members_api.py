@@ -242,6 +242,57 @@ async def test_listing_groups_for_another_tenants_environment_is_404_not_empty_l
 
 
 @pytest.mark.asyncio
+async def test_deleting_a_group_soft_deletes_its_live_members(
+    db_session, test_tenant
+):
+    """The cascade itself, independent of the query filter: each membership
+    row must carry its own deleted_at after delete_group, not merely be
+    hidden by _member_query's EnvironmentGroup.deleted_at join filter.
+
+    Ported from test_usage_agreements_api.py's
+    test_deleting_the_project_soft_deletes_its_live_agreements, for the same
+    reason: the API-level test above (whose docstring warns about exactly
+    this) only proves the row is no longer VISIBLE from the environment side,
+    which the join filter can do on its own. Asserting against the database
+    directly, with no join, is the only thing that isolates the cascade — a
+    hand-restored group (`group.deleted_at = None`) would otherwise silently
+    resurrect every historical membership.
+    """
+    from app.api.v1.schemas.environment_group import MemberCreate
+
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Doomed Directly")
+    one = await ensure_environment(db_session, test_tenant.id, slot=1)
+    two = await ensure_environment(db_session, test_tenant.id, slot=2)
+    await db_session.flush()
+
+    row_one = await environment_group_service.add_member(
+        db_session, group.id, MemberCreate(environment_id=one.id), test_tenant.id,
+    )
+    row_two = await environment_group_service.add_member(
+        db_session, group.id, MemberCreate(environment_id=two.id), test_tenant.id,
+    )
+    member_ids = [row_one[0].id, row_two[0].id]
+    await db_session.commit()
+
+    await environment_group_service.delete_group(db_session, group.id, test_tenant.id)
+    await db_session.commit()
+
+    stored = (
+        await db_session.execute(
+            select(EnvironmentGroupMember).where(
+                EnvironmentGroupMember.id.in_(member_ids)
+            )
+        )
+    ).scalars().all()
+    assert len(stored) == 2
+    for row in stored:
+        assert row.deleted_at is not None, (
+            "the member row's own deleted_at must be set by the cascade, "
+            "not merely be hidden by a join"
+        )
+
+
+@pytest.mark.asyncio
 async def test_soft_deleted_group_membership_no_longer_appears_from_environment_side(
     client, auth_headers, db_session, test_tenant
 ):
@@ -381,6 +432,38 @@ async def test_environment_side_listing_ignores_a_malformed_cross_tenant_group_r
 
 
 @pytest.mark.asyncio
+async def test_adding_a_member_ignores_a_duplicate_row_belonging_to_another_tenant(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards add_member's duplicate-check tenant_id filter, independent of
+    get_group's — a malformed row already linking (group, environment) but
+    carrying another tenant's tenant_id must not block a legitimate add.
+
+    Not currently exploitable through the API (group_id is already validated
+    to the caller's tenant via get_group, so no legitimate row could differ),
+    but it is the same "second filter with no test" shape as _member_query's
+    two joins, which are each guarded by a malformed-row test below.
+    """
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Pair")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    other_tenant, _other_admin = await second_tenant_factory()
+    await db_session.commit()
+
+    stray = EnvironmentGroupMember(
+        tenant_id=other_tenant.id, group_id=group.id, environment_id=env.id,
+    )
+    db_session.add(stray)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/environment-groups/{group.id}/members",
+        json={"environment_id": env.id},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+
+@pytest.mark.asyncio
 async def test_cannot_remove_a_member_whose_own_tenant_id_is_not_ours(
     client, auth_headers, db_session, test_tenant, second_tenant_factory
 ):
@@ -455,20 +538,35 @@ async def test_environment_side_listing_ignores_a_membership_whose_group_predate
 async def test_paging_over_tied_environment_names_sees_each_member_once(
     db_session, test_tenant
 ):
-    """Every member here points at DIFFERENT environments but the leading sort
-    key for list_groups_for_environment ties across all rows because they all
-    point at the SAME group name. Without the EnvironmentGroupMember.id
-    tiebreaker, LIMIT/OFFSET over an incomplete order can return a row on more
-    than one page and drop another entirely."""
+    """Every member here points at a DIFFERENT environment, but all 21
+    environments share one name, so the leading sort key for list_members
+    (`func.lower(Environment.name)`) ties across every row. Without the
+    EnvironmentGroupMember.id tiebreaker, LIMIT/OFFSET over an incomplete
+    order can return a row on more than one page and drop another entirely.
+
+    Unlike test_usage_agreements_api.py's sibling test — which ties 21
+    agreements on the SAME environment, legal because an environment can
+    have agreements with multiple projects — group membership forbids
+    repeating an environment in one group (409 duplicate). So the tie here
+    has to come from distinct environments that happen to share a name,
+    built directly rather than through ensure_environment: that factory
+    looks rows up by (tenant_id, name) and is idempotent, so a second call
+    with the same name would return the FIRST environment instead of
+    creating a new one.
+    """
     from app.core.pagination import Page
+    from app.db.models.environment import Environment
+    from tests.factories import ensure_environment_tier
 
     group = await ensure_environment_group(db_session, test_tenant.id, name="Big Group")
+    tier = await ensure_environment_tier(db_session, test_tenant.id)
     await db_session.flush()
 
     total_rows = 21
     envs = []
-    for slot in range(1, total_rows + 1):
-        env = await ensure_environment(db_session, test_tenant.id, slot=slot)
+    for _ in range(total_rows):
+        env = Environment(tenant_id=test_tenant.id, name="Tied Environment Name", tier_id=tier.id)
+        db_session.add(env)
         envs.append(env)
     await db_session.flush()
 
@@ -494,3 +592,17 @@ async def test_paging_over_tied_environment_names_sees_each_member_once(
 
     assert len(seen) == total_rows, f"expected {total_rows} rows, saw {len(seen)}"
     assert len(set(seen)) == total_rows, "a row was returned on more than one page"
+
+
+# `list_groups_for_environment`'s leading sort key is `func.lower(EnvironmentGroup.name)`,
+# and — unlike Environment.name, which has no DB-level uniqueness in this test
+# schema (the partial unique index is Postgres-migration-only and tests build
+# schema via create_all, never `alembic upgrade head`) — EnvironmentGroup name
+# uniqueness IS enforced, just in the service (`_assert_name_free`), not by an
+# index. Two groups sharing a name in one tenant is something only the API
+# refuses; the row could still be forced in directly through the ORM the way
+# the malformed cross-tenant rows above are. The brief is explicit that doing
+# that here would be "faking a tie by writing rows the API would refuse", so
+# this tiebreaker is left unreached: there is no route to a genuine tie on
+# EnvironmentGroup.name within one tenant today, and none of the malformed-row
+# tricks used elsewhere in this file are a legitimate way to manufacture one.
