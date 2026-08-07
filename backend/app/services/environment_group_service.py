@@ -149,6 +149,43 @@ async def get_group_names(
     return {gid: name for gid, name in rows}
 
 
+async def live_member_ids(
+    db: AsyncSession, group_id: int, tenant_id: int
+) -> list[int]:
+    """The environment ids of a group's LIVE members: membership row
+    undeleted AND environment undeleted, both tenant-scoped. No status
+    filter — an inactive or maintenance environment is still a live member.
+
+    This is the third place that needed this predicate (after
+    `_member_query` and `_member_count_clause`); `booking_request_service.
+    create_request` uses this one to EXPAND a group at booking time, where it
+    wants ids only and the group itself has already been validated (via
+    `get_group`) before this is called. `_member_query` and
+    `_member_count_clause` stay separate: the former also carries both ends'
+    names for a listing UI and additionally requires the GROUP itself be
+    undeleted (irrelevant here, since the caller already fetched a live
+    group), and the latter is a correlated subquery answering the count for
+    potentially many groups at once in `list_groups`, not a plain select for
+    one known group_id — sharing either shape here would be more contortion
+    than the duplication it removes. Keep this one and callers of the other
+    two in agreement on what "live member" means; a mismatch is exactly what
+    let a group's displayed member count disagree with what booking it
+    produced.
+    """
+    rows = (await db.execute(
+        select(EnvironmentGroupMember.environment_id)
+        .join(Environment, Environment.id == EnvironmentGroupMember.environment_id)
+        .where(
+            EnvironmentGroupMember.group_id == group_id,
+            EnvironmentGroupMember.tenant_id == tenant_id,
+            EnvironmentGroupMember.deleted_at.is_(None),
+            Environment.tenant_id == tenant_id,
+            Environment.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    return list(rows)
+
+
 async def _assert_name_free(
     db: AsyncSession, tenant_id: int, name: str, exclude_id: Optional[int] = None
 ) -> None:

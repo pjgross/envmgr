@@ -40,6 +40,54 @@ async def _add_member(db_session, group, env, tenant_id):
     )
 
 
+async def _make_transitionable_booking_type(client, auth_headers) -> int:
+    """A booking type whose lifecycle template both permits editing
+    start_date/end_date in 'draft' and defines a real draft->submitted
+    transition. `test_booking_type` (conftest.py) deliberately ships an empty
+    `field_permissions` and an empty `transitions` list, so neither
+    `PATCH /bookings/{id}/standard-fields` nor `POST /bookings/{id}/transition`
+    is reachable through it — every field edit 403s and every transition
+    attempt 400s for a reason unrelated to whatever the test is trying to
+    guard. Mirrors test_booking_transitions.py's `_setup_booking_type`.
+    """
+    definition = {
+        "states": [
+            {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+        ],
+        "transitions": [
+            {
+                "from_state": "draft", "to_state": "submitted", "label": "Submit",
+                "allowed_roles": ["Admin"],
+            },
+        ],
+        "field_permissions": {
+            "draft": {
+                "standard_fields": {
+                    "project_name": {"editable_by": ["Admin"]},
+                    "start_date": {"editable_by": ["Admin"]},
+                    "end_date": {"editable_by": ["Admin"]},
+                    "booking_type": {"editable_by": ["Admin"]},
+                }
+            },
+            "submitted": {"standard_fields": {}},
+        },
+    }
+    tmpl = await client.post(
+        "/api/v1/tenant/lifecycle-templates",
+        headers=auth_headers,
+        json={"name": "Group Booking Transitions", "definition": definition},
+    )
+    assert tmpl.status_code == 201, tmpl.text
+    bt = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={"name": "Transitionable Group Booking", "lifecycle_template_id": tmpl.json()["id"]},
+    )
+    assert bt.status_code == 201, bt.text
+    return bt.json()["id"]
+
+
 # ── Booking a group expands to its live members ─────────────────────────────
 
 
@@ -239,7 +287,7 @@ async def test_a_group_whose_only_members_were_soft_deleted_is_treated_as_empty(
 async def test_a_soft_deleted_environments_membership_is_not_live(
     client, auth_headers, db_session, test_tenant, test_booking_type
 ):
-    """Unlike status, deletion DOES filter: `_member_query`'s definition of a
+    """Unlike status, deletion DOES filter: `live_member_ids`'s definition of a
     live member is 'membership row undeleted AND environment undeleted'.
     Soft-delete the environment itself (not the membership row) and confirm
     the group still expands, but only to its one remaining live member."""
@@ -509,3 +557,331 @@ async def test_getting_a_single_grouped_booking_carries_the_group_name(
     assert fetched.status_code == 200, fetched.text
     assert fetched.json()["environment_group_id"] == group.id
     assert fetched.json()["environment_group_name"] == "Direct Fetch Group"
+
+
+# ── Review Finding 6: bookings.py's other two response-builder call sites ───
+
+
+@pytest.mark.asyncio
+async def test_standard_fields_patch_and_transition_both_carry_the_group_name(
+    client, auth_headers, db_session, test_tenant
+):
+    """Closes bookings.py's remaining `_to_response` call sites:
+    `update_standard_fields` and `transition_booking_state`. `list_bookings`
+    and `get_booking` are already covered elsewhere in this file;
+    `create_booking`'s is vacuous — `POST /bookings/` never sets a group, so
+    there is nothing to guard there."""
+    booking_type_id = await _make_transitionable_booking_type(client, auth_headers)
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Patchable Group")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await _add_member(db_session, group, env, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(booking_type_id, environment_group_ids=[group.id]),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    booking_id = created.json()["request"]["bookings"][0]["id"]
+
+    now = datetime.now(timezone.utc)
+    patched = await client.patch(
+        f"/api/v1/bookings/{booking_id}/standard-fields",
+        json={"start_date": (now + timedelta(days=2)).isoformat()},
+        headers=auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["environment_group_id"] == group.id
+    assert patched.json()["environment_group_name"] == "Patchable Group"
+
+    transitioned = await client.post(
+        f"/api/v1/bookings/{booking_id}/transition",
+        json={"to_state": "submitted"},
+        headers=auth_headers,
+    )
+    assert transitioned.status_code == 200, transitioned.text
+    assert transitioned.json()["environment_group_id"] == group.id
+    assert transitioned.json()["environment_group_name"] == "Patchable Group"
+
+
+# ── Review Finding 4: GET /booking-requests (the main list) ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_main_list_endpoint_carries_the_group_name(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """GET /booking-requests (no project_id filter) is its own call site,
+    distinct from GET /booking-requests/{id} — list_booking_requests builds
+    its own group_names lookup via _group_names_for, and a required-positional
+    argument only catches an OMITTED value, not one resolved to an empty map."""
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Listed Group")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await _add_member(db_session, group, env, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, environment_group_ids=[group.id]),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    rid = created.json()["request"]["id"]
+
+    listed = await client.get("/api/v1/booking-requests", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    req = next(r for r in listed.json() if r["id"] == rid)
+    assert req["bookings"][0]["environment_group_id"] == group.id
+    assert req["bookings"][0]["environment_group_name"] == "Listed Group"
+
+
+# ── Review Finding 5: detected_conflicts / preview-conflicts group fields ───
+
+
+@pytest.mark.asyncio
+async def test_detected_conflicts_on_create_carries_the_other_bookings_group_name(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """`detected_conflicts` on POST /booking-requests renders OTHER,
+    pre-existing bookings — a construction site distinct from the request's
+    own `bookings` list, and one that needs its own group-name guard."""
+    group_a = await ensure_environment_group(db_session, test_tenant.id, name="Earlier Group")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await _add_member(db_session, group_a, env, test_tenant.id)
+    await db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    first = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(
+            test_booking_type.id,
+            environment_group_ids=[group_a.id],
+            start_date=now.isoformat(),
+            end_date=(now + timedelta(days=5)).isoformat(),
+        ),
+        headers=auth_headers,
+    )
+    assert first.status_code == 201, first.text
+    first_booking_id = first.json()["request"]["bookings"][0]["id"]
+
+    group_b = await ensure_environment_group(db_session, test_tenant.id, name="Later Group")
+    await _add_member(db_session, group_b, env, test_tenant.id)
+    await db_session.commit()
+
+    second = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(
+            test_booking_type.id,
+            environment_group_ids=[group_b.id],
+            start_date=(now + timedelta(days=1)).isoformat(),
+            end_date=(now + timedelta(days=3)).isoformat(),
+        ),
+        headers=auth_headers,
+    )
+    assert second.status_code == 201, second.text
+    second_booking_id = second.json()["request"]["bookings"][0]["id"]
+    detected = second.json()["detected_conflicts"]
+    assert str(second_booking_id) in detected
+    other = detected[str(second_booking_id)][0]
+    assert other["id"] == first_booking_id
+    assert other["environment_group_id"] == group_a.id
+    assert other["environment_group_name"] == "Earlier Group"
+
+
+@pytest.mark.asyncio
+async def test_preview_conflicts_carries_the_existing_bookings_group_name(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Preview Group")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await _add_member(db_session, group, env, test_tenant.id)
+    await db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(
+            test_booking_type.id,
+            environment_group_ids=[group.id],
+            start_date=now.isoformat(),
+            end_date=(now + timedelta(days=5)).isoformat(),
+        ),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    preview = await client.post(
+        "/api/v1/booking-requests/preview-conflicts",
+        json={
+            "environment_ids": [env.id],
+            "start_date": (now + timedelta(days=1)).isoformat(),
+            "end_date": (now + timedelta(days=3)).isoformat(),
+        },
+        headers=auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    conflicts = preview.json()["conflicts"]
+    assert str(env.id) in conflicts
+    row = conflicts[str(env.id)][0]
+    assert row["environment_group_id"] == group.id
+    assert row["environment_group_name"] == "Preview Group"
+
+
+# ── Review Finding 2: the membership deleted_at filter in create_request ────
+
+
+@pytest.mark.asyncio
+async def test_a_group_with_one_member_removed_via_the_api_books_only_the_kept_one(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """Guards create_request's (now live_member_ids') membership deleted_at
+    filter via the real route to a soft-deleted membership row: the API's
+    DELETE /environment-groups/{g}/members/{m}. The only route any existing
+    test took to a soft-deleted membership row was delete_group's cascade,
+    which 404s at get_group before the membership query even runs — so that
+    route completely masks whether this filter does anything. Here the
+    ENVIRONMENT stays live and only the MEMBERSHIP row is removed."""
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Two Then One")
+    env_keep = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env_remove = await ensure_environment(db_session, test_tenant.id, slot=2)
+    await _add_member(db_session, group, env_keep, test_tenant.id)
+    row_remove = await _add_member(db_session, group, env_remove, test_tenant.id)
+    await db_session.commit()
+
+    removed = await client.delete(
+        f"/api/v1/environment-groups/{group.id}/members/{row_remove[0].id}",
+        headers=auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, environment_group_ids=[group.id]),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    bookings = created.json()["request"]["bookings"]
+    assert {b["environment_id"] for b in bookings} == {env_keep.id}
+
+
+@pytest.mark.asyncio
+async def test_a_group_emptied_by_individual_removals_is_refused_by_name(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """Closes the empty-group 400's other route.
+    `test_a_group_whose_only_members_were_soft_deleted_is_treated_as_empty`
+    only covers delete_group's cascade, which 404s at get_group before the
+    empty-group check is reached — the empty-group 400 itself was never
+    actually exercised by a group emptied through ordinary member removal,
+    with the group itself left untouched."""
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Emptied Group")
+    env_a = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env_b = await ensure_environment(db_session, test_tenant.id, slot=2)
+    row_a = await _add_member(db_session, group, env_a, test_tenant.id)
+    row_b = await _add_member(db_session, group, env_b, test_tenant.id)
+    await db_session.commit()
+
+    for row in (row_a, row_b):
+        removed = await client.delete(
+            f"/api/v1/environment-groups/{group.id}/members/{row[0].id}",
+            headers=auth_headers,
+        )
+        assert removed.status_code == 204, removed.text
+
+    refused = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, environment_group_ids=[group.id]),
+        headers=auth_headers,
+    )
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"] == "Environment group 'Emptied Group' has no environments"
+
+
+# ── Review Finding 3: the membership tenant_id filter in create_request ─────
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_memberships_own_tenant_id_does_not_leak_it_in(
+    client, auth_headers, db_session, test_tenant, test_booking_type, second_tenant_factory
+):
+    """Guards live_member_ids' OWN EnvironmentGroupMember.tenant_id clause,
+    independent of the Environment.tenant_id clause
+    test_a_malformed_cross_tenant_membership_row_does_not_leak_the_environment
+    already covers above: here the group and environment both legitimately
+    belong to our tenant, but the membership row's own tenant_id column does
+    not — a shape no write path can produce (add_member always sets tenant_id
+    to the caller's tenant), the same construction as
+    test_cannot_remove_a_member_whose_own_tenant_id_is_not_ours in
+    test_environment_group_members_api.py."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Tenant Id Malformed")
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await db_session.flush()
+    member = EnvironmentGroupMember(
+        tenant_id=other_tenant.id, group_id=group.id, environment_id=env.id,
+    )
+    db_session.add(member)
+    await db_session.commit()
+
+    refused = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, environment_group_ids=[group.id]),
+        headers=auth_headers,
+    )
+    # The only membership row doesn't resolve under OUR tenant_id, so this
+    # must be the empty-group 400 — never a 201 that booked the environment
+    # via a row belonging to no legitimate tenant scope.
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"] == "Environment group 'Tenant Id Malformed' has no environments"
+
+
+# ── Review Finding 7: one shared definition of "live member" ────────────────
+
+
+@pytest.mark.asyncio
+async def test_member_count_list_and_booking_all_agree_on_live_members(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """The three places that each answer "who is a live member of this
+    group" — `_member_count_clause` (the group detail page's member_count),
+    `_member_query` (the members list), and `live_member_ids` (what booking
+    the group actually creates) — must never drift apart; A1 shipped exactly
+    this drift, between a count and a list, with zero coverage. A
+    soft-deleted membership row and a soft-deleted environment each remove a
+    member a different way; assert all three surfaces end up agreeing on the
+    one remaining live member."""
+    group = await ensure_environment_group(db_session, test_tenant.id, name="Triple Agreement")
+    env_live = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env_removed = await ensure_environment(db_session, test_tenant.id, slot=2)
+    env_deleted = await ensure_environment(db_session, test_tenant.id, slot=3)
+    await _add_member(db_session, group, env_live, test_tenant.id)
+    row_removed = await _add_member(db_session, group, env_removed, test_tenant.id)
+    await _add_member(db_session, group, env_deleted, test_tenant.id)
+    env_deleted.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    removed = await client.delete(
+        f"/api/v1/environment-groups/{group.id}/members/{row_removed[0].id}",
+        headers=auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+
+    detail = await client.get(f"/api/v1/environment-groups/{group.id}", headers=auth_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["member_count"] == 1
+
+    members = await client.get(
+        f"/api/v1/environment-groups/{group.id}/members", headers=auth_headers
+    )
+    assert members.status_code == 200, members.text
+    assert [m["environment_id"] for m in members.json()] == [env_live.id]
+
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, environment_group_ids=[group.id]),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    bookings = created.json()["request"]["bookings"]
+    assert {b["environment_id"] for b in bookings} == {env_live.id}

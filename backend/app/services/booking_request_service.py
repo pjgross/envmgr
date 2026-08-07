@@ -13,7 +13,6 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
-from app.db.models.environment_group import EnvironmentGroupMember
 from app.db.models.user import User
 from app.services import conflict_service, environment_group_service, project_service
 
@@ -65,20 +64,11 @@ async def create_request(
 
     for group_id in group_ids:
         group = await environment_group_service.get_group(db, group_id, tenant_id)
-        members = (await db.execute(
-            select(EnvironmentGroupMember.environment_id)
-            .join(
-                Environment,
-                Environment.id == EnvironmentGroupMember.environment_id,
-            )
-            .where(
-                EnvironmentGroupMember.group_id == group_id,
-                EnvironmentGroupMember.tenant_id == tenant_id,
-                EnvironmentGroupMember.deleted_at.is_(None),
-                Environment.tenant_id == tenant_id,
-                Environment.deleted_at.is_(None),
-            )
-        )).scalars().all()
+        # Single definition of "live member", shared with the group detail
+        # page's count and member list (environment_group_service.
+        # live_member_ids) — see its docstring for why this must not drift
+        # from _member_query/_member_count_clause.
+        members = await environment_group_service.live_member_ids(db, group_id, tenant_id)
 
         if not members:
             # Refused by name. Without this the caller gets either a silently
