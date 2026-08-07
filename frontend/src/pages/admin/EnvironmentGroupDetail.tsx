@@ -40,7 +40,7 @@ export default function EnvironmentGroupDetail() {
   const user = useSelector((s: RootState) => s.auth.user);
   const canWrite = user?.role === 'Admin' || user?.is_master_admin === true;
 
-  const { environments, loading: environmentsLoading } = useAllEnvironments();
+  const { environments, loading: environmentsLoading, truncated } = useAllEnvironments();
 
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<number | ''>('');
   const [addError, setAddError] = useState<string | null>(null);
@@ -151,6 +151,11 @@ export default function EnvironmentGroupDetail() {
               setSelectedEnvironmentId(e.target.value ? Number(e.target.value) : '')
             }
             sx={{ minWidth: 220 }}
+            helperText={
+              truncated
+                ? `Only the first ${environments.length} environments are listed.`
+                : undefined
+            }
           >
             {availableEnvironments.map((env) => (
               <MenuItem key={env.id} value={env.id}>

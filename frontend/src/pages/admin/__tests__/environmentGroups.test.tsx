@@ -3,12 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import EnvironmentGroups, { environmentGroupColumns } from '../EnvironmentGroups';
 import EnvironmentGroupDetail from '../EnvironmentGroupDetail';
 import environmentGroupReducer from '../../../store/environmentGroupSlice';
 import { environmentGroupService } from '../../../services/environmentGroupService';
+import { useAllEnvironments } from '../../../hooks/useAllEnvironments';
 import { getLastDataGridProps } from '../../../test/dataGridMock';
 
 vi.mock('../../../services/environmentGroupService', () => ({
@@ -32,14 +33,14 @@ vi.mock('../../../services/environmentGroupService', () => ({
 // rather than any service call the page owns directly — stub the hook itself,
 // the way projects.test.tsx does for ProjectDetail.
 vi.mock('../../../hooks/useAllEnvironments', () => ({
-  useAllEnvironments: () => ({
+  useAllEnvironments: vi.fn(() => ({
     environments: [
       { id: 9, name: 'staging-a' },
       { id: 10, name: 'staging-b' },
     ],
     loading: false,
     truncated: false,
-  }),
+  })),
 }));
 
 // The shared stand-in resolves a cell through both `renderCell` and
@@ -253,6 +254,41 @@ describe('EnvironmentGroups', () => {
     // refetch of the whole list.
     await waitFor(() => expect(environmentGroupService.listGroups).toHaveBeenCalledTimes(2));
   });
+
+  it('refetches the list after a successful edit rather than splicing the row in', async () => {
+    vi.mocked(environmentGroupService.updateGroup).mockResolvedValue({
+      ...GROUP,
+      name: 'Payments regression (renamed)',
+    });
+    renderList();
+    await waitFor(() => expect(screen.getByText('Payments regression')).toBeInTheDocument());
+    expect(environmentGroupService.listGroups).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    // The slice deliberately has no fulfilled handler for update (see
+    // environmentGroupSlice.ts) — the only way a rename appears is a
+    // refetch of the whole list.
+    await waitFor(() => expect(environmentGroupService.listGroups).toHaveBeenCalledTimes(2));
+  });
+
+  it('refetches the list after a successful delete rather than splicing the row out', async () => {
+    vi.mocked(environmentGroupService.deleteGroup).mockResolvedValue(undefined);
+    renderList();
+    await waitFor(() => expect(screen.getByText('Payments regression')).toBeInTheDocument());
+    expect(environmentGroupService.listGroups).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+    // MUI's Modal marks background content aria-hidden while the dialog is
+    // open, so this second query resolves to the dialog's own Delete button.
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+
+    // The slice deliberately has no fulfilled handler for delete (see
+    // environmentGroupSlice.ts) — the only way the row disappears is a
+    // refetch of the whole list.
+    await waitFor(() => expect(environmentGroupService.listGroups).toHaveBeenCalledTimes(2));
+  });
 });
 
 function renderDetail(role: 'Admin' | 'Member' = 'Admin') {
@@ -293,6 +329,20 @@ describe('EnvironmentGroupDetail', () => {
     });
   });
 
+  // `mockReturnValue` (not `Once`) sticks around across renders within a test, but
+  // that also means it leaks into every test that runs after this one unless something
+  // puts the default back — restore it here, mirroring EnvironmentCompare.test.tsx.
+  afterEach(() => {
+    vi.mocked(useAllEnvironments).mockReturnValue({
+      environments: [
+        { id: 9, name: 'staging-a' },
+        { id: 10, name: 'staging-b' },
+      ],
+      loading: false,
+      truncated: false,
+    } as ReturnType<typeof useAllEnvironments>);
+  });
+
   it('states that changing membership does not affect existing bookings', async () => {
     // Membership is frozen at booking time. Without this line an admin
     // removing an environment will reasonably assume they have cancelled its
@@ -319,8 +369,12 @@ describe('EnvironmentGroupDetail', () => {
   });
 
   it('shows the add-environment form and Remove buttons for an admin, and the members table for anyone', async () => {
+    // environment_id 77 is deliberately absent from useAllEnvironments' mocked
+    // list (ids 9/10) — MEMBER's own environment_id (9) coincides with that
+    // list, which would let a `.find()`-against-the-picker-collection bug pass
+    // this test undetected. See the dedicated coincidence test below for why.
     vi.mocked(environmentGroupService.listMembers).mockResolvedValue({
-      rows: [MEMBER],
+      rows: [{ ...MEMBER, environment_id: 77, environment_name: 'canary' }],
       total: 1,
     });
     renderDetail('Admin');
@@ -328,12 +382,15 @@ describe('EnvironmentGroupDetail', () => {
     expect(screen.getByRole('combobox', { name: 'Environment' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^add$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^remove$/i })).toBeInTheDocument();
-    expect(screen.getByText('staging-a')).toBeInTheDocument();
+    expect(screen.getByText('canary')).toBeInTheDocument();
   });
 
   it('hides the add-environment form and Remove buttons for a non-admin, who can still read the members table', async () => {
+    // Same coincidence risk as the admin test above — environment_id 77 is
+    // absent from the mocked environments list, so this stays a real test of
+    // reading `environment_name` off the row.
     vi.mocked(environmentGroupService.listMembers).mockResolvedValue({
-      rows: [MEMBER],
+      rows: [{ ...MEMBER, environment_id: 77, environment_name: 'canary' }],
       total: 1,
     });
     renderDetail('Member');
@@ -343,7 +400,7 @@ describe('EnvironmentGroupDetail', () => {
     expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
     // The read/write split is deliberate: GET is open to any tenant member,
     // only POST/DELETE are Admin-gated.
-    expect(screen.getByText('staging-a')).toBeInTheDocument();
+    expect(screen.getByText('canary')).toBeInTheDocument();
   });
 
   it('surfaces the server reason when adding a member is refused, not the axios status line', async () => {
@@ -406,5 +463,45 @@ describe('EnvironmentGroupDetail', () => {
     // environmentGroupSlice.ts) — the only way the new row appears is a
     // refetch of the members list.
     await waitFor(() => expect(environmentGroupService.listMembers).toHaveBeenCalledTimes(2));
+  });
+
+  it('refetches members after a successful remove rather than splicing the row out', async () => {
+    vi.mocked(environmentGroupService.listMembers).mockResolvedValue({
+      rows: [MEMBER],
+      total: 1,
+    });
+    vi.mocked(environmentGroupService.removeMember).mockResolvedValue(undefined);
+    renderDetail('Admin');
+    await waitFor(() => expect(screen.getByText('Payments regression')).toBeInTheDocument());
+    expect(environmentGroupService.listMembers).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: /^remove$/i }));
+
+    // The slice deliberately has no fulfilled handler for removeMember (see
+    // environmentGroupSlice.ts) — the only way the row disappears is a
+    // refetch of the members list.
+    await waitFor(() => expect(environmentGroupService.listMembers).toHaveBeenCalledTimes(2));
+  });
+
+  it('surfaces a truncated environment picker list, because a missing option is silent', async () => {
+    // Mirrors EnvironmentCompare.test.tsx: `mockReturnValueOnce` is consumed
+    // per-call, not per-test, so use `mockReturnValue` and restore it in
+    // `afterEach` above rather than leaking into later tests.
+    vi.mocked(useAllEnvironments).mockReturnValue({
+      environments: [{ id: 9, name: 'staging-a' }],
+      loading: false,
+      truncated: true,
+    } as ReturnType<typeof useAllEnvironments>);
+    renderDetail('Admin');
+    await waitFor(() => expect(screen.getByText('Payments regression')).toBeInTheDocument());
+
+    expect(screen.getByText(/only the first/i)).toBeInTheDocument();
+  });
+
+  it('does not show a truncation notice when the environment list is not truncated', async () => {
+    renderDetail('Admin');
+    await waitFor(() => expect(screen.getByText('Payments regression')).toBeInTheDocument());
+
+    expect(screen.queryByText(/only the first/i)).not.toBeInTheDocument();
   });
 });
