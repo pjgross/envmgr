@@ -1,0 +1,204 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import GroupTransitionPanel from '../GroupTransitionPanel';
+import type { EnvBookingSummary } from '../../../types/bookingRequest';
+
+// Task 9 — group transitions in the UI. The panel takes a group's members
+// (already filtered by the caller) and renders ONE control set driven by the
+// group endpoint's intersection, never a member's own allowed-transitions
+// list — a button offered from a single member's list could be valid for it
+// and refused for a sibling, which is exactly what the all-or-nothing
+// transition exists to prevent.
+
+vi.mock('../../../services/environmentGroupService', () => ({
+  environmentGroupService: {
+    groupAllowedTransitions: vi.fn(),
+    transitionGroup: vi.fn(),
+  },
+}));
+
+// Mocked purely so a mutation that reads a single member's allowed
+// transitions (instead of the group endpoint) is unmissable: this mock
+// returns a deliberately different, distinctively-labelled transition, and
+// the tests assert both that its label never renders and that the mock is
+// never called.
+vi.mock('../../../services/bookingService', () => ({
+  bookingService: {
+    getAllowedTransitions: vi.fn().mockResolvedValue([
+      { from_state: 'submitted', to_state: 'approved', label: 'MEMBER-ONLY BUTTON' },
+    ]),
+  },
+}));
+
+import { environmentGroupService } from '../../../services/environmentGroupService';
+import { bookingService } from '../../../services/bookingService';
+
+// Deliberately distinct ids/names from every other fixture used elsewhere in
+// the frontend test suite (bookingFormGroups.test.tsx uses env ids 501,
+// group ids 601/602) so a wrong-data-source bug cannot pass by numeric or
+// textual coincidence.
+const REQUEST_ID = 7301;
+const GROUP_ID = 7401;
+const GROUP_NAME = 'Checkout Squad';
+
+const MEMBER_A: EnvBookingSummary = {
+  id: 7501,
+  environment_id: 7601,
+  environment_name: 'Checkout API',
+  project_name: 'Regression sweep',
+  start_date: '2026-08-10T09:00:00Z',
+  end_date: '2026-08-11T09:00:00Z',
+  status: 'submitted',
+  environment_group_id: GROUP_ID,
+  environment_group_name: GROUP_NAME,
+};
+
+const MEMBER_B: EnvBookingSummary = {
+  id: 7502,
+  environment_id: 7602,
+  environment_name: 'Checkout DB',
+  project_name: 'Regression sweep',
+  start_date: '2026-08-10T09:00:00Z',
+  end_date: '2026-08-11T09:00:00Z',
+  status: 'submitted',
+  environment_group_id: GROUP_ID,
+  environment_group_name: GROUP_NAME,
+};
+
+const MEMBER_B_DRAFT: EnvBookingSummary = { ...MEMBER_B, status: 'draft' };
+
+const GROUP_TRANSITIONS = [{ from_state: 'submitted', to_state: 'approved', label: 'Approve Group' }];
+
+beforeEach(() => {
+  vi.mocked(environmentGroupService.groupAllowedTransitions).mockReset().mockResolvedValue(GROUP_TRANSITIONS);
+  vi.mocked(environmentGroupService.transitionGroup).mockReset();
+  vi.mocked(bookingService.getAllowedTransitions).mockClear();
+});
+
+describe('GroupTransitionPanel', () => {
+  it("renders a group's members together under the group's name, each with its environment and current state", async () => {
+    render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    expect(await screen.findByText(`Group: ${GROUP_NAME}`)).toBeInTheDocument();
+    expect(screen.getByText('Checkout API')).toBeInTheDocument();
+    expect(screen.getByText('Checkout DB')).toBeInTheDocument();
+    expect(screen.getAllByText('submitted')).toHaveLength(2);
+  });
+
+  it("builds its transition buttons from the group endpoint, not any member's own allowed-transitions list", async () => {
+    render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    expect(await screen.findByRole('button', { name: 'Approve Group' })).toBeInTheDocument();
+    expect(environmentGroupService.groupAllowedTransitions).toHaveBeenCalledWith(
+      REQUEST_ID,
+      GROUP_ID
+    );
+
+    // A per-member fetch never happens, and its distinctive label never
+    // reaches the screen — reading `bookings[0]`'s own list would surface
+    // both.
+    expect(bookingService.getAllowedTransitions).not.toHaveBeenCalled();
+    expect(screen.queryByText('MEMBER-ONLY BUTTON')).not.toBeInTheDocument();
+  });
+
+  it('says members are out of step and names the environments, when their states differ', async () => {
+    render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B_DRAFT]}
+      />
+    );
+
+    const notice = await screen.findByText(/out of step/);
+    expect(notice.textContent).toContain('Checkout API (submitted)');
+    expect(notice.textContent).toContain('Checkout DB (draft)');
+  });
+
+  it('says nothing about being out of step when every member shares one state', async () => {
+    render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    await screen.findByText(`Group: ${GROUP_NAME}`);
+    expect(screen.queryByText(/out of step/)).not.toBeInTheDocument();
+  });
+
+  it("renders the server's refusal message naming every failing member — AxiosError shape, no generic status text", async () => {
+    // Shaped like a real AxiosError: `.message` is the generic HTTP-status
+    // text a plain-Error-carrying-the-final-text fixture would let through
+    // even if the component read the raw caught error instead of running it
+    // through formatApiError.
+    vi.mocked(environmentGroupService.transitionGroup).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 400',
+      response: {
+        status: 400,
+        data: {
+          detail:
+            "The group cannot move to 'approved' because its members are not all able to: " +
+            "Checkout API (in 'submitted'): ok; Checkout DB (in 'draft'): not allowed from 'draft'",
+        },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Approve Group' }));
+
+    const alert = await screen.findByText(/Checkout DB \(in 'draft'\)/);
+    expect(alert.textContent).toContain('Checkout API');
+    expect(alert.textContent).toContain('Checkout DB');
+    expect(alert.textContent).not.toContain('Request failed with status code');
+  });
+
+  it('renders a load error instead of an eternal skeleton when the group allowed-transitions fetch fails', async () => {
+    vi.mocked(environmentGroupService.groupAllowedTransitions).mockReset().mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 404',
+      response: { status: 404, data: { detail: 'Group not found' } },
+    });
+
+    render(
+      <GroupTransitionPanel
+        requestId={REQUEST_ID}
+        groupId={GROUP_ID}
+        groupName={GROUP_NAME}
+        bookings={[MEMBER_A, MEMBER_B]}
+      />
+    );
+
+    expect(await screen.findByText('Group not found')).toBeInTheDocument();
+    // Members still render even though the transition-set fetch failed.
+    expect(screen.getByText('Checkout API')).toBeInTheDocument();
+  });
+});
