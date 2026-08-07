@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user
-from app.services import booking_request_service, environment_group_service, project_service
+from app.services import booking_service, booking_request_service, environment_group_service, project_service
+from app.api.v1.bookings import _to_response as _booking_to_response
+from app.api.v1.schemas.booking import (
+    BookingResponse, BookingTransitionRequest, AllowedTransitionResponse,
+)
 from app.api.v1.schemas.booking_request import (
     BookingRequestCreate, BookingRequestCreateResponse, BookingRequestResponse,
     BookingRequestUpdate, BookingRequestCustomFieldsUpdate,
@@ -246,4 +250,55 @@ async def remove_environment_from_request(
     await booking_request_service.remove_environment(
         db, request_id=request_id, booking_id=booking_id,
         current_user=current_user, tenant_id=current_user.active_tenant_id,
+    )
+
+
+@router.post(
+    "/{request_id}/groups/{group_id}/transition",
+    response_model=list[BookingResponse],
+)
+async def transition_group_bookings(
+    request_id: int,
+    group_id: int,
+    data: BookingTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """Move every member of this group booking, or none of them.
+
+    `POST /bookings/{id}/transition` keeps its exact current meaning and
+    stays available for a group member — it is the only repair tool when
+    members diverge.
+    """
+    bookings = await booking_service.transition_group(
+        db, request_id, group_id, data.to_state, current_user, data.notes
+    )
+    names = await project_service.get_project_names(
+        db, {b.booking_request.project_id for b in bookings}, current_user.active_tenant_id
+    )
+    group_names = await environment_group_service.get_group_names(
+        db, {b.environment_group_id for b in bookings}, current_user.active_tenant_id
+    )
+    return [
+        _booking_to_response(
+            b, names.get(b.booking_request.project_id), group_names.get(b.environment_group_id)
+        )
+        for b in bookings
+    ]
+
+
+@router.get(
+    "/{request_id}/groups/{group_id}/allowed-transitions",
+    response_model=list[AllowedTransitionResponse],
+)
+async def get_group_allowed_transitions_route(
+    request_id: int,
+    group_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """The INTERSECTION of what every member allows — the endpoint the
+    group's UI buttons come from."""
+    return await booking_service.get_group_allowed_transitions(
+        db, request_id, group_id, current_user
     )
