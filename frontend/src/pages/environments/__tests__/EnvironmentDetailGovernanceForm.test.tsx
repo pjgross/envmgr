@@ -118,6 +118,16 @@ vi.mock('../../../services/api', () => ({
   default: { get: vi.fn().mockResolvedValue({ data: [{ id: 7, username: 'alice' }] }) },
 }));
 
+// Task 8's EnvironmentProjectsPanel is now mounted unconditionally below
+// Handover and calls this on every render — unmocked, the real (jsdom, no
+// server) HTTP call fails and renders its own error Alert, which broke this
+// file's `queryByRole('alert')` absence checks.
+vi.mock('../../../services/projectService', () => ({
+  projectService: {
+    listAgreementsForEnvironment: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
+  },
+}));
+
 import { environmentService } from '../../../services/environmentService';
 
 function renderDetail(envId: number) {

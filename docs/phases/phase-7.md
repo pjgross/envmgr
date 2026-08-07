@@ -1,21 +1,33 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1, B3a and B3b shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
+> Status: 🟡 **In progress** — sub-projects B1, B3a, B3b and A1 shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
 
 ## A — Multi-Project Coordination
 
-- [ ] **A1** `Project` entity + members; promote the free-text
-      `BookingRequest.project_name` to an FK (the concept also leaks as
-      `ReleaseChange.project_code`/`project_name`, `release_kind="project"` and
-      `release_membership.project_release_id`)
+- [x] **A1** `Project` entity + team, `booking_request.project_id` and
+      `release.owning_project_id` beside the existing free-text fields (not
+      replacing them — `booking_request.project_name` stays and is relabelled
+      "Purpose"), and the `usage_agreement` table, recorded but not enforced.
+      A1's real surface is **one** existing field, not the four this line used
+      to claim: `ReleaseChange.project_code`/`project_name` are **external**
+      identifiers owned by Phase 3 Sub-3 (Jira, deferred), `release_kind =
+      "project"` is a type discriminator ("project" as opposed to
+      "enterprise"), and `release_membership.project_release_id` uses
+      "project" as an adjective for a non-enterprise child release — none of
+      the three is a reference to a project at all. See the spec's table.
+      [Spec](../superpowers/specs/2026-08-06-project-entity-design.md)
 - [ ] **A2** `EnvironmentGroup` + booking a group as one unit — gives
       `Booking.environment_group_id` the FK it has lacked since the March
       booking migration
-- [ ] **A3** `UsageAgreement` (project A may use environment E in window W),
-      checked by `BookingService`
+- [ ] **A3** Enforcement of the `usage_agreement` table A1 ships (project A may
+      use environment E in window W) — `BookingService` checking agreements,
+      plus the cooperation rules of [requirements.md
+      §2.12](../requirements.md). A1 deliberately ships the schema whole,
+      including its window, so A3 owns only the check and the rules, never the
+      table.
 - [ ] **A4** Project-aware contention: priority-ordered resolution and
       escalation with a named owner + response window
 
@@ -43,6 +55,55 @@ A1 gates A3 and A4.
 - [ ] **B6** Forward contention as a calendar leading indicator
 
 B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
+
+## What A1 established
+
+- **`project_name` stays, relabelled "Purpose"; it is not migrated or replaced.**
+  `BookingRequest.project_name` is required free text, referenced in 67 places
+  across the backend and 60 across the frontend, and in practice holds a
+  booking label, not a project name — the dev tenant's own values include
+  `test`, `Reserved check` and `booking 1`. Promoting it to an FK would either
+  manufacture junk projects every tenant inherits permanently, or silently
+  rewrite user-entered data. `project_id` arrives beside it instead, nullable,
+  and the relabel is copy only — the API field name is unchanged.
+- **`release.owning_project_id`, not `project_id`.** `release_kind="project"`
+  already means something else on that row ("not an enterprise release"); two
+  things called *project* on one row is how a future reader gets it wrong.
+- **One environment, many projects, deliberately not a single owning FK.**
+  Shared estates are the normal case, and §2.12 frames usage agreements as how
+  projects "cooperate in a shared environment" — a one-to-many FK would have
+  had to be unpicked by A3.
+- **A1 ships the usage-agreement table complete, with its window, rather than
+  a plain junction A3 would migrate later.** Building it whole cost nothing
+  and left A3 as what it actually is: the check and the cooperation rules, not
+  the schema.
+- **No enforcement.** `BookingService` is untouched — a project may still book
+  an environment it has no agreement for, nothing warns and nothing rejects.
+  That is A3, with its own rules, deliberately kept out of the sub-project
+  that introduces the schema — the same call B3a made with group membership.
+- **Members come from `team_group_id` → the existing `UserGroup`, not a new
+  `project_member` table.** `UserGroup` was deliberately generic, not called
+  `OperationsTeam`, precisely so A1 could reuse it rather than build a second
+  membership model — and membership still grants no permissions; every
+  authorization rule stays role-based.
+- **Deleting a project is always allowed**, unlike `delete_group`, which 409s
+  while any environment references it. A group operates a handful of
+  environments; a project accumulates every booking and release it ever had,
+  so a reference check would make every project permanently undeletable the
+  moment someone booked against it. It soft-deletes; existing references keep
+  rendering the name, marked archived; `is_active = false` is what removes it
+  from pickers going forward.
+- **The project filter's "no selection" state is spelled `any`, never `all`.**
+  `buildParams` drops a filter valued `all` as "no selection", so a literal
+  `all` project filter would build byte-identical params to no filter at all
+  and the grid would never refetch — the same hazard `ScopeWindowsTable`
+  already had to dodge.
+- **The environment-direction read (`GET /environments/{id}/usage-agreements`)
+  shipped alongside the project-direction one from the start**, not added
+  later as a client-side filter over a capped list. `EnvironmentProjectsPanel`
+  on the environment detail page and `ProjectDetail`'s own agreements table
+  both read live rows with the project/environment name already on them —
+  neither resolves an id against a separately-fetched, capped collection.
 
 ## What B1 established
 

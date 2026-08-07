@@ -236,6 +236,48 @@ A *User Group* organises users into a team that an environment can name as its o
 
 Nothing else changes: a group is still not a scope for booking, change requests, or any other write in the app.
 
+### Projects
+
+A *Project* is the multi-project-coordination unit introduced in Phase 7 sub-project A1: a named
+initiative with an optional team, linked from bookings (as an optional *Project* field, distinct
+from the existing free-text *Purpose*) and from releases (as an optional *Owning project*), and
+recorded — never enforced — against the environments it uses. Manage them at `/tenant/projects`.
+
+- **Reading the list and a project's detail is open to any tenant member** — every booking and
+  release form needs the picker, and everyone needs to be able to see which project a booking or
+  release belongs to. Creating, editing or deleting a project, and adding or removing a usage
+  agreement, are Admin-only; a non-admin sees the same list and detail pages with the write
+  controls hidden.
+- The list shows *Name*, *Code*, *Team*, *Environments* and *Status* — *Team* and *Environments*
+  are read from the row the API returned, not resolved against a separately-fetched collection,
+  and *Environments* is a live count of that project's usage agreements. Click a project's
+  *Environments* count to jump to `/environments` filtered to that project.
+- **What a team buys a project.** The *Team* field points at an existing `UserGroup` — the same
+  primitive an environment names as its operations group (see above) — rather than a second,
+  project-specific membership model. Exactly as with an operations group, **membership grants no
+  permission**: every authorization rule in the app stays role-based. A project's team exists so
+  the app can answer "who is on this project", nothing more; it does not scope who can book
+  against the project or edit it. Only Admins can change a project's team, the same as every
+  other write on this screen.
+- **Deleting a project is always allowed**, unlike deleting a User Group. A group operates a
+  handful of environments and 409s while any of them still names it; a project can accumulate
+  every booking and release it was ever linked to, so the same check would make every project
+  permanently undeletable the moment someone booked against it. Deleting soft-deletes it instead:
+  existing bookings and releases keep rendering its name, marked *Archived*, and it simply drops
+  out of the *Project*/*Owning project* pickers for new selections. Use *Status* → *Archived*
+  (`is_active = false`) for the common case of retiring a project without losing its records.
+
+**Usage agreements are a record, not a rule.** From a project's detail page an Admin can add a
+*usage agreement* — this project may use environment E, optionally within a window (*Starts*/
+*Ends*), with a note — and the same agreements appear read-only on that environment's own detail
+page, under *Projects using this environment*. **Nothing in this release enforces them.** A
+project may still be booked against an environment it has no usage agreement for; nothing warns
+and nothing refuses it. Usage agreements exist today so the estate's intended usage is written
+down somewhere queryable — enforcement, if the product ever adds it, is separate, later work.
+Overlapping windows for the same project/environment pair are allowed (two periods of intended
+use aren't a contradiction); only an exact duplicate — same project, same environment, same
+window — is refused.
+
 ### Password resets
 
 > **Not yet available:** there is no tenant-admin password-reset flow on `/tenant/users`. If a user has lost their password, ask your Master Admin to call `POST /api/v1/admin/tenants/{tenant_id}/users/{user_id}/reset-password` with a fresh `new_password`, then share the new value out of band.

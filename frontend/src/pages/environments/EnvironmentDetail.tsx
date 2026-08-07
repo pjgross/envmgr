@@ -61,6 +61,7 @@ import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
 import HandoverSection from '../../components/environments/HandoverSection';
+import EnvironmentProjectsPanel from '../../components/environments/EnvironmentProjectsPanel';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import EnvironmentSchedule from './EnvironmentSchedule';
 import EnvironmentDeploymentsTab from './EnvironmentDeploymentsTab';
@@ -946,6 +947,14 @@ export default function EnvironmentDetail() {
               the operating team as well as Admins (Governance above is
               Admin-only). See HandoverSection's own docstring. */}
           {!editMode && currentEnvironment && <HandoverSection environment={currentEnvironment} />}
+
+          {/* Projects using this environment — below Handover, per the task-8
+              brief. Reads directly, not gated on editMode: this is A1's
+              environment-direction usage-agreement view, unrelated to the
+              Overview edit form above it. */}
+          {!editMode && currentEnvironment && (
+            <EnvironmentProjectsPanel environmentId={envId} />
+          )}
 
           {/* Verify Environment Panel */}
           {!editMode && (
