@@ -128,6 +128,14 @@ vi.mock('../../../services/projectService', () => ({
   },
 }));
 
+// Task 10's EnvironmentGroupsPanel ("Member of") is mounted the same way,
+// right below EnvironmentProjectsPanel — same reasoning, same fix.
+vi.mock('../../../services/environmentGroupService', () => ({
+  environmentGroupService: {
+    listGroupsForEnvironment: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
+  },
+}));
+
 import { environmentService } from '../../../services/environmentService';
 
 function renderDetail(envId: number) {

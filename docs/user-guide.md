@@ -263,6 +263,22 @@ Tenant Admins can replace this template — see admin guide ch. 8 — so transit
 
 The booking is saved in *draft* — the dialog flags this with an info banner: *"Booking will be saved as Draft. Submit when ready for approval."* Conflict detection runs as you type (debounced); shared overlaps warn but allow creation, exclusive overlaps raise a 409 and force you to pick a new window.
 
+### Booking a group of environments
+
+If your tenant has set up *Environment Groups* (admin guide ch. 6 — a named set of environments an Admin maintains, e.g. everything one squad tests against), the *New Booking Request* dialog has a second, optional picker below *Environments*: **Environment groups (optional)**. Pick one or more groups here in addition to, or instead of, hand-picking environments in the field above.
+
+Booking a group is **not** shorthand for hand-picking its current members yourself — the difference matters after creation, not just at booking time:
+
+- The server expands the group to **whichever environments are actually in it at the moment you submit the request**, not a snapshot the browser happened to have loaded.
+- Every booking created from that group's expansion is **approved or rejected together, as one unit** — you cannot approve one member of a group booking without the others. Any environment you hand-picked separately on the *same* request is **not** part of that unit: it transitions on its own, independently of whichever groups are also on the request.
+- On the booking detail page, a group's member bookings render together under a single **Group: *name*** panel with one set of transition buttons, driven by whichever move is valid for *every* member at once. Hand-picked environments on the same request render as their own separate rows outside any group panel, each with its own controls.
+
+**If a group member has been transitioned on its own** — the per-booking transition control on an individual environment row always stays available, even for a group member, because a single environment can legitimately need repair out of step with its group (it went down, or was approved early) — the group's transition button will **refuse and name the out-of-step environment** rather than silently moving only the rest. The group detail panel calls this out with its own warning banner before you even try. Fix the named environment back to the rest of the group's state first; the group transition then succeeds.
+
+**Two groups cannot share a member on the same request.** If you pick two groups whose environments overlap (or a group and a hand-picked environment that overlaps a group), the request is refused and the message names every group involved — fix the overlap by dropping one of the conflicting selections.
+
+**Changing a group's membership after the fact never touches a booking already made through it.** If an Admin adds or removes an environment from the group later, every booking already created from that group keeps exactly the environments it was created with — see admin guide ch. 6 §Environment Groups.
+
 ### Conflict detection
 
 Conflicts surface live in the new-booking dialog as you set the dates, and on the booking detail in the *Conflicts* panel after creation. A conflict is any other non-rejected booking on the **same environment** whose window overlaps yours. If either side requested exclusive use, the conflict is **blocking** (creation fails with HTTP 409). If both sides are shared, the conflict is a **warning** — the booking is created and gets an unacknowledged-conflicts indicator until the booker (or a delegate) acknowledges it. On a blocking conflict, pick a different window, drop the exclusive flag if shared use will do, or ask the existing booker to release their slot.

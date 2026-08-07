@@ -62,6 +62,7 @@ import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
 import HandoverSection from '../../components/environments/HandoverSection';
 import EnvironmentProjectsPanel from '../../components/environments/EnvironmentProjectsPanel';
+import EnvironmentGroupsPanel from '../../components/environments/EnvironmentGroupsPanel';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
 import EnvironmentSchedule from './EnvironmentSchedule';
 import EnvironmentDeploymentsTab from './EnvironmentDeploymentsTab';
@@ -954,6 +955,14 @@ export default function EnvironmentDetail() {
               Overview edit form above it. */}
           {!editMode && currentEnvironment && (
             <EnvironmentProjectsPanel environmentId={envId} />
+          )}
+
+          {/* Groups this environment belongs to — GET /environments/{id}/groups.
+              A2's atomic-group-booking feature books every member of a group
+              together; without this line there is no way, from the
+              environment side, to discover why it got booked. */}
+          {!editMode && currentEnvironment && (
+            <EnvironmentGroupsPanel environmentId={envId} />
           )}
 
           {/* Verify Environment Panel */}
