@@ -348,7 +348,7 @@ export default function BookingDetail() {
           {!bookingRequest && (
             <>
               <Typography variant="body2" color="text.secondary">
-                Project Name
+                Purpose
               </Typography>
               <Typography variant="body2">{booking.project_name}</Typography>
 

@@ -17,6 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
+import { useAllProjects } from '../../hooks/useAllProjects';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import {
   fetchBookingTypes,
@@ -24,7 +25,6 @@ import {
   selectBookingTemplates,
 } from '../../store/bookingLifecycleSlice';
 import { fetchUsers } from '../../store/tenantAdminSlice';
-import { fetchProjects } from '../../store/projectSlice';
 import { bookingRequestService } from '../../services/bookingRequestService';
 import type { BookingRequestCreatePayload } from '../../types/bookingRequest';
 import type { UserResponse } from '../../types';
@@ -107,11 +107,14 @@ export default function BookingForm({
   const allUsers = useSelector((s: RootState) => s.tenantAdmin.users);
   const allUsersTotal = useSelector((s: RootState) => s.tenantAdmin.usersTotal);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
-  // Archived projects must not be offered here — this fetch always narrows to
-  // active ones, unlike ReleaseForm's edit mode, which has an existing value
-  // to preserve. This form is create-only, so there is never a stale
-  // already-selected project to keep visible.
-  const projects = useSelector((s: RootState) => s.project.projects);
+  // Archived projects must not be offered here — useAllProjects always
+  // narrows to active ones, unlike ReleaseForm's edit mode, which has an
+  // existing value to preserve. This form is create-only, so there is never
+  // a stale already-selected project to keep visible. Not the shared
+  // `project` slice: since BookingList renders this form's dialog
+  // unconditionally, reading `state.project.projects` here would race
+  // BookingList's own project-filter fetch over the same slice.
+  const { projects, truncated: projectsTruncated } = useAllProjects();
 
   const initialEnvIds = useMemo(() => {
     if (defaultEnvIds && defaultEnvIds.length > 0) return defaultEnvIds;
@@ -137,7 +140,6 @@ export default function BookingForm({
     dispatch(fetchBookingTypes());
     dispatch(fetchLifecycleTemplates('booking'));
     dispatch(fetchUsers());
-    dispatch(fetchProjects({ is_active: true }));
   }, [dispatch]);
 
   // Auto-select first active booking type once loaded
@@ -326,7 +328,17 @@ export default function BookingForm({
               value={projects.find((p) => p.id === field.value) ?? null}
               onChange={(_, next) => field.onChange(next ? next.id : null)}
               isOptionEqualToValue={(o, v) => o.id === v.id}
-              renderInput={(params) => <TextField {...params} label="Project (optional)" />}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Project (optional)"
+                  helperText={
+                    projectsTruncated
+                      ? `Only the first ${projects.length} projects are shown.`
+                      : undefined
+                  }
+                />
+              )}
             />
           )}
         />

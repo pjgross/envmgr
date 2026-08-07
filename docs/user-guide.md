@@ -251,7 +251,7 @@ Tenant Admins can replace this template — see admin guide ch. 8 — so transit
 1. Open `/bookings/calendar` and click *+ New Booking* in the top toolbar (or open `/bookings/list` and click *+ New Booking* in the top-right).
 2. Fill the *New Booking Request* dialog:
    - **Environments** — multi-select; pick one or several (Phase 2.5 multi-env).
-   - **Project Name** — required; this is the user-facing label that appears on the calendar.
+   - **Purpose** — required; this is the user-facing label that appears on the calendar.
    - **Booking Type** — required; picks the lifecycle template (defaults to *Standard Booking*).
    - **Start Date & Time** / **End Date & Time** — required.
    - **Context Tag** — *None / Deployment / Regression*. Auto-derived later if you link the booking to a release.
@@ -697,7 +697,7 @@ These recipes chain steps from earlier chapters — refer back to chapters 4–9
 1. Open `/bookings/calendar` and click *New Booking* in the top toolbar (or open `/bookings/list` and click *+ New Booking* in the top-right).
 2. Fill the *New Booking Request* dialog:
    - *Environments* — multi-select; pick UAT (add other envs if your test campaign needs them).
-   - *Project Name* — your project or test cycle name; this is what shows on the calendar.
+   - *Purpose* — your project or test cycle name; this is what shows on the calendar.
    - *Booking Type* — picks the lifecycle template; defaults to *Standard Booking*.
    - *Start Date & Time* / *End Date & Time* — your two-week window.
    - *Context Tag* — *None* / *Deployment* / *Regression*.

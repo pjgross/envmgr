@@ -57,7 +57,7 @@ interface StandardField {
 
 const STANDARD_FIELDS_BY_ENTITY: Partial<Record<EntityType, StandardField[]>> = {
   booking: [
-    { key: 'project_name', label: 'Project Name', mandatory: true },
+    { key: 'project_name', label: 'Purpose', mandatory: true },
     { key: 'start_date', label: 'Start Date', mandatory: true },
     { key: 'end_date', label: 'End Date', mandatory: true },
     { key: 'booking_type', label: 'Booking Type', mandatory: true },

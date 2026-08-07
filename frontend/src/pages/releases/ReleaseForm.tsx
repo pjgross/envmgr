@@ -30,7 +30,7 @@ import {
 } from '../../store/bookingLifecycleSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { createRelease, updateRelease, fetchRelease } from '../../store/releaseSlice';
-import { fetchProjects } from '../../store/projectSlice';
+import { useAllProjects } from '../../hooks/useAllProjects';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import LifecycleAwareFieldsPanel, {
   type FieldPermissionsMap,
@@ -95,7 +95,9 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
   const customFieldDefs = useSelector(
     (s: RootState) => s.customField.definitions['release'] ?? []
   );
-  const projects = useSelector((s: RootState) => s.project.projects);
+  // Not the shared `project` slice: ReleaseList's own Project filter reads
+  // it too, and would race this dialog's fetch over the same slice.
+  const { projects, truncated: projectsTruncated } = useAllProjects();
 
   const [kind, setKind] = useState<'project' | 'enterprise'>(
     (release?.release_kind as 'project' | 'enterprise') ?? 'project'
@@ -117,15 +119,16 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
     (release?.custom_fields ?? {}) as Record<string, unknown>
   );
 
-  // Fetch required metadata when the dialog opens
+  // Fetch required metadata when the dialog opens. Projects are not fetched
+  // here — useAllProjects above already narrows to active ones and fetches
+  // on mount, the same shape as ReleaseList's own Project filter; a release
+  // that already holds an archived project keeps it selectable via the
+  // archived-value MenuItem below, the same shape as EnvironmentDetail's
+  // Owner/Operations Group selects.
   useEffect(() => {
     if (open) {
       dispatch(fetchLifecycleTemplates('release'));
       dispatch(fetchDefinitions('release'));
-      // Archived projects must not be offered — a release that already holds
-      // one keeps it selectable via the archived-value MenuItem below, the
-      // same shape as EnvironmentDetail's Owner/Operations Group selects.
-      dispatch(fetchProjects({ is_active: true }));
     }
   }, [dispatch, open]);
 
@@ -354,7 +357,11 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
             onChange={(e) =>
               setOwningProjectId(e.target.value === '' ? null : Number(e.target.value))
             }
-            helperText="Optional — which project this release belongs to."
+            helperText={
+              projectsTruncated
+                ? `Only the first ${projects.length} projects are shown.`
+                : 'Optional — which project this release belongs to.'
+            }
           >
             <MenuItem value="">No project</MenuItem>
             {/* An archived project stays selectable only when it is the one
@@ -363,7 +370,7 @@ export default function ReleaseForm({ open, onClose, release }: ReleaseFormProps
                 as EnvironmentDetail's Owner/Operations Group selects. The
                 backend still returns owning_project_name for an archived
                 project, so the label is available even though
-                fetchProjects({ is_active: true }) no longer lists it. */}
+                useAllProjects (is_active: true) no longer lists it. */}
             {release &&
               release.owning_project_id != null &&
               owningProjectId === release.owning_project_id &&

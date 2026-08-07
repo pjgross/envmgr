@@ -30,7 +30,7 @@ BOOKING_SORTS = {
 }
 
 
-def _to_response(booking, project_name_link: str | None = None) -> BookingResponse:
+def _to_response(booking, project_name_link: str | None) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
 
     `project_name_link` is a batch-resolved name the caller must fetch via

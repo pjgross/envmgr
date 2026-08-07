@@ -88,7 +88,7 @@ export default function EditStandardFieldsDialog({
       <DialogTitle>Edit Standard Fields</DialogTitle>
       <DialogContent sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
-          label="Project Name"
+          label="Purpose"
           fullWidth
           size="small"
           value={values.project_name as string}

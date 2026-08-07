@@ -25,7 +25,7 @@ import { format } from 'date-fns';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
-import { fetchProjects } from '../../store/projectSlice';
+import { useAllProjects } from '../../hooks/useAllProjects';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { BookingResponse, BookingStatus } from '../../types/booking';
 import type { CustomFieldDefinition } from '../../types/customField';
@@ -264,8 +264,10 @@ export default function BookingList() {
   const user = useSelector((state: RootState) => state.auth.user);
   // Archived projects still render their name on a booking that references
   // them (see the project_name_link column above), but must not be offered
-  // as a filter choice — same reasoning as ReleaseList's identical selector.
-  const projects = useSelector((s: RootState) => s.project.projects);
+  // as a filter choice — same reasoning as ReleaseList's identical hook use.
+  // Not `state.project.projects`: that slice would be shared (and raced)
+  // with BookingForm's own dialog, which this page renders unconditionally.
+  const { projects, truncated: projectsTruncated } = useAllProjects();
 
   const grid = useServerGrid({
     endpoint: 'bookings',
@@ -293,10 +295,6 @@ export default function BookingList() {
 
   useEffect(() => {
     dispatch(fetchDefinitions('booking'));
-  }, [dispatch]);
-
-  useEffect(() => {
-    dispatch(fetchProjects({ is_active: true }));
   }, [dispatch]);
 
   // --- Kebab menu handlers ---
@@ -402,9 +400,32 @@ export default function BookingList() {
           value={grid.filters.project_id ?? 'any'}
           onChange={(e) => grid.setFilter('project_id', e.target.value)}
           sx={{ minWidth: 180 }}
-          disabled={projects.length === 0}
+          // Never disabled while a filter value is set — a stale or archived
+          // `project_id` from a bookmarked/shared link must stay visible and
+          // clearable, not vanish behind a disabled, blank select. Only
+          // disable for the genuinely-empty case: no projects to filter by
+          // and no filter currently applied.
+          disabled={projects.length === 0 && !grid.filters.project_id}
+          helperText={
+            projectsTruncated ? `Only the first ${projects.length} projects are shown.` : undefined
+          }
         >
           <MenuItem value="any">All projects</MenuItem>
+          {/* The filtered project may not be in the active list — archived
+              since the link was made, or every project archived/unfetchable
+              (an empty `projects`). Rendering nothing here would strand the
+              filter: the grid stays filtered to it (see apiProjectId), the
+              select shows blank, and — combined with the old `disabled`
+              condition above — was sometimes unclearable without hand-editing
+              the URL. Same carve-out shape as ReleaseForm's archived Owning
+              project MenuItem. */}
+          {grid.filters.project_id &&
+            grid.filters.project_id !== 'any' &&
+            !projects.some((p) => String(p.id) === grid.filters.project_id) && (
+              <MenuItem value={grid.filters.project_id}>
+                {`Project #${grid.filters.project_id} (unavailable)`}
+              </MenuItem>
+            )}
           {projects.map((p) => (
             <MenuItem key={p.id} value={String(p.id)}>{p.name}</MenuItem>
           ))}

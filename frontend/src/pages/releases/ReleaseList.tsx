@@ -20,12 +20,12 @@ import DataTable from '../../components/DataTable';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import { AppDispatch, RootState } from '../../store';
 import { fetchReleases, fetchBacklogChanges } from '../../store/releaseSlice';
-import { fetchProjects } from '../../store/projectSlice';
 import type { ReleaseListItemResponse } from '../../types/release';
 import type { ReleaseChangeResponse } from '../../types/releaseChange';
 import ReleaseForm from './ReleaseForm';
 import MoveScopeItemDialog from '../../components/releases/MoveScopeItemDialog';
 import { useAllSystems } from '../../hooks/useAllSystems';
+import { useAllProjects } from '../../hooks/useAllProjects';
 import { releaseColumns } from './releaseColumns';
 
 const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
@@ -64,10 +64,15 @@ export default function ReleaseList() {
   const { systems, truncated: systemsTruncated } = useAllSystems();
   // Archived projects still render their name on a release that references
   // them (see releaseColumns' owning_project_name column), but must not be
-  // offered as a filter choice — there can never be a release currently
-  // showing as filtered-on-an-archived-project the way ReleaseForm's edit
-  // mode has an existing value to preserve.
-  const projects = useSelector((s: RootState) => s.project.projects);
+  // offered as a filter choice — same reasoning as ReleaseForm's active-only
+  // fetch, though this is a filter, not a value already held by a row, so
+  // there is no archived-value MenuItem to preserve here. A *stale* filter
+  // value (a bookmarked link, or a project archived after the link was
+  // shared) is a different, real case — see the Project TextField below,
+  // which keeps such a value visible and clearable rather than assuming it
+  // can never happen. Not `state.project.projects`: that slice would be
+  // shared (and raced) with ReleaseForm's own dialog.
+  const { projects, truncated: projectsTruncated } = useAllProjects();
   const [formOpen, setFormOpen] = useState(false);
 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -81,10 +86,6 @@ export default function ReleaseList() {
     onFetch: (params) =>
       dispatch(fetchReleases({ ...params, project_id: apiProjectId(params.project_id) })),
   });
-
-  useEffect(() => {
-    dispatch(fetchProjects({ is_active: true }));
-  }, [dispatch]);
 
   useEffect(() => {
     if (tab === 1) {
@@ -234,9 +235,35 @@ export default function ReleaseList() {
               value={grid.filters.project_id ?? 'any'}
               onChange={(e) => grid.setFilter('project_id', e.target.value)}
               sx={{ minWidth: 180 }}
-              disabled={projects.length === 0}
+              // Never disabled while a filter value is set — a stale or
+              // archived `project_id` from a bookmarked/shared link must stay
+              // visible and clearable, not vanish behind a disabled, blank
+              // select. Only disable for the genuinely-empty case: no
+              // projects to filter by and no filter currently applied.
+              disabled={projects.length === 0 && !grid.filters.project_id}
+              helperText={
+                projectsTruncated
+                  ? `Only the first ${projects.length} projects are shown.`
+                  : undefined
+              }
             >
               <MenuItem value="any">All projects</MenuItem>
+              {/* The filtered project may not be in the active list —
+                  archived since the link was made, or every project
+                  archived/unfetchable (an empty `projects`). Rendering
+                  nothing here would strand the filter: the grid stays
+                  filtered to it (see apiProjectId), the select shows blank,
+                  and — combined with the old `disabled` condition above —
+                  was sometimes unclearable without hand-editing the URL.
+                  Same carve-out shape as ReleaseForm's archived Owning
+                  project MenuItem. */}
+              {grid.filters.project_id &&
+                grid.filters.project_id !== 'any' &&
+                !projects.some((p) => String(p.id) === grid.filters.project_id) && (
+                  <MenuItem value={grid.filters.project_id}>
+                    {`Project #${grid.filters.project_id} (unavailable)`}
+                  </MenuItem>
+                )}
               {projects.map((p) => (
                 <MenuItem key={p.id} value={String(p.id)}>{p.name}</MenuItem>
               ))}

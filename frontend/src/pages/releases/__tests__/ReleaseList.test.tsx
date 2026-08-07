@@ -30,6 +30,7 @@ vi.mock('../../../services/projectService', () => ({
 }));
 
 import { releaseService } from '../../../services/releaseService';
+import { projectService } from '../../../services/projectService';
 
 function renderPage(initialEntry = '/releases') {
   return render(
@@ -162,6 +163,55 @@ describe('ReleaseList status filter wiring', () => {
     await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
     const params = vi.mocked(releaseService.list).mock.calls[0][0] as Record<string, unknown>;
     expect(params.project_id).toBeUndefined();
+  });
+
+  // Finding 4: fetching every project rather than only active ones would
+  // offer archived projects as filter choices. Nothing else in this suite
+  // inspects the call params, so dropping `is_active: true` here previously
+  // left every test green.
+  it('fetches only active projects for the Project filter (drops is_active: true otherwise)', async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(projectService.listProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ is_active: true })
+      )
+    );
+  });
+
+  // Finding 2: a bookmarked/shared link, or a colleague's project archived
+  // out from under an open tab, leaves `project_id` in the URL pointing at a
+  // project no longer in the active list. The grid stays filtered to it (see
+  // apiProjectId below) but the old code rendered no matching MenuItem, so
+  // the select showed blank — and, combined with `disabled={projects.length
+  // === 0}`, was sometimes impossible to clear without hand-editing the URL.
+  // The comment this replaced asserted that could never happen; it was wrong.
+  it('keeps a project_id filter not in the active list visible and clearable', async () => {
+    renderPage('/releases?project_id=9');
+    await waitFor(() => expect(releaseService.list).toHaveBeenCalled());
+
+    const combobox = await screen.findByRole('combobox', { name: 'Project' });
+    expect(combobox).toHaveTextContent('Project #9 (unavailable)');
+    expect(combobox).not.toHaveAttribute('aria-disabled', 'true');
+
+    await userEvent.click(combobox);
+    await userEvent.click(await screen.findByRole('option', { name: 'All projects' }));
+
+    await waitFor(() => {
+      const calls = vi.mocked(releaseService.list).mock.calls;
+      const params = calls[calls.length - 1]?.[0] as Record<string, unknown>;
+      expect(params.project_id).toBeUndefined();
+    });
+  });
+
+  it('does not disable the Project select when the active list is empty but a filter is set', async () => {
+    // Every project archived, or the picker fetch failed — either way
+    // `projects` comes back empty while the URL still names one.
+    vi.mocked(projectService.listProjects).mockResolvedValueOnce({ rows: [], total: 0 });
+    renderPage('/releases?project_id=9');
+    await waitFor(() => expect(projectService.listProjects).toHaveBeenCalled());
+
+    const combobox = await screen.findByRole('combobox', { name: 'Project' });
+    expect(combobox).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('spells the project filter\'s "no selection" state `any`, never `all` (buildParams sentinel collision)', async () => {

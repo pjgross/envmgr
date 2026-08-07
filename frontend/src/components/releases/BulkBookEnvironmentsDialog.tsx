@@ -160,7 +160,7 @@ export default function BulkBookEnvironmentsDialog({
             {bookingTypes.map((bt) => (<MenuItem key={bt.id} value={bt.id}>{bt.name}</MenuItem>))}
           </TextField>
 
-          <TextField label="Project Name" required fullWidth value={projectName}
+          <TextField label="Purpose" required fullWidth value={projectName}
             onChange={(e) => setProjectName(e.target.value)} />
 
           <TextField label="Start Date" type="date" required fullWidth InputLabelProps={{ shrink: true }}

@@ -23,7 +23,8 @@ vi.mock('../../../services/customFieldService', () => ({
   },
 }));
 
-// And the Project filter's own picker source — fetchProjects({ is_active: true }).
+// And the Project filter's own picker source — useAllProjects, which calls
+// projectService.listProjects({ is_active: true }).
 vi.mock('../../../services/projectService', () => ({
   projectService: {
     listProjects: vi
@@ -33,6 +34,7 @@ vi.mock('../../../services/projectService', () => ({
 }));
 
 import { bookingService } from '../../../services/bookingService';
+import { projectService } from '../../../services/projectService';
 import type { CustomFieldDefinition } from '../../../types/customField';
 
 function renderBookingList(url = '/bookings') {
@@ -125,6 +127,50 @@ describe('BookingList server-side grid', () => {
         expect.objectContaining({ project_id: 3, offset: 0 })
       )
     );
+  });
+
+  // Finding 4: fetching every project rather than only active ones would
+  // offer archived projects as filter choices. Nothing else in this suite
+  // inspects the call params, so dropping `is_active: true` here previously
+  // left every test green.
+  it('fetches only active projects for the Project filter (drops is_active: true otherwise)', async () => {
+    renderBookingList();
+    await waitFor(() =>
+      expect(projectService.listProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ is_active: true })
+      )
+    );
+  });
+
+  // Finding 2: a bookmarked/shared link, or a colleague's project archived
+  // out from under an open tab, leaves `project_id` in the URL pointing at a
+  // project no longer in the active list. The grid stays filtered to it (see
+  // apiProjectId below) but the old code rendered no matching MenuItem, so
+  // the select showed blank — and, combined with `disabled={projects.length
+  // === 0}`, was sometimes impossible to clear without hand-editing the URL.
+  it('keeps a project_id filter not in the active list visible and clearable', async () => {
+    renderBookingList('/bookings?project_id=9');
+    await waitFor(() => expect(lastListParams()).toBeDefined());
+
+    const combobox = await screen.findByRole('combobox', { name: 'Project' });
+    expect(combobox).toHaveTextContent('Project #9 (unavailable)');
+    expect(combobox).not.toHaveAttribute('aria-disabled', 'true');
+
+    await userEvent.click(combobox);
+    await userEvent.click(await screen.findByRole('option', { name: 'All projects' }));
+
+    await waitFor(() => expect(lastListParams()?.project_id).toBeUndefined());
+  });
+
+  it('does not disable the Project select when the active list is empty but a filter is set', async () => {
+    // Every project archived, or the picker fetch failed — either way
+    // `projects` comes back empty while the URL still names one.
+    vi.mocked(projectService.listProjects).mockResolvedValueOnce({ rows: [], total: 0 });
+    renderBookingList('/bookings?project_id=9');
+    await waitFor(() => expect(projectService.listProjects).toHaveBeenCalled());
+
+    const combobox = await screen.findByRole('combobox', { name: 'Project' });
+    expect(combobox).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('spells the project filter\'s "no selection" state `any`, never `all` (buildParams sentinel collision)', async () => {
