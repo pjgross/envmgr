@@ -315,6 +315,14 @@ async def _template_for_booking(db: AsyncSession, booking: Booking) -> Lifecycle
     its booking type. Raises the same 404s `transition_state` always has —
     extracted so the group path validates by EXACTLY this rule, not a second
     copy of it that could drift.
+
+    FAIL-CLOSED, deliberately: a missing booking type or template means
+    validate_transition has nothing to check a transition against, and
+    silently allowing (or silently refusing) a mutating request on missing
+    configuration data is worse than a 404. Contrast
+    `_template_for_booking_or_none` below, which fails open for read-only
+    permission rendering, where a 404 would break an unrelated page instead
+    of surfacing the real problem.
     """
     booking_type_id = booking.booking_request.booking_type_id
     result = await db.execute(
@@ -448,6 +456,10 @@ async def _group_bookings(
             Booking.tenant_id == tenant_id,
             Booking.deleted_at.is_(None),
             BookingRequest.tenant_id == tenant_id,
+            # Defence-in-depth, not a live guard: nothing in the codebase
+            # ever sets BookingRequest.deleted_at, so this clause is
+            # currently unreachable. Kept for the same reason every other
+            # tenant-scoped query here filters it — matches repo convention.
             BookingRequest.deleted_at.is_(None),
         )
         .order_by(Booking.id)
@@ -569,6 +581,9 @@ async def get_group_allowed_transitions(
         for t in allowed:
             by_state.setdefault(t["to_state"], t)
 
+    # Defence-in-depth, not a live guard: `_group_bookings` above raises 404
+    # on an empty result, so `bookings` — and therefore `per_member`, built
+    # by iterating it — is never empty here.
     if not per_member:
         return []
     common = set.intersection(*per_member)
@@ -626,10 +641,20 @@ async def delete_series(db: AsyncSession, booking_id: int, current_user) -> None
     await db.flush()
 
 
-async def _load_booking_template(
+async def _template_for_booking_or_none(
     db: AsyncSession, booking: "Booking"
 ) -> LifecycleTemplate | None:
-    """Resolve the lifecycle template for a booking via its booking_type."""
+    """Resolve the lifecycle template for a booking via its booking_type, or
+    None if either lookup misses.
+
+    FAIL-OPEN, deliberately, unlike `_template_for_booking` above: every
+    caller of this helper is rendering field permissions for display, not
+    validating a mutation, and a booking whose template went missing (a data
+    quality issue, not a request the caller controls) should still degrade
+    to "nothing editable" rather than 404 out of an unrelated read. Do not
+    point a validating call site at this helper — use `_template_for_booking`
+    for that, which raises instead.
+    """
     booking_type_id = booking.booking_request.booking_type_id
     bt = (
         await db.execute(
@@ -651,7 +676,7 @@ async def _booking_field_permissions(
     """Return {custom_field_permissions, standard_field_permissions} for a booking.
     Fail-closed: returns empty custom map + all-not-editable standard map if the
     booking type or template cannot be loaded."""
-    template = await _load_booking_template(db, booking)
+    template = await _template_for_booking_or_none(db, booking)
     if template is None:
         return {
             "custom_field_permissions": {},
@@ -730,25 +755,16 @@ async def update_standard_fields(
 
     booking = await get_booking(db, booking_id, current_user.active_tenant_id)
 
-    # Load template via booking type (from booking_request)
-    booking_type_id = booking.booking_request.booking_type_id
-    bt_result = await db.execute(
-        select(BookingTypeModel).where(BookingTypeModel.id == booking_type_id)
-    )
-    booking_type_obj = bt_result.scalar_one_or_none()
-
+    # Same fail-open lookup `_booking_field_permissions` uses: this is a
+    # permission check ahead of a write to two fields, not a transition, and
+    # a missing template must degrade to "nothing editable" (still fails
+    # closed on the ACTUAL permission below), not 404 the whole request.
+    template = await _template_for_booking_or_none(db, booking)
     editable_perm_keys: set[str] = set()
-    if booking_type_obj:
-        tmpl_result = await db.execute(
-            select(LifecycleTemplate).where(
-                LifecycleTemplate.id == booking_type_obj.lifecycle_template_id
-            )
+    if template:
+        editable_perm_keys = get_standard_field_permissions(
+            template.definition, booking.status, current_user.role
         )
-        template = tmpl_result.scalar_one_or_none()
-        if template:
-            editable_perm_keys = get_standard_field_permissions(
-                template.definition, booking.status, current_user.role
-            )
     # Fail-closed: if template not found, editable_perm_keys stays empty
 
     for col_name in values:

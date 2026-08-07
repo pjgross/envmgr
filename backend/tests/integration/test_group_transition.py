@@ -18,8 +18,10 @@ from sqlalchemy import select
 
 from app.core.security import get_password_hash
 from app.db.models.booking import Booking
-from app.db.models.booking_lifecycle import BookingStatusHistory
+from app.db.models.booking_lifecycle import BookingStatusHistory, BookingType
 from app.db.models.booking_request import BookingRequest
+from app.db.models.event_log import EventLog
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.user import User
 from app.services import environment_group_service
 from app.api.v1.schemas.environment_group import MemberCreate
@@ -112,6 +114,69 @@ async def _make_transitionable_booking_type(client, auth_headers) -> int:
     )
     assert bt.status_code == 201, bt.text
     return bt.json()["id"]
+
+
+# draft --(all roles)--> submitted, where 'submitted' requires project_name.
+REQUIRED_FIELDS_DEFINITION = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+        {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+    ],
+    "transitions": [
+        {
+            "from_state": "draft", "to_state": "submitted", "label": "Submit",
+            "allowed_roles": ["Admin", "Release Manager", "Developer"],
+        },
+    ],
+    "field_permissions": {
+        "draft": {"standard_fields": {}},
+        "submitted": {
+            "standard_fields": {},
+            "required_fields": ["project_name"],
+        },
+    },
+}
+
+
+async def _make_required_fields_booking_type(db_session, tenant_id: int) -> int:
+    """A booking type whose draft->submitted transition requires
+    `project_name` to be non-empty on the parent BookingRequest.
+
+    Built directly against the DB rather than through
+    `POST /tenant/lifecycle-templates`: `LifecycleFieldPermission` (the
+    schema behind that route) has no `required_fields` attribute, so
+    Pydantic silently drops the key on the way in — the route cannot carry
+    `required_fields` at all, only direct construction of the `definition`
+    JSON blob can (the same reason tests/test_lifecycle_required_fields.py
+    hand-builds its definitions). That is a pre-existing gap, not this
+    task's to fix; what matters here is that the transition below still
+    runs through the REAL endpoint (`POST /bookings/{id}/transition` /
+    the group equivalent), so `_record_values` is genuinely exercised.
+
+    Exists to prove `_record_values` (booking_service.py) is wired
+    correctly: it is the ONLY thing that turns `BookingRequest.project_name`
+    into the `record_values["project_name"]` key `validate_transition`
+    checks `required_fields` against. A renamed or dropped key there makes
+    every transition in the system — individual AND group — either wrongly
+    refuse (a present field reads as missing) or wrongly allow (a missing
+    field reads as present).
+    """
+    template = LifecycleTemplate(
+        tenant_id=tenant_id,
+        entity_type="booking",
+        name="Required Fields Template",
+        definition=REQUIRED_FIELDS_DEFINITION,
+    )
+    db_session.add(template)
+    await db_session.flush()
+    booking_type = BookingType(
+        tenant_id=tenant_id,
+        name="Required Fields Booking",
+        lifecycle_template_id=template.id,
+    )
+    db_session.add(booking_type)
+    await db_session.commit()
+    return booking_type.id
 
 
 async def _developer_headers(client, db_session, test_tenant) -> dict:
@@ -210,6 +275,26 @@ async def _db_history_count(db_session, booking_id) -> int:
     return len(rows)
 
 
+async def _events_for(db_session, booking_id: int) -> list[EventLog]:
+    rows = (await db_session.execute(
+        select(EventLog).where(
+            EventLog.event_type == "BookingStateTransitioned",
+            EventLog.aggregate_id == booking_id,
+        )
+    )).scalars().all()
+    return list(rows)
+
+
+async def _latest_history_note(db_session, booking_id: int) -> str | None:
+    rows = (await db_session.execute(
+        select(BookingStatusHistory)
+        .where(BookingStatusHistory.booking_id == booking_id)
+        .order_by(BookingStatusHistory.changed_at.desc(), BookingStatusHistory.id.desc())
+    )).scalars().all()
+    assert rows, f"no history rows for booking {booking_id}"
+    return rows[0].notes
+
+
 # ── All members move together ────────────────────────────────────────────────
 
 
@@ -234,6 +319,152 @@ async def test_all_members_move_together(client, auth_headers, db_session, test_
         # initial history row the way the legacy POST /bookings/ does — only
         # this transition itself.
         assert await _history_count(client, auth_headers, bid) == 1
+
+
+# ── Every member gets its own event, not a group-level one ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_group_transition_emits_one_event_per_member(
+    client, auth_headers, db_session, test_tenant,
+):
+    """The brief was explicit: per-booking events, not a group event. One
+    BookingStateTransitioned EventLog row per member, right tenant_id,
+    payload {from_state, to_state, changed_by} — mirrors
+    tests/integration/test_events.py's test_approve_booking_emits_event, but
+    for the group path and asserting the per-member fan-out that test has no
+    reason to cover."""
+    booking_type_id = await _make_transitionable_booking_type(client, auth_headers)
+    rid, group, envs, (a_id, b_id) = await _create_group_request(
+        client, auth_headers, db_session, test_tenant, booking_type_id, n=2, group_name="Events Per Member",
+    )
+
+    resp = await _group_transition(client, auth_headers, rid, group.id, "submitted")
+    assert resp.status_code == 200, resp.text
+
+    for bid in (a_id, b_id):
+        events = await _events_for(db_session, bid)
+        assert len(events) == 1, f"booking {bid} got {len(events)} events, want exactly 1"
+        evt = events[0]
+        assert evt.aggregate_type == "Booking"
+        assert evt.tenant_id == test_tenant.id
+        assert set(evt.payload.keys()) == {"from_state", "to_state", "changed_by"}
+        assert evt.payload["from_state"] == "draft"
+        assert evt.payload["to_state"] == "submitted"
+        assert isinstance(evt.payload["changed_by"], int)
+
+    # No group-level event under either booking's id and no third row under
+    # some other aggregate — total across both members is exactly two.
+    total = len(await _events_for(db_session, a_id)) + len(await _events_for(db_session, b_id))
+    assert total == 2
+
+
+# ── notes reach every member's history row ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_group_transition_notes_land_on_every_members_history_row(
+    client, auth_headers, db_session, test_tenant,
+):
+    """Every test helper elsewhere in this file passes notes=None, which
+    can't tell a wired `notes=notes` apart from a dropped one. Supply a real
+    note and check it reaches EVERY member's BookingStatusHistory row, not
+    just the response body."""
+    booking_type_id = await _make_transitionable_booking_type(client, auth_headers)
+    rid, group, envs, (a_id, b_id) = await _create_group_request(
+        client, auth_headers, db_session, test_tenant, booking_type_id, n=2, group_name="Notes Land",
+    )
+
+    resp = await _group_transition(
+        client, auth_headers, rid, group.id, "submitted", notes="Approved for the sprint window",
+    )
+    assert resp.status_code == 200, resp.text
+
+    for bid in (a_id, b_id):
+        assert await _latest_history_note(db_session, bid) == "Approved for the sprint window"
+
+
+# ── _record_values coverage: required_fields must reach a real transition ───
+
+
+@pytest.mark.asyncio
+async def test_individual_transition_succeeds_when_required_field_is_present(
+    client, auth_headers, db_session, test_tenant,
+):
+    """`_payload` always sets a non-empty project_name, so draft->submitted
+    must succeed against a template that requires it. Rename the
+    "project_name" key inside `_record_values` (booking_service.py) and this
+    flips to 400 — proving the helper's key names are load-bearing, not
+    just its shape."""
+    booking_type_id = await _make_required_fields_booking_type(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await db_session.commit()
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(booking_type_id, environment_ids=[env.id]),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    booking_id = created.json()["request"]["bookings"][0]["id"]
+
+    resp = await _individual_transition(client, auth_headers, booking_id, "submitted")
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_individual_transition_blocks_when_required_field_is_empty(
+    client, auth_headers, db_session, test_tenant,
+):
+    """The other half of the same guard: a genuinely empty project_name is
+    correctly refused, proving required_fields enforcement is live at all
+    through the endpoint (not just bypassed by an empty record_values)."""
+    booking_type_id = await _make_required_fields_booking_type(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await db_session.commit()
+    created = await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(booking_type_id, environment_ids=[env.id], project_name=""),
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    booking_id = created.json()["request"]["bookings"][0]["id"]
+
+    resp = await _individual_transition(client, auth_headers, booking_id, "submitted")
+    assert resp.status_code == 400, resp.text
+    assert "project_name" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_group_transition_succeeds_when_required_field_is_present(
+    client, auth_headers, db_session, test_tenant,
+):
+    """The group path's mirror of
+    test_individual_transition_succeeds_when_required_field_is_present —
+    `transition_group` reads the identical `_record_values` helper, so this
+    is the discriminator for the group call site specifically."""
+    booking_type_id = await _make_required_fields_booking_type(db_session, test_tenant.id)
+    rid, group, envs, booking_ids = await _create_group_request(
+        client, auth_headers, db_session, test_tenant, booking_type_id, n=2, group_name="Required Fields Group",
+    )
+
+    resp = await _group_transition(client, auth_headers, rid, group.id, "submitted")
+    assert resp.status_code == 200, resp.text
+    assert {b["status"] for b in resp.json()} == {"submitted"}
+
+
+@pytest.mark.asyncio
+async def test_group_transition_blocks_when_required_field_is_empty(
+    client, auth_headers, db_session, test_tenant,
+):
+    booking_type_id = await _make_required_fields_booking_type(db_session, test_tenant.id)
+    rid, group, envs, booking_ids = await _create_group_request(
+        client, auth_headers, db_session, test_tenant, booking_type_id, n=2,
+        group_name="Required Fields Group Blocked", extra_payload={"project_name": ""},
+    )
+
+    resp = await _group_transition(client, auth_headers, rid, group.id, "submitted")
+    assert resp.status_code == 400, resp.text
+    assert "project_name" in resp.json()["detail"]
 
 
 # ── A hand-picked booking on the same request does not move ─────────────────
@@ -671,22 +902,38 @@ async def test_the_same_group_booked_on_two_requests_only_the_targeted_request_m
     assert await _history_count(client, auth_headers, booking2_id) == 0
 
 
-# ── What happens next to a diverged group: can it get permanently stuck? ────
+# ── What happens next to a diverged group: mixed end state, not a stuck one ──
 
 
 @pytest.mark.asyncio
-async def test_a_group_split_across_two_terminal_states_is_permanently_stuck(
+async def test_a_diverged_group_ends_as_a_mixed_end_state_not_a_stuck_one(
     client, auth_headers, db_session, test_tenant,
 ):
-    """Not a bug this task fixes — a recorded finding. If two members reach
-    DIFFERENT terminal states (no outgoing transitions from either), the
-    group transition has no to_state valid for both (refuses everything),
-    allowed-transitions is correctly empty, and — because the individual
-    endpoint can't move a terminal state either — there is no repair path
-    back. The all-or-nothing design assumes divergence is always reachable
-    from BOTH sides; a template whose terminal states fork proves that
-    assumption false. Whether that is acceptable is a product question, not
-    this task's to answer — recorded so it isn't lost."""
+    """Not a defect — a recorded finding that was reviewed and adjudicated
+    as correct behaviour, not a bug to fix.
+
+    A group whose members end in DIFFERENT terminal states has no work left.
+    `rollup_status` reports `mixed` here exactly as it always has for a
+    hand-picked multi-environment request whose members end differently —
+    nobody calls that stuck.
+
+    Even the worse variant the review checked — members diverging into
+    NON-terminal branches that never reconverge — is not stuck either: each
+    member can still be individually driven to completion via
+    `POST /bookings/{id}/transition`. What is lost is the GROUP affordance
+    (no single to_state is valid for every member any more), not the
+    ability to finish the work — precisely the trade the design accepts in
+    exchange for keeping the individual endpoint open as the repair tool.
+
+    The general reason this can never produce an unreachable state:
+    `transition_group` validates each member with the identical
+    `validate_transition` call the individual path uses, against the same
+    template (both go through `_template_for_booking`/`_record_values` in
+    booking_service.py). Group reachability is a strict SUBSET of
+    individual reachability — the group endpoint can refuse to move a
+    booking the individual endpoint would accept, but it can never drive a
+    booking anywhere the individual endpoint could not — so it cannot create
+    a state nothing can leave."""
     booking_type_id = await _make_transitionable_booking_type(client, auth_headers)
     rid, group, envs, (a_id, b_id) = await _create_group_request(
         client, auth_headers, db_session, test_tenant, booking_type_id, n=2, group_name="Forked Terminal",
@@ -698,17 +945,20 @@ async def test_a_group_split_across_two_terminal_states_is_permanently_stuck(
     assert (await _individual_transition(client, auth_headers, b_id, "approved")).status_code == 200
     assert (await _individual_transition(client, auth_headers, b_id, "closed")).status_code == 200
 
-    # No group transition can succeed: rejected and closed both have zero
-    # outgoing transitions, so any to_state fails for at least one member.
-    stuck = await _group_transition(client, auth_headers, rid, group.id, "closed")
-    assert stuck.status_code == 400, stuck.text
+    # The group affordance is spent: no single to_state is valid for both
+    # rejected and closed (both have zero outgoing transitions).
+    spent = await _group_transition(client, auth_headers, rid, group.id, "closed")
+    assert spent.status_code == 400, spent.text
 
     allowed = await _group_allowed_transitions(client, auth_headers, rid, group.id)
     assert allowed.status_code == 200, allowed.text
     assert allowed.json() == []
 
-    # And neither member can be moved individually either — no repair path.
-    a_stuck = await _individual_transition(client, auth_headers, a_id, "closed")
-    assert a_stuck.status_code == 400, a_stuck.text
-    b_stuck = await _individual_transition(client, auth_headers, b_id, "rejected")
-    assert b_stuck.status_code == 400, b_stuck.text
+    # The bookings themselves are not stuck — 'rejected' and 'closed' are
+    # both correctly terminal states with no outgoing transitions at all,
+    # individually or otherwise. There is no repair path because there is
+    # nothing left to repair.
+    a_terminal = await _individual_transition(client, auth_headers, a_id, "closed")
+    assert a_terminal.status_code == 400, a_terminal.text
+    b_terminal = await _individual_transition(client, auth_headers, b_id, "rejected")
+    assert b_terminal.status_code == 400, b_terminal.text
