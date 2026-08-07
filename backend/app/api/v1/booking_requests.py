@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, Response, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user
-from app.services import booking_request_service
+from app.services import booking_request_service, project_service
 from app.api.v1.schemas.booking_request import (
     BookingRequestCreate, BookingRequestCreateResponse, BookingRequestResponse,
     BookingRequestUpdate, BookingRequestCustomFieldsUpdate,
@@ -47,9 +49,10 @@ def _rollup(children) -> str:
     return "mixed"
 
 
-def _to_response(req) -> BookingRequestResponse:
+def _to_response(req, project_name_link: str | None) -> BookingRequestResponse:
     return BookingRequestResponse(
         id=req.id, tenant_id=req.tenant_id, project_name=req.project_name,
+        project_id=req.project_id, project_name_link=project_name_link,
         booking_type_id=req.booking_type_id, start_date=req.start_date, end_date=req.end_date,
         notes=req.notes, context_tag=req.context_tag.value if hasattr(req.context_tag, "value") else req.context_tag,
         exclusive_use_requested=req.exclusive_use_requested, custom_fields=req.custom_fields,
@@ -69,8 +72,9 @@ async def create_booking_request(
         db, data=data.model_dump(), current_user=current_user, tenant_id=current_user.active_tenant_id,
     )
     await db.refresh(req, attribute_names=["bookings"])
+    names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
     return BookingRequestCreateResponse(
-        request=_to_response(req),
+        request=_to_response(req, names.get(req.project_id)),
         detected_conflicts={
             k: [EnvBookingSummary(
                     id=c.booking.id,
@@ -111,15 +115,19 @@ async def preview_conflicts(
 @router.get("", response_model=list[BookingRequestResponse])
 async def list_booking_requests(
     response: Response,
+    project_id: Optional[int] = Query(None),
     page: Page = Depends(pagination()),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
     rows, total = await booking_request_service.list_booking_requests(
-        db, current_user.active_tenant_id, page=page
+        db, current_user.active_tenant_id, page=page, project_id=project_id
     )
     set_total_count(response, total)
-    return [_to_response(r) for r in rows]
+    names = await project_service.get_project_names(
+        db, {r.project_id for r in rows}, current_user.active_tenant_id
+    )
+    return [_to_response(r, names.get(r.project_id)) for r in rows]
 
 
 @router.get("/{request_id}", response_model=BookingRequestResponse)
@@ -130,7 +138,8 @@ async def get_booking_request(
 ):
     req = await booking_request_service._get_request(db, request_id, current_user.active_tenant_id)
     await db.refresh(req, attribute_names=["bookings"])
-    return _to_response(req)
+    names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id))
 
 
 @router.patch("/{request_id}/standard-fields", response_model=BookingRequestResponse)
@@ -146,7 +155,8 @@ async def update_request_standard_fields(
         current_user=current_user, tenant_id=current_user.active_tenant_id,
     )
     await db.refresh(req, attribute_names=["bookings"])
-    return _to_response(req)
+    names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id))
 
 
 @router.patch("/{request_id}/custom-fields", response_model=BookingRequestResponse)
@@ -161,7 +171,8 @@ async def update_request_custom_fields(
         current_user=current_user, tenant_id=current_user.active_tenant_id,
     )
     await db.refresh(req, attribute_names=["bookings"])
-    return _to_response(req)
+    names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id))
 
 
 @router.post("/{request_id}/environments", response_model=EnvBookingSummary, status_code=status.HTTP_201_CREATED)

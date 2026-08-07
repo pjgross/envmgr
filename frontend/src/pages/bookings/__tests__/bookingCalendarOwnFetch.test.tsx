@@ -28,6 +28,7 @@ import scopeChangeRulesReducer from '../../../store/scopeChangeRulesSlice';
 import enterpriseMembershipReducer from '../../../store/enterpriseMembershipSlice';
 import raidReducer from '../../../store/raidSlice';
 import incidentReducer from '../../../store/incidentSlice';
+import projectReducer from '../../../store/projectSlice';
 import type { BookingResponse } from '../../../types/booking';
 import BookingCalendar from '../BookingCalendar';
 
@@ -37,6 +38,14 @@ vi.mock('../../../services/bookingService', () => ({
   bookingService: {
     listBookings: vi.fn(),
     getAllowedTransitions: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+// BookingCalendar renders BookingForm as its dialog child, which now sources
+// a Project picker from this slice/service — see BookingForm.tsx.
+vi.mock('../../../services/projectService', () => ({
+  projectService: {
+    listProjects: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
   },
 }));
 
@@ -106,6 +115,7 @@ function renderCalendarWithSliceBookings(sliceBookings: BookingResponse[]) {
       enterpriseMembership: enterpriseMembershipReducer,
       raid: raidReducer,
       incident: incidentReducer,
+      project: projectReducer,
     },
   });
 

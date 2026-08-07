@@ -203,7 +203,7 @@ Tenant-defined custom fields show up as additional columns in the System and Env
 
 ### Concept
 
-A booking reserves one or more environments for a time window. It records the project, booking type, notes, exclusive-use flag, optional delegates, and tenant custom fields. A single *booking request* can span **several environments at once** — useful when a test campaign needs an app environment plus a database — and each environment gets its own per-env *booking* row that travels through the lifecycle independently.
+A booking reserves one or more environments for a time window. It records a required free-text *Purpose*, an optional linked *Project*, booking type, notes, exclusive-use flag, optional delegates, and tenant custom fields. A single *booking request* can span **several environments at once** — useful when a test campaign needs an app environment plus a database — and each environment gets its own per-env *booking* row that travels through the lifecycle independently.
 
 ### Status lifecycle
 
@@ -244,14 +244,15 @@ Tenant Admins can replace this template — see admin guide ch. 8 — so transit
 ### Calendar vs list view
 
 - **Calendar** at `/bookings/calendar` — a FullCalendar grid showing every booking as a coloured block. Use *Filter by Environment* to narrow it down, click a block to open the side drawer with details and transition buttons, or click *+ New Booking* in the toolbar. Best for "when can I get UAT?" planning.
-- **List** at `/bookings/list` — DataGrid columns in source order: *Project*, *Environment*, *Booked By*, *Start*, *End*, *Type*, *Status*, *Conflicts*, and a kebab actions column. Status chips filter to *All / Draft / Submitted / Approved / Rejected / Ext. Requested / Closed*. Tenant custom fields appear as hideable columns. Best for filtering by team or status.
+- **List** at `/bookings/list` — DataGrid columns in source order: *Purpose*, *Project*, *Environment*, *Booked By*, *Start*, *End*, *Type*, *Status*, *Conflicts*, and a kebab actions column. *Purpose* and *Project* are two different values on the same row — *Purpose* is the free-text label you type when creating the booking (see below), *Project* is the optional linked `Project` picked from the tenant's Projects admin screen, and one can be filled in without the other. A *Project* filter narrows the list to one project's bookings. Status chips filter to *All / Draft / Submitted / Approved / Rejected / Ext. Requested / Closed*. Tenant custom fields appear as hideable columns. Best for filtering by team or status.
 
 ### Walkthrough: creating a booking
 
 1. Open `/bookings/calendar` and click *+ New Booking* in the top toolbar (or open `/bookings/list` and click *+ New Booking* in the top-right).
 2. Fill the *New Booking Request* dialog:
    - **Environments** — multi-select; pick one or several (Phase 2.5 multi-env).
-   - **Project Name** — required; this is the user-facing label that appears on the calendar.
+   - **Project (optional)** — the linked `Project` this booking is for, picked from a dropdown of active projects. Distinct from *Purpose* below: this is a real project record shared across bookings and releases, and it does not have to be filled in.
+   - **Purpose** — required; this is the free-text, user-facing label that appears on the calendar. Nothing links it to *Project* above — write whatever describes this booking, e.g. "Payments regression cycle 4".
    - **Booking Type** — required; picks the lifecycle template (defaults to *Standard Booking*).
    - **Start Date & Time** / **End Date & Time** — required.
    - **Context Tag** — *None / Deployment / Regression*. Auto-derived later if you link the booking to a release.
@@ -472,7 +473,7 @@ Tenant Admins can replace this template — see admin guide ch. 9 — so transit
 
 ### The three views
 
-- **List** at `/releases` — DataGrid columns in source order: *ID*, *Name*, *Type*, *Kind*, *Status*, *Target Date*, *Phases*, *Scope*, *Scope Changes*, *Blockers*, *Overdue*, *Created*. Filters: *Status*, *Type*, and a *Kind* toggle (*All / Projects / Enterprise*). A *Backlog* tab lists scope items not yet pulled into any release. Best for "what's in flight?"
+- **List** at `/releases` — DataGrid columns in source order: *ID*, *Name*, *Type*, *Kind*, *Project*, *Status*, *Target Date*, *Phases*, *Scope*, *Scope Changes*, *Blockers*, *Overdue*, *Created*. The *Project* column is the release's optional *Owning project* (see below) — not the *Kind* toggle, and not the per-scope-item *project code*/*project name* described under *Gates and scope*. Filters: *Status*, *Type*, a *Kind* toggle (*All / Projects / Enterprise*), and a *Project* filter narrowing to one project's releases. A *Backlog* tab lists scope items not yet pulled into any release. Best for "what's in flight?"
 - **Calendar** at `/releases/calendar` — FullCalendar month view of release phases, colour-coded by release status. Click a phase block to open the parent release.
 - **Timeline** at `/releases/timeline` — Gantt: rows are releases, bars are phases, orange diamonds mark *target_date*, status-coloured diamonds mark gate due dates. Best for "what's competing for the same window?"
 
@@ -480,9 +481,10 @@ Tenant Admins can replace this template — see admin guide ch. 9 — so transit
 
 1. From `/releases`, click *New Release* (top right).
 2. Fill the *New Release* dialog:
-   - **Kind** — *Project* or *Enterprise*. Project releases belong to a single team; enterprise releases roll up multiple project releases.
+   - **Kind** — *Project* or *Enterprise*. Project releases belong to a single team; enterprise releases roll up multiple project releases. This is a type discriminator, not a link to a `Project` record — see *Owning project* below for that.
    - **Type** — required; the dropdown lists every release lifecycle template defined for this tenant (e.g. *Major*, *Minor*, *Emergency*). Type determines the lifecycle. The tenant default is pre-selected.
    - **Name** — required.
+   - **Owning project (optional)** — the linked `Project` this release belongs to, picked from a dropdown of active projects. Distinct from *Kind* (a *Project* release can still have no *Owning project*) and from the per-scope-item *project code*/*project name* under *Gates and scope*, which describe an external tracker's project, not this tenant's `Project` entity.
    - **Description**, **Target Date**, and any **custom fields** the lifecycle exposes in *draft*.
 3. Click *Create Release*. You land on the new release's detail page.
 
@@ -697,7 +699,7 @@ These recipes chain steps from earlier chapters — refer back to chapters 4–9
 1. Open `/bookings/calendar` and click *New Booking* in the top toolbar (or open `/bookings/list` and click *+ New Booking* in the top-right).
 2. Fill the *New Booking Request* dialog:
    - *Environments* — multi-select; pick UAT (add other envs if your test campaign needs them).
-   - *Project Name* — your project or test cycle name; this is what shows on the calendar.
+   - *Purpose* — your project or test cycle name; this is what shows on the calendar.
    - *Booking Type* — picks the lifecycle template; defaults to *Standard Booking*.
    - *Start Date & Time* / *End Date & Time* — your two-week window.
    - *Context Tag* — *None* / *Deployment* / *Regression*.

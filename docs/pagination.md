@@ -1087,6 +1087,9 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 | `GET /tenant/groups` | `user_group_service.list_groups` — new with the B3a user-groups branch, not part of the 51/28/24 counts below, which predate it **‡** | 1000 |
 | `GET /tenant/groups/{group_id}/members` | `user_group_service.list_members`, row variant — same branch **‡** | 1000 |
 | `GET /environment-requests` | `environment_request_service.list_requests`, row variant — new with the B3b branch, likewise postdates the 51/28/24 counts **‡**; `X-Total-Count` set, ordered with an `EnvironmentRequest.id` tiebreaker | 1000 |
+| `GET /projects` | `project_service.list_projects` — new with the A1 project-entity branch, likewise postdates the 51/28/24 counts **¶** | 1000 |
+| `GET /projects/{id}/usage-agreements` | `project_service.list_agreements_for_project`, row variant — project direction, same branch **¶** | 1000 |
+| `GET /environments/{id}/usage-agreements` | `project_service.list_agreements_for_environment`, row variant — environment direction, same branch **¶**; the read behind `EnvironmentProjectsPanel` | 1000 |
 
 **†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
 not a bare array, so it was never part of the `list[...]` count above or below. `current` is at
@@ -1130,6 +1133,25 @@ branch, is the first of these post-C1 additions that **is** in the two-sided con
 `REQUEST_SORTS` and `frontend/src/constants/sortWhitelists.json`, and `test_sort_whitelist_contract.py`
 enforces the two agree. See *What sub-project C3 must honour* below for its own entry in the
 sortable-column contract table.
+
+**¶** `GET /projects` (`backend/app/api/v1/projects.py`), added by sub-project A1, has its own
+backend whitelist (`PROJECT_SORTS`: sortable `name`, `code`, `created_at`; default `name` asc)
+wired through `sorting()` the same way as the endpoints above. It is deliberately **absent**
+from the `WHITELISTS`/JSON contract pair, the same reason as `environment-tiers` and
+`tenant/groups`: `Projects.tsx` renders a **client-side** `DataGrid` (no `sortingMode="server"`),
+so nothing sorts this endpoint server-side yet — add it to both the JSON contract and
+`WHITELISTS` the day a grid actually paginates and sorts projects server-side.
+`ProjectResponse`'s other two fields, `team_group_name` and `environment_count`, are
+**permanently unsortable**, not a gap either this pass or a later one closes: `team_group_name`
+comes from an outer join to `user_group` — no joined column is sortable yet, the same category as
+`environment_name` on a booking, above — and `environment_count` is a correlated subquery over
+live usage agreements, the same shape as the twelve computed columns in point 2 of *What
+sub-project C3 must honour*. Neither is backed by a single column a `sort_by` could name.
+`projectColumns` marks both `sortable: false` for exactly this reason, asserted by
+`projects.test.tsx`'s "never makes the joined and computed columns sortable". `GET
+/projects/{id}/usage-agreements` and `GET /environments/{id}/usage-agreements` (the read behind
+`EnvironmentProjectsPanel`) take no `sort_by` at all — like `/tenant/groups/{group_id}/members`,
+they have no `sorting()` dependency and always return the same order.
 
 ## Not yet bounded
 
@@ -1178,6 +1200,24 @@ exactly one first-grep hit and one `set_total_count` call**, both `GET /environm
 this document tracks moved. As with the last two passes, the groups below have **not** been
 re-checked against either new count; treat both figures as of this paragraph's own date, not as a
 fresh audit of the sections that follow.
+
+**As of the A1 branch (2026-08-07), the first grep returns 59 and `set_total_count(response`
+returns 43.** Unlike the last two passes, the "55"/"40" recorded immediately above was **not**
+stale going in: checked against `main` at this branch's merge-base (`dadc5fd7`), the counts there
+were exactly 55 and 40, matching the document. So this is a clean delta, not a correction. Three
+new `response_model=list[...]` endpoints ship on this branch, each already `pagination()`-bound
+and calling `set_total_count`: `GET /projects`, `GET /projects/{id}/usage-agreements` and `GET
+/environments/{id}/usage-agreements` (55→58 endpoints, 40→43 `set_total_count` calls; all three
+are in the "Bounded so far" table above under the **¶** footnote). The first grep's raw count
+moved by **4**, not 3: the extra hit is `grep -E '\.get\('` incidentally matching a line inside
+the `-B3` context window of an unrelated decorator in `bookings.py` —
+`names.get(booking.booking_request.project_id)`, a dict `.get(` call that A1's own
+`_to_response(booking, names)` change happened to introduce within three lines of a
+`response_model=list[...]` decorator — not a fourth new endpoint. Confirmed by diffing the two
+greps' matched lines directly rather than trusting the counts alone; the reproducible command was
+already documented as approximate; this is a recorded instance of that, not a new caveat. As with
+the last two passes, the groups below have **not** been re-checked against either new count; treat
+both figures as of this paragraph's own date.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
 never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged

@@ -13,6 +13,11 @@ export type BookingRequestResponse = {
   id: number;
   tenant_id: number;
   project_name: string;
+  // The project this request belongs to. Distinct from `project_name`, which
+  // is free text the UI labels "Purpose" — see CLAUDE.md's project_name_link
+  // note. `project_name_link` is the linked Project's name, if any.
+  project_id: number | null;
+  project_name_link: string | null;
   booking_type_id: number;
   start_date: string;
   end_date: string;
@@ -28,6 +33,8 @@ export type BookingRequestResponse = {
 
 export type BookingRequestCreatePayload = {
   project_name: string;
+  // The project this request belongs to. Distinct from `project_name` above.
+  project_id?: number | null;
   booking_type_id: number;
   start_date: string;
   end_date: string;

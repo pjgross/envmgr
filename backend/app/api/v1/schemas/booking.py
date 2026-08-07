@@ -47,6 +47,13 @@ class BookingResponse(BaseModel):
     environment_name: Optional[str] = None  # populated manually in endpoint
     # Fields sourced from the parent booking_request (populated manually in endpoint)
     project_name: Optional[str] = None
+    # The project this booking's parent request links to — id plus a batch-resolved
+    # display name (project_service.get_project_names, deliberately not filtering
+    # deleted_at so an archived project's name still renders). Distinct from
+    # project_name above, which is the free-text "Purpose" field on the same
+    # booking_request; do not conflate them.
+    project_id: Optional[int] = None
+    project_name_link: Optional[str] = None
     booked_by: Optional[int] = None
     booked_by_username: Optional[str] = None  # populated manually in endpoint
     booking_type_id: Optional[int] = None

@@ -17,6 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
+import { useAllProjects } from '../../hooks/useAllProjects';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import {
   fetchBookingTypes,
@@ -53,7 +54,9 @@ interface BookingFormProps {
 
 const schema = z.object({
   envIds: z.array(z.number()).min(1, 'Select at least one environment'),
-  projectName: z.string().trim().min(1, 'Project name is required'),
+  projectName: z.string().trim().min(1, 'Purpose is required'),
+  // The linked Project, distinct from `projectName` above (free text, "Purpose").
+  projectId: z.number().nullable(),
   // Validated at submit time as a non-null number via setError below.
   bookingTypeId: z.number().nullable(),
   startDate: z.string().min(1, 'Start date is required'),
@@ -70,6 +73,7 @@ type BookingFormValues = z.infer<typeof schema>;
 const buildDefaults = (envIds: number[]): BookingFormValues => ({
   envIds,
   projectName: '',
+  projectId: null,
   bookingTypeId: null,
   startDate: '',
   endDate: '',
@@ -103,6 +107,14 @@ export default function BookingForm({
   const allUsers = useSelector((s: RootState) => s.tenantAdmin.users);
   const allUsersTotal = useSelector((s: RootState) => s.tenantAdmin.usersTotal);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
+  // Archived projects must not be offered here — useAllProjects always
+  // narrows to active ones, unlike ReleaseForm's edit mode, which has an
+  // existing value to preserve. This form is create-only, so there is never
+  // a stale already-selected project to keep visible. Not the shared
+  // `project` slice: since BookingList renders this form's dialog
+  // unconditionally, reading `state.project.projects` here would race
+  // BookingList's own project-filter fetch over the same slice.
+  const { projects, truncated: projectsTruncated } = useAllProjects();
 
   const initialEnvIds = useMemo(() => {
     if (defaultEnvIds && defaultEnvIds.length > 0) return defaultEnvIds;
@@ -225,6 +237,9 @@ export default function BookingForm({
     const payload: BookingRequestCreatePayload = {
       environment_ids: values.envIds,
       project_name: values.projectName.trim(),
+      // Omitted entirely, not sent as null, when no project is chosen —
+      // distinct from project_name (the free-text Purpose) above.
+      ...(values.projectId != null ? { project_id: values.projectId } : {}),
       start_date: new Date(values.startDate).toISOString(),
       end_date: new Date(values.endDate).toISOString(),
       booking_type_id: values.bookingTypeId,
@@ -300,10 +315,38 @@ export default function BookingForm({
           )}
         />
 
-        {/* Project Name */}
+        {/* Project (optional) — the linked Project, distinct from the free-text
+            Purpose field below. Sourced from active projects only; this form
+            is create-only, so there's never a stale archived value to preserve. */}
+        <Controller
+          control={control}
+          name="projectId"
+          render={({ field }) => (
+            <Autocomplete
+              options={projects}
+              getOptionLabel={(p) => p.name}
+              value={projects.find((p) => p.id === field.value) ?? null}
+              onChange={(_, next) => field.onChange(next ? next.id : null)}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Project (optional)"
+                  helperText={
+                    projectsTruncated
+                      ? `Only the first ${projects.length} projects are shown.`
+                      : undefined
+                  }
+                />
+              )}
+            />
+          )}
+        />
+
+        {/* Purpose (free text) */}
         <FormTextField<BookingFormValues>
           name="projectName"
-          label="Project Name"
+          label="Purpose"
           required
           fullWidth
         />

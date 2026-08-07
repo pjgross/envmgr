@@ -1,0 +1,528 @@
+"""Usage agreements: recorded, and — in A1 — read by nothing."""
+import pytest
+from sqlalchemy import select
+
+from app.api.v1.schemas.project import UsageAgreementCreate
+from app.core.pagination import MAX_LIMIT, Page, TOTAL_COUNT_HEADER
+from app.db.models.project import UsageAgreement
+from app.services import project_service
+from tests.factories import ensure_environment, ensure_project
+
+
+@pytest.mark.asyncio
+async def test_record_an_agreement_and_read_it_from_both_directions(
+    client, auth_headers, db_session, test_tenant
+):
+    project = await ensure_project(db_session, test_tenant.id, name="Mortgage")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id, "notes": "shared for UAT"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    # Both names travel with the row — never resolved against a capped list.
+    assert created.json()["environment_name"] == env.name
+    assert created.json()["project_name"] == "Mortgage"
+
+    by_project = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert [a["environment_name"] for a in by_project.json()] == [env.name]
+    assert int(by_project.headers[TOTAL_COUNT_HEADER]) == 1
+
+    by_env = await client.get(
+        f"/api/v1/environments/{env.id}/usage-agreements", headers=auth_headers
+    )
+    assert [a["project_name"] for a in by_env.json()] == ["Mortgage"]
+    assert int(by_env.headers[TOTAL_COUNT_HEADER]) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_agreement_changes_no_booking_behaviour(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """A1 records; A3 enforces. Booking an environment the project has NO
+    agreement for must still succeed.
+
+    If this ever starts failing, someone has added enforcement without the
+    rules — and A3 should be a deliberate change, not a surprise.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    project = await ensure_project(db_session, test_tenant.id, name="Unagreed")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    booked = await client.post(
+        "/api/v1/booking-requests",
+        json={
+            "project_name": "no agreement anywhere",
+            "project_id": project.id,
+            "booking_type_id": test_booking_type.id,
+            "start_date": now.isoformat(),
+            "end_date": (now + timedelta(days=1)).isoformat(),
+            "environment_ids": [env.id],
+        },
+        headers=auth_headers,
+    )
+    assert booked.status_code in (200, 201), booked.text
+
+
+@pytest.mark.asyncio
+async def test_overlapping_windows_are_allowed_but_an_exact_duplicate_is_not(
+    client, auth_headers, db_session, test_tenant
+):
+    """Deciding what an overlap MEANS is A3's job, once something reads them."""
+    project = await ensure_project(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    url = f"/api/v1/projects/{project.id}/usage-agreements"
+
+    first = await client.post(
+        url,
+        json={"environment_id": env.id,
+              "starts_at": "2026-01-01T00:00:00Z", "ends_at": "2026-06-30T00:00:00Z"},
+        headers=auth_headers,
+    )
+    assert first.status_code == 201, first.text
+
+    overlapping = await client.post(
+        url,
+        json={"environment_id": env.id,
+              "starts_at": "2026-04-01T00:00:00Z", "ends_at": "2026-12-31T00:00:00Z"},
+        headers=auth_headers,
+    )
+    assert overlapping.status_code == 201, overlapping.text
+
+    exact = await client.post(
+        url,
+        json={"environment_id": env.id,
+              "starts_at": "2026-01-01T00:00:00Z", "ends_at": "2026-06-30T00:00:00Z"},
+        headers=auth_headers,
+    )
+    assert exact.status_code == 409, exact.text
+
+
+@pytest.mark.asyncio
+async def test_ends_before_starts_is_422(client, auth_headers, db_session, test_tenant):
+    project = await ensure_project(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    bad = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id,
+              "starts_at": "2026-06-30T00:00:00Z", "ends_at": "2026-01-01T00:00:00Z"},
+        headers=auth_headers,
+    )
+    assert bad.status_code == 422, bad.text
+
+
+@pytest.mark.asyncio
+async def test_cannot_list_agreements_for_another_tenants_environment(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Finding M3: list_agreements_for_environment's own Environment.tenant_id
+    filter is what guards this route — without it, GET
+    /environments/{id}/usage-agreements for another tenant's environment id
+    returns 200 + [] instead of 404. No data leaks either way (_agreement_query
+    re-filters on the way out), but the spec's error table requires a
+    cross-tenant environment id to 404, never quietly succeed, and nothing
+    exercised this route's own filter before now."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id)
+    await db_session.commit()
+
+    refused = await client.get(
+        f"/api/v1/environments/{theirs.id}/usage-agreements", headers=auth_headers
+    )
+    assert refused.status_code == 404, refused.text
+
+
+@pytest.mark.asyncio
+async def test_cannot_agree_against_another_tenants_environment(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    project = await ensure_project(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id)
+    await db_session.commit()
+
+    refused = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": theirs.id},
+        headers=auth_headers,
+    )
+    assert refused.status_code == 404, refused.text
+
+
+@pytest.mark.asyncio
+async def test_both_list_endpoints_are_bounded(
+    client, auth_headers, db_session, test_tenant
+):
+    project = await ensure_project(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    for url in (
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        f"/api/v1/environments/{env.id}/usage-agreements",
+    ):
+        ok = await client.get(url, headers=auth_headers)
+        assert ok.status_code == 200, ok.text
+        assert TOTAL_COUNT_HEADER in ok.headers
+        over = await client.get(f"{url}?limit={MAX_LIMIT + 1}", headers=auth_headers)
+        assert over.status_code == 422, over.text
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_agreement_soft_deletes_it(
+    client, auth_headers, db_session, test_tenant
+):
+    project = await ensure_project(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+    aid = (await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id}, headers=auth_headers,
+    )).json()["id"]
+
+    gone = await client.delete(
+        f"/api/v1/projects/{project.id}/usage-agreements/{aid}", headers=auth_headers
+    )
+    assert gone.status_code == 204, gone.text
+
+    listed = (await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )).json()
+    assert listed == []
+
+    # A 204 and absence from the list are both equally true of a hard delete —
+    # the row itself must still exist, with deleted_at set, to prove this was
+    # a soft delete and not `await db.delete(agreement)`.
+    row = (
+        await db_session.execute(
+            select(UsageAgreement).where(UsageAgreement.id == aid)
+        )
+    ).scalar_one()
+    assert row.deleted_at is not None
+
+
+# ── Finding 1: an agreement must not outlive either counterparty ────────────
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_project_removes_the_agreement_from_the_environment_side(
+    client, auth_headers, db_session, test_tenant
+):
+    """Deleting P must not leave the environment owner told forever that a
+    defunct project uses their environment. Needs BOTH the delete_project
+    cascade (so the row's own deleted_at gets set) AND _agreement_query's
+    Project.deleted_at filter (so a pre-cascade row is also caught) — see the
+    two mutation mini-tests immediately after this one, which disable each
+    independently."""
+    project = await ensure_project(db_session, test_tenant.id, name="Doomed")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id}, headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = await client.delete(
+        f"/api/v1/projects/{project.id}", headers=auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    by_env = await client.get(
+        f"/api/v1/environments/{env.id}/usage-agreements", headers=auth_headers
+    )
+    assert by_env.status_code == 200, by_env.text
+    assert by_env.json() == []
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_project_soft_deletes_its_live_agreements(
+    db_session, test_tenant
+):
+    """The cascade itself, independent of the query filter: the agreement row
+    must carry its own deleted_at after delete_project, not merely be hidden
+    by a join. Proves finding 1(a) directly against the DB."""
+    project = await ensure_project(db_session, test_tenant.id, name="Doomed Too")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.flush()
+
+    row = await project_service.create_agreement(
+        db_session, project.id,
+        UsageAgreementCreate(environment_id=env.id),
+        test_tenant.id,
+    )
+    agreement_id = row[0].id
+    await db_session.commit()
+
+    await project_service.delete_project(db_session, project.id, test_tenant.id)
+    await db_session.commit()
+
+    stored = (
+        await db_session.execute(
+            select(UsageAgreement).where(UsageAgreement.id == agreement_id)
+        )
+    ).scalar_one()
+    assert stored.deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_environment_removes_the_agreement_from_the_project_side(
+    client, auth_headers, db_session, test_tenant
+):
+    """The other direction: soft-deleting E (nothing cascades onto the
+    agreement here) must still make it disappear from the project-side list,
+    purely via _agreement_query's Environment.deleted_at filter — finding
+    1(b). The agreement itself stays deletable via the API, unlike the
+    project-deleted case above."""
+    project = await ensure_project(db_session, test_tenant.id, name="Still Here")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    created = await client.post(
+        f"/api/v1/projects/{project.id}/usage-agreements",
+        json={"environment_id": env.id}, headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    deleted = await client.delete(
+        f"/api/v1/environments/{env.id}", headers=auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    by_project = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert by_project.status_code == 200, by_project.text
+    assert by_project.json() == []
+
+    # And still deletable through the API, unlike an orphaned-by-project one.
+    still_there = (
+        await db_session.execute(select(UsageAgreement).where(
+            UsageAgreement.project_id == project.id,
+            UsageAgreement.environment_id == env.id,
+        ))
+    ).scalar_one()
+    removed = await client.delete(
+        f"/api/v1/projects/{project.id}/usage-agreements/{still_there.id}",
+        headers=auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+
+
+@pytest.mark.asyncio
+async def test_environment_side_list_ignores_an_agreement_whose_project_predates_the_cascade(
+    db_session, test_tenant
+):
+    """Isolates finding 1(b)'s Project-join filter from 1(a)'s cascade: the
+    project here is soft-deleted directly (bypassing delete_project), so the
+    agreement's OWN deleted_at is still null — only the join filter in
+    _agreement_query can hide it. Without this row-level cascade, this is
+    exactly what a row created before the cascade shipped looks like."""
+    from datetime import datetime, timezone
+
+    project = await ensure_project(db_session, test_tenant.id, name="Predates Cascade")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.flush()
+
+    row = await project_service.create_agreement(
+        db_session, project.id, UsageAgreementCreate(environment_id=env.id),
+        test_tenant.id,
+    )
+    agreement_id = row[0].id
+    project.deleted_at = datetime.now(timezone.utc)  # bypass delete_project
+    await db_session.commit()
+
+    listed_rows, total = await project_service.list_agreements_for_environment(
+        db_session, env.id, test_tenant.id,
+    )
+    assert total == 0
+    assert agreement_id not in [r[0].id for r in listed_rows]
+
+
+# ── Defence in depth: a malformed row must not surface another tenant's name ──
+# (the same pattern as test_projects_api's _view_query tests and
+# test_welcome_pack's membership test — that filter has gone missing before in
+# this task set, and no prior test caught it either time)
+
+
+@pytest.mark.asyncio
+async def test_environment_listing_ignores_a_malformed_cross_tenant_project_row(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards _agreement_query's Project join tenant filter.
+
+    A malformed row — tenant_id is ours, but project_id points at another
+    tenant's project — must not leak that project's name into this tenant's
+    environment-side listing.
+    """
+    env = await ensure_environment(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_project(db_session, other_tenant.id, name="Their Project")
+    await db_session.commit()
+
+    db_session.add(UsageAgreement(
+        tenant_id=test_tenant.id, project_id=theirs.id, environment_id=env.id,
+    ))
+    await db_session.commit()
+
+    listed = await client.get(
+        f"/api/v1/environments/{env.id}/usage-agreements", headers=auth_headers
+    )
+    assert listed.status_code == 200, listed.text
+    assert "Their Project" not in [a["project_name"] for a in listed.json()]
+
+
+@pytest.mark.asyncio
+async def test_project_listing_ignores_a_malformed_cross_tenant_environment_row(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards _agreement_query's Environment join tenant filter.
+
+    A malformed row — tenant_id is ours, but environment_id points at another
+    tenant's environment — must not leak that environment's name into this
+    tenant's project-side listing.
+    """
+    project = await ensure_project(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id)
+    await db_session.commit()
+
+    db_session.add(UsageAgreement(
+        tenant_id=test_tenant.id, project_id=project.id, environment_id=theirs.id,
+    ))
+    await db_session.commit()
+
+    listed = await client.get(
+        f"/api/v1/projects/{project.id}/usage-agreements", headers=auth_headers
+    )
+    assert listed.status_code == 200, listed.text
+    assert theirs.name not in [a["environment_name"] for a in listed.json()]
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_an_agreement_whose_own_tenant_id_is_not_ours(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards delete_agreement's own tenant_id filter, independent of
+    get_project's — a malformed row whose project_id legitimately belongs to
+    our project but whose tenant_id column does not match must still 404,
+    not be silently soft-deleted."""
+    project = await ensure_project(db_session, test_tenant.id)
+    env = await ensure_environment(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    await db_session.commit()
+
+    agreement = UsageAgreement(
+        tenant_id=other_tenant.id, project_id=project.id, environment_id=env.id,
+    )
+    db_session.add(agreement)
+    await db_session.commit()
+    await db_session.refresh(agreement)
+
+    refused = await client.delete(
+        f"/api/v1/projects/{project.id}/usage-agreements/{agreement.id}",
+        headers=auth_headers,
+    )
+    assert refused.status_code == 404, refused.text
+
+    row = (
+        await db_session.execute(
+            select(UsageAgreement).where(UsageAgreement.id == agreement.id)
+        )
+    ).scalar_one()
+    await db_session.refresh(row)
+    assert row.deleted_at is None, "must not be deleted by another tenant's admin"
+
+
+# ── Finding 4: list_agreements_for_project's pagination tiebreaker ──────────
+
+
+@pytest.mark.asyncio
+async def test_paging_over_tied_environment_names_sees_each_agreement_once(
+    db_session, test_tenant
+):
+    """Every agreement here points at the SAME environment, so they all tie
+    on `func.lower(Environment.name)` — list_agreements_for_project's leading
+    sort key. Without the `UsageAgreement.id` tiebreaker, LIMIT/OFFSET over an
+    incomplete order can return a row on more than one page and drop another
+    entirely. Same shape as test_projects_api.py's
+    test_paging_over_tied_names_sees_each_row_once.
+
+    Known from Task 2: this class of mutation is stable-sort-lucky on
+    SQLite and only fails on PostgreSQL — run both engines.
+    """
+    project = await ensure_project(db_session, test_tenant.id, name="Tied Project")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.flush()
+
+    total_rows = 21
+    for _ in range(total_rows):
+        db_session.add(UsageAgreement(
+            tenant_id=test_tenant.id, project_id=project.id, environment_id=env.id,
+        ))
+    await db_session.flush()
+
+    seen: list[int] = []
+    page_size = 5
+    offset = 0
+    while True:
+        rows, total = await project_service.list_agreements_for_project(
+            db_session, project.id, test_tenant.id,
+            page=Page(limit=page_size, offset=offset),
+        )
+        assert total == total_rows
+        if not rows:
+            break
+        seen.extend(agreement.id for agreement, _project_name, _env_name in rows)
+        offset += page_size
+
+    assert len(seen) == total_rows, f"expected {total_rows} rows, saw {len(seen)}"
+    assert len(set(seen)) == total_rows, "a row was returned on more than one page"
+
+
+@pytest.mark.asyncio
+async def test_the_cascade_does_not_reach_another_tenants_malformed_row(
+    client, auth_headers, db_session, test_tenant, second_tenant_factory
+):
+    """Guards delete_project's cascade tenant filter.
+
+    Added after the fix review proved it unguarded: dropping
+    `UsageAgreement.tenant_id == tenant_id` from the cascade's bulk UPDATE left
+    all 36 tests green, while deleting our project silently soft-deleted
+    another tenant's row. Same shape as the three joins above, which are each
+    guarded — this one query got the risk without the scrutiny.
+    """
+    from sqlalchemy import select
+
+    mine = await ensure_project(db_session, test_tenant.id, name="Mine")
+    env = await ensure_environment(db_session, test_tenant.id)
+    other_tenant, _other_admin = await second_tenant_factory()
+    await db_session.commit()
+
+    # A malformed row: it points at OUR project, but belongs to another tenant.
+    stray = UsageAgreement(
+        tenant_id=other_tenant.id, project_id=mine.id, environment_id=env.id
+    )
+    db_session.add(stray)
+    await db_session.commit()
+
+    gone = await client.delete(f"/api/v1/projects/{mine.id}", headers=auth_headers)
+    assert gone.status_code == 204, gone.text
+
+    await db_session.refresh(stray)
+    stored = (await db_session.execute(
+        select(UsageAgreement.deleted_at).where(UsageAgreement.id == stray.id)
+    )).scalar_one()
+    assert stored is None, "the cascade reached across a tenant boundary"

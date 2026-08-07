@@ -188,7 +188,7 @@ export default function AddPhaseBookingDialog({
           </TextField>
 
           <TextField
-            label="Project Name"
+            label="Purpose"
             required
             fullWidth
             value={projectName}

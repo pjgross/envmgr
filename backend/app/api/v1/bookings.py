@@ -1,14 +1,14 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, Response, status
+from fastapi import APIRouter, Body, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.models.booking import Booking
-from app.services import booking_service, booking_request_service, conflict_service
+from app.services import booking_service, booking_request_service, conflict_service, project_service
 from app.api.v1.schemas.booking import (
     BookingCreate,
     BookingResponse,
@@ -30,13 +30,20 @@ BOOKING_SORTS = {
 }
 
 
-def _to_response(booking) -> BookingResponse:
-    """Convert a Booking ORM object to BookingResponse, populating fields from booking_request."""
+def _to_response(booking, project_name_link: str | None) -> BookingResponse:
+    """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
+
+    `project_name_link` is a batch-resolved name the caller must fetch via
+    `project_service.get_project_names` (tenant-scoped, deliberately not
+    filtering deleted_at) — never looked up per-row here.
+    """
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
     req = booking.booking_request
     assert req is not None, f"Booking {booking.id} missing booking_request"
     resp.project_name = req.project_name
+    resp.project_id = req.project_id
+    resp.project_name_link = project_name_link
     resp.booked_by = req.booked_by
     resp.booked_by_username = req.booker.username if getattr(req, "booker", None) else None
     resp.booking_type_id = req.booking_type_id
@@ -61,6 +68,7 @@ async def list_bookings(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
+    project_id: Optional[int] = Query(None),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
@@ -73,13 +81,17 @@ async def list_bookings(
         start=start,
         end=end,
         booking_status=booking_status,
+        project_id=project_id,
         page=page,
         sort=sort,
     )
     set_total_count(response, total)
+    names = await project_service.get_project_names(
+        db, {b.booking_request.project_id for b in bookings}, current_user.active_tenant_id
+    )
     responses: list[BookingResponse] = []
     for b in bookings:
-        resp = _to_response(b)
+        resp = _to_response(b, names.get(b.booking_request.project_id))
         resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
             db, b.id, current_user.active_tenant_id
         )
@@ -94,8 +106,11 @@ async def create_booking(
     current_user=Depends(get_current_user),
 ):
     booking, warnings = await booking_service.create_booking(db, data, current_user)
+    names = await project_service.get_project_names(
+        db, {booking.booking_request.project_id}, current_user.active_tenant_id
+    )
     return BookingCreateResponse(
-        booking=_to_response(booking),
+        booking=_to_response(booking, names.get(booking.booking_request.project_id)),
         overlap_warnings=warnings,
     )
 
@@ -107,7 +122,10 @@ async def get_booking(
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.get_booking(db, booking_id, current_user.active_tenant_id)
-    resp = _to_response(booking)
+    names = await project_service.get_project_names(
+        db, {booking.booking_request.project_id}, current_user.active_tenant_id
+    )
+    resp = _to_response(booking, names.get(booking.booking_request.project_id))
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
     )
@@ -133,7 +151,10 @@ async def update_standard_fields(
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.update_standard_fields(db, booking_id, values, current_user)
-    resp = _to_response(booking)
+    names = await project_service.get_project_names(
+        db, {booking.booking_request.project_id}, current_user.active_tenant_id
+    )
+    resp = _to_response(booking, names.get(booking.booking_request.project_id))
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
     )
@@ -151,7 +172,10 @@ async def transition_booking_state(
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.transition_state(db, booking_id, data.to_state, current_user, data.notes)
-    return _to_response(booking)
+    names = await project_service.get_project_names(
+        db, {booking.booking_request.project_id}, current_user.active_tenant_id
+    )
+    return _to_response(booking, names.get(booking.booking_request.project_id))
 
 
 @router.get("/{booking_id}/history", response_model=list[BookingStatusHistoryResponse])

@@ -41,6 +41,8 @@ const IncidentDetail = lazy(() => import('./pages/incidents/IncidentDetail'));
 const IncidentForm = lazy(() => import('./pages/incidents/IncidentForm'));
 const IncidentList = lazy(() => import('./pages/incidents/IncidentList'));
 const InfrastructureComponentList = lazy(() => import('./pages/infrastructure/InfrastructureComponentList'));
+const ProjectDetail = lazy(() => import('./pages/admin/ProjectDetail'));
+const Projects = lazy(() => import('./pages/admin/Projects'));
 const RaidSettings = lazy(() => import('./pages/admin/RaidSettings'));
 const ReleaseAnalytics = lazy(() => import('./pages/releases/ReleaseAnalytics'));
 const ReleaseCalendar = lazy(() => import('./pages/releases/ReleaseCalendar'));
@@ -168,6 +170,22 @@ function App() {
               element={
                 <PrivateRoute>
                   <UserGroupDetail />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/projects"
+              element={
+                <PrivateRoute>
+                  <Projects />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/tenant/projects/:id"
+              element={
+                <PrivateRoute>
+                  <ProjectDetail />
                 </PrivateRoute>
               }
             />

@@ -34,6 +34,8 @@ function makeRelease(id: number): ReleaseListItemResponse {
     description: null,
     release_type: 'project',
     release_kind: 'project',
+    owning_project_id: null,
+    owning_project_name: null,
     parent_release_id: null,
     template_id: null,
     lifecycle_template_id: 1,

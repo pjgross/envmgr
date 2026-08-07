@@ -212,3 +212,7 @@ app.include_router(
     prefix="/api/v1/environment-requests",
     tags=["Environment Requests"],
 )
+
+from app.api.v1 import projects as projects_router
+
+app.include_router(projects_router.router, prefix="/api/v1/projects", tags=["Projects"])

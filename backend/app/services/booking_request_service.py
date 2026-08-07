@@ -14,7 +14,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
 from app.db.models.user import User
-from app.services import conflict_service
+from app.services import conflict_service, project_service
 
 
 async def _load_initial_state(db: AsyncSession, booking_type_id: int, tenant_id: int) -> str:
@@ -66,9 +66,17 @@ async def create_request(
 
     initial_state = await _load_initial_state(db, data["booking_type_id"], tenant_id)
 
+    project_id = data.get("project_id")
+    if project_id is not None:
+        # Scoped to the ACTIVE tenant: under master-admin impersonation
+        # current_user.id and active_tenant_id belong to different tenants, and
+        # scoping to the wrong one 404s a legitimate request.
+        await project_service.get_project(db, project_id, tenant_id)
+
     req = BookingRequest(
         tenant_id=tenant_id,
         project_name=data["project_name"],
+        project_id=project_id,
         booking_type_id=data["booking_type_id"],
         start_date=data["start_date"],
         end_date=data["end_date"],
@@ -117,12 +125,19 @@ async def create_request(
 
 
 async def list_booking_requests(
-    db: AsyncSession, tenant_id: int, page: Optional[Page] = None
+    db: AsyncSession,
+    tenant_id: int,
+    page: Optional[Page] = None,
+    project_id: Optional[int] = None,
 ) -> tuple[list[BookingRequest], int]:
     """Tenant's booking requests, newest first, with child bookings eagerly loaded.
 
     The eager load replaces a per-row `db.refresh`, which was one round trip per
     request row.
+
+    `project_id`, when given, filters in SQL — the endpoint is bounded, so a
+    Python-side filter would window the page before filtering and quietly
+    return the wrong rows with a total that describes the unfiltered set.
     """
     query = (
         select(BookingRequest)
@@ -131,8 +146,10 @@ async def list_booking_requests(
             BookingRequest.tenant_id == tenant_id,
             BookingRequest.deleted_at.is_(None),
         )
-        .order_by(BookingRequest.created_at.desc(), BookingRequest.id)
     )
+    if project_id is not None:
+        query = query.where(BookingRequest.project_id == project_id)
+    query = query.order_by(BookingRequest.created_at.desc(), BookingRequest.id)
     return await fetch_page(db, query, page)
 
 
@@ -265,6 +282,7 @@ async def remove_environment(
 # Fields editable at the request level — must match the spec's PATCH endpoint
 STANDARD_REQUEST_FIELDS = {
     "project_name",
+    "project_id",
     "booking_type_id",
     "start_date",
     "end_date",
@@ -287,6 +305,21 @@ async def update_standard_fields(
     unknown = set(values) - STANDARD_REQUEST_FIELDS
     if unknown:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown fields: {unknown}")
+
+    if (
+        "project_id" in values
+        and values["project_id"] is not None
+        and values["project_id"] != req.project_id
+    ):
+        # Scoped to the ACTIVE tenant — see the identical comment in
+        # create_request for why. Resubmitting the CURRENT value must not
+        # re-validate it — a project can be archived after being assigned,
+        # and a full-form PATCH still round-trips the existing project_id.
+        # Same exemption as project_service.update_project gives
+        # team_group_id and environment_service gives operations_group_id:
+        # accept an archived project when it equals the stored value, reject
+        # it as a new assignment.
+        await project_service.get_project(db, values["project_id"], tenant_id)
 
     # TODO permission gating using lifecycle field_permissions —
     # follow the same check used in booking_service.update_standard_fields today.

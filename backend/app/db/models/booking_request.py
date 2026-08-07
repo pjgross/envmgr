@@ -15,6 +15,13 @@ class BookingRequest(Base):
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     project_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # The project this booking belongs to. Nullable, and deliberately BESIDE
+    # project_name rather than replacing it: in real data that field holds a
+    # booking label ("Health Demo Booking", "Reserved check"), so promoting it
+    # would manufacture projects nobody wants. The UI relabels it "Purpose".
+    project_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("project.id"), nullable=True, index=True
+    )
     booking_type_id: Mapped[int] = mapped_column(
         ForeignKey("booking_type.id"), nullable=False, index=True
     )
