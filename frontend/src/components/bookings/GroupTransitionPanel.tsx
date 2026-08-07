@@ -101,7 +101,14 @@ export default function GroupTransitionPanel({
   // Keyed on `statusesKey` for the same reason as the group fetch above: a
   // parent re-render that rebuilds `bookings` with unchanged ids/statuses
   // must not refetch every member's transitions again.
-  const memberIdsKey = bookings.map((b) => b.id).join(',');
+  //
+  // `statusesKey` is the ONLY dep it needs — it is `id:status|…`, so it
+  // covers member IDENTITY as well as state, and a separate ids-only key
+  // could never fire without it firing too. A previous revision carried both;
+  // the redundant one made it look as though the effect were doubly guarded,
+  // when in fact dropping `statusesKey` and keeping the ids key would leave
+  // each member's own control stale after a repair — still offering "Approve"
+  // on a booking that was just approved, which then 400s.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -116,7 +123,7 @@ export default function GroupTransitionPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memberIdsKey, statusesKey]);
+  }, [statusesKey]);
 
   // Members CAN diverge — `POST /bookings/{id}/transition` stays open as the
   // repair tool. When they have, the group transition will refuse until

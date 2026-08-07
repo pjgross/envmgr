@@ -222,6 +222,50 @@ describe('GroupTransitionPanel', () => {
     expect(await screen.findByRole('button', { name: 'Close Group' })).toBeInTheDocument();
   });
 
+  it("refetches each MEMBER's own transitions when statuses change, so a repaired member's control isn't stale", async () => {
+    // Companion to the test above, for the OTHER effect. The group fetch and
+    // the per-member fetch are separately keyed, and the per-member one was
+    // unguarded: dropping `statusesKey` from its deps left the whole suite
+    // green. The failure it prevents is specific — after repairing a member
+    // through its own control, that control keeps offering the move it just
+    // made, and clicking it 400s.
+    vi.mocked(bookingService.getAllowedTransitions).mockResolvedValue([
+      { from_state: 'draft', to_state: 'submitted', label: 'MEMBER-ONLY BUTTON' },
+    ]);
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <GroupTransitionPanel
+          requestId={REQUEST_ID}
+          groupId={GROUP_ID}
+          groupName={GROUP_NAME}
+          bookings={[MEMBER_A, MEMBER_B_DRAFT]}
+        />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findAllByRole('button', { name: 'MEMBER-ONLY BUTTON' })).toHaveLength(2);
+
+    // As if MEMBER_B had just been repaired through its own control: same
+    // ids, changed status, and the individual endpoint now offers it nothing.
+    vi.mocked(bookingService.getAllowedTransitions).mockResolvedValue([]);
+
+    rerender(
+      <MemoryRouter>
+        <GroupTransitionPanel
+          requestId={REQUEST_ID}
+          groupId={GROUP_ID}
+          groupName={GROUP_NAME}
+          bookings={[MEMBER_A, MEMBER_B]}
+        />
+      </MemoryRouter>
+    );
+
+    await waitFor(() =>
+      expect(screen.queryAllByRole('button', { name: 'MEMBER-ONLY BUTTON' })).toHaveLength(0)
+    );
+  });
+
   it('does not refetch on an unrelated re-render where the members statuses are unchanged', async () => {
     // Guards the fix itself: keying the effect on a freshly-built array (or
     // on `bookings` by identity) would refetch on every render, which would
