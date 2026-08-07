@@ -216,3 +216,11 @@ app.include_router(
 from app.api.v1 import projects as projects_router
 
 app.include_router(projects_router.router, prefix="/api/v1/projects", tags=["Projects"])
+
+from app.api.v1 import environment_groups as environment_groups_router
+
+app.include_router(
+    environment_groups_router.router,
+    prefix="/api/v1/environment-groups",
+    tags=["Environment Groups"],
+)
