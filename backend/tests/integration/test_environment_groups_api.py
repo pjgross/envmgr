@@ -222,3 +222,36 @@ async def test_listing_folds_case_rather_than_collating_by_byte(client, auth_hea
     assert [g["name"] for g in listed.json()] == [
         "Alpha Pair", "beta pair", "Gamma Pair",
     ]
+
+
+@pytest.mark.asyncio
+async def test_the_tiebreaker_also_folds_case_when_the_sort_key_ties(
+    client, auth_headers
+):
+    """Guards the `func.lower()` in list_groups' OWN order_by, not apply_sort's.
+
+    The Task 2 review proved this is reachable, against a claim that it was
+    dead code: `Base.created_at` uses server_default=func.now(), which SQLite
+    compiles to CURRENT_TIMESTAMP at ONE-SECOND resolution, so rows created
+    back-to-back genuinely tie. `created_at` is whitelisted in
+    ENVIRONMENT_GROUP_SORTS, so a user can reach the tie through the public
+    API — at which point the name tiebreaker decides the order, and without
+    the fold it collates by byte value and every lowercase name sorts last.
+
+    Asserting RENDERED ROW ORDER over mixed-case data, not the emitted SQL:
+    an assertion on the query string stays green while users see this wrong.
+    """
+    for name in ("Zebra Group", "apple Group", "Middle Group"):
+        made = await client.post(
+            "/api/v1/environment-groups", json={"name": name}, headers=auth_headers
+        )
+        assert made.status_code == 201, made.text
+
+    listed = await client.get(
+        "/api/v1/environment-groups?sort_by=created_at&sort_dir=asc",
+        headers=auth_headers,
+    )
+    assert listed.status_code == 200, listed.text
+    assert [g["name"] for g in listed.json()] == [
+        "apple Group", "Middle Group", "Zebra Group",
+    ]
