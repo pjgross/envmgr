@@ -18,9 +18,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
-import { logout, setCredentials } from '../../../store/authSlice';
 import type { BookingResponse } from '../../../types/booking';
 import type { AllowedTransition } from '../../../types/bookingLifecycle';
 
@@ -66,13 +65,18 @@ import BookingDetail from '../BookingDetail';
 // request 9501) so a wrong-data-source bug cannot pass by coincidence.
 const BOOKING_ID = 9701;
 const ENV_ID = 8701;
-// The signed-in user, seeded into the REAL store below. Deliberately not the
-// booking's `booked_by`/`booked_by_username` (1/'alice'): the ack line must be
-// shown to come from `state.auth.user`, not from a field that happens to sit on
-// the booking. `acknowledged_by` on the ack mock matches this id, because the
-// backend always records the caller.
-const CURRENT_USER_ID = 4401;
-const CURRENT_USERNAME = 'rmanager';
+// The ack's author, as the SERVER reports them. Deliberately nobody the page
+// could otherwise know about: no user is signed into the store in this file, and
+// neither name matches the booking's `booked_by_username` ('alice'). So a name
+// on screen can only have come off the response.
+//
+// Task 6b deleted the `currentUserId`/`currentUsername` props this file used to
+// seed `setCredentials` for. The name now travels with the row, the way
+// `owner_username` and `ReleaseSystemRead.system_name` do — one source, so
+// nothing can render a locally-guessed name beside a server-supplied one.
+const ACK_USER_ID = 4401;
+const ACK_USERNAME = 'rmanager';
+const EARLIER_ACK_USERNAME = 'governance-lead';
 const GAP =
   "Mortgage Replatform's booking falls outside its agreed window for Staging (1 Jan 2026 – 30 Jun 2026)";
 
@@ -100,6 +104,9 @@ function makeBooking(overrides: Partial<BookingResponse> = {}): BookingResponse 
     custom_fields: null,
     agreement_gap: GAP,
     has_unacknowledged_agreement_gap: true,
+    // The ack row as `GET /bookings/{id}` reports it — null while nobody has
+    // accepted the gap. Detail-only: the list deliberately omits it.
+    agreement_gap_ack: null,
     environment_group_id: null,
     environment_group_name: null,
     tenant_id: 1,
@@ -127,31 +134,14 @@ beforeEach(() => {
   vi.mocked(bookingService.getAllowedTransitions).mockReset().mockResolvedValue([]);
   vi.mocked(bookingService.getHistory).mockReset().mockResolvedValue([]);
   vi.mocked(bookingRequestService.get).mockReset();
+  // The server's answer to the ack, carrying the author's NAME — the only
+  // source of it. Nothing signs a user into the store in this file, on purpose.
   vi.mocked(agreementGapService.ackGap).mockReset().mockResolvedValue({
     notes: null,
-    acknowledged_by: CURRENT_USER_ID,
+    acknowledged_by: ACK_USER_ID,
+    acknowledged_by_username: ACK_USERNAME,
     acknowledged_at: '2026-08-08T10:30:00Z',
   });
-  // The page reads `state.auth.user` and passes it to the panel; without a
-  // signed-in user in the store no acknowledgement could ever carry a name.
-  store.dispatch(
-    setCredentials({
-      user: {
-        id: CURRENT_USER_ID,
-        username: CURRENT_USERNAME,
-        email: 'rmanager@example.com',
-        role: 'Release Manager',
-        tenant_id: 1,
-        is_master_admin: false,
-      },
-      token: 'test-token',
-    })
-  );
-});
-
-afterEach(() => {
-  // The real store is shared by every test in this file.
-  store.dispatch(logout());
 });
 
 describe('BookingDetail — the usage-agreement gap is on the page', () => {
@@ -160,23 +150,46 @@ describe('BookingDetail — the usage-agreement gap is on the page', () => {
     expect(await screen.findByText(GAP)).toBeInTheDocument();
   });
 
-  it('shows a gap acknowledged in an EARLIER session as acknowledged, and offers no Acknowledge control', async () => {
-    // The page's `hasUnacknowledgedGap` prop must come from the booking, not
-    // from a constant: hardcoding it `true` leaves every other test in this
-    // directory green while a booking whose gap was acknowledged in a previous
-    // session re-offers the control forever and never shows the acknowledged
-    // line at all. Nothing in-session sets `ack` here — the acknowledged state
-    // can only come off the response.
+  it('names who acknowledged a gap in an EARLIER session, and when, and offers no Acknowledge control', async () => {
+    // TWO SEAMS IN ONE TEST, both of the shape that has already regressed here
+    // with a green suite:
+    //
+    //  - `hasUnacknowledgedGap` must come from the booking, not a constant:
+    //    hardcoded `true` and a gap accepted last week re-offers the control
+    //    forever and never shows the acknowledged line at all.
+    //  - `gapAck` must be PASSED DOWN. Fetching it and forgetting to hand it to
+    //    the panel is Task 6's F1 on a new prop — it leaves the panel falling
+    //    back to "This gap has been acknowledged.", which is exactly what this
+    //    file asserted before task 6b and would have kept asserting happily.
+    //
+    // Nothing in-session sets an ack here: no click, no PUT. The name can only
+    // have arrived on the response.
+    const acknowledgedAt = '2026-07-01T09:15:00Z';
     vi.mocked(bookingService.getBooking).mockResolvedValue(
-      makeBooking({ has_unacknowledged_agreement_gap: false })
+      makeBooking({
+        has_unacknowledged_agreement_gap: false,
+        agreement_gap_ack: {
+          notes: 'accepted by the programme board',
+          acknowledged_by: 4404,
+          acknowledged_by_username: EARLIER_ACK_USERNAME,
+          acknowledged_at: acknowledgedAt,
+        },
+      })
     );
     renderPage();
 
     // Acknowledging is not resolving: the gap is still on the page.
     expect(await screen.findByText(GAP)).toBeInTheDocument();
-    expect(await screen.findByTestId('agreement-gap-ack')).toHaveTextContent(
-      /has been acknowledged/i
+    const ackLine = await screen.findByTestId('agreement-gap-ack');
+    // Who…
+    expect(ackLine).toHaveTextContent(new RegExp(`Acknowledged by ${EARLIER_ACK_USERNAME}`, 'i'));
+    // …and when.
+    expect(ackLine).toHaveTextContent(
+      new RegExp(new Date(acknowledgedAt).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     );
+    // By name, never `#N`, and never the nameless fallback when a name exists.
+    expect(ackLine.textContent).not.toContain('4404');
+    expect(ackLine.textContent).not.toMatch(/has been acknowledged/i);
     expect(screen.queryByRole('button', { name: /^Acknowledge$/ })).not.toBeInTheDocument();
   });
 
@@ -223,12 +236,16 @@ describe('BookingDetail — acknowledging from the page', () => {
     );
   });
 
-  it('names the signed-in user on the acknowledgement it just recorded — who AND when', async () => {
-    // Guards the `currentUserId`/`currentUsername` props at the page seam:
-    // pass them as `null` (an auth selector dropped in a refactor) and every
-    // acknowledgement silently degrades to "Acknowledged on <date>" — the
-    // brief's "who and when" reduced to "when" on the only page that can
-    // satisfy it. No other page test asserts a username appears.
+  it("names the ack's author from the SERVER's answer — who AND when", async () => {
+    // The in-session half of the same rule. The name comes off the PUT's
+    // response and nowhere else: the store holds no user at all in this file,
+    // and `ACK_USERNAME` is not the booking's `booked_by_username`, so a page
+    // that fell back to either would print no name or the wrong one.
+    //
+    // (Before task 6b this test seeded `setCredentials` and proved the name came
+    // from `state.auth.user`. That seed is now gone rather than left as
+    // decoration: with the props deleted it would have guarded nothing while
+    // still claiming to.)
     const user = userEvent.setup();
     renderPage();
 
@@ -236,9 +253,10 @@ describe('BookingDetail — acknowledging from the page', () => {
     await user.click(screen.getByRole('button', { name: /^Acknowledge$/ }));
 
     const ackLine = await screen.findByTestId('agreement-gap-ack');
-    expect(ackLine).toHaveTextContent(new RegExp(`Acknowledged by ${CURRENT_USERNAME}`, 'i'));
+    expect(ackLine).toHaveTextContent(new RegExp(`Acknowledged by ${ACK_USERNAME}`, 'i'));
+    expect(ackLine.textContent).toMatch(/2026/);
     // By name, never `#N` — the ack row's `acknowledged_by` is a user id.
-    expect(ackLine.textContent).not.toContain(String(CURRENT_USER_ID));
+    expect(ackLine.textContent).not.toContain(String(ACK_USER_ID));
   });
 
   it("shows the server's reason when the ack is refused, and nothing else on the page breaks", async () => {

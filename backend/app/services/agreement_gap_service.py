@@ -514,6 +514,37 @@ async def get_ack(
     ).scalar_one_or_none()
 
 
+async def ack_author_username(
+    db: AsyncSession, ack: UsageAgreementAck
+) -> Optional[str]:
+    """The name of whoever recorded `ack`, or None if the id no longer resolves.
+
+    DELIBERATELY NOT TENANT-QUALIFIED, and this is the trap in the whole field.
+    Under master-admin impersonation `current_user.id` and
+    `current_user.active_tenant_id` belong to different tenants, so `upsert_ack`
+    legitimately writes an `acknowledged_by` that sits OUTSIDE the ack's own
+    `tenant_id`. A `User.tenant_id == ack.tenant_id` join renders that
+    acknowledger as nobody — the governance trail losing exactly the name it
+    exists to hold, and only under impersonation.
+    `test_the_acknowledgers_name_resolves_from_outside_the_bookings_tenant`
+    fails with that join added. `conflict_service.list_received_feedback`'s
+    `AckUser` join is unqualified for the same reason.
+    Not a leak: the CALLER's authority to see this booking was already settled
+    by the tenant-filtered `get_ack` that produced `ack`, and a username is the
+    same thing the ack's own author field already discloses.
+
+    Nor does it filter `is_active` or `deleted_at`. A1's rule: write validation
+    filters retirement, read RENDERING does not — an archived user still
+    renders their name on the row they wrote (`get_project_names`,
+    `get_group_names`).
+    """
+    return (
+        await db.execute(
+            select(User.username).where(User.id == ack.acknowledged_by)
+        )
+    ).scalar_one_or_none()
+
+
 async def acknowledged_booking_ids(
     db: AsyncSession, booking_ids: Iterable[int], tenant_id: int
 ) -> set[int]:

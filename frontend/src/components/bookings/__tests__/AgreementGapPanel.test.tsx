@@ -32,6 +32,8 @@ import AgreementGapPanel from '../AgreementGapPanel';
 // wrong-data-source bug cannot pass by numeric coincidence.
 const BOOKING_ID = 8801;
 const OTHER_BOOKING_ID = 8802;
+// The ack's author id. Still fixed here even though the panel no longer reads
+// it: the assertions that it is NEVER printed need something to look for.
 const USER_ID = 4401;
 
 // The server's own wording, verbatim — agreement_gap_service names the project
@@ -45,8 +47,11 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof AgreementGap
     bookingId: BOOKING_ID,
     gap: GAP,
     hasUnacknowledgedGap: true,
-    currentUserId: USER_ID,
-    currentUsername: 'rmanager',
+    // The acknowledgement as it arrives on the booking response — null here,
+    // i.e. an unacknowledged gap. Task 6b deleted the `currentUserId` /
+    // `currentUsername` props: the author's NAME now travels with the row, so
+    // the panel has one source for it and no reason to know who is looking.
+    gapAck: null,
     ...overrides,
   };
   const utils = render(<AgreementGapPanel {...props} />);
@@ -61,6 +66,7 @@ beforeEach(() => {
   vi.mocked(agreementGapService.ackGap).mockReset().mockResolvedValue({
     notes: null,
     acknowledged_by: USER_ID,
+    acknowledged_by_username: 'rmanager',
     acknowledged_at: '2026-08-08T10:30:00Z',
   });
 });
@@ -94,6 +100,7 @@ describe('AgreementGapPanel — an unacknowledged gap', () => {
     vi.mocked(agreementGapService.ackGap).mockResolvedValue({
       notes: 'Agreement extension already requested',
       acknowledged_by: USER_ID,
+      acknowledged_by_username: 'rmanager',
       acknowledged_at: '2026-08-08T10:30:00Z',
     });
     const onAcknowledged = vi.fn();
@@ -131,20 +138,21 @@ describe('AgreementGapPanel — an unacknowledged gap', () => {
   });
 });
 
-describe('AgreementGapPanel — an acknowledgement recorded against somebody else', () => {
-  // The guard at `ackAuthor` exists so a name is printed only when the returned
-  // `acknowledged_by` is the person looking. It cannot be reached through the
-  // product today (`upsert_ack` always records the caller), which is exactly
-  // why it needs a test: without one it is untested defensive code that a
-  // reader would mistake for verified behaviour, and the alternative reading —
-  // "name whoever is looking" — would attribute another user's decision to the
-  // current one.
-  it('reports when it was acknowledged but names nobody, rather than naming the wrong person', async () => {
+describe('AgreementGapPanel — an acknowledgement whose author cannot be named', () => {
+  // The converted form of Task 6's "recorded against somebody else" test. The
+  // id-matching guard it covered is superseded by a server-supplied username —
+  // but its other half is the ONLY guard anywhere on "never print `#N`", and
+  // the null-username case survives the change: `acknowledged_by_username` is
+  // nullable in value on purpose (an author whose user row no longer resolves),
+  // and "Acknowledged on <when>" is the right answer then. Printing the id
+  // instead would be the one thing this codebase renders nowhere.
+  it('reports when it was acknowledged but names nobody, rather than printing an id', async () => {
     const user = userEvent.setup();
-    const OTHER_USER_ID = 4402;
+    const UNRESOLVED_USER_ID = 4402;
     vi.mocked(agreementGapService.ackGap).mockResolvedValue({
       notes: null,
-      acknowledged_by: OTHER_USER_ID,
+      acknowledged_by: UNRESOLVED_USER_ID,
+      acknowledged_by_username: null,
       acknowledged_at: '2026-08-08T10:30:00Z',
     });
     renderPanel();
@@ -155,7 +163,65 @@ describe('AgreementGapPanel — an acknowledgement recorded against somebody els
     expect(ackLine).toHaveTextContent(/^Acknowledged on /);
     expect(ackLine.textContent).not.toMatch(/rmanager/);
     // And no id leaks in place of the name.
-    expect(ackLine.textContent).not.toContain(String(OTHER_USER_ID));
+    expect(ackLine.textContent).not.toContain(String(UNRESOLVED_USER_ID));
+    // The gap is still there: an unnameable author changes nothing about it.
+    expect(screen.getByText(GAP)).toBeInTheDocument();
+  });
+
+  it('names nobody for an acknowledgement read back off the booking, too', () => {
+    // The same nullable name on the OTHER source. Two sources for the ack
+    // (the response and this session's PUT) must not disagree about what an
+    // unresolvable author looks like.
+    renderPanel({
+      hasUnacknowledgedGap: false,
+      gapAck: {
+        notes: null,
+        acknowledged_by: 4403,
+        acknowledged_by_username: null,
+        acknowledged_at: '2026-07-01T09:15:00Z',
+      },
+    });
+
+    const ackLine = screen.getByTestId('agreement-gap-ack');
+    expect(ackLine).toHaveTextContent(/^Acknowledged on /);
+    expect(ackLine.textContent).not.toContain('4403');
+  });
+});
+
+describe('AgreementGapPanel — a gap acknowledged before this session', () => {
+  // THE POINT OF TASK 6B. Nothing here clicks anything: the acknowledgement
+  // arrives on the booking response, which is the only way a reload can name
+  // who accepted a governance finding and when. Before this the panel could say
+  // no more than "This gap has been acknowledged."
+  const EARLIER_ACK = {
+    notes: 'accepted by the programme board',
+    acknowledged_by: 4404,
+    acknowledged_by_username: 'governance-lead',
+    acknowledged_at: '2026-07-01T09:15:00Z',
+  };
+
+  it('names who acknowledged it and when, from the response alone', () => {
+    renderPanel({ hasUnacknowledgedGap: false, gapAck: EARLIER_ACK });
+
+    const ackLine = screen.getByTestId('agreement-gap-ack');
+    expect(ackLine).toHaveTextContent(/Acknowledged by governance-lead on /);
+    expect(ackLine.textContent).toMatch(/2026/);
+    // Never the id, and never the generic fallback in place of a name we have.
+    expect(ackLine.textContent).not.toContain(String(EARLIER_ACK.acknowledged_by));
+    expect(ackLine.textContent).not.toMatch(/has been acknowledged/i);
+  });
+
+  it('shows the notes recorded with it', () => {
+    renderPanel({ hasUnacknowledgedGap: false, gapAck: EARLIER_ACK });
+    expect(screen.getByTestId('agreement-gap-ack')).toHaveTextContent(
+      'accepted by the programme board'
+    );
+  });
+
+  it('still shows the gap and offers no Acknowledge control — acknowledging is not resolving', () => {
+    renderPanel({ hasUnacknowledgedGap: false, gapAck: EARLIER_ACK });
+    expect(screen.getByText(GAP)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Acknowledge$/ })).not.toBeInTheDocument();
   });
 });
 

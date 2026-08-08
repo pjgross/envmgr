@@ -10,4 +10,14 @@ export interface AgreementGapAckRead {
   // cannot exist without an author and a timestamp.
   acknowledged_by: number;
   acknowledged_at: string;
+  // The author's NAME, sent with the row (backend: `_ack_read`, which resolves
+  // it with a lookup that is deliberately NOT tenant-qualified — under
+  // master-admin impersonation the acknowledger can legitimately sit outside
+  // the ack's tenant). Required, because both sources of this type — the ack
+  // PUT and `GET /bookings/{id}`'s `agreement_gap_ack` — always send it.
+  //
+  // Nullable in VALUE: an author whose user row no longer resolves has no name,
+  // and the panel then renders "Acknowledged on <when>". It must NEVER fall
+  // back to `acknowledged_by`, which is an id.
+  acknowledged_by_username: string | null;
 }

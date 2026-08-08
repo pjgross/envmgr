@@ -1,3 +1,5 @@
+import type { AgreementGapAckRead } from './agreementGap';
+
 export type BookingStatus = string; // lifecycle state key e.g. 'draft', 'submitted', 'approved'
 export type ContextTag = 'deployment' | 'regression' | 'none';
 
@@ -47,6 +49,12 @@ export interface BookingResponse {
   // refuses or alters a booking.
   agreement_gap: string | null;
   has_unacknowledged_agreement_gap: boolean;
+  // WHO accepted the gap and WHEN — populated by `GET /bookings/{id}` alone,
+  // like `request` above (the list omits it: detail-page information, and a
+  // paginated list would need a batch lookup for something no row renders).
+  // Optional for exactly that reason: an absent key means "this response is not
+  // the detail read", a present null means "nobody has acknowledged it".
+  agreement_gap_ack?: AgreementGapAckRead | null;
   // Provenance, not a live link — set for a booking that arrived via an
   // environment group, null for a hand-picked environment.
   environment_group_id: number | null;

@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.api.v1.schemas.agreement_gap import AgreementGapAckRead
 from app.db.models.booking import ContextTag
 
 
@@ -91,6 +92,23 @@ class BookingResponse(BaseModel):
     # rest.
     agreement_gap: Optional[str] = None
     has_unacknowledged_agreement_gap: bool = False
+    # WHO accepted the gap, and WHEN — populated by `GET /bookings/{id}` ALONE,
+    # the same way `request`, `custom_field_permissions` and
+    # `standard_field_permissions` above are. Deliberately not on the list: it
+    # is detail-page information, and a paginated list would need a batch
+    # lookup per page for something no list row renders. Nor on
+    # `EnvBookingSummary`, nor on the create envelope (nothing has been
+    # acknowledged one millisecond after a booking is created).
+    #
+    # Without it "who and when" survived only inside the browser session that
+    # made the ack — after a reload the page could say no more than "this has
+    # been acknowledged". Follows `ConflictItem.ack`, the same mechanism A3
+    # mirrors everywhere else.
+    #
+    # NOT suppressed when the gap has since closed: the field reports the ack
+    # row, and gating its presence on the computed gap would make one field's
+    # presence depend on two mechanisms. Consumers key on `agreement_gap`.
+    agreement_gap_ack: Optional[AgreementGapAckRead] = None
     # Provenance, not a live link — see Booking.environment_group_id. Null for
     # a hand-picked environment; set for one that arrived via a group.
     environment_group_id: Optional[int] = None

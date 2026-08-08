@@ -10,14 +10,21 @@ type Props = {
   gap: string | null;
   hasUnacknowledgedGap: boolean;
   /**
-   * Who is looking. Used ONLY to put a name on an acknowledgement made in
-   * this session — the ack endpoint returns `acknowledged_by` as a user id,
-   * and this codebase renders entities by name, never as `#N`. When the id
-   * does not match (it cannot today: the backend records the caller), the
-   * line drops the name rather than inventing or numbering one.
+   * The acknowledgement as `GET /bookings/{id}` reports it — who accepted the
+   * gap, when, and with what note — or null when nobody has.
+   *
+   * REQUIRED, not optional, deliberately: a caller that fetches the ack and
+   * forgets to pass it down is Task 6's F1 on a new prop, and every test at
+   * this seam would go on passing against the nameless fallback. Required makes
+   * that omission a compile error.
+   *
+   * It replaces the `currentUserId`/`currentUsername` pair this panel used to
+   * take. The name travels with the row now (as `owner_username` and
+   * `ReleaseSystemRead.system_name` do), so there is ONE source for it —
+   * deliberately not a fallback pair, which is the "two mechanisms, one
+   * outcome" shape that has cost this branch three findings.
    */
-  currentUserId?: number | null;
-  currentUsername?: string | null;
+  gapAck: AgreementGapAckRead | null;
   /**
    * Told after a successful acknowledgement so the owner of the booking can
    * refetch it. The ack is service-only (no thunk), so the caller owns the
@@ -54,8 +61,7 @@ export default function AgreementGapPanel({
   bookingId,
   gap,
   hasUnacknowledgedGap,
-  currentUserId,
-  currentUsername,
+  gapAck,
   onAcknowledged,
 }: Props) {
   const [notes, setNotes] = useState('');
@@ -76,11 +82,16 @@ export default function AgreementGapPanel({
 
   if (gap == null) return null;
 
-  const acknowledged = ack != null || !hasUnacknowledgedGap;
-  const ackAuthor =
-    ack != null && currentUserId != null && ack.acknowledged_by === currentUserId
-      ? currentUsername
-      : null;
+  // This session's acknowledgement wins over the one that arrived with the
+  // booking — not two sources for one name, but the same server field read at
+  // two moments: the caller refetches after `onAcknowledged`, and until that
+  // lands (or if it fails) the PUT's own answer is the fresher one. Both carry
+  // `acknowledged_by_username`, so the line reads identically either way.
+  const shownAck = ack ?? gapAck;
+  const acknowledged = shownAck != null || !hasUnacknowledgedGap;
+  // Never `acknowledged_by`, which is a user id: null means "no name available",
+  // and the line then reports only when it happened.
+  const ackAuthor = shownAck?.acknowledged_by_username ?? null;
 
   const handleAcknowledge = async () => {
     setSaving(true);
@@ -113,17 +124,23 @@ export default function AgreementGapPanel({
         </Typography>
 
         {acknowledged ? (
-          // The testid identifies the one line whose CONTENT differs between an
-          // acknowledgement made in this session (who and when) and one read
-          // back off the booking response (a boolean, so neither) — a text
-          // query cannot tell those apart, and three tests key on it.
+          // The testid identifies the one line whose CONTENT varies — who and
+          // when, when only when, or neither — which a text query cannot tell
+          // apart. Several tests key on it.
           <Typography variant="body2" sx={{ mt: 1 }} data-testid="agreement-gap-ack">
-            {ack != null
+            {shownAck != null
               ? ackAuthor
-                ? `Acknowledged by ${ackAuthor} on ${new Date(ack.acknowledged_at).toLocaleString()}`
-                : `Acknowledged on ${new Date(ack.acknowledged_at).toLocaleString()}`
-              : 'This gap has been acknowledged.'}
-            {ack?.notes ? ` — ${ack.notes}` : ''}
+                ? `Acknowledged by ${ackAuthor} on ${new Date(shownAck.acknowledged_at).toLocaleString()}`
+                : `Acknowledged on ${new Date(shownAck.acknowledged_at).toLocaleString()}`
+              : // No ack row to read: the booking says the gap is acknowledged
+                // and nothing more. `GET /bookings/{id}` does not produce this
+                // (an acknowledged gap HAS a row — see
+                // test_the_detail_response_carries_the_acknowledgement...), so
+                // it stands for a caller that passes `gapAck={null}` from a
+                // response that never carried one, e.g. after an env-override
+                // save returns a plain BookingResponse.
+                'This gap has been acknowledged.'}
+            {shownAck?.notes ? ` — ${shownAck.notes}` : ''}
           </Typography>
         ) : (
           <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>

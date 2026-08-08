@@ -100,6 +100,26 @@ async def _gap_for(db, booking, tenant_id: int) -> agreement_gap_service.GapWarn
     ).get(booking.id)
 
 
+async def _ack_read(db, ack) -> AgreementGapAckRead | None:
+    """Shape an ack row for the wire, resolving its author's NAME.
+
+    THE ONLY way to build an `AgreementGapAckRead`: the schema's
+    `acknowledged_by_username` is required and an ORM ack has no such attribute,
+    so `model_validate(ack)` raises rather than silently sending null — the A1
+    failure this codebase has already shipped once.
+
+    One extra indexed lookup on a detail read, and only when an ack exists.
+    """
+    if ack is None:
+        return None
+    return AgreementGapAckRead(
+        notes=ack.notes,
+        acknowledged_by=ack.acknowledged_by,
+        acknowledged_at=ack.acknowledged_at,
+        acknowledged_by_username=await agreement_gap_service.ack_author_username(db, ack),
+    )
+
+
 def _request_summary(req) -> BookingRequestSummary:
     """Compose a BookingRequestSummary from a BookingRequest ORM object."""
     summary = BookingRequestSummary.model_validate(req)
@@ -219,6 +239,17 @@ async def get_booking(
     resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
         db, booking.id, current_user.active_tenant_id
     )
+    # Who accepted this booking's gap, and when — the detail read ONLY (see
+    # BookingResponse.agreement_gap_ack). Tenant-filtered by `get_ack`: a
+    # malformed row bearing another tenant's tenant_id must not be read back as
+    # ours, and `test_another_tenants_ack_row_is_never_read_back_as_ours` fails
+    # without that filter.
+    resp.agreement_gap_ack = await _ack_read(
+        db,
+        await agreement_gap_service.get_ack(
+            db, booking.id, current_user.active_tenant_id
+        ),
+    )
     if booking.booking_request_id is not None:
         request_obj = await booking_request_service._get_request(
             db, booking.booking_request_id, current_user.active_tenant_id
@@ -313,7 +344,11 @@ async def ack_agreement_gap(
         db, booking_id, notes=data.notes,
         current_user=current_user, tenant_id=current_user.active_tenant_id,
     )
-    return AgreementGapAckRead.model_validate(ack)
+    # Same shape as `GET /bookings/{id}`'s `agreement_gap_ack`, from the same
+    # builder: the panel holds this answer in local state until the page
+    # refetches, so a name on one and not the other would name the acknowledger
+    # in this session and not the next.
+    return await _ack_read(db, ack)
 
 
 @router.delete("/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)

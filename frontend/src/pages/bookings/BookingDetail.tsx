@@ -360,8 +360,12 @@ export default function BookingDetail() {
         bookingId={booking.id}
         gap={booking.agreement_gap}
         hasUnacknowledgedGap={booking.has_unacknowledged_agreement_gap}
-        currentUserId={currentUser?.id ?? null}
-        currentUsername={currentUser?.username ?? null}
+        // Who accepted the gap and when, straight off the detail response —
+        // which is what makes "who and when" survive a reload. `?? null`
+        // because the field is detail-only: a BookingResponse from a PATCH or
+        // a transition carries no key at all, and the panel's prop is
+        // deliberately required so forgetting it cannot compile.
+        gapAck={booking.agreement_gap_ack ?? null}
         onAcknowledged={async () => {
           // The ack is service-only (no thunk), so the refresh is the
           // caller's. Refetching is what makes the ACKNOWLEDGED state

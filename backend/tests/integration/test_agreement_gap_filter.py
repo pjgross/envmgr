@@ -172,6 +172,19 @@ async def _list(client, headers, query: str = ""):
     return resp
 
 
+def _instant(value: str) -> datetime:
+    """An ISO timestamp as an aware instant, whichever engine wrote it.
+
+    SQLite's `DateTime(timezone=True)` returns a naive value; PostgreSQL returns
+    an aware one. Both mean UTC here (everything is written
+    `datetime.now(timezone.utc)`), and the ack tests compare timestamps ACROSS
+    those two paths — a freshly-assigned Python datetime against a
+    round-tripped one.
+    """
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def _ids(resp) -> set[int]:
     return {row["id"] for row in resp.json()}
 
@@ -353,6 +366,301 @@ async def test_every_booking_response_builder_populates_the_gap(
     assert detail["agreement_gap"] is not None
     assert {a["agreement_gap"] for a in answers} == {detail["agreement_gap"]}
     assert {a["has_unacknowledged_agreement_gap"] for a in answers} == {True}
+
+
+# ── the acknowledgement, read back (A3, task 6b) ─────────────────────────────
+#
+# Task 3 built `get_ack` and exposed it on no route, so until now the only way
+# to see WHO accepted a gap and WHEN was to be the browser session that made
+# the ack. After a reload the page could say no more than "this has been
+# acknowledged". `agreement_gap_ack` closes that, on `GET /bookings/{id}` ONLY
+# — following `ConflictItem.ack`, and deliberately not on the list, the create
+# envelope or `EnvBookingSummary`: it is detail-page information, and a
+# paginated list would need a batch lookup for no user-visible benefit.
+
+
+@pytest.mark.asyncio
+async def test_the_detail_response_carries_the_acknowledgement_and_names_its_author(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """"Who and when" must survive a reload, and "who" must be a NAME.
+
+    `acknowledged_by` is a user id, and this codebase renders entities by name
+    — never `#N`. The name travels with the row the way `owner_username` and
+    `ReleaseSystemRead.system_name` do, rather than being resolved in the
+    browser against the capped tenant-users collection.
+    """
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+
+    acked = await client.put(
+        f"/api/v1/bookings/{pop.uncovered.id}/agreement-gap/ack",
+        json={"notes": "accepted by the programme board"},
+        headers=auth_headers,
+    )
+    assert acked.status_code == 200, acked.text
+
+    body = (
+        await client.get(f"/api/v1/bookings/{pop.uncovered.id}", headers=auth_headers)
+    ).json()
+
+    ack = body["agreement_gap_ack"]
+    assert ack is not None, "the acknowledgement is unreadable after a reload"
+    assert ack["notes"] == "accepted by the programme board"
+    assert ack["acknowledged_by"] == test_user.id
+    assert ack["acknowledged_by_username"] == test_user.username
+    assert ack["acknowledged_at"] is not None
+    # Acknowledging is not resolving: the gap is still reported beside its ack.
+    assert body["agreement_gap"] is not None
+    assert body["has_unacknowledged_agreement_gap"] is False
+
+
+@pytest.mark.asyncio
+async def test_the_ack_endpoints_own_response_names_the_author_too(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """The PUT and the GET answer with the SAME shape, asserted against each
+    other rather than separately.
+
+    The panel holds the PUT's answer in local state until the page refetches,
+    so a username on one and not the other would name the acknowledger in this
+    session and not the next — or the other way round. One schema, two sites.
+    """
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+
+    put = (
+        await client.put(
+            f"/api/v1/bookings/{pop.uncovered.id}/agreement-gap/ack",
+            json={"notes": "same shape both ways"},
+            headers=auth_headers,
+        )
+    ).json()
+    get = (
+        await client.get(f"/api/v1/bookings/{pop.uncovered.id}", headers=auth_headers)
+    ).json()["agreement_gap_ack"]
+
+    assert put["acknowledged_by_username"] == test_user.username
+    assert put.keys() == get.keys()
+    for field in ("notes", "acknowledged_by", "acknowledged_by_username"):
+        assert put[field] == get[field], field
+    # Compared as INSTANTS, not strings: SQLite's DateTime(timezone=True) hands
+    # back a naive value, so the freshly-assigned Python datetime the PUT
+    # serialises carries a `Z` the round-tripped one does not. That is an engine
+    # artefact, not a difference in the answer, and asserting the strings would
+    # pass on PostgreSQL and fail on SQLite.
+    assert _instant(put["acknowledged_at"]) == _instant(get["acknowledged_at"])
+
+
+@pytest.mark.asyncio
+async def test_an_unacknowledged_gap_carries_no_acknowledgement(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """None, not a row with empty fields — otherwise the page reports an
+    unaccepted governance finding as accepted by nobody in particular."""
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+
+    body = (
+        await client.get(f"/api/v1/bookings/{pop.uncovered.id}", headers=auth_headers)
+    ).json()
+
+    assert body["has_unacknowledged_agreement_gap"] is True
+    assert body["agreement_gap_ack"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_booking_with_no_gap_carries_no_acknowledgement(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """A covered booking has nothing to accept, so there is nothing to read."""
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+
+    body = (
+        await client.get(f"/api/v1/bookings/{pop.covered.id}", headers=auth_headers)
+    ).json()
+
+    assert body["agreement_gap"] is None
+    assert body["agreement_gap_ack"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_ack_survives_the_gap_closing_and_is_reported_beside_no_gap(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """The field reports the ack TABLE, not the gap: it is not suppressed when
+    the gap later closes.
+
+    Deliberate. Gating the ack's presence on the computed gap would make one
+    field's presence depend on two mechanisms — the shape that has already cost
+    this branch three findings — and the honest reading of a leftover row is
+    "this was accepted, and has since been agreed properly". Consumers key on
+    `agreement_gap`, which is null here, so nothing renders an acknowledgement
+    with no warning above it.
+
+    The corollary matters more than the row: because the ack is NOT suppressed,
+    `agreement_gap != null and not has_unacknowledged_agreement_gap` implies an
+    ack row exists. A frontend fixture claiming otherwise describes a state
+    production cannot produce.
+    """
+    project = await ensure_project(db_session, test_tenant.id, name="Late Paperwork")
+    env = await ensure_environment(db_session, test_tenant.id)
+    booking = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        booking_type=test_booking_type, project_id=project.id,
+    )
+
+    await client.put(
+        f"/api/v1/bookings/{booking.id}/agreement-gap/ack",
+        json={"notes": "accepted while the paperwork catches up"},
+        headers=auth_headers,
+    )
+    # The paperwork lands: the gap closes with no ack and no other action.
+    await _agreement(db_session, test_tenant.id, project.id, env.id)
+
+    body = (
+        await client.get(f"/api/v1/bookings/{booking.id}", headers=auth_headers)
+    ).json()
+
+    assert body["agreement_gap"] is None
+    assert body["agreement_gap_ack"] is not None
+    assert body["agreement_gap_ack"]["acknowledged_by_username"] == test_user.username
+
+
+@pytest.mark.asyncio
+async def test_the_acknowledgers_name_resolves_from_outside_the_bookings_tenant(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type, second_tenant_factory,
+):
+    """THE TRAP IN THIS FIELD. The name lookup must NOT be tenant-qualified.
+
+    Under master-admin impersonation `current_user.id` and
+    `current_user.active_tenant_id` belong to different tenants, so `upsert_ack`
+    legitimately records an `acknowledged_by` outside the ack's own `tenant_id`.
+    A `User.tenant_id == tenant_id` join renders that acknowledger as nobody —
+    the governance trail losing exactly the name it exists to hold, and only
+    under impersonation, which nothing else in the suite exercises.
+
+    Seeded directly rather than through a login: the row shape is what matters,
+    and it is reachable through the product.
+    """
+    other_tenant, other_admin = await second_tenant_factory()
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+    db_session.add(
+        UsageAgreementAck(
+            # OUR tenant's finding…
+            tenant_id=test_tenant.id,
+            booking_id=pop.uncovered.id,
+            notes="accepted by the impersonating master admin",
+            # …accepted by a user who is not in it.
+            acknowledged_by=other_admin.id,
+            acknowledged_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.flush()
+
+    ack = (
+        await client.get(f"/api/v1/bookings/{pop.uncovered.id}", headers=auth_headers)
+    ).json()["agreement_gap_ack"]
+
+    assert ack is not None
+    assert ack["acknowledged_by"] == other_admin.id
+    assert ack["acknowledged_by_username"] == other_admin.username, (
+        "the acknowledger's name must not be resolved with a tenant-qualified "
+        "join — under impersonation they legitimately sit outside the tenant"
+    )
+    assert other_tenant.id != test_tenant.id
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_ack_row_is_never_read_back_as_ours(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type, second_tenant_factory,
+):
+    """Assume every tenant filter is unguarded until a named test fails without
+    it. `uq_agreement_ack_booking` is on `booking_id` alone, so a row bearing
+    another tenant's `tenant_id` is insertable against our booking; it must
+    neither be rendered as our acknowledgement nor silence our warning.
+
+    The `tenant_id` here is the ACK's, not the acknowledger's — the opposite
+    axis from the test above, which is why both are needed.
+    """
+    other_tenant, other_admin = await second_tenant_factory()
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+    db_session.add(
+        UsageAgreementAck(
+            tenant_id=other_tenant.id,
+            booking_id=pop.uncovered.id,
+            notes="not ours",
+            acknowledged_by=other_admin.id,
+            acknowledged_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.flush()
+
+    body = (
+        await client.get(f"/api/v1/bookings/{pop.uncovered.id}", headers=auth_headers)
+    ).json()
+
+    assert body["agreement_gap_ack"] is None
+    assert body["has_unacknowledged_agreement_gap"] is True
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_booking_leaks_no_acknowledgement(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    second_tenant_factory,
+):
+    """404, never 403, and never a body — a cross-tenant id must not be
+    confirmed to exist, let alone carry another tenant's governance trail."""
+    other_tenant, other_admin = await second_tenant_factory()
+    await ensure_booking_type(db_session, other_tenant.id)
+    their_project = await ensure_project(db_session, other_tenant.id, name="Theirs")
+    their_env = await ensure_environment(db_session, other_tenant.id)
+    theirs = await make_booking(
+        db_session, other_tenant.id, booked_by=other_admin.id,
+        environment=their_env, project_id=their_project.id,
+    )
+    await agreement_gap_service.upsert_ack(
+        db_session, theirs.id, notes="their business",
+        current_user=other_admin, tenant_id=other_tenant.id,
+    )
+
+    resp = await client.get(f"/api/v1/bookings/{theirs.id}", headers=auth_headers)
+
+    assert resp.status_code == 404
+    assert "their business" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_the_list_deliberately_carries_no_acknowledgement(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """Detail-only, on purpose: the list is paginated and would need a batch
+    lookup per page for something no list row renders.
+
+    Pinned rather than left implicit — wiring it into the shared
+    `_to_response` is the obvious "tidy-up", and it would put a per-row query
+    behind every page load. The list still answers the WARNING in full, which
+    is what a list needs (`has_unacknowledged_agreement_gap` below).
+    """
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+    await client.put(
+        f"/api/v1/bookings/{pop.uncovered.id}/agreement-gap/ack",
+        json={"notes": "accepted"},
+        headers=auth_headers,
+    )
+
+    row = next(
+        r for r in (await _list(client, auth_headers)).json() if r["id"] == pop.uncovered.id
+    )
+
+    assert row.get("agreement_gap_ack") is None
+    assert row["agreement_gap"] is not None
+    assert row["has_unacknowledged_agreement_gap"] is False
 
 
 # ── every construction site ──────────────────────────────────────────────────

@@ -20,6 +20,24 @@ class AgreementGapAckRead(BaseModel):
     # would invite a consumer to render "acknowledged by nobody".
     acknowledged_by: int
     acknowledged_at: datetime
+    # The author's NAME, travelling with the row the way `owner_username` and
+    # `ReleaseSystemRead.system_name` do. `acknowledged_by` is a user id and
+    # this codebase renders entities by name, never `#N`; resolving it in the
+    # browser would mean looking it up in the capped tenant-users collection,
+    # where a name past the cap is information LOST, not merely hidden.
+    #
+    # REQUIRED, with no default, on purpose: this schema is built by
+    # `model_validate(ack)` at every site, an ORM ack has no such attribute, and
+    # Pydantic silently defaults a missing non-column attribute rather than
+    # raising — which is how A1 shipped a response field that rendered null at
+    # four of five construction sites with a green suite. Required turns that
+    # into a ValidationError, so the only way to build one is
+    # `bookings.py::_ack_read`, which resolves the name itself.
+    #
+    # Nullable in VALUE, though: a user row can go missing (hard-deleted in a
+    # repair, or an id that no longer resolves), and "Acknowledged on <when>"
+    # with no name is the right answer then — never the id.
+    acknowledged_by_username: Optional[str]
 
 
 class AgreementGapAckUpsert(BaseModel):
