@@ -15,7 +15,7 @@ call B3a made with group membership.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -37,6 +37,15 @@ class Project(Base):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # A4's contention priority. LOWER WINS: rank 1 outranks rank 2.
+    #
+    # NULL MEANS UNRANKED, and that is a real state rather than a missing
+    # value — no project has a rank on first deploy and there is no backfill.
+    # A4's verdict reports an unranked pair as "priority does not separate
+    # these", never as a loss: treating unranked as lowest would declare the
+    # entire existing estate the loser the day this ships, which is the shape
+    # B1's governance-gap chip took when it flagged every environment.
+    priority_rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     team_group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("user_group.id"), nullable=True, index=True

@@ -36,6 +36,12 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
     team_group_id: Optional[int] = None
     is_active: Optional[bool] = None
+    # `int | None`, not Optional-with-default-omitted: the service keys on
+    # model_fields_set, so an omitted key means "leave alone" and only an
+    # explicit null clears the rank — the contract B1 gave expires_at.
+    # ge=1 because rank 1 is the HIGHEST: 0 and negatives are a caller who
+    # guessed the direction, and a silent wrong guess is what this refuses.
+    priority_rank: Optional[int] = Field(None, ge=1)
 
     @field_validator("name")
     @classmethod
@@ -72,6 +78,8 @@ class ProjectResponse(BaseModel):
     team_group_name: Optional[str] = None
     environment_count: int = 0
     is_active: bool
+    # A4's contention priority. LOWER WINS; null means unranked.
+    priority_rank: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -84,6 +92,7 @@ class ProjectResponse(BaseModel):
             team_group_name=view.team_group_name,
             environment_count=view.environment_count,
             is_active=p.is_active,
+            priority_rank=p.priority_rank,
             created_at=p.created_at, updated_at=p.updated_at,
         )
 
