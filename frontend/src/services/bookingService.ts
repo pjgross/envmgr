@@ -11,6 +11,14 @@ export const bookingService = {
     end?: string;
     booking_status?: string;
     project_id?: number;
+    /**
+     * A3's usage-agreement filter. `true` = only bookings no live agreement
+     * covers; `false` = the exact complement (covered, plus those whose
+     * request names no project). OMIT for every booking — `undefined` is
+     * dropped by axios, and an empty `?agreement_gap=` is a 422 from
+     * FastAPI's `Optional[bool]` rather than an ignored param.
+     */
+    agreement_gap?: boolean;
     limit?: number;
     offset?: number;
     sort_by?: string;

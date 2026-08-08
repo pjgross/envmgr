@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
 import BookingList, {
+  apiAgreementGap,
   apiProjectId,
   bookingColumns,
   buildCustomFieldColumns,
@@ -40,6 +41,7 @@ vi.mock('../../../services/projectService', () => ({
 
 import { bookingService } from '../../../services/bookingService';
 import { projectService } from '../../../services/projectService';
+import type { BookingResponse } from '../../../types/booking';
 import type { CustomFieldDefinition } from '../../../types/customField';
 
 function renderBookingList(url = '/bookings') {
@@ -55,6 +57,54 @@ function renderBookingList(url = '/bookings') {
 function lastListParams() {
   const calls = vi.mocked(bookingService.listBookings).mock.calls;
   return calls[calls.length - 1]?.[0];
+}
+
+/**
+ * Invoke a column's `renderCell` against a partial row and hand back the
+ * element it produced, so its props can be asserted. @mui/x-data-grid
+ * virtualizes columns and cells by container width and jsdom reports zero
+ * layout width, so a real render of this page never gets these cells into the
+ * DOM — every column test in this file asserts on the GridColDef directly.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function renderColumnCell(col: any, row: Record<string, unknown>): any {
+  return col.renderCell?.({ row } as any) as any;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/** One list row, in an unacknowledged usage-agreement gap. */
+function gapRow(id: number, gap: string): BookingResponse {
+  return {
+    id,
+    environment_id: 10,
+    environment_name: 'UAT-1',
+    project_name: 'Regression sweep',
+    project_id: 3,
+    project_name_link: 'Mortgage',
+    booked_by: 5,
+    booked_by_username: 'sam',
+    start_date: '2026-08-10T00:00:00Z',
+    end_date: '2026-08-12T00:00:00Z',
+    booking_type_id: 1,
+    exclusive_use: false,
+    status: 'approved',
+    notes: null,
+    recurrence_rule: null,
+    recurrence_parent_id: null,
+    release_id: null,
+    test_phase_id: null,
+    context_tag: 'none',
+    custom_fields: null,
+    tenant_id: 1,
+    created_at: '2026-08-01T00:00:00Z',
+    updated_at: '2026-08-01T00:00:00Z',
+    agreement_gap: gap,
+    has_unacknowledged_agreement_gap: true,
+    // Detail-only in value, null on every list row — see types/booking.ts.
+    agreement_gap_ack: null,
+    environment_group_id: null,
+    environment_group_name: null,
+  };
 }
 
 describe('BookingList server-side grid', () => {
@@ -82,6 +132,10 @@ describe('BookingList server-side grid', () => {
       'booked_by_username',
       'booking_type_id',
       'conflicts',
+      // A3's gap column. `agreement_gap` is a FILTER on GET /bookings, never a
+      // sort key — BOOKING_SORTS whitelists start_date, end_date and status
+      // only, and an unknown sort_by is a 422, not a silent fallback.
+      'agreement_gap',
       'actions',
     ].forEach((field) => expect(byField[field].sortable).toBe(false));
   });
@@ -212,6 +266,196 @@ describe('BookingList server-side grid', () => {
     await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
     const allOption = await screen.findByRole('option', { name: 'All projects' });
     expect(allOption).toHaveAttribute('data-value', 'any');
+  });
+
+  // --- A3 Task 6c: the usage-agreement gap column and filter ----------------
+
+  it('renders the gap indicator from the row, and renders nothing for a covered booking', () => {
+    // The column's renderCell is the JOIN between the row and the indicator —
+    // both ends of it are tested (the indicator has its own suite, the wire
+    // fields are pinned backend-side), and deleting the wiring between them is
+    // exactly the shape that left 43 frontend tests green while the A2 repair
+    // path regressed in full. @mui/x-data-grid virtualizes by container width
+    // and jsdom reports zero width, so the cell never reaches the DOM in a real
+    // render of this page — assert on the GridColDef directly, as every other
+    // column test in this file does.
+    const byField = Object.fromEntries(bookingColumns.map((c) => [c.field, c]));
+    const col = byField.agreement_gap;
+    expect(col).toBeDefined();
+    expect(col.headerName).toBe('Agreement');
+
+    const gap = 'Mortgage has no usage agreement for UAT-1';
+    const inGap = renderColumnCell(col, {
+      agreement_gap: gap,
+      has_unacknowledged_agreement_gap: true,
+    });
+    expect(inGap.props.gap).toBe(gap);
+    expect(inGap.props.hasUnacknowledgedGap).toBe(true);
+
+    // Acknowledging is not resolving: the row is still in gap, and the flag is
+    // what changed — both must reach the indicator, or the two states collapse.
+    const acknowledged = renderColumnCell(col, {
+      agreement_gap: gap,
+      has_unacknowledged_agreement_gap: false,
+    });
+    expect(acknowledged.props.gap).toBe(gap);
+    expect(acknowledged.props.hasUnacknowledgedGap).toBe(false);
+
+    // Covered: the indicator itself renders nothing (its own suite pins that),
+    // so the null gap must arrive as null rather than be papered over with a
+    // '—' or a booking id.
+    const covered = renderColumnCell(col, {
+      agreement_gap: null,
+      has_unacknowledged_agreement_gap: false,
+    });
+    expect(covered.props.gap).toBeNull();
+  });
+
+  it('reads the list column from agreement_gap, never the detail-only agreement_gap_ack', () => {
+    // `agreement_gap_ack` is carried by GET /bookings/{id} alone — every LIST
+    // row sends it as null, key present. A column that decided anything from it
+    // would be present, correctly named and permanently wrong: every row would
+    // read as unacknowledged, or as covered, depending which way it leaned.
+    const byField = Object.fromEntries(bookingColumns.map((c) => [c.field, c]));
+    const gap = 'Mortgage has no usage agreement for UAT-1';
+
+    // A real list row: in gap, acknowledged, and `agreement_gap_ack: null`
+    // because the list never carries it. The acknowledged state must still come
+    // through, from the flag alone.
+    const listRow = renderColumnCell(byField.agreement_gap, {
+      agreement_gap: gap,
+      has_unacknowledged_agreement_gap: false,
+      agreement_gap_ack: null,
+    });
+    expect(listRow.props.gap).toBe(gap);
+    expect(listRow.props.hasUnacknowledgedGap).toBe(false);
+
+    // And an ack present alongside no gap never conjures one.
+    const covered = renderColumnCell(byField.agreement_gap, {
+      agreement_gap: null,
+      has_unacknowledged_agreement_gap: false,
+      agreement_gap_ack: {
+        acknowledged_by_username: 'sam',
+        acknowledged_at: '2026-08-08T00:00:00Z',
+      },
+    });
+    expect(covered.props.gap).toBeNull();
+  });
+
+  it('sends agreement_gap=true when the gap filter selects bookings in gap', async () => {
+    renderBookingList('/bookings?page=2');
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+    vi.mocked(bookingService.listBookings).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Usage agreement' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'In gap' }));
+
+    // The wire name is `agreement_gap`, exactly as declared by
+    // `list_bookings` in backend/app/api/v1/bookings.py. FastAPI drops unknown
+    // query params silently, so a misspelling here would filter nothing at all
+    // and look entirely correct — /releases/calendar's `from`/`to` and the
+    // Projects grid's `?project_id=` both shipped that way.
+    await waitFor(() =>
+      expect(lastListParams()).toMatchObject({ agreement_gap: true, offset: 0 })
+    );
+  });
+
+  it('sends agreement_gap=false for the complement', async () => {
+    renderBookingList();
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+    vi.mocked(bookingService.listBookings).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Usage agreement' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'No gap' }));
+
+    // Not the same as omitting it: `false` is the exact complement — covered
+    // bookings AND those whose request names no project.
+    await waitFor(() => expect(lastListParams()?.agreement_gap).toBe(false));
+  });
+
+  it('applies the gap filter straight from the URL', async () => {
+    renderBookingList('/bookings?agreement_gap=true');
+    await waitFor(() => expect(lastListParams()?.agreement_gap).toBe(true));
+  });
+
+  it('drops agreement_gap entirely when the filter is cleared, and refetches', async () => {
+    renderBookingList('/bookings?agreement_gap=true');
+    await waitFor(() => expect(lastListParams()?.agreement_gap).toBe(true));
+    vi.mocked(bookingService.listBookings).mockClear();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Usage agreement' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'All bookings' }));
+
+    // A new request, not a silently-identical one: the grid's fetch effect is
+    // keyed on the resolved params, so a "no selection" value that buildParams
+    // already drops in the *other* state would leave both toggle states
+    // byte-identical and nothing would ever be re-issued.
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+    // Never `''` (a 422 from FastAPI's Optional[bool]) and never `'all'`.
+    expect(lastListParams()?.agreement_gap).toBeUndefined();
+    // And the select shows the cleared state rather than going blank — the
+    // symptom of a "no selection" value that matches no MenuItem.
+    expect(screen.getByRole('combobox', { name: 'Usage agreement' })).toHaveTextContent(
+      'All bookings'
+    );
+  });
+
+  it("spells the gap filter's \"no selection\" state `any`, never `all`", async () => {
+    // `all` is buildParams' own "no selection" sentinel — see the identical
+    // guard on the Project filter below, and ScopeWindowsTable, where two
+    // toggle states built byte-identical params and the grid never refetched.
+    // `''` is out for a different reason: MUI's Select renders it as a blank
+    // box rather than as its own option's label.
+    renderBookingList();
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Usage agreement' }));
+    const noSelection = await screen.findByRole('option', { name: 'All bookings' });
+    expect(noSelection).toHaveAttribute('data-value', 'any');
+  });
+
+  it('reads an unparseable gap value in the URL as no filter, in the select and on the wire alike', async () => {
+    // A hand-edited or stale link. The two must agree: a select showing "All
+    // bookings" over a grid filtered by something else — or a 422 that blanks
+    // the grid entirely — are both worse than ignoring the value.
+    renderBookingList('/bookings?agreement_gap=yes');
+
+    await waitFor(() => expect(lastListParams()).toBeDefined());
+    expect(lastListParams()?.agreement_gap).toBeUndefined();
+    expect(screen.getByRole('combobox', { name: 'Usage agreement' })).toHaveTextContent(
+      'All bookings'
+    );
+  });
+
+  it('leaves booking creation available while a gap is on screen — A3 warns, it never blocks', async () => {
+    // The frontend twin of `test_an_agreement_changes_no_booking_behaviour`.
+    // A page of bookings every one of which is in an unacknowledged gap must
+    // still offer every action it offers otherwise; gating "+ New Booking" (or
+    // anything else) on a gap is the one thing A3 promised never to do.
+    vi.mocked(bookingService.listBookings).mockResolvedValueOnce({
+      rows: [
+        gapRow(1, 'Mortgage has no usage agreement for UAT-1'),
+        gapRow(2, "Mortgage's booking falls outside its agreed window for UAT-2"),
+      ],
+      total: 2,
+    });
+    renderBookingList();
+    await waitFor(() => expect(lastListParams()).toBeDefined());
+
+    expect(await screen.findByRole('button', { name: '+ New Booking' })).toBeEnabled();
+  });
+
+  it('takes the row count from X-Total-Count, not the length of the page', async () => {
+    // The page holds one row; the server says there are 137. A grid that
+    // counted its own rows would report a single page and hide the other 136 —
+    // and the gap filter above would look like it had matched almost nothing.
+    vi.mocked(bookingService.listBookings).mockResolvedValueOnce({
+      rows: [gapRow(1, 'Mortgage has no usage agreement for UAT-1')],
+      total: 137,
+    });
+    renderBookingList();
+
+    expect(await screen.findByText(/of 137/)).toBeInTheDocument();
   });
 
   // Finding 3 (A2 whole-branch review): the kebab's transition action must
@@ -379,5 +623,30 @@ describe('apiProjectId', () => {
   it('passes a chosen project id through as a number', () => {
     expect(apiProjectId('7')).toBe(7);
     expect(apiProjectId(7)).toBe(7);
+  });
+});
+
+describe('apiAgreementGap', () => {
+  it('sends the two real selections as booleans', () => {
+    expect(apiAgreementGap('true')).toBe(true);
+    expect(apiAgreementGap('false')).toBe(false);
+  });
+
+  it('sends nothing at all for no selection', () => {
+    // `''` is what the cleared select writes to the URL, and what buildParams
+    // already drops. Both routes must end at `undefined`: `?agreement_gap=`
+    // is a 422 from FastAPI's Optional[bool], not an ignored param.
+    expect(apiAgreementGap(undefined)).toBeUndefined();
+    expect(apiAgreementGap('')).toBeUndefined();
+  });
+
+  it('sends nothing for a value the server could not parse', () => {
+    // Everything read out of the URL is untrusted — a hand-edited or stale
+    // link must not 422 the whole grid. `all` is here because it is
+    // buildParams' own sentinel and must never mean anything on this filter.
+    expect(apiAgreementGap('all')).toBeUndefined();
+    expect(apiAgreementGap('any')).toBeUndefined();
+    expect(apiAgreementGap('yes')).toBeUndefined();
+    expect(apiAgreementGap('1')).toBeUndefined();
   });
 });
