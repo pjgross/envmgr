@@ -35,7 +35,12 @@ and PR.
       subject, and A1's own "what it established" section quoted "cooperate in
       a shared environment" from there while crediting §2.12 too. A1
       deliberately ships the schema whole, including its window, so A3 owns
-      only the check and the rules, never the table — and did not touch it.
+      only the check and the rules, never the table's shape. A3's one change to
+      it is an additive **index** on `(project_id, environment_id)` (revision
+      `agreementidx`), supporting the coverage `NOT EXISTS`: no column, no
+      constraint, no semantic change. (This line read "and did not touch it"
+      until the whole-branch review — self-contradictory phrasing, since the
+      index is disclosed in *What A3 established* below, not a hidden change.)
       `usage_agreement` was untouched by A2 as well as A1 — a group booking
       creates one `Booking` per member the same way a hand-picked
       multi-environment booking does, so A3's per-environment check needs no
@@ -101,6 +106,9 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   an environment it has no agreement for, nothing warns and nothing rejects.
   That is A3, with its own rules, deliberately kept out of the sub-project
   that introduces the schema — the same call B3a made with group membership.
+  **(Superseded by A3, below, on 2026-08-08: it now *warns* — `booking_service`
+  applies the gap clause to its list query and both booking-shaped response
+  types carry the warning. Nothing rejects, and that is still deliberate.)**
 - **Members come from `team_group_id` → the existing `UserGroup`, not a new
   `project_member` table.** `UserGroup` was deliberately generic, not called
   `OperationsTeam`, precisely so A1 could reuse it rather than build a second
@@ -160,15 +168,21 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   group found.
 - **`usage_agreement` was deliberately untouched.** A2 does not check it, does
   not read it, and does not gate group creation or group booking on it — A3
-  still owns the entire check and its cooperation rules, exactly as A1 left
-  them for A3.
+  owns the entire check and its cooperation rules, exactly as A1 left
+  them for A3. **(Superseded by A3, below: the check shipped 2026-08-08, and a
+  group booking needed no group-aware branch — it creates one `Booking` per
+  member, each checked per environment like any other.)**
 
 ## What A3 established
 
 - **A3 WARNS, IT NEVER BLOCKS — and that is a design decision, not an
   unfinished one.** No booking is refused, no transition is gated, no control
-  is disabled. `booking_service`'s only change is a `WHERE` clause on the list
-  query. A1 wrote `test_an_agreement_changes_no_booking_behaviour` precisely to
+  is disabled. `booking_service`'s changes are confined to `list_bookings`: an
+  `agreement_gap` parameter, the existing `BookingRequest` join widened to serve
+  it as well as `project_id`, and a `WHERE` on the gap clause. **No create,
+  update or transition path is touched** — which is the substantive claim, and
+  the one this bullet used to over-compress into "only a `WHERE` clause". A1
+  wrote `test_an_agreement_changes_no_booking_behaviour` precisely to
   detect this sub-project overstepping; it is still the single backend guard on
   the promise. **If it ever fails, A3 has started blocking.** The UI side of the
   same promise was untested until Task 6's review gated `TransitionButtons` on

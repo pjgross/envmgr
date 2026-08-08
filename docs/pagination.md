@@ -1316,9 +1316,13 @@ a correction. A3 ships **no new list endpoint at all**: its one new route is `PU
 /bookings/{booking_id}/agreement-gap/ack`, which is neither a `GET` nor a list. Confirmed the way
 the A1 and A2 passes did — by diffing the two greps' matched *lines* rather than trusting the
 counts, since a new hit and a disappearing false positive can cancel out and leave the number
-still: the matched sets are identical file-for-file and line-for-line, differing only in the line
-numbers of two `@router.get(` context matches (`booking_requests.py`, `conflicts.py`) that this
-branch's additions pushed further down their files.
+still: the matched sets are identical **in content**, entry for entry, and differ only in line
+numbers — **seven** entries in the first grep, across three files (`bookings.py` ×3,
+`booking_requests.py` ×2, `conflicts.py` ×2), and **four** in the second (`bookings.py`,
+`booking_requests.py`, `conflicts.py` ×2), all pushed further down their files by this branch's
+additions. (This paragraph said "two", naming two of the three files, until the whole-branch
+review recounted it. Reproduce with: strip the `path:LINENO:` prefix from both greps' output,
+sort, and diff — identical; then keep the line numbers and diff again to see which entries moved.)
 
 What A3 *does* add to this document's subject matter is a filter on an already-bounded endpoint:
 `?agreement_gap=` on `GET /bookings` (see the **✦** footnote on the nine-endpoints table above).

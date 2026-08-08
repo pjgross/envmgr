@@ -241,7 +241,9 @@ Nothing else changes: a group is still not a scope for booking, change requests,
 A *Project* is the multi-project-coordination unit introduced in Phase 7 sub-project A1: a named
 initiative with an optional team, linked from bookings (as an optional *Project* field, distinct
 from the existing free-text *Purpose*) and from releases (as an optional *Owning project*), and
-recorded — never enforced — against the environments it uses. Manage them at `/tenant/projects`.
+recorded — **warned on, never enforced** — against the environments it uses. Manage them at
+`/tenant/projects`. (Since Phase 7 sub-project A3 a booking outside those records is *flagged*;
+nothing is refused. See *Usage agreements are a record, not a rule* below.)
 
 - **Reading the list and a project's detail is open to any tenant member** — every booking and
   release form needs the picker, and everyone needs to be able to see which project a booking or
@@ -316,6 +318,14 @@ not a calendar day: an agreement recorded as ending *30 Jun* does not cover a bo
 an environment does not delete the agreements pointing at it** (deleting a *project* does cascade
 to them), so those agreements stop counting as live — bookings covered only by one will start
 showing a gap.
+
+**Why a gap message may name a project you cannot find.** A deleted project keeps rendering its
+name on every booking and release that still references it, so **two projects can share a name —
+one live, one deleted** — and a warning may name the deleted one while its live namesake's page
+shows the very agreement that appears to be missing. If a gap looks wrong that way, open the
+booking and check its *Project* field: the picker labels an archived value *(archived)*, and
+*Edit request* on the booking's page can point it at the live project instead, after which the
+warning re-evaluates on the next read.
 
 ### Password resets
 

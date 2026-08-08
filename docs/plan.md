@@ -17,7 +17,7 @@
 | 4 | Build Tracking + CI/CD Deployment Tracking | ✅ Complete — Sub-1 (MR !20), Sub-2 (MR !21, `d802797`), Sub-3 (`can-deploy` preflight + required `build_number`) all merged | 6–8 weeks | [phases/phase-4.md](phases/phase-4.md) |
 | 5 | DORA Metrics + Health Dashboard + PIR | ✅ Complete + in-app verified (2026-07-29) — SP1 Incidents (#20), SP2 DORA (#21), SP3 Env Health (#22), SP4 PIR, SP5b release/conflict metrics, SP5a operating hours + utilisation | 4–6 weeks | [phases/phase-5.md](phases/phase-5.md) |
 | 6 | Infrastructure Topology **+ Environment Drift** | 🟡 Substantially shipped — both IaC parsers, topology API + React Flow, and **environment comparison** (2026-08-03) are done. Remaining: drift detection, GitHub scanning, env-topology SP4 | 6–8 weeks | [phases/phase-6.md](phases/phase-6.md) |
-| 7 | Multi-Project Coordination **+ Environment Lifecycle & Governance** | ⏳ Planned (expanded 2026-07-16) | 6–8 weeks | [phases/phase-7.md](phases/phase-7.md) |
+| 7 | Multi-Project Coordination **+ Environment Lifecycle & Governance** | 🟡 In progress (expanded 2026-07-16) — B1, B3a, B3b, A1, A2, A3 shipped; A4, B2, B4, B5, B6 remain | 6–8 weeks | [phases/phase-7.md](phases/phase-7.md) |
 | 8 | *(reserved — parked AI Copilot / AI-driven Integrations)* | ⏸ Parked | — | — |
 | 9 | Release Governance & Deployment Safety | ⏳ Planned (2026-07-16) | 6–8 weeks | — |
 | 10 | Test Data Management | ⏳ Planned (2026-07-16) | 4–6 weeks | — |
@@ -122,7 +122,11 @@ group-by toggle. See [phases/phase-6.md](phases/phase-6.md).
 
 ---
 
-## Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance — ⏳ Planned
+## Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance — 🟡 In progress
+
+**Shipped**: B1 (governance fields), B3a + B3b (user groups, environment request form + Welcome
+Pack — B3 complete), A1 (projects + usage agreements), A2 (environment groups + atomic group
+bookings), A3 (usage-agreement warnings, 2026-08-08). **Remaining**: A4, B2, B4, B5, B6.
 
 See [phases/phase-7.md](phases/phase-7.md).
 
