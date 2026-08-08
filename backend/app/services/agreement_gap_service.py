@@ -19,9 +19,10 @@ disagreed two ways.
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, NamedTuple, Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import Exists, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
@@ -29,7 +30,7 @@ from app.db.models.environment import Environment
 from app.db.models.project import Project, UsageAgreement
 
 
-def covered_exists_clause(tenant_id: int):
+def covered_exists_clause(tenant_id: int) -> Exists:
     """EXISTS(a live agreement covering this booking's project, environment
     and dates).
 
@@ -48,6 +49,21 @@ def covered_exists_clause(tenant_id: int):
     Window semantics: a null bound means NO bound, not "unknown". An agreement
     covers the booking when it starts no later than the booking starts and
     ends no earlier than the booking ends.
+
+    BOUNDS ARE INSTANTS, NOT CALENDAR DAYS — and the message renders them as
+    days. `starts_at`/`ends_at` are `DateTime(timezone=True)`, and the
+    comparison is against the booking's own `start_date`/`end_date` instants,
+    so an agreement recorded as ending `2026-06-30T00:00:00Z` does NOT cover a
+    booking ending `2026-06-30T17:00:00Z`, while `_format_window` renders that
+    bound as `30 Jun 2026`. Read as calendar days the end bound is therefore
+    EXCLUSIVE of its own final day (and the start bound is inclusive of its
+    first day only for bookings starting at or after that instant). This is the
+    brief's expression verbatim and is deliberately unchanged; it is recorded
+    here — and pinned by
+    `test_the_window_bounds_are_instants_not_calendar_days` — so the
+    user-facing copy is written against a stated rule rather than an assumption.
+    If a future task wants day-granular inclusivity, it must change the
+    comparison AND the wording together, in one commit.
 
     `.correlate(Booking, BookingRequest)` names the outer entities EXHAUSTIVELY,
     so SQLAlchemy cannot also correlate this subquery's own `Project` /
@@ -93,7 +109,7 @@ def covered_exists_clause(tenant_id: int):
     )
 
 
-def gap_clause(tenant_id: int):
+def gap_clause(tenant_id: int) -> ColumnElement[bool]:
     """The filter form: this booking's request names a project AND no live
     agreement covers it.
 
@@ -101,9 +117,16 @@ def gap_clause(tenant_id: int):
     booking with no project is never in gap, and most existing bookings have
     none.
 
-    Usable anywhere `Booking` is joined to `BookingRequest`; that join must
-    itself be tenant-qualified, since this clause reads `project_id` from
-    whatever request the booking points at.
+    Usable anywhere `Booking` is joined to `BookingRequest`. THAT JOIN IS THE
+    CONSUMER'S AND MUST NOT BE TENANT-QUALIFIED — `gaps_for_bookings` does not
+    qualify it either (see the comment on its own join), and qualifying it in
+    one place without the other makes the list filter and the per-row message
+    disagree about a malformed booking: exactly the A1 count-vs-list divergence
+    this expression exists to prevent. If a future change wants the join
+    qualified, it must be qualified in BOTH places in the same commit. Tenant
+    scoping that changes an answer lives inside this clause and on
+    `Booking.tenant_id` at the call site, so an unqualified join can leak
+    nothing.
     """
     return and_(
         BookingRequest.project_id.is_not(None),
@@ -238,13 +261,27 @@ async def gaps_for_bookings(
                 named_project.name.label("project_name"),
                 named_environment.name.label("environment_name"),
             )
-            # Deliberately NOT tenant-qualified, matching booking_service's own
-            # Booking→BookingRequest join and the one GET /bookings will apply
-            # gap_clause over. Adding a filter here that the SQL consumer does
-            # not have would make the two mechanisms disagree about a malformed
-            # booking — the shape A2 hit three times. Tenant scoping is on
-            # `Booking.tenant_id` below and on the two name joins, so a
+            # Deliberately NOT tenant-qualified, matching the join
+            # `booking_service.list_bookings` adds for its `project_id` filter
+            # (booking_service.py:306) — the one GET /bookings will apply
+            # gap_clause over. Cite that function specifically, NOT the service
+            # in general: A2's group query (booking_service.py:452-463) does
+            # qualify `BookingRequest.tenant_id` and filter its `deleted_at`,
+            # so the repo convention is mixed and only `list_bookings` is the
+            # join this must match. Adding a filter here that the SQL consumer
+            # does not have would make the two mechanisms disagree about a
+            # malformed booking — the shape A2 hit three times. Tenant scoping
+            # is on `Booking.tenant_id` below and on the two name joins, so a
             # cross-tenant request can change no answer and leak no name.
+            #
+            # `BookingRequest.deleted_at` is likewise NOT filtered, for the same
+            # reason rather than by oversight: `list_bookings` does not filter
+            # it, so filtering it here would hide from the message a booking the
+            # list still reports as in gap. It is currently unreachable in any
+            # case — nothing in the codebase ever sets it
+            # (booking_service.py:456-462 records this). `Booking.deleted_at` is
+            # left to the caller for the same reason: the caller's query decides
+            # which bookings it is asking about.
             .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
             .outerjoin(
                 named_project,
@@ -311,8 +348,10 @@ class _Window(NamedTuple):
 
 
 async def _windows_for_pairs(
-    db: AsyncSession, pairs: set, tenant_id: int
-) -> dict[tuple, list[_Window]]:
+    db: AsyncSession,
+    pairs: set[tuple[Optional[int], Optional[int]]],
+    tenant_id: int,
+) -> dict[tuple[int, int], list[_Window]]:
     """Every LIVE agreement window for the given (project, environment) pairs.
 
     One query for the whole page — the pairs come from rows the gap clause
@@ -341,7 +380,7 @@ async def _windows_for_pairs(
         )
     ).all()
 
-    found: dict[tuple, list[_Window]] = {}
+    found: dict[tuple[int, int], list[_Window]] = {}
     for project_id, environment_id, starts_at, ends_at, agreement_id in rows:
         found.setdefault((project_id, environment_id), []).append(
             _Window(agreement_id, _utc(starts_at), _utc(ends_at))

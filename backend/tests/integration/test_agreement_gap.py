@@ -209,6 +209,78 @@ async def test_a_booking_inside_the_window_is_covered(
 
 
 @pytest.mark.asyncio
+async def test_the_window_bounds_are_instants_not_calendar_days(
+    db_session, test_tenant, test_user, test_booking_type
+):
+    """Pins the exclusive/inclusive boundary the message renders as a DAY.
+
+    `starts_at`/`ends_at` are compared as instants against the booking's own
+    instants, so a window rendered `1 Jan 2026 – 30 Jun 2026` covers a booking
+    ending at midnight on 30 June and NOT one ending at 17:00 that same day —
+    the reader sees an inclusive date and gets an exclusive instant. This is the
+    brief's expression verbatim; the test exists to record today's behaviour so
+    the user-facing copy is written against a stated rule rather than an
+    assumption, and so changing the comparison cannot happen silently.
+    """
+    project = await ensure_project(db_session, test_tenant.id, name="Boundary")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await _agreement(
+        db_session, test_tenant.id, project.id, env.id,
+        starts_at=WINDOW_START, ends_at=WINDOW_END,
+    )
+
+    # Ends exactly ON the window's end instant → covered.
+    on_the_instant = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        start=datetime(2026, 6, 29, tzinfo=timezone.utc), end=WINDOW_END,
+        project_id=project.id,
+    )
+    # Ends later the SAME calendar day the window ends → in gap.
+    later_that_day = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        start=datetime(2026, 6, 29, tzinfo=timezone.utc),
+        end=datetime(2026, 6, 30, 17, 0, tzinfo=timezone.utc),
+        project_id=project.id,
+    )
+    # Starts exactly ON the window's start instant → covered.
+    from_the_instant = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        start=WINDOW_START, end=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        project_id=project.id,
+    )
+    # Starts earlier the SAME calendar day the window starts → in gap.
+    earlier_that_day = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        start=datetime(2025, 12, 31, 23, 0, tzinfo=timezone.utc),
+        end=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        project_id=project.id,
+    )
+
+    assert (
+        await agreement_gap_service.describe_gap(
+            db_session, on_the_instant, test_tenant.id
+        )
+    ) is None
+    assert (
+        await agreement_gap_service.describe_gap(
+            db_session, from_the_instant, test_tenant.id
+        )
+    ) is None
+    # And the two same-day misses are warned about, quoting the day-granular
+    # window they do not in fact fit inside.
+    for booking in (later_that_day, earlier_that_day):
+        message = await agreement_gap_service.describe_gap(
+            db_session, booking, test_tenant.id
+        )
+        assert message is not None
+        assert "1 Jan 2026 – 30 Jun 2026" in message
+    assert await _gap_ids_in_sql(db_session, test_tenant.id) == {
+        later_that_day.id,
+        earlier_that_day.id,
+    }
+
+
+@pytest.mark.asyncio
 async def test_a_booking_outside_the_window_is_in_gap_and_the_message_names_the_window(
     db_session, test_tenant, test_user, test_booking_type
 ):
@@ -329,6 +401,49 @@ async def test_an_agreement_belonging_to_another_project_does_not_cover_this_boo
     assert message is not None
     assert "Mine" in message
     assert await _gap_ids_in_sql(db_session, test_tenant.id) == {booking.id}
+
+
+@pytest.mark.asyncio
+async def test_a_booking_does_not_borrow_another_projects_agreement_for_the_same_environment(
+    db_session, test_tenant, test_user, test_booking_type
+):
+    """Guards the `BookingRequest` leg of `.correlate(Booking, BookingRequest)`.
+
+    `.correlate()` names the outer FROMs EXHAUSTIVELY, so dropping
+    `BookingRequest` from that list renders `booking_request` inside the
+    subquery's own FROM and turns the project comparison into "some request
+    SOMEWHERE names a project with a live agreement for this environment"
+    instead of "THIS booking's request does". The test above
+    (`..._belonging_to_another_project_...`) is one booking short of catching
+    that: it never books the agreed project, so the uncorrelated scan finds
+    nothing to match. Here the agreed project HAS a booking, which is what makes
+    the false negative reachable — and it is a false negative on ordinary
+    well-formed data, not a malformed edge.
+    """
+    agreed = await ensure_project(db_session, test_tenant.id, name="Has Agreement")
+    unagreed = await ensure_project(db_session, test_tenant.id, name="Has None")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await _agreement(db_session, test_tenant.id, agreed.id, env.id)
+
+    covered = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        project_id=agreed.id,
+    )
+    uncovered = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        project_id=unagreed.id,
+    )
+
+    assert (
+        await agreement_gap_service.describe_gap(db_session, covered, test_tenant.id)
+    ) is None
+    message = await agreement_gap_service.describe_gap(
+        db_session, uncovered, test_tenant.id
+    )
+    assert message is not None
+    assert "Has None" in message
+    assert "no usage agreement" in message
+    assert await _gap_ids_in_sql(db_session, test_tenant.id) == {uncovered.id}
 
 
 @pytest.mark.asyncio
@@ -544,6 +659,47 @@ async def test_an_agreement_whose_project_belongs_to_another_tenant_is_not_cover
 
 
 @pytest.mark.asyncio
+async def test_a_cross_tenant_projects_window_is_never_quoted_in_the_message(
+    db_session, test_tenant, test_user, test_booking_type, second_tenant_factory
+):
+    """The WORDING path carries its own `Project.tenant_id` filter, and this is
+    what guards it.
+
+    The test above uses an UNBOUNDED agreement, so it has no dates to leak — it
+    guards the predicate's copy of this filter and cannot guard the message's.
+    Two mechanisms answering one question means one test cannot guard both.
+    Bounded here, so dropping the wording filter has something to quote: the
+    message would become "…falls outside its agreed window… (1 Jan 2026 – 30 Jun
+    2026)", announcing a window from a row the predicate itself refuses to
+    honour.
+    """
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_project(db_session, other_tenant.id, name="Their Project")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await _agreement(
+        db_session, test_tenant.id, theirs.id, env.id,
+        starts_at=WINDOW_START, ends_at=WINDOW_END,
+    )
+    # INSIDE the window, so only the Project join's tenant filter — on each
+    # path — can keep this booking in gap and this window out of the message.
+    booking = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        start=INSIDE_START, end=INSIDE_END, project_id=theirs.id,
+    )
+
+    message = await agreement_gap_service.describe_gap(
+        db_session, booking, test_tenant.id
+    )
+    assert message is not None
+    assert "no usage agreement" in message
+    assert "outside" not in message
+    assert "1 Jan 2026" not in message
+    assert "30 Jun 2026" not in message
+    assert "Their Project" not in message
+    assert await _gap_ids_in_sql(db_session, test_tenant.id) == {booking.id}
+
+
+@pytest.mark.asyncio
 async def test_an_agreement_whose_environment_belongs_to_another_tenant_is_not_coverage(
     db_session, test_tenant, test_user, test_booking_type, second_tenant_factory
 ):
@@ -567,6 +723,45 @@ async def test_an_agreement_whose_environment_belongs_to_another_tenant_is_not_c
     # malformed reference renders no name rather than another tenant's.
     assert theirs.name not in message
     assert "this environment" in message
+    assert await _gap_ids_in_sql(db_session, test_tenant.id) == {booking.id}
+
+
+@pytest.mark.asyncio
+async def test_a_cross_tenant_environments_window_is_never_quoted_in_the_message(
+    db_session, test_tenant, test_user, test_booking_type, second_tenant_factory
+):
+    """The same shape as the project case above, for the WORDING path's
+    `Environment.tenant_id` filter.
+
+    The unbounded test above cannot guard it: under a mutant the message merely
+    switches from the no-agreement wording to a windowless "outside its agreed
+    window", and both of that test's assertions (`theirs.name not in message`,
+    `"this environment" in message`) still hold. Bounded here, so the mutant has
+    dates to leak and the assertions below can see it.
+    """
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_environment(db_session, other_tenant.id)
+    project = await ensure_project(db_session, test_tenant.id, name="Ours")
+    await _agreement(
+        db_session, test_tenant.id, project.id, theirs.id,
+        starts_at=WINDOW_START, ends_at=WINDOW_END,
+    )
+    # INSIDE the window, so only the Environment join's tenant filter — on each
+    # path — can keep this booking in gap and this window out of the message.
+    booking = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, theirs,
+        start=INSIDE_START, end=INSIDE_END, project_id=project.id,
+    )
+
+    message = await agreement_gap_service.describe_gap(
+        db_session, booking, test_tenant.id
+    )
+    assert message is not None
+    assert "no usage agreement" in message
+    assert "outside" not in message
+    assert "1 Jan 2026" not in message
+    assert "30 Jun 2026" not in message
+    assert theirs.name not in message
     assert await _gap_ids_in_sql(db_session, test_tenant.id) == {booking.id}
 
 
@@ -721,6 +916,41 @@ async def test_adding_the_missing_agreement_clears_the_gap_with_no_other_action(
     assert (
         await agreement_gap_service.describe_gap(db_session, booking, test_tenant.id)
     ) is None
+
+
+@pytest.mark.asyncio
+async def test_gaps_for_bookings_answers_only_about_the_bookings_it_was_given(
+    db_session, test_tenant, test_user, test_booking_type
+):
+    """`_windows_for_pairs` promises its pair set is "bounded by the page, not
+    by the estate", and that promise rests entirely on `Booking.id.in_(...)`.
+
+    Without it the first query scans every in-gap booking in the tenant. The
+    caller still `.get()`s its own ids, so the answer stays *right* and only the
+    cost goes wrong — which is exactly why nothing else here would notice. Two
+    in-gap bookings, one asked about.
+    """
+    project = await ensure_project(db_session, test_tenant.id, name="Only Mine")
+    env = await ensure_environment(db_session, test_tenant.id)
+    asked_about = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        project_id=project.id,
+    )
+    not_asked_about = await _booking(
+        db_session, test_tenant, test_user, test_booking_type, env,
+        project_id=project.id,
+    )
+
+    # Both are in gap, so the restriction is the only thing that can exclude one.
+    assert await _gap_ids_in_sql(db_session, test_tenant.id) == {
+        asked_about.id,
+        not_asked_about.id,
+    }
+    assert set(
+        await agreement_gap_service.gaps_for_bookings(
+            db_session, [asked_about], test_tenant.id
+        )
+    ) == {asked_about.id}
 
 
 @pytest.mark.asyncio
