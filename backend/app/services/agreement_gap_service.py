@@ -10,11 +10,16 @@ Python-side filter would window the page BEFORE filtering and return the wrong
 rows. Writing the Python form first and discovering later that it cannot be
 pushed down is how `dependency-alerts` became permanently unbounded.
 
-One expression, three consumers: `gap_clause` decides, `gaps_for_bookings`
-decorates the rows it selects with a message, and `describe_gap` is
-`gaps_for_bookings` for one booking. Nothing here re-implements the comparison
-in Python — A1 shipped a count and a list, written three tasks apart, that
-disagreed two ways.
+One expression, four consumers: `gap_clause` decides, `gaps_for_bookings`
+decorates the rows it selects with a message, `describe_gap` is
+`gaps_for_bookings` for one booking, and `gap_warnings_for_bookings` pairs each
+message with whether anyone has acknowledged it —
+`has_unacknowledged_agreement_gap` being, in turn, that for one booking.
+Nothing here re-implements the comparison in Python — A1 shipped a count and a
+list, written three tasks apart, that disagreed two ways.
+
+`gap_warnings_for_bookings` is what every API response builder calls, once per
+response. NOTHING may call a single-booking form in a loop over a page.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, NamedTuple, Optional
@@ -509,6 +514,82 @@ async def get_ack(
     ).scalar_one_or_none()
 
 
+async def acknowledged_booking_ids(
+    db: AsyncSession, booking_ids: Iterable[int], tenant_id: int
+) -> set[int]:
+    """Which of `booking_ids` this tenant has already acknowledged.
+
+    The batch counterpart to `get_ack`, and it MUST carry the same tenant
+    filter for the same reason: `uq_agreement_ack_booking` is on `booking_id`
+    alone, so a malformed row bearing another tenant's `tenant_id` is
+    insertable and must not silence our warning.
+    `test_another_tenants_ack_row_never_clears_our_listed_flag` fails without
+    it — the list's counterpart to
+    `test_another_tenants_ack_row_never_suppresses_our_warning`.
+
+    Deliberately returns ids rather than rows: nothing in a list response
+    renders an ack's author or notes, and resolving `acknowledged_by` to a name
+    would need a User join that must NOT be tenant-qualified — under
+    master-admin impersonation the acknowledger may legitimately sit outside
+    the ack's own tenant, and qualifying it would render them as nobody.
+    """
+    wanted = {booking_id for booking_id in booking_ids if booking_id is not None}
+    if not wanted:
+        return set()
+    return set(
+        (
+            await db.execute(
+                select(UsageAgreementAck.booking_id).where(
+                    UsageAgreementAck.booking_id.in_(wanted),
+                    UsageAgreementAck.tenant_id == tenant_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+class GapWarning(NamedTuple):
+    """One booking's warning, exactly as a response renders it: the text, and
+    whether anyone has accepted it yet.
+
+    The two travel together on purpose. They are two halves of ONE warning, and
+    a caller that could fetch the flag without the message (or the other way
+    round) is a caller that can show a booking as needing attention with nothing
+    to read, or a message with no state — the divergence shape A1's count and
+    list produced.
+    """
+
+    message: str
+    unacknowledged: bool
+
+
+async def gap_warnings_for_bookings(
+    db: AsyncSession, bookings: Iterable[Booking], tenant_id: int
+) -> dict[int, GapWarning]:
+    """`booking_id -> GapWarning`, for those of `bookings` that are in gap.
+
+    THE FORM EVERY RESPONSE BUILDER USES — two queries for a whole page (three
+    when some row is in gap), against the ~3N that calling
+    `has_unacknowledged_agreement_gap` per row would cost. A booking that is
+    covered, names no project, or is not this tenant's is simply absent, so a
+    caller may `.get()` its way to `agreement_gap: None` /
+    `has_unacknowledged_agreement_gap: False` without a second question.
+
+    The ack lookup is skipped entirely when nothing is in gap, which is the
+    common case: it would be a query whose every answer is discarded.
+    """
+    gaps = await gaps_for_bookings(db, bookings, tenant_id)
+    if not gaps:
+        return {}
+    acknowledged = await acknowledged_booking_ids(db, gaps.keys(), tenant_id)
+    return {
+        booking_id: GapWarning(message, booking_id not in acknowledged)
+        for booking_id, message in gaps.items()
+    }
+
+
 async def has_unacknowledged_agreement_gap(
     db: AsyncSession, booking_id: int, tenant_id: int
 ) -> bool:
@@ -520,17 +601,17 @@ async def has_unacknowledged_agreement_gap(
     acks, mirroring `conflict_service.has_unacknowledged_conflicts`, which
     returns False early when there are no conflicts.
 
-    The gap half is `describe_gap` — i.e. `gap_clause`, via the one message
-    builder — and deliberately not a fourth query of its own. A private
-    "is it in gap" EXISTS would be a second mechanism answering the question the
-    module docstring exists to keep singular, and would carry its own copy of
-    the Booking→BookingRequest join whose filters must match
-    `gaps_for_bookings`' exactly. Discarding the message costs one extra query
-    per booking and buys the guarantee that this flag can never contradict the
-    text shown beside it.
+    IT IS `gap_warnings_for_bookings` OF ONE, exactly as `describe_gap` is
+    `gaps_for_bookings` of one. Task 4 needed a batch form for the list page,
+    and rather than leave two mechanisms answering one question — the shape that
+    produced A1's count-vs-list divergence — this became the batch form's
+    single-booking wrapper. It costs the same queries it always did, and
+    `test_the_batch_flag_and_the_single_booking_flag_agree` pins the two
+    together so a future change to either is a change to both.
 
-    THEREFORE: never call this in a loop over a page. A list endpoint wants
-    `gaps_for_bookings` for the whole page plus one ack lookup, not N of these.
+    THEREFORE, STILL: never call this in a loop over a page. It re-loads the
+    booking and re-runs the whole batch for one row; a 50-row page is ~150
+    queries. A list endpoint wants `gap_warnings_for_bookings` once.
 
     A booking that is not this tenant's is not in gap here — the same silence
     `describe_gap` gives it, rather than an exception, because this feeds a
@@ -539,6 +620,5 @@ async def has_unacknowledged_agreement_gap(
     booking = await _load_booking(db, booking_id, tenant_id)
     if booking is None:
         return False
-    if await describe_gap(db, booking, tenant_id) is None:
-        return False
-    return await get_ack(db, booking_id, tenant_id) is None
+    warning = (await gap_warnings_for_bookings(db, [booking], tenant_id)).get(booking_id)
+    return warning is not None and warning.unacknowledged

@@ -77,6 +77,20 @@ class BookingResponse(BaseModel):
     booking_request_id: Optional[int] = None
     request: Optional[BookingRequestSummary] = None
     has_unacknowledged_conflicts: bool = False
+    # A3's usage-agreement warning: the message, and whether anyone has accepted
+    # it. Computed from `usage_agreement`, never stored — adding the missing
+    # agreement clears both with nothing to invalidate. A3 WARNS: neither field
+    # refuses or alters anything.
+    #
+    # Defaulted here ONLY because BookingResponse is built by
+    # `model_validate(booking)` and a Booking has no such attribute; the guard
+    # against a missed call site is `bookings.py::_to_response`'s
+    # required-positional `gap` argument, which turns an unconverted site into a
+    # TypeError. `has_unacknowledged_conflicts` above is the counter-example — a
+    # defaulted field set at two of its six builders and silently False at the
+    # rest.
+    agreement_gap: Optional[str] = None
+    has_unacknowledged_agreement_gap: bool = False
     # Provenance, not a live link — see Booking.environment_group_id. Null for
     # a hand-picked environment; set for one that arrived via a group.
     environment_group_id: Optional[int] = None

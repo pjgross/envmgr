@@ -37,7 +37,12 @@ BOOKING_SORTS = {
 }
 
 
-def _to_response(booking, project_name_link: str | None, group_name: str | None) -> BookingResponse:
+def _to_response(
+    booking,
+    project_name_link: str | None,
+    group_name: str | None,
+    gap: agreement_gap_service.GapWarning | None,
+) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
 
     `project_name_link` is a batch-resolved name the caller must fetch via
@@ -51,6 +56,15 @@ def _to_response(booking, project_name_link: str | None, group_name: str | None)
     A1's review found a defaulted equivalent (`project_name_link=None`) left
     four of five call sites silently rendering null, because Pydantic
     silently defaults a missing non-column attribute rather than raising.
+
+    `gap` is this booking's A3 usage-agreement warning, or None when there is
+    none — batch-resolved via `agreement_gap_service.gap_warnings_for_bookings`
+    for the WHOLE set the caller is responding with. Never
+    `has_unacknowledged_agreement_gap` per row: that is the batch call for one
+    booking, so a 50-row page would issue ~150 queries. Required-positional for
+    the reason above, and the reason it is filled in HERE rather than assigned
+    at the call site (the way `has_unacknowledged_conflicts` is) is that four of
+    this function's six callers do not assign that one at all.
     """
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
@@ -68,7 +82,22 @@ def _to_response(booking, project_name_link: str | None, group_name: str | None)
     resp.custom_fields = req.custom_fields
     resp.environment_group_id = booking.environment_group_id
     resp.environment_group_name = group_name
+    resp.agreement_gap = gap.message if gap else None
+    resp.has_unacknowledged_agreement_gap = bool(gap and gap.unacknowledged)
     return resp
+
+
+async def _gap_for(db, booking, tenant_id: int) -> agreement_gap_service.GapWarning | None:
+    """This booking's usage-agreement warning, or None.
+
+    The batch call for a set of one — the four endpoints below respond with
+    exactly one booking, and going through the same function as the list means
+    a single booking's warning cannot word itself differently from the same
+    booking's row in the list.
+    """
+    return (
+        await agreement_gap_service.gap_warnings_for_bookings(db, [booking], tenant_id)
+    ).get(booking.id)
 
 
 def _request_summary(req) -> BookingRequestSummary:
@@ -86,6 +115,15 @@ async def list_bookings(
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
     project_id: Optional[int] = Query(None),
+    agreement_gap: Optional[bool] = Query(
+        None,
+        description=(
+            "true: only bookings no live usage agreement covers. false: only "
+            "those covered, plus those whose request names no project. Omit "
+            "for every booking — omission is the 'no selection' sentinel, "
+            "deliberately not a third value such as 'all'."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
@@ -99,6 +137,7 @@ async def list_bookings(
         end=end,
         booking_status=booking_status,
         project_id=project_id,
+        agreement_gap=agreement_gap,
         page=page,
         sort=sort,
     )
@@ -109,10 +148,17 @@ async def list_bookings(
     group_names = await environment_group_service.get_group_names(
         db, {b.environment_group_id for b in bookings}, current_user.active_tenant_id
     )
+    # Once for the page, never once per row — see _to_response.
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db, bookings, current_user.active_tenant_id
+    )
     responses: list[BookingResponse] = []
     for b in bookings:
         resp = _to_response(
-            b, names.get(b.booking_request.project_id), group_names.get(b.environment_group_id)
+            b,
+            names.get(b.booking_request.project_id),
+            group_names.get(b.environment_group_id),
+            gaps.get(b.id),
         )
         resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
             db, b.id, current_user.active_tenant_id
@@ -139,6 +185,7 @@ async def create_booking(
             booking,
             names.get(booking.booking_request.project_id),
             group_names.get(booking.environment_group_id),
+            await _gap_for(db, booking, current_user.active_tenant_id),
         ),
         overlap_warnings=warnings,
     )
@@ -161,6 +208,7 @@ async def get_booking(
         booking,
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
+        await _gap_for(db, booking, current_user.active_tenant_id),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -197,6 +245,7 @@ async def update_standard_fields(
         booking,
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
+        await _gap_for(db, booking, current_user.active_tenant_id),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -225,6 +274,7 @@ async def transition_booking_state(
         booking,
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
+        await _gap_for(db, booking, current_user.active_tenant_id),
     )
 
 

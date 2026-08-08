@@ -14,6 +14,18 @@ class EnvBookingSummary(BaseModel):
     end_date: datetime
     status: str
     has_unacknowledged_conflicts: bool = False
+    # A3's usage-agreement warning — see BookingResponse for what it means.
+    #
+    # REQUIRED, NOT DEFAULTED, deliberately unlike every other optional field on
+    # this model: EnvBookingSummary is constructed by keyword at six sites
+    # across two routers, and a default would let a missed one render a booking
+    # as "no gap" while `GET /bookings` reports the same booking as in gap. A2
+    # left this exact type self-contradictory that way. Pydantic raises on a
+    # missing required field, so a new construction site cannot forget.
+    # `has_unacknowledged_conflicts` immediately above shows the alternative: it
+    # is populated by nothing at all and has been False since it shipped.
+    agreement_gap: Optional[str]
+    has_unacknowledged_agreement_gap: bool
     # Provenance, not a live link — see Booking.environment_group_id. Null for
     # a hand-picked environment; set for one that arrived via a group.
     environment_group_id: Optional[int] = None
@@ -88,6 +100,17 @@ class BookingRequestResponse(BaseModel):
 class BookingRequestCreateResponse(BaseModel):
     request: BookingRequestResponse
     detected_conflicts: dict[int, list[EnvBookingSummary]]
+    # `booking_id -> message` for the bookings JUST CREATED that no live usage
+    # agreement covers. Keyed by booking id, not environment id (unlike
+    # detected_conflicts, whose key is the environment being contended for),
+    # because the gap is a property of one booking and a group booking may hold
+    # several bookings against the same environment over different dates.
+    #
+    # Absent keys mean "no gap"; an empty map is the ordinary case and is what
+    # keeps this a warning rather than a banner. The same text is on each
+    # booking's own summary — this map exists so the caller does not have to
+    # walk `request.bookings` to find out whether to say anything at all.
+    agreement_gaps: dict[int, str] = {}
 
 
 class PreviewConflictsRequest(BaseModel):

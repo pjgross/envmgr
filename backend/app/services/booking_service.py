@@ -19,7 +19,7 @@ from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
-from app.services import lifecycle_service
+from app.services import agreement_gap_service, lifecycle_service
 from app.services.lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
@@ -276,6 +276,7 @@ async def list_bookings(
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
     project_id: Optional[int] = None,
+    agreement_gap: Optional[bool] = None,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
 ) -> tuple[list[Booking], int]:
@@ -296,16 +297,37 @@ async def list_bookings(
         query = query.where(Booking.start_date < end, Booking.end_date > start)
     if booking_status is not None:
         query = query.where(Booking.status == booking_status)
+    if project_id is not None or agreement_gap is not None:
+        # In SQL, on the parent request — the endpoint is bounded (fetch_page
+        # below), so a Python-side filter would window the page before filtering
+        # and quietly return the wrong rows, and X-Total-Count would describe
+        # the unfiltered set. booking_request_id is NOT NULL, so this inner join
+        # drops no legitimate row, and it's a plain many-to-one (one
+        # booking_request per booking) so it can't fan out duplicates the way a
+        # one-to-many join would.
+        #
+        # ONE join for both filters. `agreement_gap_service.gap_clause`
+        # correlates against BOTH Booking and BookingRequest, so a consumer that
+        # forgot this join would get a cartesian product rather than an error —
+        # and joining twice for the two filters together would do the same.
+        #
+        # DELIBERATELY NOT TENANT-QUALIFIED, matching
+        # `agreement_gap_service.gaps_for_bookings`, whose own join carries the
+        # rule: qualify it in one place without the other and the SQL filter and
+        # the per-row message disagree about a malformed booking. If a future
+        # change wants it qualified, both must change in the same commit.
+        # Tenant scoping lives on Booking.tenant_id above and inside the clause,
+        # so an unqualified join can leak nothing.
+        query = query.join(BookingRequest, Booking.booking_request_id == BookingRequest.id)
     if project_id is not None:
-        # In SQL, on the parent request's project_id — the endpoint is bounded
-        # (fetch_page below), so a Python-side filter would window the page
-        # before filtering and quietly return the wrong rows. booking_request_id
-        # is NOT NULL, so this inner join drops no legitimate row, and it's a
-        # plain many-to-one (one booking_request per booking) so it can't fan
-        # out duplicates the way a one-to-many join would.
-        query = query.join(BookingRequest, Booking.booking_request_id == BookingRequest.id).where(
-            BookingRequest.project_id == project_id
-        )
+        query = query.where(BookingRequest.project_id == project_id)
+    if agreement_gap is not None:
+        # A3 WARNS: this narrows a list, it refuses nothing. `False` is the
+        # exact complement — covered bookings AND those whose request names no
+        # project — so true and false partition the estate rather than leaving
+        # project-less bookings invisible to both.
+        gap = agreement_gap_service.gap_clause(tenant_id)
+        query = query.where(gap if agreement_gap else ~gap)
     query = apply_sort(query, sort).order_by(Booking.start_date.asc(), Booking.id)
     return await fetch_page(db, query, page)
 
