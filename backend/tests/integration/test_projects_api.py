@@ -211,10 +211,12 @@ async def test_another_tenants_project_is_invisible_and_unreachable(
 async def test_another_tenants_project_cannot_be_deleted(
     client, auth_headers, db_session, second_tenant_factory
 ):
-    """Guards get_project's tenant filter. Unlike PATCH, DELETE never re-reads
-    the row through a tenant-filtered query afterwards, so it is the one path
-    where dropping this filter is directly observable: the row would be
-    silently soft-deleted instead of 404ing."""
+    """Guards get_project's tenant filter. DELETE never re-reads the row
+    through a tenant-filtered query afterwards, so it is the most direct path
+    on which dropping this filter is observable: the row would be silently
+    soft-deleted instead of 404ing. See
+    test_another_tenants_project_cannot_be_patched below for the PATCH
+    equivalent, which needs a DB read-back rather than the response alone."""
     other_tenant, _other_admin = await second_tenant_factory()
     theirs = await ensure_project(db_session, other_tenant.id, name="Not Yours")
     await db_session.commit()
@@ -227,6 +229,40 @@ async def test_another_tenants_project_cannot_be_deleted(
     ).scalar_one()
     await db_session.refresh(row)
     assert row.deleted_at is None, "must not be deleted by another tenant's admin"
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_project_cannot_be_patched(
+    client, auth_headers, db_session, second_tenant_factory
+):
+    """Guards get_project's tenant filter on the UPDATE path specifically.
+
+    update_project's shape is: fetch via get_project (bare entity), mutate
+    the in-memory object, flush, then re-fetch via the correctly
+    tenant-filtered get_project_view to build the response. If get_project's
+    own tenant filter were ever dropped, the fetch would still find the other
+    tenant's row by its (global) id, mutate and flush it, and ONLY THEN would
+    get_project_view's filter produce the 404 — masking a write that already
+    happened. Asserting 404 alone (as
+    test_another_tenants_project_rank_is_404_not_403 does) cannot catch this;
+    it passes identically whether or not the filter is there. Read the row
+    back directly and assert the submitted field was never written."""
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs = await ensure_project(db_session, other_tenant.id, name="Not Yours To Patch")
+    await db_session.commit()
+
+    patched = await client.patch(
+        f"/api/v1/projects/{theirs.id}",
+        json={"description": "hijacked by another tenant"},
+        headers=auth_headers,
+    )
+    assert patched.status_code == 404, patched.text
+
+    row = (
+        await db_session.execute(select(Project).where(Project.id == theirs.id))
+    ).scalar_one()
+    await db_session.refresh(row)
+    assert row.description is None, "must not be mutated by another tenant's admin"
 
 
 @pytest.mark.asyncio
