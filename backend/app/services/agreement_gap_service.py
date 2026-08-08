@@ -549,6 +549,18 @@ async def ack_author_username(
     by the tenant-filtered `get_ack` that produced `ack`, and a username is the
     same thing the ack's own author field already discloses.
 
+    RAISED EXPLICITLY AND ACCEPTED BY THE OWNER (2026-08-08), against this
+    project's absolute rule that no user may ever receive another tenant's
+    data. The consequence was stated plainly — under impersonation a
+    `system`-tenant username renders on a tenant's own booking page — and the
+    call was to keep it, because `upsert_ack` writes `current_user.id` and
+    nothing else, so the only name that can ever appear is that of someone who
+    genuinely acted on THIS booking. It is an audit trail, not a directory.
+    The alternatives considered and declined were suppressing the name when the
+    author is out-of-tenant, and substituting a role label.
+    **Do not "harden" this into a tenant-qualified join.** That does not close a
+    hole; it blanks the governance trail exactly when a master admin acted.
+
     Nor does it filter `is_active` or `deleted_at`. A1's rule: write validation
     filters retirement, read RENDERING does not — an archived user still
     renders their name on the row they wrote (`get_project_names`,
