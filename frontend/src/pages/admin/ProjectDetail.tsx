@@ -163,12 +163,44 @@ export default function ProjectDetail() {
     );
   }
 
+  // The address names a project this tenant does not have — most often a
+  // SOFT-DELETED one, which is a real id that `get_project` refuses because it
+  // filters `deleted_at`. Everything below describes ONE project, and `current`
+  // is the only thing on this page that says WHICH; without this the page
+  // rendered "Project not found" above a working gap rollup — a correct,
+  // clickable number under a banner saying the thing it counts for does not
+  // exist. (The count really is correct: a booking request still points at the
+  // deleted project, which is exactly why that booking is in gap.)
+  //
+  // GATED ON `current`, NOT ON `loadError`. `projectSlice`'s `error` is shared
+  // with `fetchProjectAgreements`, whose `fulfilled` handler sets it to null, so
+  // a banner is not something this page can rely on still being there — whereas
+  // `current` is null until this project, specifically, loads. While the fetch
+  // is in flight `current` is also null, which is why the branch renders no
+  // claim of its own beyond the error the slice supplies.
+  if (project == null) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
+          Back to Projects
+        </Button>
+        {loadError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {loadError}
+          </Alert>
+        )}
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
         Back to Projects
       </Button>
 
+      {/* Reachable with the project loaded: the agreements list or a write can
+          fail on its own. */}
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {loadError}

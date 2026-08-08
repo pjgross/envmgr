@@ -50,6 +50,13 @@ def _summaries(
     # All three required-positional, not defaulted: a missing arg here must
     # raise loudly rather than silently render every name as null, the same
     # reason bookings.py's _to_response is required-positional.
+    #
+    # AND THAT GUARDS ONLY OMISSION. What each caller PASSES is a separate
+    # question: `gaps={}` type-checks, satisfies the required argument, and
+    # reports every child booking as gap-free while GET /bookings reports the
+    # same booking as in gap. All four `_gaps_for` call sites therefore have a
+    # named test apiece — see "every `_gaps_for` CALL SITE" in
+    # tests/integration/test_agreement_gap_filter.py.
     return [
         EnvBookingSummary(
             id=c.id,
@@ -60,10 +67,7 @@ def _summaries(
             status=c.status,
             environment_group_id=c.environment_group_id,
             environment_group_name=group_names.get(c.environment_group_id),
-            agreement_gap=gaps[c.id].message if c.id in gaps else None,
-            has_unacknowledged_agreement_gap=(
-                c.id in gaps and gaps[c.id].unacknowledged
-            ),
+            **agreement_gap_service.gap_fields(gaps.get(c.id)),
         )
         for c in children if c.deleted_at is None
     ]
@@ -184,12 +188,7 @@ async def create_booking_request(
                     status=c.booking.status,
                     environment_group_id=c.booking.environment_group_id,
                     environment_group_name=group_names.get(c.booking.environment_group_id),
-                    agreement_gap=(
-                        gaps[c.booking.id].message if c.booking.id in gaps else None
-                    ),
-                    has_unacknowledged_agreement_gap=(
-                        c.booking.id in gaps and gaps[c.booking.id].unacknowledged
-                    ),
+                    **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
                 ) for c in v]
             for k, v in detected.items()
         },
@@ -245,10 +244,7 @@ async def preview_conflicts(
                     start_date=b.start_date, end_date=b.end_date, status=b.status,
                     environment_group_id=b.environment_group_id,
                     environment_group_name=group_names.get(b.environment_group_id),
-                    agreement_gap=gaps[b.id].message if b.id in gaps else None,
-                    has_unacknowledged_agreement_gap=(
-                        b.id in gaps and gaps[b.id].unacknowledged
-                    ),
+                    **agreement_gap_service.gap_fields(gaps.get(b.id)),
                 ) for b in v]
             for k, v in conflicts.items()
         }
@@ -353,8 +349,7 @@ async def add_environment_to_request(
     return EnvBookingSummary(
         id=child.id, environment_id=child.environment_id,
         start_date=child.start_date, end_date=child.end_date, status=child.status,
-        agreement_gap=gap.message if gap else None,
-        has_unacknowledged_agreement_gap=bool(gap and gap.unacknowledged),
+        **agreement_gap_service.gap_fields(gap),
     )
 
 

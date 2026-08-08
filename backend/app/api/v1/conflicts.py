@@ -53,7 +53,6 @@ async def list_conflicts(
         ack = await conflict_service.get_ack(
             db, booking_id, c.booking.id, current_user.active_tenant_id
         )
-        gap = gaps.get(c.booking.id)
         items.append(ConflictItem(
             other_booking=EnvBookingSummary(
                 id=c.booking.id,
@@ -65,8 +64,7 @@ async def list_conflicts(
                 status=c.booking.status,
                 environment_group_id=c.booking.environment_group_id,
                 environment_group_name=group_names.get(c.booking.environment_group_id),
-                agreement_gap=gap.message if gap else None,
-                has_unacknowledged_agreement_gap=bool(gap and gap.unacknowledged),
+                **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))
@@ -129,14 +127,7 @@ async def list_received_feedback(
                 status=r.source_booking.status,
                 environment_group_id=r.source_booking.environment_group_id,
                 environment_group_name=group_names.get(r.source_booking.environment_group_id),
-                agreement_gap=(
-                    gaps[r.source_booking.id].message
-                    if r.source_booking.id in gaps else None
-                ),
-                has_unacknowledged_agreement_gap=(
-                    r.source_booking.id in gaps
-                    and gaps[r.source_booking.id].unacknowledged
-                ),
+                **agreement_gap_service.gap_fields(gaps.get(r.source_booking.id)),
             ),
             source_request=RequestContextRef(
                 id=r.source_request.id,

@@ -82,8 +82,11 @@ def _to_response(
     resp.custom_fields = req.custom_fields
     resp.environment_group_id = booking.environment_group_id
     resp.environment_group_name = group_name
-    resp.agreement_gap = gap.message if gap else None
-    resp.has_unacknowledged_agreement_gap = bool(gap and gap.unacknowledged)
+    # The same projection every EnvBookingSummary site splats as kwargs, applied
+    # by assignment because this builder mutates a validated model. One spelling
+    # of it, in agreement_gap_service.gap_fields.
+    for field, value in agreement_gap_service.gap_fields(gap).items():
+        setattr(resp, field, value)
     return resp
 
 

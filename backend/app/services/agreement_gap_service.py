@@ -270,13 +270,16 @@ async def gaps_for_bookings(
                 named_environment.name.label("environment_name"),
             )
             # Deliberately NOT tenant-qualified, matching the join
-            # `booking_service.list_bookings` adds for its `project_id` filter
-            # (booking_service.py:306) — the one GET /bookings will apply
-            # gap_clause over. Cite that function specifically, NOT the service
-            # in general: A2's group query (booking_service.py:452-463) does
-            # qualify `BookingRequest.tenant_id` and filter its `deleted_at`,
+            # `booking_service.list_bookings` adds for its `project_id` and
+            # `agreement_gap` filters — the one GET /bookings will apply
+            # gap_clause over. Cite that function BY NAME, NOT the service in
+            # general: A2's `booking_service._group_bookings` does qualify
+            # `BookingRequest.tenant_id` and filter its `deleted_at`,
             # so the repo convention is mixed and only `list_bookings` is the
-            # join this must match. Adding a filter here that the SQL consumer
+            # join this must match. (These references were line numbers until
+            # the final review found all three had rotted inside this one
+            # branch; a function name survives the next edit above it.)
+            # Adding a filter here that the SQL consumer
             # does not have would make the two mechanisms disagree about a
             # malformed booking — the shape A2 hit three times. Tenant scoping
             # is on `Booking.tenant_id` below and on the two name joins, so a
@@ -287,7 +290,8 @@ async def gaps_for_bookings(
             # it, so filtering it here would hide from the message a booking the
             # list still reports as in gap. It is currently unreachable in any
             # case — nothing in the codebase ever sets it
-            # (booking_service.py:456-462 records this). `Booking.deleted_at` is
+            # (`booking_service._group_bookings` records this beside its own
+            # `BookingRequest.deleted_at` filter). `Booking.deleted_at` is
             # left to the caller for the same reason: the caller's query decides
             # which bookings it is asking about.
             .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
@@ -403,6 +407,18 @@ async def describe_gap(
 
     Delegates to the batch form so the single-booking answer cannot drift from
     the list's: both are `gap_clause`, and there is one message builder.
+
+    IT HAS NO PRODUCTION CALLER, DELIBERATELY — the same standing as
+    `has_unacknowledged_agreement_gap` below, and for the same reason. Every
+    API response builder needs the message AND the acknowledgement flag
+    together, so all of them go through `gap_warnings_for_bookings` (single
+    responses via `bookings.py::_gap_for`, which is that batch call for one).
+    The only callers today are tests, and it is kept because it is A3's named
+    single-booking message interface and because
+    `test_the_batch_flag_and_the_single_booking_flag_agree` pins it against the
+    batch form — deleting it would delete that cross-check. A future caller
+    must still not call it in a loop over a page: it is `gaps_for_bookings` of
+    one.
     """
     return (await gaps_for_bookings(db, [booking], tenant_id)).get(booking.id)
 
@@ -594,6 +610,28 @@ class GapWarning(NamedTuple):
 
     message: str
     unacknowledged: bool
+
+
+def gap_fields(gap: Optional[GapWarning]) -> dict[str, object]:
+    """One booking's warning as the two fields every response carries.
+
+    THE SINGLE SPELLING OF THAT PROJECTION. It was hand-written at seven sites
+    in three forms (`gaps[id].message if id in gaps else None`,
+    `gap.message if gap else None`, and the `.get()` variant), and the required
+    fields on `EnvBookingSummary` / the required-positional `gap` on
+    `bookings.py::_to_response` guard only that a site ANSWERS — not that it
+    answers about the right booking, or consistently. One function means one
+    thing to review, and `**gap_fields(gaps.get(booking.id))` reads as a pair
+    at every call site rather than as two independently-editable lines.
+
+    `None` means "no gap": absent from the map is how
+    `gap_warnings_for_bookings` reports covered, project-less and other
+    tenants' bookings, so callers `.get()` straight into this.
+    """
+    return {
+        "agreement_gap": gap.message if gap else None,
+        "has_unacknowledged_agreement_gap": bool(gap and gap.unacknowledged),
+    }
 
 
 async def gap_warnings_for_bookings(

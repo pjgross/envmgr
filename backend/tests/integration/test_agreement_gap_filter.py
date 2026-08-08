@@ -73,7 +73,14 @@ class _Population:
     that only ever sees one kind of row proves nothing about the other three.
     """
 
-    def __init__(self, agreed_env, unagreed_env, covered, outside, uncovered, no_project):
+    def __init__(
+        self, agreed_project, unagreed_project, agreed_env, unagreed_env,
+        covered, outside, uncovered, no_project,
+    ):
+        # The projects are exposed as well as the environments because
+        # `?project_id=` is half of the pair ProjectDetail's gap rollup sends.
+        self.agreed_project = agreed_project
+        self.unagreed_project = unagreed_project
         self.agreed_env = agreed_env
         self.unagreed_env = unagreed_env
         self.covered = covered
@@ -111,6 +118,8 @@ async def _population(db, tenant, user, booking_type) -> _Population:
         )
 
     return _Population(
+        agreed_project=agreed_project,
+        unagreed_project=unagreed_project,
         agreed_env=agreed_env,
         unagreed_env=unagreed_env,
         covered=await booking(agreed_env, agreed_project.id, INSIDE_START, INSIDE_END),
@@ -1051,6 +1060,107 @@ async def test_the_legacy_single_booking_create_carries_the_gap(
     )
 
 
+# ── every `_gaps_for` CALL SITE ──────────────────────────────────────────────
+#
+# The section above guards the twelve places that CONSTRUCT the two fields. It
+# does not guard the four places that hand `_gaps_for`'s answer to them, and
+# three of those four had no test at all: replace `gaps` with `{}` at
+# `booking_requests.py`'s list route or at either request-level PATCH and the
+# whole suite stays green, while `GET /booking-requests` reports every child
+# booking as gap-free and `GET /bookings` reports the same booking as in gap —
+# the self-contradiction `EnvBookingSummary`'s required fields exist to prevent,
+# reappearing one layer up.
+#
+# A required field and a required-positional argument catch a site that FORGETS
+# the value. Only a test catches a site that supplies a LIE, and `{}` is a
+# perfectly well-typed lie. (The fourth site, `GET /booking-requests/{id}`, is
+# covered by test_every_booking_response_builder_populates_the_gap above.)
+#
+# One test per site, so a mutation names the site it broke — and every one is
+# compared against `GET /bookings/{id}`, never against a literal message.
+
+
+@pytest.mark.asyncio
+async def test_the_request_list_carries_each_childs_gap(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """Site: `_gaps_for` in `GET /booking-requests`."""
+    _, _, booking = await _uncovered_booking(
+        db_session, test_tenant, test_user, test_booking_type,
+        slot=14, project_name="Listed Unagreed",
+    )
+    expected = await _gap_reported_by_detail(client, auth_headers, booking.id)
+
+    resp = await client.get("/api/v1/booking-requests", headers=auth_headers)
+
+    assert resp.status_code == 200, resp.text
+    row = next(
+        child
+        for req in resp.json()
+        for child in req["bookings"]
+        if child["id"] == booking.id
+    )
+    assert row["agreement_gap"] == expected
+    assert row["has_unacknowledged_agreement_gap"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_request_level_standard_fields_patch_carries_the_gap(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """Site: `_gaps_for` in `PATCH /booking-requests/{id}/standard-fields`.
+
+    This is the endpoint that CORRECTS a booking's project (task 1), so it is the
+    one response a user reads specifically to see whether the gap they were
+    warned about has moved — a `{}` here would answer "no gap" to the very
+    question being asked. The field edited is `notes`, which cannot change the
+    answer, so the response must still report the gap.
+    """
+    _, _, booking = await _uncovered_booking(
+        db_session, test_tenant, test_user, test_booking_type,
+        slot=15, project_name="Patched Unagreed",
+    )
+    expected = await _gap_reported_by_detail(client, auth_headers, booking.id)
+
+    resp = await client.patch(
+        f"/api/v1/booking-requests/{booking.booking_request_id}/standard-fields",
+        json={"notes": "editing this changes nothing about the gap"},
+        headers=auth_headers,
+    )
+
+    # A3 WARNS: the edit is accepted.
+    assert resp.status_code == 200, resp.text
+    row = next(c for c in resp.json()["bookings"] if c["id"] == booking.id)
+    assert row["agreement_gap"] == expected
+    assert row["has_unacknowledged_agreement_gap"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_request_level_custom_fields_patch_carries_the_gap(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """Site: `_gaps_for` in `PATCH /booking-requests/{id}/custom-fields`."""
+    _, _, booking = await _uncovered_booking(
+        db_session, test_tenant, test_user, test_booking_type,
+        slot=16, project_name="Custom Unagreed",
+    )
+    expected = await _gap_reported_by_detail(client, auth_headers, booking.id)
+
+    resp = await client.patch(
+        f"/api/v1/booking-requests/{booking.booking_request_id}/custom-fields",
+        json={"values": {"cost_centre": "CC-1"}},
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    row = next(c for c in resp.json()["bookings"] if c["id"] == booking.id)
+    assert row["agreement_gap"] == expected
+    assert row["has_unacknowledged_agreement_gap"] is True
+
+
 # ── the list filter ──────────────────────────────────────────────────────────
 
 
@@ -1140,6 +1250,47 @@ async def test_the_filter_composes_with_the_other_list_filters(
     assert _total(both) == 1
 
 
+@pytest.mark.asyncio
+async def test_the_filter_composes_with_project_id_the_pair_the_rollup_sends(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    test_booking_type,
+):
+    """`?project_id=&agreement_gap=true` — the exact pair ProjectDetail asks for.
+
+    The gap rollup on a project's page is `X-Total-Count` from
+    `GET /bookings?project_id=&agreement_gap=true&limit=1`, and its link lands
+    the user on the same two filters. Nothing else in this file composes those
+    two.
+
+    It is correct today because BOTH hang off ONE `BookingRequest` join in
+    `booking_service.list_bookings`; the pre-branch code joined per filter, so a
+    refactor back to that shape breaks the pair while every single-filter test
+    here stays green. And a user-visible number is exactly where that shows up
+    late: A1 shipped a count linking to a filter `GET /environments` had never
+    accepted, with a test and the admin guide both asserting it as correct.
+
+    The two halves are asserted separately as well, so the answer above cannot
+    be attributed to either filter alone — each of them, on its own, returns
+    strictly more rows.
+    """
+    pop = await _population(db_session, test_tenant, test_user, test_booking_type)
+
+    both = await _list(
+        client, auth_headers,
+        f"?project_id={pop.agreed_project.id}&agreement_gap=true",
+    )
+
+    assert _ids(both) == {pop.outside.id}
+    assert _total(both) == 1
+    # `project_id` alone: this project's covered booking as well.
+    by_project = await _list(client, auth_headers, f"?project_id={pop.agreed_project.id}")
+    assert _ids(by_project) == {pop.covered.id, pop.outside.id}
+    # `agreement_gap` alone: the other project's uncovered booking as well.
+    by_gap = await _list(client, auth_headers, "?agreement_gap=true")
+    assert _ids(by_gap) == pop.in_gap
+    assert pop.uncovered.id in _ids(by_gap)
+
+
 # ── the two mechanisms, against each other ───────────────────────────────────
 
 
@@ -1219,9 +1370,19 @@ async def test_another_tenants_bookings_are_never_in_our_filtered_list(
     test_booking_type, second_tenant_factory,
 ):
     """Assume every tenant filter is unguarded until a named test fails without
-    it. The gap clause carries a tenant_id of its own AND the query filters
-    Booking.tenant_id; a filter that dropped either would surface another
-    tenant's estate the moment the gap chip was clicked."""
+    it — and the two filters here guard two DIFFERENT things.
+
+    `Booking.tenant_id` on the list query is what keeps another tenant's rows
+    out; the gap clause's own `tenant_id` cannot do that, because their booking
+    is in gap under any tenant id at all. What the clause's filter decides is
+    which agreements count as OURS, so it is killed here by a malformed
+    `usage_agreement` row bearing another tenant's `tenant_id` and pointing at
+    our project and our environment: `uq_agreement_ack_booking`'s sibling
+    problem — nothing stops such a row existing, and without
+    `UsageAgreement.tenant_id == tenant_id` it would silence our warning.
+    (The clause's Project and Environment tenant filters have their own named
+    guards at service level in test_agreement_gap.py.)
+    """
     other_tenant, other_admin = await second_tenant_factory()
     other_type = await ensure_booking_type(db_session, other_tenant.id)
     their_project = await ensure_project(db_session, other_tenant.id, name="Theirs")
@@ -1232,6 +1393,13 @@ async def test_another_tenants_bookings_are_never_in_our_filtered_list(
     )
     pop = await _population(db_session, test_tenant, test_user, test_booking_type)
 
+    # An agreement that would cover OUR uncovered booking completely — except
+    # that it belongs to another tenant. Inserted directly: no endpoint can
+    # write this, which is the point.
+    await _agreement(
+        db_session, other_tenant.id, pop.unagreed_project.id, pop.unagreed_env.id
+    )
+
     # Their booking IS in gap — in their tenant.
     assert await agreement_gap_service.has_unacknowledged_agreement_gap(
         db_session, theirs.id, other_tenant.id
@@ -1239,6 +1407,10 @@ async def test_another_tenants_bookings_are_never_in_our_filtered_list(
 
     resp = await _list(client, auth_headers, "?agreement_gap=true")
     assert theirs.id not in _ids(resp)
+    # Our uncovered booking is STILL in gap: the cross-tenant agreement above
+    # covers its project, its environment and (unbounded) its dates, so dropping
+    # `UsageAgreement.tenant_id` from the clause loses this row here.
+    assert pop.uncovered.id in _ids(resp)
     assert _ids(resp) == pop.in_gap
     assert _total(resp) == len(pop.in_gap)
 

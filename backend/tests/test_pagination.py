@@ -574,8 +574,15 @@ async def test_bookings_agreement_gap_filter_narrows_the_page_and_the_total(
 
     Two bookings, one of them in gap. Asked for the gap with `limit=1`, a SQL
     filter returns the ONE in-gap booking and advertises a total of 1; a Python
-    filter over the page would window the unfiltered pair first — returning
-    whichever row sorted first and advertising 2.
+    filter over the page would window the unfiltered pair first — taking the
+    project-less booking and then filtering it away, so it would return NO rows
+    and advertise 2.
+
+    THE ORDER THESE TWO ARE CREATED IN IS LOAD-BEARING. Both take
+    `make_booking`'s default dates and the sort is `start_date asc, id`, so the
+    project-less one must be created FIRST or `limit=1` returns the in-gap row
+    whether the filter ran in SQL or over the page, and the row assertion below
+    is trivially true.
 
     The behavioural coverage is tests/integration/test_agreement_gap_filter.py;
     this is the pagination-side guard, so a future refactor of `fetch_page` or
@@ -585,13 +592,13 @@ async def test_bookings_agreement_gap_filter_narrows_the_page_and_the_total(
 
     project = await ensure_project(db_session, test_tenant.id, name="Unagreed")
     env = await ensure_environment(db_session, test_tenant.id)
-    in_gap = await make_booking(
-        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
-        booking_type=test_booking_type, project_id=project.id,
-    )
     await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         booking_type=test_booking_type, project_id=None,
+    )
+    in_gap = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        booking_type=test_booking_type, project_id=project.id,
     )
 
     response = await client.get(

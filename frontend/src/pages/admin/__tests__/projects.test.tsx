@@ -623,6 +623,67 @@ describe('ProjectDetail', () => {
     expect(projectService.getProject).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses to render a rollup for a project that could not be loaded (Finding I3)', async () => {
+    // The valid-but-soft-deleted sibling of the test above: `Number.isInteger`
+    // passes, the id is real, and `GET /projects/{id}` still 404s because
+    // `get_project` filters `deleted_at`. Found by the browser pass, not by any
+    // test — `/tenant/projects/1` rendered "Project not found" and, beneath it,
+    // "0 agreements · 1 booking in gap" with a live link. The count is
+    // CORRECT (a request still points at the deleted project, which is why that
+    // booking is in gap), which makes it more convincing, not less.
+    //
+    // `listBookings` deliberately RESOLVES here: the count endpoint knows
+    // nothing about the project being deleted, so the rollup would render
+    // happily. Suppressing it has to come from the page.
+    const notFound = {
+      isAxiosError: true,
+      message: 'Request failed with status code 404',
+      response: { status: 404, data: { detail: 'Project not found' } },
+    };
+    vi.mocked(projectService.getProject).mockRejectedValue(notFound);
+    vi.mocked(projectService.listAgreementsForProject).mockRejectedValue(notFound);
+    vi.mocked(bookingService.listBookings).mockResolvedValue({ rows: [], total: 1 });
+
+    renderDetail('Admin');
+
+    expect(await screen.findByText(/project not found/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /in gap/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 booking in gap/)).not.toBeInTheDocument();
+    // Nor the rest of the section the number sits in — an Add form for a
+    // project that does not exist is the same mistake one control along.
+    expect(screen.queryByText('Usage Agreements')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^add$/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/agreements$/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the not-found page suppressed even when a later load nulls the shared error (Finding I3)', async () => {
+    // `projectSlice.error` is shared: `fetchProjectAgreements.fulfilled` sets it
+    // to null, so a page that gated on the banner would come BACK once the
+    // agreements request succeeded — rollup and all, with nothing left on
+    // screen to say the project is missing. Gating on `current` is what makes
+    // that impossible, and this is the test that tells the two gates apart.
+    vi.mocked(projectService.getProject).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 404',
+      response: { status: 404, data: { detail: 'Project not found' } },
+    });
+    vi.mocked(projectService.listAgreementsForProject).mockResolvedValue({
+      rows: [AGREEMENT],
+      total: 1,
+    });
+    vi.mocked(bookingService.listBookings).mockResolvedValue({ rows: [], total: 1 });
+
+    renderDetail('Admin');
+
+    await waitFor(() => expect(projectService.listAgreementsForProject).toHaveBeenCalled());
+    await waitFor(() => expect(bookingService.listBookings).toHaveBeenCalled());
+    expect(screen.queryByRole('link', { name: /in gap/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Usage Agreements')).not.toBeInTheDocument();
+    // The agreement row itself must not render either: it belongs to a project
+    // this address could not resolve.
+    expect(screen.queryByText('staging-a')).not.toBeInTheDocument();
+  });
+
   it('states plainly that a gap warns and never blocks', async () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());

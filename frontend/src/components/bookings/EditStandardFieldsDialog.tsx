@@ -56,14 +56,6 @@ export default function EditStandardFieldsDialog({
   const { projects, truncated: projectsTruncated } = useAllProjects();
 
   const sfPerms = booking.standard_field_permissions ?? {};
-  // project_id is deliberately absent from ENTITY_FIELD_SPECS["booking"]["valid"]
-  // (booking_lifecycle.py) — that set drives lifecycle field_permissions, a
-  // system update_standard_fields explicitly does not consult for this field
-  // (see its TODO). So standard_field_permissions never carries a
-  // "project_id" entry, and gating it through canEdit the way every other
-  // field here is gated would leave the picker permanently disabled — the
-  // same failure mode this task exists to fix. Treat it as always editable,
-  // matching the backend's actual (unwired) authorization for this field.
   // `project_id` is editable unless the backend says otherwise.
   //
   // It is deliberately absent from ENTITY_FIELD_SPECS["booking"]["valid"],
