@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.pagination import Page, fetch_page_rows
+from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
 from app.db.models.booking_conflict_ack import BookingConflictAck
 from app.db.models.booking_request import BookingRequest
@@ -134,18 +135,26 @@ async def upsert_ack(
 
     now = datetime.now(timezone.utc)
     if existing is None:
-        ack = BookingConflictAck(
-            tenant_id=tenant_id,
-            booking_id=booking_id,
-            other_booking_id=other_booking_id,
-            willing_to_share=willing_to_share,
-            notes=notes,
-            acknowledged_by=current_user.id,
-            acknowledged_at=now,
+        # A concurrent first-ack may land between the read above and this
+        # insert; `uq_conflict_ack_pair` then refuses ours. insert_or_reread
+        # hands back the row that won so the update below applies to it — the
+        # later answer is recorded, as it would have been unraced. See
+        # app/core/upsert.py for why this needs a savepoint.
+        existing, inserted = await insert_or_reread(
+            db,
+            BookingConflictAck(
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                other_booking_id=other_booking_id,
+                willing_to_share=willing_to_share,
+                notes=notes,
+                acknowledged_by=current_user.id,
+                acknowledged_at=now,
+            ),
+            lambda: get_ack(db, booking_id, other_booking_id, tenant_id),
         )
-        db.add(ack)
-        await db.flush()
-        return ack
+        if inserted:
+            return existing
 
     existing.willing_to_share = willing_to_share
     existing.notes = notes
