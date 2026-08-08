@@ -18,9 +18,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../../../store';
+import { logout, setCredentials } from '../../../store/authSlice';
 import type { BookingResponse } from '../../../types/booking';
+import type { AllowedTransition } from '../../../types/bookingLifecycle';
 
 // Makes its own fetches and is irrelevant to the gap — stubbed so this file's
 // failures are about the wiring under test.
@@ -64,6 +66,13 @@ import BookingDetail from '../BookingDetail';
 // request 9501) so a wrong-data-source bug cannot pass by coincidence.
 const BOOKING_ID = 9701;
 const ENV_ID = 8701;
+// The signed-in user, seeded into the REAL store below. Deliberately not the
+// booking's `booked_by`/`booked_by_username` (1/'alice'): the ack line must be
+// shown to come from `state.auth.user`, not from a field that happens to sit on
+// the booking. `acknowledged_by` on the ack mock matches this id, because the
+// backend always records the caller.
+const CURRENT_USER_ID = 4401;
+const CURRENT_USERNAME = 'rmanager';
 const GAP =
   "Mortgage Replatform's booking falls outside its agreed window for Staging (1 Jan 2026 – 30 Jun 2026)";
 
@@ -120,15 +129,55 @@ beforeEach(() => {
   vi.mocked(bookingRequestService.get).mockReset();
   vi.mocked(agreementGapService.ackGap).mockReset().mockResolvedValue({
     notes: null,
-    acknowledged_by: 1,
+    acknowledged_by: CURRENT_USER_ID,
     acknowledged_at: '2026-08-08T10:30:00Z',
   });
+  // The page reads `state.auth.user` and passes it to the panel; without a
+  // signed-in user in the store no acknowledgement could ever carry a name.
+  store.dispatch(
+    setCredentials({
+      user: {
+        id: CURRENT_USER_ID,
+        username: CURRENT_USERNAME,
+        email: 'rmanager@example.com',
+        role: 'Release Manager',
+        tenant_id: 1,
+        is_master_admin: false,
+      },
+      token: 'test-token',
+    })
+  );
+});
+
+afterEach(() => {
+  // The real store is shared by every test in this file.
+  store.dispatch(logout());
 });
 
 describe('BookingDetail — the usage-agreement gap is on the page', () => {
   it("shows the booking's gap message", async () => {
     renderPage();
     expect(await screen.findByText(GAP)).toBeInTheDocument();
+  });
+
+  it('shows a gap acknowledged in an EARLIER session as acknowledged, and offers no Acknowledge control', async () => {
+    // The page's `hasUnacknowledgedGap` prop must come from the booking, not
+    // from a constant: hardcoding it `true` leaves every other test in this
+    // directory green while a booking whose gap was acknowledged in a previous
+    // session re-offers the control forever and never shows the acknowledged
+    // line at all. Nothing in-session sets `ack` here — the acknowledged state
+    // can only come off the response.
+    vi.mocked(bookingService.getBooking).mockResolvedValue(
+      makeBooking({ has_unacknowledged_agreement_gap: false })
+    );
+    renderPage();
+
+    // Acknowledging is not resolving: the gap is still on the page.
+    expect(await screen.findByText(GAP)).toBeInTheDocument();
+    expect(await screen.findByTestId('agreement-gap-ack')).toHaveTextContent(
+      /has been acknowledged/i
+    );
+    expect(screen.queryByRole('button', { name: /^Acknowledge$/ })).not.toBeInTheDocument();
   });
 
   it('renders no gap panel for a booking that has none', async () => {
@@ -174,6 +223,24 @@ describe('BookingDetail — acknowledging from the page', () => {
     );
   });
 
+  it('names the signed-in user on the acknowledgement it just recorded — who AND when', async () => {
+    // Guards the `currentUserId`/`currentUsername` props at the page seam:
+    // pass them as `null` (an auth selector dropped in a refactor) and every
+    // acknowledgement silently degrades to "Acknowledged on <date>" — the
+    // brief's "who and when" reduced to "when" on the only page that can
+    // satisfy it. No other page test asserts a username appears.
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText(GAP);
+    await user.click(screen.getByRole('button', { name: /^Acknowledge$/ }));
+
+    const ackLine = await screen.findByTestId('agreement-gap-ack');
+    expect(ackLine).toHaveTextContent(new RegExp(`Acknowledged by ${CURRENT_USERNAME}`, 'i'));
+    // By name, never `#N` — the ack row's `acknowledged_by` is a user id.
+    expect(ackLine.textContent).not.toContain(String(CURRENT_USER_ID));
+  });
+
   it("shows the server's reason when the ack is refused, and nothing else on the page breaks", async () => {
     const user = userEvent.setup();
     vi.mocked(agreementGapService.ackGap).mockRejectedValue({
@@ -191,5 +258,48 @@ describe('BookingDetail — acknowledging from the page', () => {
     // Still warning, still acknowledgeable — a refused ack blocks nothing.
     expect(screen.getByText(GAP)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Acknowledge/i })).toBeEnabled();
+  });
+});
+
+describe('BookingDetail — A3 WARNS, IT NEVER BLOCKS', () => {
+  // A3's central constraint, asserted on the UI side. The rest of this file's
+  // fixture stubs `getAllowedTransitions` to `[]`, so the page under test
+  // renders no transition control at all and gating one on the gap would be
+  // invisible to the whole directory (verified: the reviewer added
+  // `&& !booking.has_unacknowledged_agreement_gap` to the TransitionButtons
+  // render condition and all 50 tests in src/pages/bookings still passed).
+  // This test therefore supplies a real allowed transition.
+  const SUBMIT: AllowedTransition = {
+    from_state: 'draft',
+    to_state: 'submitted',
+    label: 'Submit for approval',
+  };
+
+  it('still renders the transition controls, enabled, with an UNACKNOWLEDGED gap on the page', async () => {
+    vi.mocked(bookingService.getAllowedTransitions).mockResolvedValue([SUBMIT]);
+    renderPage();
+
+    // The gap really is on screen, and really is unacknowledged.
+    expect(await screen.findByText(GAP)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Acknowledge$/ })).toBeInTheDocument();
+
+    // …and the booking can still be moved forward. Nothing about the warning
+    // hides, disables or intercepts it.
+    const submit = await screen.findByRole('button', { name: SUBMIT.label });
+    expect(submit).toBeInTheDocument();
+    expect(submit).toBeEnabled();
+  });
+
+  it('still renders the transition controls, enabled, with an ACKNOWLEDGED gap on the page', async () => {
+    // The other half: neither state of the warning may gate the workflow.
+    vi.mocked(bookingService.getBooking).mockResolvedValue(
+      makeBooking({ has_unacknowledged_agreement_gap: false })
+    );
+    vi.mocked(bookingService.getAllowedTransitions).mockResolvedValue([SUBMIT]);
+    renderPage();
+
+    expect(await screen.findByText(GAP)).toBeInTheDocument();
+    const submit = await screen.findByRole('button', { name: SUBMIT.label });
+    expect(submit).toBeEnabled();
   });
 });

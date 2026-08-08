@@ -131,6 +131,34 @@ describe('AgreementGapPanel — an unacknowledged gap', () => {
   });
 });
 
+describe('AgreementGapPanel — an acknowledgement recorded against somebody else', () => {
+  // The guard at `ackAuthor` exists so a name is printed only when the returned
+  // `acknowledged_by` is the person looking. It cannot be reached through the
+  // product today (`upsert_ack` always records the caller), which is exactly
+  // why it needs a test: without one it is untested defensive code that a
+  // reader would mistake for verified behaviour, and the alternative reading —
+  // "name whoever is looking" — would attribute another user's decision to the
+  // current one.
+  it('reports when it was acknowledged but names nobody, rather than naming the wrong person', async () => {
+    const user = userEvent.setup();
+    const OTHER_USER_ID = 4402;
+    vi.mocked(agreementGapService.ackGap).mockResolvedValue({
+      notes: null,
+      acknowledged_by: OTHER_USER_ID,
+      acknowledged_at: '2026-08-08T10:30:00Z',
+    });
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: /Acknowledge/i }));
+
+    const ackLine = await screen.findByTestId('agreement-gap-ack');
+    expect(ackLine).toHaveTextContent(/^Acknowledged on /);
+    expect(ackLine.textContent).not.toMatch(/rmanager/);
+    // And no id leaks in place of the name.
+    expect(ackLine.textContent).not.toContain(String(OTHER_USER_ID));
+  });
+});
+
 describe('AgreementGapPanel — a failed acknowledgement', () => {
   it("renders the server's reason, not the raw HTTP status line", async () => {
     const user = userEvent.setup();

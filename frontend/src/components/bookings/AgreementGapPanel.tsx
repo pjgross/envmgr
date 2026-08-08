@@ -113,6 +113,10 @@ export default function AgreementGapPanel({
         </Typography>
 
         {acknowledged ? (
+          // The testid identifies the one line whose CONTENT differs between an
+          // acknowledgement made in this session (who and when) and one read
+          // back off the booking response (a boolean, so neither) — a text
+          // query cannot tell those apart, and three tests key on it.
           <Typography variant="body2" sx={{ mt: 1 }} data-testid="agreement-gap-ack">
             {ack != null
               ? ackAuthor
