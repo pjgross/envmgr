@@ -75,6 +75,7 @@ function renderColumnCell(col: any, row: Record<string, unknown>): any {
 /** One list row, in an unacknowledged usage-agreement gap. */
 function gapRow(id: number, gap: string): BookingResponse {
   return {
+    has_unacknowledged_conflicts: false,
     id,
     environment_id: 10,
     environment_name: 'UAT-1',

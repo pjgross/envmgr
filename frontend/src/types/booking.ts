@@ -38,7 +38,11 @@ export interface BookingResponse {
   tenant_id: number;
   created_at: string;
   updated_at: string;
-  has_unacknowledged_conflicts?: boolean;
+  // Required since 2026-08-08: `bookings.py::_to_response` now takes it
+  // required-positional and every one of its six callers supplies it from a
+  // batched lookup. Four of those six used to assign nothing, so this arrived
+  // as `false` on four endpoints regardless of the truth.
+  has_unacknowledged_conflicts: boolean;
   booking_request_id?: number | null;
   // A3's usage-agreement warning: the message, and whether anyone has
   // accepted it. Computed from usage_agreement, never stored — the backend

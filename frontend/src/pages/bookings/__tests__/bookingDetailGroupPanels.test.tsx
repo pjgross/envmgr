@@ -95,6 +95,7 @@ const LEDGER_GROUP_NAME = 'Ledger Squad';
 
 function envBooking(overrides: Partial<EnvBookingSummary>): EnvBookingSummary {
   return {
+    has_unacknowledged_conflicts: false,
     id: 0,
     environment_id: 0,
     environment_name: null,
@@ -151,6 +152,7 @@ const HAND_PICKED = envBooking({
 
 function makeBooking(): BookingResponse {
   return {
+    has_unacknowledged_conflicts: false,
     id: TOP_BOOKING_ID,
     environment_id: 8101,
     environment_name: 'Order Service Test',

@@ -75,6 +75,7 @@ const ENV_ID = 8601;
 
 function envBooking(overrides: Partial<EnvBookingSummary>): EnvBookingSummary {
   return {
+    has_unacknowledged_conflicts: false,
     id: 0,
     environment_id: 0,
     environment_name: null,
@@ -104,6 +105,7 @@ const SOLO_BOOKING = envBooking({
 
 function makeBooking(): BookingResponse {
   return {
+    has_unacknowledged_conflicts: false,
     id: TOP_BOOKING_ID,
     environment_id: ENV_ID,
     environment_name: 'Solo Env',

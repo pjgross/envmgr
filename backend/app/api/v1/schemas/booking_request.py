@@ -13,17 +13,25 @@ class EnvBookingSummary(BaseModel):
     start_date: datetime
     end_date: datetime
     status: str
-    has_unacknowledged_conflicts: bool = False
+    # REQUIRED SINCE 2026-08-08, and it is worth knowing why it wasn't.
+    # Defaulted `False` from the day it shipped and set by NO construction
+    # site, this field answered "no conflicts" for every booking on every
+    # endpoint that returns this type. Nothing rendered it — the conflict
+    # indicators all read `BookingResponse` — so it was dead weight rather than
+    # a visible lie, and it stayed that way because a default cannot fail.
+    # It is now populated from `conflict_service.bookings_with_unacknowledged_conflicts`,
+    # batched once per response, and required so a new site cannot repeat this.
+    has_unacknowledged_conflicts: bool
     # A3's usage-agreement warning — see BookingResponse for what it means.
     #
-    # REQUIRED, NOT DEFAULTED, deliberately unlike every other optional field on
-    # this model: EnvBookingSummary is constructed by keyword at six sites
-    # across two routers, and a default would let a missed one render a booking
-    # as "no gap" while `GET /bookings` reports the same booking as in gap. A2
-    # left this exact type self-contradictory that way. Pydantic raises on a
-    # missing required field, so a new construction site cannot forget.
-    # `has_unacknowledged_conflicts` immediately above shows the alternative: it
-    # is populated by nothing at all and has been False since it shipped.
+    # REQUIRED, NOT DEFAULTED, deliberately unlike the optional fields above:
+    # EnvBookingSummary is constructed by keyword at six sites across two
+    # routers, and a default would let a missed one render a booking as "no
+    # gap" while `GET /bookings` reports the same booking as in gap. A2 left
+    # this exact type self-contradictory that way. Pydantic raises on a missing
+    # required field, so a new construction site cannot forget — though note
+    # that guards only OMISSION: passing a constant satisfies it just as well,
+    # which is why every site has a named test.
     agreement_gap: Optional[str]
     has_unacknowledged_agreement_gap: bool
     # Provenance, not a live link — see Booking.environment_group_id. Null for

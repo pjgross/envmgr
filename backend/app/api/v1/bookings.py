@@ -42,6 +42,7 @@ def _to_response(
     project_name_link: str | None,
     group_name: str | None,
     gap: agreement_gap_service.GapWarning | None,
+    has_unacknowledged_conflicts: bool,
 ) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
 
@@ -62,9 +63,15 @@ def _to_response(
     for the WHOLE set the caller is responding with. Never
     `has_unacknowledged_agreement_gap` per row: that is the batch call for one
     booking, so a 50-row page would issue ~150 queries. Required-positional for
-    the reason above, and the reason it is filled in HERE rather than assigned
-    at the call site (the way `has_unacknowledged_conflicts` is) is that four of
-    this function's six callers do not assign that one at all.
+    the reason above.
+
+    `has_unacknowledged_conflicts` is now required-positional too, and used to
+    be the counter-example this docstring cited: it was assigned at the CALL
+    SITE, and four of this function's six callers never assigned it, so those
+    four reported every booking as conflict-free. It is batch-resolved via
+    `conflict_service.bookings_with_unacknowledged_conflicts` — the per-row form
+    costs `list_conflicts` plus one ack lookup PER CONFLICT and must never be
+    called in a loop over a page.
     """
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
@@ -87,6 +94,8 @@ def _to_response(
     # of it, in agreement_gap_service.gap_fields.
     for field, value in agreement_gap_service.gap_fields(gap).items():
         setattr(resp, field, value)
+    for field, value in conflict_service.conflict_fields(has_unacknowledged_conflicts).items():
+        setattr(resp, field, value)
     return resp
 
 
@@ -101,6 +110,19 @@ async def _gap_for(db, booking, tenant_id: int) -> agreement_gap_service.GapWarn
     return (
         await agreement_gap_service.gap_warnings_for_bookings(db, [booking], tenant_id)
     ).get(booking.id)
+
+
+async def _has_conflicts_for(db, booking, tenant_id: int) -> bool:
+    """Whether this booking has a conflict its owner has not answered.
+
+    The batch call for a set of one, exactly as `_gap_for` above — the four
+    endpoints below respond with a single booking, and sharing the list's
+    function means a detail read cannot disagree with the same booking's row in
+    the list. Never the reverse: this must not be called in a loop over a page.
+    """
+    return booking.id in await conflict_service.bookings_with_unacknowledged_conflicts(
+        db, [booking.id], tenant_id
+    )
 
 
 async def _ack_read(db, ack) -> AgreementGapAckRead:
@@ -181,23 +203,27 @@ async def list_bookings(
     group_names = await environment_group_service.get_group_names(
         db, {b.environment_group_id for b in bookings}, current_user.active_tenant_id
     )
-    # Once for the page, never once per row — see _to_response.
+    # Once for the page, never once per row — see _to_response. The conflict
+    # flag beside it used to be the counter-example: it ran
+    # `has_unacknowledged_conflicts` inside this loop, which is `list_conflicts`
+    # plus one ack lookup PER CONFLICT, so a 50-row page cost 50 x (1 +
+    # conflicts) queries and got worse the busier the estate was.
     gaps = await agreement_gap_service.gap_warnings_for_bookings(
         db, bookings, current_user.active_tenant_id
     )
-    responses: list[BookingResponse] = []
-    for b in bookings:
-        resp = _to_response(
+    conflicts = await conflict_service.bookings_with_unacknowledged_conflicts(
+        db, [b.id for b in bookings], current_user.active_tenant_id
+    )
+    return [
+        _to_response(
             b,
             names.get(b.booking_request.project_id),
             group_names.get(b.environment_group_id),
             gaps.get(b.id),
+            b.id in conflicts,
         )
-        resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
-            db, b.id, current_user.active_tenant_id
-        )
-        responses.append(resp)
-    return responses
+        for b in bookings
+    ]
 
 
 @router.post("/", response_model=BookingCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -219,6 +245,7 @@ async def create_booking(
             names.get(booking.booking_request.project_id),
             group_names.get(booking.environment_group_id),
             await _gap_for(db, booking, current_user.active_tenant_id),
+            await _has_conflicts_for(db, booking, current_user.active_tenant_id),
         ),
         overlap_warnings=warnings,
     )
@@ -242,15 +269,13 @@ async def get_booking(
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
         await _gap_for(db, booking, current_user.active_tenant_id),
+        await _has_conflicts_for(db, booking, current_user.active_tenant_id),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
     )
     resp.standard_field_permissions = await booking_service.get_standard_field_perms_for_booking(
         db, booking, current_user.role
-    )
-    resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
-        db, booking.id, current_user.active_tenant_id
     )
     # Who accepted this booking's gap, and when — the detail read ONLY (see
     # BookingResponse.agreement_gap_ack). Tenant-filtered by `get_ack`: a
@@ -286,6 +311,7 @@ async def update_standard_fields(
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
         await _gap_for(db, booking, current_user.active_tenant_id),
+        await _has_conflicts_for(db, booking, current_user.active_tenant_id),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -315,6 +341,7 @@ async def transition_booking_state(
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
         await _gap_for(db, booking, current_user.active_tenant_id),
+        await _has_conflicts_for(db, booking, current_user.active_tenant_id),
     )
 
 

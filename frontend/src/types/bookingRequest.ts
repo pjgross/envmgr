@@ -6,14 +6,18 @@ export type EnvBookingSummary = {
   start_date: string;
   end_date: string;
   status: string;
-  has_unacknowledged_conflicts?: boolean;
+  // Required since 2026-08-08. It was optional here because the backend never
+  // populated it on this type at all — defaulted False at the schema and set by
+  // none of its six construction sites, so it was `false` on the wire from the
+  // day it shipped. It is now batched once per response and required at every
+  // site, so the wire always carries a real answer.
+  has_unacknowledged_conflicts: boolean;
   // A3's usage-agreement warning — see BookingResponse in booking.ts for
-  // what it means. REQUIRED here, not optional/defaulted, deliberately
-  // unlike has_unacknowledged_conflicts immediately above: the backend's
-  // EnvBookingSummary types this the same way (no default) precisely
-  // because it is constructed by keyword at six call sites across two
-  // routers, and a default would let a missed one silently render "no gap"
-  // for a booking that has one.
+  // what it means. REQUIRED here, not optional/defaulted, for the same reason
+  // as the field above: the backend's EnvBookingSummary types both this way
+  // (no default) precisely because they are constructed by keyword at six call
+  // sites across two routers, and a default would let a missed one silently
+  // render "no gap" for a booking that has one.
   agreement_gap: string | null;
   has_unacknowledged_agreement_gap: boolean;
   // Provenance, not a live link — set for a booking that arrived via an
