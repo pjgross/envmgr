@@ -9,8 +9,12 @@ from app.core.security import get_current_user
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.models.booking import Booking
 from app.services import (
-    booking_service, booking_request_service, conflict_service,
-    environment_group_service, project_service,
+    agreement_gap_service, booking_service, booking_request_service,
+    conflict_service, environment_group_service, project_service,
+)
+from app.api.v1.schemas.agreement_gap import (
+    AgreementGapAckRead,
+    AgreementGapAckUpsert,
 )
 from app.api.v1.schemas.booking import (
     BookingCreate,
@@ -240,6 +244,26 @@ async def get_allowed_transitions_for_booking(
     current_user=Depends(get_current_user),
 ):
     return await booking_service.get_booking_allowed_transitions(db, booking_id, current_user)
+
+
+@router.put("/{booking_id}/agreement-gap/ack", response_model=AgreementGapAckRead)
+async def ack_agreement_gap(
+    booking_id: int,
+    data: AgreementGapAckUpsert,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Acknowledge this booking's usage-agreement gap.
+
+    Open to any tenant member, deliberately: a gap is a governance finding, not
+    a message between bookers (see agreement_gap_service.upsert_ack). The gap
+    itself is never written — only the acknowledgement is.
+    """
+    ack = await agreement_gap_service.upsert_ack(
+        db, booking_id, notes=data.notes,
+        current_user=current_user, tenant_id=current_user.active_tenant_id,
+    )
+    return AgreementGapAckRead.model_validate(ack)
 
 
 @router.delete("/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)

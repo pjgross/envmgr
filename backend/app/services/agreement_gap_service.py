@@ -19,6 +19,7 @@ disagreed two ways.
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, NamedTuple, Optional
 
+from fastapi import HTTPException, status
 from sqlalchemy import Exists, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -28,6 +29,8 @@ from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.environment import Environment
 from app.db.models.project import Project, UsageAgreement
+from app.db.models.usage_agreement_ack import UsageAgreementAck
+from app.db.models.user import User
 
 
 def covered_exists_clause(tenant_id: int) -> Exists:
@@ -397,3 +400,145 @@ async def describe_gap(
     the list's: both are `gap_clause`, and there is one message builder.
     """
     return (await gaps_for_bookings(db, [booking], tenant_id)).get(booking.id)
+
+
+# --------------------------------------------------------------------------
+# The acknowledgement.
+#
+# ONLY THE ACKNOWLEDGEMENT IS STORED — everything above stays computed. These
+# three functions never decide whether a booking is in gap; they ask the
+# predicate above and record, or read, a human's answer to it. A3 WARNS: none
+# of them refuses or alters a booking.
+# --------------------------------------------------------------------------
+
+
+async def _load_booking(db: AsyncSession, booking_id: int, tenant_id: int) -> Optional[Booking]:
+    """This tenant's booking, or None. The ONLY place the ack path resolves a
+    booking id, so 404-vs-silence is decided once.
+
+    `deleted_at` is deliberately NOT filtered, matching both
+    `conflict_service._authorize_ack` and this module's own rule that
+    `Booking.deleted_at` is the caller's question (see `gaps_for_bookings`).
+    Acknowledging a soft-deleted booking changes nothing a user can see — its
+    warning is not rendered anywhere — and refusing it would make this the one
+    place in the ack path that disagrees with the predicate about which
+    bookings exist.
+    """
+    return (
+        await db.execute(
+            select(Booking).where(
+                Booking.id == booking_id, Booking.tenant_id == tenant_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def upsert_ack(
+    db: AsyncSession,
+    booking_id: int,
+    *,
+    notes: Optional[str],
+    current_user: User,
+    tenant_id: int,
+) -> UsageAgreementAck:
+    """Record — or replace — the acknowledgement of this booking's gap.
+
+    Keyed on `booking_id` alone: a gap is a property of ONE booking, so a second
+    row would be a second answer to a single question. Re-acknowledging
+    overwrites the author and the timestamp as well as the notes, because the
+    row answers "who accepted this risk, and when" about the CURRENT text.
+
+    A booking that is not this tenant's is 404, never 403 — a cross-tenant id
+    must not be confirmed to exist. There is deliberately no owner-or-delegate
+    gate (unlike `conflict_service._authorize_ack`): a conflict ack is a message
+    from one booker to another, so its author matters, whereas a gap is a
+    governance finding that an admin or a project lead may reasonably be the one
+    to accept. Anything narrower would leave the estate's warnings answerable
+    only by whoever happened to make the booking.
+
+    NOTHING HERE CHECKS FOR A GAP FIRST. Acknowledging a covered booking is
+    accepted and simply changes no answer (`has_unacknowledged_agreement_gap`
+    returns False either way) — refusing it would make the button a race
+    against a gap that can close between the page rendering and the click, and
+    A3 refuses nothing.
+    """
+    booking = await _load_booking(db, booking_id, tenant_id)
+    if booking is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+
+    existing = await get_ack(db, booking_id, tenant_id)
+    now = datetime.now(timezone.utc)
+    if existing is None:
+        ack = UsageAgreementAck(
+            tenant_id=tenant_id,
+            booking_id=booking_id,
+            notes=notes,
+            acknowledged_by=current_user.id,
+            acknowledged_at=now,
+        )
+        db.add(ack)
+        await db.flush()
+        return ack
+
+    existing.notes = notes
+    existing.acknowledged_by = current_user.id
+    existing.acknowledged_at = now
+    await db.flush()
+    return existing
+
+
+async def get_ack(
+    db: AsyncSession, booking_id: int, tenant_id: int
+) -> Optional[UsageAgreementAck]:
+    """This tenant's acknowledgement of the booking, or None.
+
+    Tenant-filtered even though `booking_id` is unique on its own: a malformed
+    row carrying another tenant's `tenant_id` must not silence our warning, and
+    `test_another_tenants_ack_row_never_suppresses_our_warning` fails without
+    this filter.
+    """
+    return (
+        await db.execute(
+            select(UsageAgreementAck).where(
+                UsageAgreementAck.booking_id == booking_id,
+                UsageAgreementAck.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def has_unacknowledged_agreement_gap(
+    db: AsyncSession, booking_id: int, tenant_id: int
+) -> bool:
+    """Is there a gap on this booking that nobody has acknowledged?
+
+    Named to match the response field it feeds, so a reader does not have to
+    check whether they are the same question. It answers "is there something to
+    warn about", not "is there an ack row": NO GAP MEANS FALSE regardless of
+    acks, mirroring `conflict_service.has_unacknowledged_conflicts`, which
+    returns False early when there are no conflicts.
+
+    The gap half is `describe_gap` — i.e. `gap_clause`, via the one message
+    builder — and deliberately not a fourth query of its own. A private
+    "is it in gap" EXISTS would be a second mechanism answering the question the
+    module docstring exists to keep singular, and would carry its own copy of
+    the Booking→BookingRequest join whose filters must match
+    `gaps_for_bookings`' exactly. Discarding the message costs one extra query
+    per booking and buys the guarantee that this flag can never contradict the
+    text shown beside it.
+
+    THEREFORE: never call this in a loop over a page. A list endpoint wants
+    `gaps_for_bookings` for the whole page plus one ack lookup, not N of these.
+
+    A booking that is not this tenant's is not in gap here — the same silence
+    `describe_gap` gives it, rather than an exception, because this feeds a
+    response field and not a permission decision.
+    """
+    booking = await _load_booking(db, booking_id, tenant_id)
+    if booking is None:
+        return False
+    if await describe_gap(db, booking, tenant_id) is None:
+        return False
+    return await get_ack(db, booking_id, tenant_id) is None

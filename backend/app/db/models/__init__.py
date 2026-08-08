@@ -68,6 +68,7 @@ from app.db.models.tenant_secret import TenantSecret  # noqa: F401
 from app.db.models.user_group import UserGroup, UserGroupMember  # noqa: F401
 from app.db.models.environment_request import EnvironmentRequest  # noqa: F401
 from app.db.models.project import Project, UsageAgreement  # noqa: F401
+from app.db.models.usage_agreement_ack import UsageAgreementAck  # noqa: F401
 from app.db.models.environment_group import (  # noqa: F401
     EnvironmentGroup,
     EnvironmentGroupMember,

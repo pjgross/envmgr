@@ -230,7 +230,14 @@ def test_upgrade_after_downgrade_nulls_orphaned_booking_group_id(scratch_databas
 
     booking_id = _seed_group_linked_booking(scratch_database)
 
-    down = _alembic("-1", scratch_database, command="downgrade")
+    # `projects`, NOT `-1`: this test is about the `envgroups` revision, and
+    # `-1` means "one step back from the CURRENT head" — the moment any
+    # revision lands on top of envgroups, `-1` reverses that one instead and
+    # this test silently starts asserting nothing (it failed outright when
+    # `agreementack` landed, which is the lucky version of that). Naming the
+    # target revision pins what is under test. Same trap as the dev-database
+    # warning in CLAUDE.md, one level up.
+    down = _alembic("projects", scratch_database, command="downgrade")
     assert down.returncode == 0, down.stderr
 
     up_again = _alembic("head", scratch_database)

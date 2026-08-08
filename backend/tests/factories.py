@@ -16,7 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
+from app.db.models.booking import Booking
 from app.db.models.booking_lifecycle import BookingType
+from app.db.models.booking_request import BookingRequest
 from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
 from app.db.models.environment import Environment
@@ -222,6 +224,51 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
     db.add(environment)
     await db.flush()
     return environment
+
+
+async def ensure_booking(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    booked_by: int,
+    environment: Environment,
+    project_id: int | None = None,
+    start: datetime = datetime(2026, 3, 1, tzinfo=timezone.utc),
+    end: datetime = datetime(2026, 3, 5, tzinfo=timezone.utc),
+) -> Booking:
+    """A booking, plus the BookingRequest that carries its project link.
+
+    ALWAYS A NEW ROW — a tenant may hold any number of bookings for one
+    environment, so there is nothing to be idempotent about, and tests that want
+    two distinct bookings must get two.
+
+    `booking_request.project_id` is what A3's gap predicate reads; the booking
+    itself has no project column. `project_name` is the free text the UI labels
+    "Purpose" and is deliberately unrelated to it (A1).
+    """
+    booking_type = await ensure_booking_type(db, tenant_id)
+    request = BookingRequest(
+        tenant_id=tenant_id,
+        project_name="a purpose, not a project",
+        project_id=project_id,
+        booking_type_id=booking_type.id,
+        start_date=start,
+        end_date=end,
+        booked_by=booked_by,
+    )
+    db.add(request)
+    await db.flush()
+
+    booking = Booking(
+        tenant_id=tenant_id,
+        environment_id=environment.id,
+        start_date=start,
+        end_date=end,
+        booking_request_id=request.id,
+    )
+    db.add(booking)
+    await db.flush()
+    return booking
 
 
 async def ensure_environment_group(
