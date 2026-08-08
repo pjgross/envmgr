@@ -28,13 +28,12 @@ class AgreementGapAckUpsert(BaseModel):
     # filed while the audit trail holds a blank. That is exactly the
     # POST /tenant/lifecycle-templates silent drop CLAUDE.md records.
     #
-    # ConflictAckUpsert, this schema's model, does NOT forbid extras — but it
-    # predates the convention. Every write schema written since B1
-    # (EnvironmentUpdate, EnvironmentHandoverUpdate, EnvironmentRequestUpdate,
-    # ProjectCreate/Update, EnvironmentGroupCreate/Update) forbids them, so
-    # this follows the newer rule rather than the older sibling. With one
-    # optional field and a governance audit trail behind it, the whole payload
-    # is a misspelling away from being lost.
+    # ConflictAckUpsert, this schema's model, does NOT forbid extras. Nor is
+    # forbidding them a settled convention here: only 5 of 45 schema modules do
+    # it, and B1's own environment_tier.py and B3a's user_group.py — both newer
+    # than ConflictAckUpsert — do not. So this is a local judgement, not
+    # house style: with one optional field and a governance audit trail behind
+    # it, the whole payload is a misspelling away from being lost.
     model_config = ConfigDict(extra="forbid")
 
     notes: Optional[str] = None

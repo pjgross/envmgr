@@ -255,9 +255,13 @@ async def make_booking(
     idempotence on a helper that has none is the kind of thing a future test
     author reads once and trusts.
 
-    THE ONLY BOOKING BUILDER. `test_agreement_gap.py`'s `_booking` is a thin
-    adapter onto this — two builders drifting apart is how a test ends up
-    asserting against a row shape the code under test never sees.
+    The SHARED booking builder — `test_agreement_gap.py`'s `_booking` is a thin
+    adapter onto this, because two builders drifting apart is how a test ends up
+    asserting against a row shape the code under test never sees. It is NOT the
+    only one in the suite: `test_conflict_service.py` has its own `_make_booking`
+    and ~15 modules construct `Booking(` directly. Before consolidating any of
+    them onto this helper, check `status` — this builder takes none, so a suite
+    that depends on `submitted` would silently flip to the model default.
 
     Pass `booking_type` when the caller already has one (a fixture, or another
     tenant's); otherwise the idempotent per-tenant default is used.
