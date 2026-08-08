@@ -1,3 +1,5 @@
+import type { AgreementGapAckRead } from './agreementGap';
+
 export type BookingStatus = string; // lifecycle state key e.g. 'draft', 'submitted', 'approved'
 export type ContextTag = 'deployment' | 'regression' | 'none';
 
@@ -38,6 +40,29 @@ export interface BookingResponse {
   updated_at: string;
   has_unacknowledged_conflicts?: boolean;
   booking_request_id?: number | null;
+  // A3's usage-agreement warning: the message, and whether anyone has
+  // accepted it. Computed from usage_agreement, never stored — the backend
+  // always sends both (see BookingResponse's required-positional `gap`
+  // guard in bookings.py), so these are required here rather than optional:
+  // an optional type would let a fixture claim "no gap data available" when
+  // the wire contract guarantees the opposite. A3 WARNS: neither field
+  // refuses or alters a booking.
+  agreement_gap: string | null;
+  has_unacknowledged_agreement_gap: boolean;
+  // WHO accepted the gap and WHEN — carried by `GET /bookings/{id}` alone
+  // (detail-page information; a paginated list would need a batch lookup for
+  // something no row renders).
+  //
+  // DETAIL-ONLY IN VALUE, NOT IN KEY. No route sets
+  // `response_model_exclude_unset`, so FastAPI serialises `agreement_gap_ack`
+  // on EVERY BookingResponse — the list, the PATCH, the transition all send
+  // `"agreement_gap_ack": null`. There is therefore NO absent-key-vs-null
+  // distinction on the wire, and nothing may key on one: absence and null both
+  // mean "no acknowledgement to show here" and collapse with `?? null`. The
+  // `?` is TypeScript slack for fixtures, not a signal. If you need the ack,
+  // re-read the detail — do not infer it from a non-detail response (that
+  // inference is exactly review finding I1).
+  agreement_gap_ack?: AgreementGapAckRead | null;
   // Provenance, not a live link — set for a booking that arrived via an
   // environment group, null for a hand-picked environment.
   environment_group_id: number | null;

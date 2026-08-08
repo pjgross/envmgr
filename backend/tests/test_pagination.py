@@ -557,6 +557,62 @@ async def test_release_history_survives_the_extraction(
     assert [row["to_state"] for row in body] == ["in_progress", "done"]  # oldest first
 
 
+# ── filters that must run in SQL, not over the page ──────────────────────────
+#
+# `test_bounded_endpoint_conformance` above proves SHAPE, and says so: an
+# endpoint whose service filters in Python after the query passes all four of
+# its invariants and still returns the wrong rows with a total that lies. A
+# filter therefore needs its own test the moment it is added to a bounded
+# endpoint, and this is where the pagination half of it lives.
+
+
+@pytest.mark.asyncio
+async def test_bookings_agreement_gap_filter_narrows_the_page_and_the_total(
+    client, auth_headers, db_session, test_tenant, test_user, test_booking_type
+):
+    """`GET /bookings?agreement_gap=` (A3) must be pushed into the query.
+
+    Two bookings, one of them in gap. Asked for the gap with `limit=1`, a SQL
+    filter returns the ONE in-gap booking and advertises a total of 1; a Python
+    filter over the page would window the unfiltered pair first — taking the
+    project-less booking and then filtering it away, so it would return NO rows
+    and advertise 2.
+
+    THE ORDER THESE TWO ARE CREATED IN IS LOAD-BEARING. Both take
+    `make_booking`'s default dates and the sort is `start_date asc, id`, so the
+    project-less one must be created FIRST or `limit=1` returns the in-gap row
+    whether the filter ran in SQL or over the page, and the row assertion below
+    is trivially true.
+
+    The behavioural coverage is tests/integration/test_agreement_gap_filter.py;
+    this is the pagination-side guard, so a future refactor of `fetch_page` or
+    of `list_bookings`' join breaks it here too.
+    """
+    from tests.factories import ensure_environment, ensure_project, make_booking
+
+    project = await ensure_project(db_session, test_tenant.id, name="Unagreed")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        booking_type=test_booking_type, project_id=None,
+    )
+    in_gap = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        booking_type=test_booking_type, project_id=project.id,
+    )
+
+    response = await client.get(
+        "/api/v1/bookings/?agreement_gap=true&limit=1", headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    assert [row["id"] for row in response.json()] == [in_gap.id]
+    assert int(response.headers[TOTAL_COUNT_HEADER]) == 1
+
+    unfiltered = await client.get("/api/v1/bookings/?limit=1", headers=auth_headers)
+    assert int(unfiltered.headers[TOTAL_COUNT_HEADER]) == 2
+
+
 # ── conflicts and rollup/scope ────────────────────────────────────────────────
 #
 # Both are nested under a parent id (booking_id, enterprise_id) rather than flat

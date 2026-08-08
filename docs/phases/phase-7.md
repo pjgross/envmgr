@@ -1,6 +1,6 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1, B3a, B3b, A1 and A2 shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
+> Status: 🟡 **In progress** — sub-projects B1, B3a, B3b, A1, A2 and A3 shipped (B3 complete) | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
@@ -23,17 +23,33 @@ and PR.
       `Booking.environment_group_id` the FK it has lacked since the March
       booking migration
       [Spec](../superpowers/specs/2026-08-07-environment-group-design.md)
-- [ ] **A3** Enforcement of the `usage_agreement` table A1 ships (project A may
-      use environment E in window W) — `BookingService` checking agreements,
-      plus the cooperation rules of [requirements.md
-      §2.12](../requirements.md). A1 deliberately ships the schema whole,
-      including its window, so A3 owns only the check and the rules, never the
-      table. `usage_agreement` was untouched by A2 as well as A1 — a group
-      booking creates one `Booking` per member the same way a hand-picked
-      multi-environment booking does, so A3's per-environment enforcement
-      needs no group-aware branch.
+- [x] **A3** The `usage_agreement` table A1 ships, now **checked** (project A
+      may use environment E in window W) — [requirements.md
+      §2.3](../requirements.md), *"project-aware conflict detection checks
+      whether projects have valid agreements before flagging"*. It **warns and
+      never blocks**: no booking is refused, no transition is gated. This line
+      used to cite "the cooperation rules of §2.12"; §2.12 has no cooperation
+      rules — its nearest bullet is *priority-ordered contention resolution and
+      escalation to the Release Manager with a named owner + response window*,
+      which is **A4's** line almost word for word. Usage agreements are §2.3's
+      subject, and A1's own "what it established" section quoted "cooperate in
+      a shared environment" from there while crediting §2.12 too. A1
+      deliberately ships the schema whole, including its window, so A3 owns
+      only the check and the rules, never the table's shape. A3's one change to
+      it is an additive **index** on `(project_id, environment_id)` (revision
+      `agreementidx`), supporting the coverage `NOT EXISTS`: no column, no
+      constraint, no semantic change. (This line read "and did not touch it"
+      until the whole-branch review — self-contradictory phrasing, since the
+      index is disclosed in *What A3 established* below, not a hidden change.)
+      `usage_agreement` was untouched by A2 as well as A1 — a group booking
+      creates one `Booking` per member the same way a hand-picked
+      multi-environment booking does, so A3's per-environment check needs no
+      group-aware branch.
+      [Spec](../superpowers/specs/2026-08-07-usage-agreement-enforcement-design.md)
 - [ ] **A4** Project-aware contention: priority-ordered resolution and
-      escalation with a named owner + response window. Must decide whether
+      escalation with a named owner + response window — this, not A3, is what
+      [requirements.md §2.12](../requirements.md)'s contention bullet asks for.
+      Must decide whether
       contention resolves **per environment or per group** — A2's group
       bookings transition all-or-nothing, so a resolution that reassigns or
       bumps one member out from under a group booking leaves it no longer a
@@ -79,9 +95,9 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   already means something else on that row ("not an enterprise release"); two
   things called *project* on one row is how a future reader gets it wrong.
 - **One environment, many projects, deliberately not a single owning FK.**
-  Shared estates are the normal case, and §2.12 frames usage agreements as how
-  projects "cooperate in a shared environment" — a one-to-many FK would have
-  had to be unpicked by A3.
+  Shared estates are the normal case, and **§2.3** — not §2.12, which this
+  bullet used to credit — frames usage agreements as how projects "cooperate in
+  a shared environment"; a one-to-many FK would have had to be unpicked by A3.
 - **A1 ships the usage-agreement table complete, with its window, rather than
   a plain junction A3 would migrate later.** Building it whole cost nothing
   and left A3 as what it actually is: the check and the cooperation rules, not
@@ -90,6 +106,9 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   an environment it has no agreement for, nothing warns and nothing rejects.
   That is A3, with its own rules, deliberately kept out of the sub-project
   that introduces the schema — the same call B3a made with group membership.
+  **(Superseded by A3, below, on 2026-08-08: it now *warns* — `booking_service`
+  applies the gap clause to its list query and both booking-shaped response
+  types carry the warning. Nothing rejects, and that is still deliberate.)**
 - **Members come from `team_group_id` → the existing `UserGroup`, not a new
   `project_member` table.** `UserGroup` was deliberately generic, not called
   `OperationsTeam`, precisely so A1 could reuse it rather than build a second
@@ -149,8 +168,118 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   group found.
 - **`usage_agreement` was deliberately untouched.** A2 does not check it, does
   not read it, and does not gate group creation or group booking on it — A3
-  still owns the entire check and its cooperation rules, exactly as A1 left
-  them for A3.
+  owns the entire check and its cooperation rules, exactly as A1 left
+  them for A3. **(Superseded by A3, below: the check shipped 2026-08-08, and a
+  group booking needed no group-aware branch — it creates one `Booking` per
+  member, each checked per environment like any other.)**
+
+## What A3 established
+
+- **A3 WARNS, IT NEVER BLOCKS — and that is a design decision, not an
+  unfinished one.** No booking is refused, no transition is gated, no control
+  is disabled. `booking_service`'s changes are confined to `list_bookings`: an
+  `agreement_gap` parameter, the existing `BookingRequest` join widened to serve
+  it as well as `project_id`, and a `WHERE` on the gap clause. **No create,
+  update or transition path is touched** — which is the substantive claim, and
+  the one this bullet used to over-compress into "only a `WHERE` clause". A1
+  wrote `test_an_agreement_changes_no_booking_behaviour` precisely to
+  detect this sub-project overstepping; it is still the single backend guard on
+  the promise. **If it ever fails, A3 has started blocking.** The UI side of the
+  same promise was untested until Task 6's review gated `TransitionButtons` on
+  the gap and watched every test then in `src/pages/bookings` (50 at the time)
+  pass anyway. **It is guarded on both sides now**: `describe('BookingDetail —
+  A3 WARNS, IT NEVER BLOCKS')` in
+  `frontend/src/pages/bookings/__tests__/bookingDetailAgreementGap.test.tsx`
+  holds *"still renders the transition controls, enabled, with an
+  UNACKNOWLEDGED gap on the page"* and *"…with an ACKNOWLEDGED gap on the
+  page"*. Both supply a real allowed transition of their own, because the rest
+  of that file stubs `getAllowedTransitions` to `[]` — and a page rendering no
+  transition control at all cannot detect one being gated, which is exactly why
+  the earlier mutation survived.
+- **The gap is COMPUTED on every read; only the acknowledgement is stored.**
+  There is no `booking.in_gap` column and no cached verdict, so recording the
+  missing agreement clears the warning with no other action, on the next read.
+  `usage_agreement` itself was not modified — A1 pulled that table forward
+  whole for exactly this reason. A3 adds one table (`usage_agreement_ack`,
+  revision `agreementack`) and one index (`agreementidx`, on
+  `usage_agreement (project_id, environment_id)`, supporting the filter's
+  `NOT EXISTS`).
+- **"Live agreement" is not `deleted_at IS NULL` on the agreement alone.** The
+  project *and* the environment must be live too, exactly as A1's
+  `_agreement_query` requires: `delete_project` cascades a soft delete to its
+  agreements, **`delete_environment` does not**, so a soft-deleted environment
+  leaves agreement rows with a null `deleted_at` pointing at it. Filtering only
+  the agreement would honour agreements for dead environments.
+- **Window bounds are INSTANTS, not calendar days, while the message renders
+  days.** An agreement ending `2026-06-30T00:00:00Z` does not cover a booking
+  ending at 17:00 that same day, and the warning says "until 30 Jun 2026". This
+  is A1's stored shape carried through deliberately; a future task wanting
+  day-granular inclusivity must change the comparison **and** the wording in one
+  commit.
+- **A booking whose request names no project is never in gap**, and
+  `?agreement_gap=false` returns it. The two filter values partition the
+  estate rather than leaving project-less bookings invisible to both — which is
+  why the list column labels them "No gap" rather than "Covered": nothing
+  assessed them, and "Covered" would be a claim about a check that never ran.
+- **ACKNOWLEDGING IS NOT RESOLVING.** An acknowledged gap is still a gap:
+  `?agreement_gap=true` still returns it, the indicator still shows (greyed,
+  with a different accessible name), and only recording the agreement clears
+  it. An indicator that vanished on acknowledgement would leave that filter
+  rendering a page of blank cells.
+- **A booking that is no longer in gap can still carry an
+  `agreement_gap_ack`** — the field reports the ack ROW, and gating its presence
+  on the computed gap would make one field's presence depend on two mechanisms.
+  Consumers key on `agreement_gap`. Deliberate; **not a regression**.
+- **`acknowledged_by_username` must NOT be resolved with a `User.tenant_id ==
+  tenant_id` join.** Under master-admin impersonation `current_user.id` and
+  `current_user.active_tenant_id` belong to different tenants, so
+  `acknowledged_by` legitimately sits outside the ack's own tenant; qualifying
+  the join renders that acknowledger as **nobody**, losing exactly the name the
+  governance trail exists to hold, and only under impersonation. This is the
+  shape a tidying pass "fixes" into a bug. It is pinned by
+  `test_the_acknowledgers_name_resolves_from_outside_the_bookings_tenant` and
+  spelled out in `agreement_gap_service.ack_author_username`'s docstring — the
+  batch sibling `acknowledged_booking_ids` returns *ids*, not rows, for the same
+  reason.
+- **Anyone in the tenant may acknowledge; cross-tenant is 404.** Deliberately
+  unlike `conflict_service`'s owner-or-delegate gate: a conflict ack is a
+  message from one booker to another, a gap is a governance finding an admin or
+  a project lead may reasonably accept. Acknowledging a *covered* booking is
+  also accepted and simply changes no answer — refusing it would make the button
+  a race against a gap that can close between render and click.
+- **The warning is reported on other people's bookings within the tenant**
+  (`preview-conflicts`, the conflicts list, received feedback). It leaks nothing
+  new: `GET /projects` and `GET /projects/{id}/usage-agreements` are
+  `get_current_user`-only by an explicit A1 decision, and `GET /bookings`
+  already returns `project_id`/`project_name_link` for every booking in the
+  tenant, so any member could compute the gap with two ordinary GETs.
+- **`agreement_gap` is a FILTER, never a sort key.** `BOOKING_SORTS` whitelists
+  `start_date`, `end_date` and `status` only, and an unknown `sort_by` is a 422
+  rather than a silent fallback. The URL spells "no gap filter" **`any`, never
+  `all`** — `buildParams` drops `all` as its own no-selection sentinel, and an
+  empty `?agreement_gap=` is a 422 from FastAPI's `Optional[bool]`.
+- **Never call `describe_gap` in a loop over a page** — it is
+  `gaps_for_bookings` of one, so a 50-row page would issue ~150 queries. Every
+  list builder uses the batch form; `has_unacknowledged_agreement_gap` (the
+  plan-mandated single-booking interface) consequently has no production caller
+  and says so in its docstring.
+- **The booking→project link is editable.** A1's note ("create-only — fix it
+  before A3") was half wrong and is now spent: `PATCH
+  /booking-requests/{id}/standard-fields` already accepted `project_id`,
+  gating on `STANDARD_REQUEST_FIELDS` rather than `ENTITY_FIELD_SPECS`; only the
+  UI lacked the field. `EditStandardFieldsDialog` now exposes it, so a
+  mislinked booking is corrected rather than recreated — which matters now that
+  a mislink produces a visible warning. The field's edit gate is a **fallback**,
+  not an override, so it disarms itself the day the backend starts emitting a
+  permission for it.
+- **Project detail carries a rollup**: how many of that project's bookings are
+  currently in gap, linking to `/bookings/list?project_id=…&agreement_gap=true`.
+  It is counted through `GET /bookings`' `X-Total-Count` with `limit=1` — **A3
+  added no count endpoint** — so the number and the list the link lands on are
+  one query and cannot disagree. A failed count renders "unavailable", never 0.
+  **The count is status-blind and the page says so** — `gap_clause` never looks
+  at `Booking.status`, so drafts and closed bookings count exactly as much as
+  live ones, and "12 bookings in gap" would otherwise read as current exposure.
 
 ## What B1 established
 

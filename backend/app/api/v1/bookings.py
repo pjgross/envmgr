@@ -9,8 +9,12 @@ from app.core.security import get_current_user
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.models.booking import Booking
 from app.services import (
-    booking_service, booking_request_service, conflict_service,
-    environment_group_service, project_service,
+    agreement_gap_service, booking_service, booking_request_service,
+    conflict_service, environment_group_service, project_service,
+)
+from app.api.v1.schemas.agreement_gap import (
+    AgreementGapAckRead,
+    AgreementGapAckUpsert,
 )
 from app.api.v1.schemas.booking import (
     BookingCreate,
@@ -33,7 +37,12 @@ BOOKING_SORTS = {
 }
 
 
-def _to_response(booking, project_name_link: str | None, group_name: str | None) -> BookingResponse:
+def _to_response(
+    booking,
+    project_name_link: str | None,
+    group_name: str | None,
+    gap: agreement_gap_service.GapWarning | None,
+) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
 
     `project_name_link` is a batch-resolved name the caller must fetch via
@@ -47,6 +56,15 @@ def _to_response(booking, project_name_link: str | None, group_name: str | None)
     A1's review found a defaulted equivalent (`project_name_link=None`) left
     four of five call sites silently rendering null, because Pydantic
     silently defaults a missing non-column attribute rather than raising.
+
+    `gap` is this booking's A3 usage-agreement warning, or None when there is
+    none — batch-resolved via `agreement_gap_service.gap_warnings_for_bookings`
+    for the WHOLE set the caller is responding with. Never
+    `has_unacknowledged_agreement_gap` per row: that is the batch call for one
+    booking, so a 50-row page would issue ~150 queries. Required-positional for
+    the reason above, and the reason it is filled in HERE rather than assigned
+    at the call site (the way `has_unacknowledged_conflicts` is) is that four of
+    this function's six callers do not assign that one at all.
     """
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
@@ -64,7 +82,55 @@ def _to_response(booking, project_name_link: str | None, group_name: str | None)
     resp.custom_fields = req.custom_fields
     resp.environment_group_id = booking.environment_group_id
     resp.environment_group_name = group_name
+    # The same projection every EnvBookingSummary site splats as kwargs, applied
+    # by assignment because this builder mutates a validated model. One spelling
+    # of it, in agreement_gap_service.gap_fields.
+    for field, value in agreement_gap_service.gap_fields(gap).items():
+        setattr(resp, field, value)
     return resp
+
+
+async def _gap_for(db, booking, tenant_id: int) -> agreement_gap_service.GapWarning | None:
+    """This booking's usage-agreement warning, or None.
+
+    The batch call for a set of one — the four endpoints below respond with
+    exactly one booking, and going through the same function as the list means
+    a single booking's warning cannot word itself differently from the same
+    booking's row in the list.
+    """
+    return (
+        await agreement_gap_service.gap_warnings_for_bookings(db, [booking], tenant_id)
+    ).get(booking.id)
+
+
+async def _ack_read(db, ack) -> AgreementGapAckRead:
+    """Shape an ack ROW for the wire, resolving its author's NAME.
+
+    THE ONLY way to build an `AgreementGapAckRead`: the schema's
+    `acknowledged_by_username` is required and an ORM ack has no such attribute,
+    so `model_validate(ack)` raises rather than silently sending null — the A1
+    failure this codebase has already shipped once.
+
+    Takes a row and returns a model — deliberately NOT `ack | None -> read |
+    None`. It is used under `response_model=AgreementGapAckRead`, which is not
+    optional, so a None slipping through would surface as a FastAPI
+    response-validation 500 naming nothing. Callers that may hold no row (the
+    detail read) test for it themselves; `upsert_ack` always returns one, and if
+    it ever stops, the error below says so in one line.
+
+    One extra indexed lookup on a detail read, and only when an ack exists.
+    """
+    if ack is None:
+        raise RuntimeError(
+            "_ack_read was handed no acknowledgement row: an ack was expected "
+            "here and none exists. Callers that may have none must test for it."
+        )
+    return AgreementGapAckRead(
+        notes=ack.notes,
+        acknowledged_by=ack.acknowledged_by,
+        acknowledged_at=ack.acknowledged_at,
+        acknowledged_by_username=await agreement_gap_service.ack_author_username(db, ack),
+    )
 
 
 def _request_summary(req) -> BookingRequestSummary:
@@ -82,6 +148,15 @@ async def list_bookings(
     end: Optional[datetime] = None,
     booking_status: Optional[str] = None,
     project_id: Optional[int] = Query(None),
+    agreement_gap: Optional[bool] = Query(
+        None,
+        description=(
+            "true: only bookings no live usage agreement covers. false: only "
+            "those covered, plus those whose request names no project. Omit "
+            "for every booking — omission is the 'no selection' sentinel, "
+            "deliberately not a third value such as 'all'."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
@@ -95,6 +170,7 @@ async def list_bookings(
         end=end,
         booking_status=booking_status,
         project_id=project_id,
+        agreement_gap=agreement_gap,
         page=page,
         sort=sort,
     )
@@ -105,10 +181,17 @@ async def list_bookings(
     group_names = await environment_group_service.get_group_names(
         db, {b.environment_group_id for b in bookings}, current_user.active_tenant_id
     )
+    # Once for the page, never once per row — see _to_response.
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db, bookings, current_user.active_tenant_id
+    )
     responses: list[BookingResponse] = []
     for b in bookings:
         resp = _to_response(
-            b, names.get(b.booking_request.project_id), group_names.get(b.environment_group_id)
+            b,
+            names.get(b.booking_request.project_id),
+            group_names.get(b.environment_group_id),
+            gaps.get(b.id),
         )
         resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
             db, b.id, current_user.active_tenant_id
@@ -135,6 +218,7 @@ async def create_booking(
             booking,
             names.get(booking.booking_request.project_id),
             group_names.get(booking.environment_group_id),
+            await _gap_for(db, booking, current_user.active_tenant_id),
         ),
         overlap_warnings=warnings,
     )
@@ -157,6 +241,7 @@ async def get_booking(
         booking,
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
+        await _gap_for(db, booking, current_user.active_tenant_id),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -167,6 +252,13 @@ async def get_booking(
     resp.has_unacknowledged_conflicts = await conflict_service.has_unacknowledged_conflicts(
         db, booking.id, current_user.active_tenant_id
     )
+    # Who accepted this booking's gap, and when — the detail read ONLY (see
+    # BookingResponse.agreement_gap_ack). Tenant-filtered by `get_ack`: a
+    # malformed row bearing another tenant's tenant_id must not be read back as
+    # ours, and `test_another_tenants_ack_row_is_never_read_back_as_ours` fails
+    # without that filter.
+    ack = await agreement_gap_service.get_ack(db, booking.id, current_user.active_tenant_id)
+    resp.agreement_gap_ack = await _ack_read(db, ack) if ack is not None else None
     if booking.booking_request_id is not None:
         request_obj = await booking_request_service._get_request(
             db, booking.booking_request_id, current_user.active_tenant_id
@@ -193,6 +285,7 @@ async def update_standard_fields(
         booking,
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
+        await _gap_for(db, booking, current_user.active_tenant_id),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -221,6 +314,7 @@ async def transition_booking_state(
         booking,
         names.get(booking.booking_request.project_id),
         group_names.get(booking.environment_group_id),
+        await _gap_for(db, booking, current_user.active_tenant_id),
     )
 
 
@@ -240,6 +334,30 @@ async def get_allowed_transitions_for_booking(
     current_user=Depends(get_current_user),
 ):
     return await booking_service.get_booking_allowed_transitions(db, booking_id, current_user)
+
+
+@router.put("/{booking_id}/agreement-gap/ack", response_model=AgreementGapAckRead)
+async def ack_agreement_gap(
+    booking_id: int,
+    data: AgreementGapAckUpsert,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Acknowledge this booking's usage-agreement gap.
+
+    Open to any tenant member, deliberately: a gap is a governance finding, not
+    a message between bookers (see agreement_gap_service.upsert_ack). The gap
+    itself is never written — only the acknowledgement is.
+    """
+    ack = await agreement_gap_service.upsert_ack(
+        db, booking_id, notes=data.notes,
+        current_user=current_user, tenant_id=current_user.active_tenant_id,
+    )
+    # Same shape as `GET /bookings/{id}`'s `agreement_gap_ack`, from the same
+    # builder: the panel holds this answer in local state until the page
+    # refetches, so a name on one and not the other would name the acknowledger
+    # in this session and not the next.
+    return await _ack_read(db, ack)
 
 
 @router.delete("/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)

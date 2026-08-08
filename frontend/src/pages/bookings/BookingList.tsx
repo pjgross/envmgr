@@ -33,6 +33,7 @@ import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { bookingService } from '../../services/bookingService';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
+import AgreementGapIndicator from '../../components/bookings/AgreementGapIndicator';
 import { formatApiError } from '../../services/apiError';
 import BookingForm from './BookingForm';
 
@@ -97,6 +98,56 @@ export function apiProjectId(urlValue: string | number | undefined): number | un
   return Number.isFinite(n) ? n : undefined;
 }
 
+// --- Usage-agreement gap filter (Phase 7 A3) ---------------------------------
+
+/**
+ * `?agreement_gap=` on `GET /bookings` — the wire name is exactly this, as
+ * declared by `list_bookings` in backend/app/api/v1/bookings.py. FastAPI drops
+ * unknown query params silently, so a misspelling here would filter nothing at
+ * all while looking entirely correct: `/releases/calendar` sent `from`/`to` at
+ * an endpoint declaring `date_from`/`date_to` for months, and the Projects grid
+ * linked to a `?project_id=` that no endpoint accepted.
+ *
+ * Three states, and only two of them travel:
+ * - `true`  — only bookings no live usage agreement covers.
+ * - `false` — the exact complement: covered bookings, plus those whose request
+ *   names no project (so the two partition the estate rather than leaving
+ *   project-less bookings invisible to both).
+ * - no selection — the key is NOT SENT. Spelled `any` in the URL, never `all`
+ *   (`buildParams`' own "no selection" sentinel, which must never be a value
+ *   this filter's vocabulary contains) and never `''` (which MUI's Select
+ *   renders as a blank box rather than as its own option's label). Mapped to
+ *   `undefined` here, and axios omits an undefined param — so nothing can emit
+ *   `?agreement_gap=`, which is a **422** from FastAPI's `Optional[bool]`
+ *   rather than an ignored param. Same shape, and the same reason, as
+ *   `apiProjectId`'s `any` on the select beside it.
+ *
+ * Everything else — a hand-edited `yes`, `all`, a stale link — is no selection
+ * too, rather than a 422 that would blank the grid. Anything read out of the
+ * URL is untrusted, exactly as `sort_by` is.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function apiAgreementGap(urlValue: string | number | undefined): boolean | undefined {
+  if (urlValue === 'true') return true;
+  if (urlValue === 'false') return false;
+  return undefined;
+}
+
+/** The URL's spelling of "no gap filter" — see apiAgreementGap above. */
+const GAP_FILTER_NONE = 'any';
+
+const GAP_FILTER_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: 'All bookings', value: GAP_FILTER_NONE },
+  // Deliberately not "Unacknowledged" and "Acknowledged": acknowledging a gap
+  // does not close it, so both acknowledged and unacknowledged gaps are "In
+  // gap" and the server returns both for `agreement_gap=true`. The two states
+  // are told apart in the column, not in the filter — there is no server-side
+  // filter for the acknowledgement, and inventing one in the browser would
+  // filter the loaded page instead of the result set.
+  { label: 'In gap', value: 'true' },
+  { label: 'No gap', value: 'false' },
+];
+
 // --- Columns -------------------------------------------------------------
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
@@ -104,8 +155,10 @@ export function apiProjectId(urlValue: string | number | undefined): number | un
 // (project_name, project_name_link, environment_name, booked_by_username), a
 // per-tenant lookup rendered as a chip (booking_type_id), a per-row kebab
 // menu with no backing column (actions), or computed after the page is
-// fetched (conflicts) — none is backed by a single column the database could
-// order by, so none ever was or can be sortable.
+// fetched (conflicts, agreement_gap) — none is backed by a single column the
+// database could order by, so none ever was or can be sortable. Note
+// `agreement_gap` IS a query parameter on the endpoint, but a filter, never a
+// sort key: an unknown sort_by is a 422, not a silent fallback.
 // A plain array export, not a component; co-located here per the C3 pilot's
 // releaseColumns precedent (small enough not to warrant its own file). The
 // `actions` column's renderCell is filled in at render time (see `columns`
@@ -214,6 +267,29 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
     ),
   },
   {
+    // A3's usage-agreement warning. Never sortable: `agreement_gap` is a
+    // FILTER on GET /bookings, and BOOKING_SORTS whitelists start_date,
+    // end_date and status only — an unknown sort_by is a 422, not a silent
+    // fallback. The message itself is batch-resolved after the page is
+    // fetched (agreement_gap_service.gap_warnings_for_bookings), the same
+    // shape as the Conflicts column beside it.
+    field: 'agreement_gap',
+    headerName: 'Agreement',
+    width: 100,
+    hideable: false,
+    sortable: false,
+    renderHeader: () => <ComputedColumnHeader label="Agreement" />,
+    renderCell: ({ row }) => (
+      <AgreementGapIndicator
+        gap={row.agreement_gap}
+        // NOT derived from `agreement_gap_ack`, which GET /bookings/{id}
+        // alone populates — every list row carries it as null, so a cell
+        // reading it would report every gap as unacknowledged.
+        hasUnacknowledgedGap={row.has_unacknowledged_agreement_gap}
+      />
+    ),
+  },
+  {
     field: 'conflicts',
     headerName: 'Conflicts',
     width: 90,
@@ -306,9 +382,15 @@ export default function BookingList() {
   const grid = useServerGrid({
     endpoint: 'bookings',
     // `booking_status`, not `status` — the wire name differs from the label.
-    filterKeys: ['booking_status', 'project_id'],
+    filterKeys: ['booking_status', 'project_id', 'agreement_gap'],
     onFetch: (params) =>
-      dispatch(fetchBookings({ ...params, project_id: apiProjectId(params.project_id) })),
+      dispatch(
+        fetchBookings({
+          ...params,
+          project_id: apiProjectId(params.project_id),
+          agreement_gap: apiAgreementGap(params.agreement_gap),
+        })
+      ),
     total,
     totalPending: listLoading,
   });
@@ -406,6 +488,13 @@ export default function BookingList() {
   // Only show loading overlay on initial load
   const isInitialLoading = listLoading && bookings.length === 0;
 
+  // What the gap select displays — resolved through the SAME function that
+  // decides what gets sent, so an unrecognised URL value ("yes", "all", a
+  // stale link) reads as "All bookings" and sends nothing, rather than
+  // rendering a blank select over a grid nobody can explain.
+  const gapFilter = apiAgreementGap(grid.filters.agreement_gap);
+  const gapFilterValue = gapFilter === undefined ? GAP_FILTER_NONE : String(gapFilter);
+
   // Transitions for the currently open menu row
   const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null;
 
@@ -468,6 +557,27 @@ export default function BookingList() {
             )}
           {projects.map((p) => (
             <MenuItem key={p.id} value={String(p.id)}>{p.name}</MenuItem>
+          ))}
+        </TextField>
+        {/* A3's usage-agreement gap (see apiAgreementGap above). A filter, not
+            a gate: it narrows the list and refuses nothing. The displayed value
+            is derived from the same function that builds the request, so a
+            stale or hand-edited URL value can never leave the select blank
+            while the grid is filtered by something else — one source, not two
+            that can disagree. `grid.filters` is the draft-aware value the other
+            filters on this page bind to. */}
+        <TextField
+          select
+          label="Usage agreement"
+          size="small"
+          value={gapFilterValue}
+          onChange={(e) => grid.setFilter('agreement_gap', e.target.value)}
+          sx={{ minWidth: 170 }}
+        >
+          {GAP_FILTER_OPTIONS.map((opt) => (
+            <MenuItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </MenuItem>
           ))}
         </TextField>
         <Box sx={{ flexGrow: 1 }} />

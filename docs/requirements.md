@@ -491,7 +491,7 @@ Still out of scope:
 | 3       | Release Management (Enterprise + Project Releases, Templates, Dependencies, Events, System Roles, Gantt View, PIR), Jira Integration                                            |
 | 4       | Build Tracking, Deployment Tracking (GitHub Actions)                                                                                                                            |
 | 5       | DORA Metrics, Incident Tracking (manual), Health Check Dashboard, PIR, scheduled health checks, booking honour/utilisation                                                      |
-| 6       | Infrastructure Topology (Terraform, React Flow) +**Environment Drift detection & sync vs Production** (§2.12/B4)                                                         |
+| 6       | Infrastructure Topology (Terraform, React Flow) +**Environment Drift detection & sync vs Production** (§2.9/B4)                                                         |
 | 7       | Multi-Project Coordination, Environment Groups, Usage Agreements +**Environment Lifecycle & Governance** (§2.12: tiers, decommission, welcome pack, priority contention) |
 | 8       | *(reserved — parked AI Copilot / AI-driven Integrations design)*                                                                                                             |
 | 9       | **Release Governance & Deployment Safety** (§2.11: intake, go/no-go, scope freeze, rollback, hyper-care, feature flags, deploy patterns)                                 |

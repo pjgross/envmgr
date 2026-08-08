@@ -490,3 +490,42 @@ async def test_bookings_list_does_not_leak_a_cross_tenant_projects_name(
     row = next(b for b in listed.json() if b["id"] == booking.id)
     assert row["project_id"] == theirs.id
     assert row["project_name_link"] is None
+
+
+# ── A3 prerequisite: a booking's project must be correctable ────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_bookings_project_can_be_corrected_after_creation(
+    client, auth_headers, db_session, test_tenant, test_booking_type
+):
+    """A3 warns on project_id, so a mislinked booking must be fixable.
+
+    Before this test existed, nothing asserted that PATCH .../standard-fields
+    actually accepts project_id — STANDARD_REQUEST_FIELDS already contains
+    it (booking_request_service.py), but the only remedy anyone had verified
+    was delete-and-recreate.
+    """
+    wrong = await ensure_project(db_session, test_tenant.id, name="Wrong Project")
+    right = await ensure_project(db_session, test_tenant.id, name="Right Project")
+    env = await ensure_environment(db_session, test_tenant.id)
+    await db_session.commit()
+
+    rid = (await client.post(
+        "/api/v1/booking-requests",
+        json=_payload(test_booking_type.id, env.id, project_id=wrong.id),
+        headers=auth_headers,
+    )).json()["request"]["id"]
+
+    fixed = await client.patch(
+        f"/api/v1/booking-requests/{rid}/standard-fields",
+        json={"project_id": right.id},
+        headers=auth_headers,
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["project_id"] == right.id
+    assert fixed.json()["project_name_link"] == "Right Project"
+
+    # And it persisted, not merely echoed.
+    again = await client.get(f"/api/v1/booking-requests/{rid}", headers=auth_headers)
+    assert again.json()["project_id"] == right.id

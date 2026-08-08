@@ -7,8 +7,17 @@ existing at all — and pass. Running the same suite against PostgreSQL surfaced
 30 such tests immediately.
 
 The pragma is on for SQLite now (see conftest), so both engines agree. These
-helpers give tests a real parent to point at instead of a hopeful integer, and
-each is idempotent per tenant so callers don't have to track what already exists.
+helpers give tests a real parent to point at instead of a hopeful integer.
+
+NAMING: `ensure_*` is idempotent per (tenant, name) — call it as often as you
+like and you get the same row back, so callers don't have to track what already
+exists. `make_*` ALWAYS creates a new row, because the thing it builds has no
+natural per-tenant identity to be idempotent about (a tenant may hold any number
+of bookings for one environment). Check the prefix before assuming.
+
+The one exception is `ensure_build`, which predates this convention and always
+creates a row despite its name — its own docstring says so, and it has call
+sites in seven modules, so it keeps the name until something else takes it.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -16,7 +25,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash
+from app.db.models.booking import Booking
 from app.db.models.booking_lifecycle import BookingType
+from app.db.models.booking_request import BookingRequest
 from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
 from app.db.models.environment import Environment
@@ -222,6 +233,67 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
     db.add(environment)
     await db.flush()
     return environment
+
+
+async def make_booking(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    booked_by: int,
+    environment: Environment,
+    project_id: int | None = None,
+    booking_type: BookingType | None = None,
+    start: datetime = datetime(2026, 3, 1, tzinfo=timezone.utc),
+    end: datetime = datetime(2026, 3, 5, tzinfo=timezone.utc),
+) -> Booking:
+    """A booking, plus the BookingRequest that carries its project link.
+
+    `make_`, not `ensure_`: ALWAYS A NEW ROW. A tenant may hold any number of
+    bookings for one environment, so there is nothing to be idempotent about, and
+    tests that want two distinct bookings must get two. It was called
+    `ensure_booking` until a reviewer pointed out that a name promising
+    idempotence on a helper that has none is the kind of thing a future test
+    author reads once and trusts.
+
+    The SHARED booking builder — `test_agreement_gap.py`'s `_booking` is a thin
+    adapter onto this, because two builders drifting apart is how a test ends up
+    asserting against a row shape the code under test never sees. It is NOT the
+    only one in the suite: `test_conflict_service.py` has its own `_make_booking`
+    and ~15 modules construct `Booking(` directly. Before consolidating any of
+    them onto this helper, check `status` — this builder takes none, so a suite
+    that depends on `submitted` would silently flip to the model default.
+
+    Pass `booking_type` when the caller already has one (a fixture, or another
+    tenant's); otherwise the idempotent per-tenant default is used.
+
+    `booking_request.project_id` is what A3's gap predicate reads; the booking
+    itself has no project column. `project_name` is the free text the UI labels
+    "Purpose" and is deliberately unrelated to it (A1).
+    """
+    if booking_type is None:
+        booking_type = await ensure_booking_type(db, tenant_id)
+    request = BookingRequest(
+        tenant_id=tenant_id,
+        project_name="a purpose, not a project",
+        project_id=project_id,
+        booking_type_id=booking_type.id,
+        start_date=start,
+        end_date=end,
+        booked_by=booked_by,
+    )
+    db.add(request)
+    await db.flush()
+
+    booking = Booking(
+        tenant_id=tenant_id,
+        environment_id=environment.id,
+        start_date=start,
+        end_date=end,
+        booking_request_id=request.id,
+    )
+    db.add(booking)
+    await db.flush()
+    return booking
 
 
 async def ensure_environment_group(

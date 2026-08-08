@@ -7,9 +7,10 @@ from app.db.base import get_db
 from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user
 from app.services import (
-    booking_service, booking_request_service, environment_group_service,
-    environment_service, project_service,
+    agreement_gap_service, booking_service, booking_request_service,
+    environment_group_service, environment_service, project_service,
 )
+from app.services.agreement_gap_service import GapWarning
 from app.api.v1.bookings import _to_response as _booking_to_response
 from app.api.v1.schemas.booking import (
     BookingResponse, BookingTransitionRequest, AllowedTransitionResponse,
@@ -25,10 +26,16 @@ router = APIRouter(prefix="/booking-requests", tags=["booking-requests"])
 
 
 def _summaries(
-    children, group_names: dict[int, str], env_names: dict[int, str]
+    children, group_names: dict[int, str], env_names: dict[int, str],
+    gaps: dict[int, GapWarning],
 ) -> list[EnvBookingSummary]:
-    # Basic projection — has_unacknowledged_conflicts is filled in by the
-    # caller for the detail endpoint.
+    # Basic projection. `has_unacknowledged_conflicts` is filled in by NOBODY —
+    # not here, not by any caller, on any endpoint — and has been silently False
+    # on this type since it shipped. This comment used to claim the detail
+    # endpoint populated it, which was never true; it is corrected rather than
+    # deleted because that field is the counter-example the three
+    # required-positional arguments below exist to avoid, and it is cited as
+    # such in this type's own schema.
     #
     # `group_names` is a batch-resolved id->name map (see
     # environment_group_service.get_group_names, deliberately not filtering
@@ -36,9 +43,20 @@ def _summaries(
     # against it). `env_names` is the same pattern via
     # environment_service.get_environment_names — a booking against a
     # soft-deleted environment must still render that environment's name.
-    # Both required-positional, not defaulted: a missing arg here must raise
-    # loudly rather than silently render every name as null, the same reason
-    # bookings.py's _to_response is required-positional.
+    # `gaps` is the same pattern again, via
+    # agreement_gap_service.gap_warnings_for_bookings — A3's usage-agreement
+    # warning for the whole set at once, never per row.
+    #
+    # All three required-positional, not defaulted: a missing arg here must
+    # raise loudly rather than silently render every name as null, the same
+    # reason bookings.py's _to_response is required-positional.
+    #
+    # AND THAT GUARDS ONLY OMISSION. What each caller PASSES is a separate
+    # question: `gaps={}` type-checks, satisfies the required argument, and
+    # reports every child booking as gap-free while GET /bookings reports the
+    # same booking as in gap. All four `_gaps_for` call sites therefore have a
+    # named test apiece — see "every `_gaps_for` CALL SITE" in
+    # tests/integration/test_agreement_gap_filter.py.
     return [
         EnvBookingSummary(
             id=c.id,
@@ -49,6 +67,7 @@ def _summaries(
             status=c.status,
             environment_group_id=c.environment_group_id,
             environment_group_name=group_names.get(c.environment_group_id),
+            **agreement_gap_service.gap_fields(gaps.get(c.id)),
         )
         for c in children if c.deleted_at is None
     ]
@@ -74,9 +93,10 @@ def _rollup(children) -> str:
 def _to_response(
     req, project_name_link: str | None,
     group_names: dict[int, str], env_names: dict[int, str],
+    gaps: dict[int, GapWarning],
 ) -> BookingRequestResponse:
-    """`group_names` and `env_names` are required-positional, not defaulted —
-    see _summaries."""
+    """`group_names`, `env_names` and `gaps` are required-positional, not
+    defaulted — see _summaries."""
     return BookingRequestResponse(
         id=req.id, tenant_id=req.tenant_id, project_name=req.project_name,
         project_id=req.project_id, project_name_link=project_name_link,
@@ -85,7 +105,7 @@ def _to_response(
         exclusive_use_requested=req.exclusive_use_requested, custom_fields=req.custom_fields,
         booked_by=req.booked_by, delegate_user_ids=req.delegate_user_ids,
         rollup_status=_rollup(req.bookings),
-        bookings=_summaries(req.bookings, group_names, env_names),
+        bookings=_summaries(req.bookings, group_names, env_names, gaps),
     )
 
 
@@ -113,6 +133,20 @@ async def _env_names_for(db: AsyncSession, requests, tenant_id: int) -> dict[int
     return await environment_service.get_environment_names(db, ids, tenant_id)
 
 
+async def _gaps_for(db: AsyncSession, requests, tenant_id: int) -> dict[int, GapWarning]:
+    """Batch-resolve A3's usage-agreement warning for every child booking across
+    one or more BookingRequest ORM objects (their .bookings must already be
+    loaded) — the agreement-gap counterpart to `_group_names_for`.
+
+    Two queries for the whole response, not
+    `has_unacknowledged_agreement_gap` per child, which is the same batch call
+    for one booking and would cost ~3 queries a row.
+    """
+    return await agreement_gap_service.gap_warnings_for_bookings(
+        db, [c for req in requests for c in req.bookings], tenant_id
+    )
+
+
 @router.post("", response_model=BookingRequestCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_booking_request(
     data: BookingRequestCreate,
@@ -132,8 +166,17 @@ async def create_booking_request(
         current_user.active_tenant_id,
     )
     env_names = await _env_names_for(db, [req], current_user.active_tenant_id)
+    # One batch over BOTH the new bookings and the ones they conflict with —
+    # `detected_conflicts` carries EnvBookingSummary too, and a field populated
+    # on one of the two lists and not the other is how A2 left this response
+    # contradicting itself about the same booking.
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db,
+        list(req.bookings) + [c.booking for v in detected.values() for c in v],
+        current_user.active_tenant_id,
+    )
     return BookingRequestCreateResponse(
-        request=_to_response(req, names.get(req.project_id), group_names, env_names),
+        request=_to_response(req, names.get(req.project_id), group_names, env_names, gaps),
         detected_conflicts={
             k: [EnvBookingSummary(
                     id=c.booking.id,
@@ -145,8 +188,17 @@ async def create_booking_request(
                     status=c.booking.status,
                     environment_group_id=c.booking.environment_group_id,
                     environment_group_name=group_names.get(c.booking.environment_group_id),
+                    **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
                 ) for c in v]
             for k, v in detected.items()
+        },
+        # The bookings JUST CREATED, not the ones they conflict with: this map
+        # is the warning shown to the person who made this request, about what
+        # they just did.
+        agreement_gaps={
+            c.id: gaps[c.id].message
+            for c in req.bookings
+            if c.deleted_at is None and c.id in gaps
         },
     )
 
@@ -179,6 +231,11 @@ async def preview_conflicts(
         {b.environment_id for v in conflicts.values() for b in v},
         current_user.active_tenant_id,
     )
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db,
+        [b for v in conflicts.values() for b in v],
+        current_user.active_tenant_id,
+    )
     return PreviewConflictsResponse(
         conflicts={
             k: [EnvBookingSummary(
@@ -187,6 +244,7 @@ async def preview_conflicts(
                     start_date=b.start_date, end_date=b.end_date, status=b.status,
                     environment_group_id=b.environment_group_id,
                     environment_group_name=group_names.get(b.environment_group_id),
+                    **agreement_gap_service.gap_fields(gaps.get(b.id)),
                 ) for b in v]
             for k, v in conflicts.items()
         }
@@ -210,7 +268,11 @@ async def list_booking_requests(
     )
     group_names = await _group_names_for(db, rows, current_user.active_tenant_id)
     env_names = await _env_names_for(db, rows, current_user.active_tenant_id)
-    return [_to_response(r, names.get(r.project_id), group_names, env_names) for r in rows]
+    gaps = await _gaps_for(db, rows, current_user.active_tenant_id)
+    return [
+        _to_response(r, names.get(r.project_id), group_names, env_names, gaps)
+        for r in rows
+    ]
 
 
 @router.get("/{request_id}", response_model=BookingRequestResponse)
@@ -224,7 +286,8 @@ async def get_booking_request(
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
     group_names = await _group_names_for(db, [req], current_user.active_tenant_id)
     env_names = await _env_names_for(db, [req], current_user.active_tenant_id)
-    return _to_response(req, names.get(req.project_id), group_names, env_names)
+    gaps = await _gaps_for(db, [req], current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id), group_names, env_names, gaps)
 
 
 @router.patch("/{request_id}/standard-fields", response_model=BookingRequestResponse)
@@ -243,7 +306,8 @@ async def update_request_standard_fields(
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
     group_names = await _group_names_for(db, [req], current_user.active_tenant_id)
     env_names = await _env_names_for(db, [req], current_user.active_tenant_id)
-    return _to_response(req, names.get(req.project_id), group_names, env_names)
+    gaps = await _gaps_for(db, [req], current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id), group_names, env_names, gaps)
 
 
 @router.patch("/{request_id}/custom-fields", response_model=BookingRequestResponse)
@@ -261,7 +325,8 @@ async def update_request_custom_fields(
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
     group_names = await _group_names_for(db, [req], current_user.active_tenant_id)
     env_names = await _env_names_for(db, [req], current_user.active_tenant_id)
-    return _to_response(req, names.get(req.project_id), group_names, env_names)
+    gaps = await _gaps_for(db, [req], current_user.active_tenant_id)
+    return _to_response(req, names.get(req.project_id), group_names, env_names, gaps)
 
 
 @router.post("/{request_id}/environments", response_model=EnvBookingSummary, status_code=status.HTTP_201_CREATED)
@@ -276,9 +341,15 @@ async def add_environment_to_request(
         start_date=data.start_date, end_date=data.end_date,
         current_user=current_user, tenant_id=current_user.active_tenant_id,
     )
+    gap = (
+        await agreement_gap_service.gap_warnings_for_bookings(
+            db, [child], current_user.active_tenant_id
+        )
+    ).get(child.id)
     return EnvBookingSummary(
         id=child.id, environment_id=child.environment_id,
         start_date=child.start_date, end_date=child.end_date, status=child.status,
+        **agreement_gap_service.gap_fields(gap),
     )
 
 
@@ -321,9 +392,15 @@ async def transition_group_bookings(
     group_names = await environment_group_service.get_group_names(
         db, {b.environment_group_id for b in bookings}, current_user.active_tenant_id
     )
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db, bookings, current_user.active_tenant_id
+    )
     return [
         _booking_to_response(
-            b, names.get(b.booking_request.project_id), group_names.get(b.environment_group_id)
+            b,
+            names.get(b.booking_request.project_id),
+            group_names.get(b.environment_group_id),
+            gaps.get(b.id),
         )
         for b in bookings
     ]

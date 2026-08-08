@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user
-from app.services import conflict_service, environment_group_service
+from app.services import (
+    agreement_gap_service, conflict_service, environment_group_service,
+)
 from app.api.v1.schemas.conflict import (
     ConflictAckUpsert,
     ConflictAckRead,
@@ -38,6 +40,14 @@ async def list_conflicts(
         {c.booking.environment_group_id for c in others if c.booking.environment_group_id is not None},
         current_user.active_tenant_id,
     )
+    # A3's usage-agreement warning, batched over the page the same way the group
+    # names above are. EnvBookingSummary requires these two fields precisely so
+    # that this construction site — which does not go through
+    # booking_requests._summaries — cannot quietly answer differently about a
+    # booking than GET /bookings does.
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db, [c.booking for c in others], current_user.active_tenant_id
+    )
     items: list[ConflictItem] = []
     for c in others:
         ack = await conflict_service.get_ack(
@@ -54,6 +64,7 @@ async def list_conflicts(
                 status=c.booking.status,
                 environment_group_id=c.booking.environment_group_id,
                 environment_group_name=group_names.get(c.booking.environment_group_id),
+                **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))
@@ -98,6 +109,9 @@ async def list_received_feedback(
         {r.source_booking.environment_group_id for r in rows if r.source_booking.environment_group_id is not None},
         current_user.active_tenant_id,
     )
+    gaps = await agreement_gap_service.gap_warnings_for_bookings(
+        db, [r.source_booking for r in rows], current_user.active_tenant_id
+    )
     return [
         ReceivedFeedbackItem(
             willing_to_share=r.ack.willing_to_share,
@@ -113,6 +127,7 @@ async def list_received_feedback(
                 status=r.source_booking.status,
                 environment_group_id=r.source_booking.environment_group_id,
                 environment_group_name=group_names.get(r.source_booking.environment_group_id),
+                **agreement_gap_service.gap_fields(gaps.get(r.source_booking.id)),
             ),
             source_request=RequestContextRef(
                 id=r.source_request.id,

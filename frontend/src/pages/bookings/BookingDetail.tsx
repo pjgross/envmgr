@@ -39,6 +39,7 @@ import EditCustomFieldsDialog from '../../components/bookings/EditCustomFieldsDi
 import EnvironmentsPanel from '../../components/bookings/EnvironmentsPanel';
 import GroupTransitionPanel from '../../components/bookings/GroupTransitionPanel';
 import ConflictsPanel from '../../components/bookings/ConflictsPanel';
+import AgreementGapPanel from '../../components/bookings/AgreementGapPanel';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog';
 import { formatApiError } from '../../services/apiError';
@@ -349,6 +350,43 @@ export default function BookingDetail() {
         </Alert>
       )}
 
+      {/* Usage-agreement gap (A3) — rendered next to the booking it warns
+          about, ahead of the transition controls, because it is a standing
+          governance finding about THIS booking rather than a result of
+          anything the user just did. It gates nothing: A3 warns and never
+          blocks, so no control below is disabled or hidden on its account,
+          and the panel renders nothing at all when the booking is covered. */}
+      <AgreementGapPanel
+        bookingId={booking.id}
+        gap={booking.agreement_gap}
+        hasUnacknowledgedGap={booking.has_unacknowledged_agreement_gap}
+        // Who accepted the gap and when, straight off the detail response —
+        // which is what makes "who and when" survive a reload. `?? null`
+        // because the field is detail-only: a BookingResponse from a PATCH or
+        // a transition carries no key at all, and the panel's prop is
+        // deliberately required so forgetting it cannot compile.
+        gapAck={booking.agreement_gap_ack ?? null}
+        onAcknowledged={async () => {
+          // The ack is service-only (no thunk), so the refresh is the
+          // caller's. Refetching is what makes the ACKNOWLEDGED state
+          // survive a reload — and the gap itself deliberately survives
+          // with it: acknowledging is not resolving.
+          try {
+            const updated = await bookingService.getBooking(booking.id);
+            setBooking(updated);
+            if (bookingRequest != null) {
+              const req = await bookingRequestService.get(bookingRequest.id);
+              setBookingRequest(req);
+            }
+          } catch (err: unknown) {
+            // The acknowledgement itself succeeded; only the refresh failed.
+            // Caught here rather than in the panel so it is never reported as
+            // a failed acknowledgement.
+            setError(formatApiError(err, 'Failed to refresh the booking'));
+          }
+        }}
+      />
+
       {/* GroupTransitionPanel — one per distinct environment group on the
           request. The panel offers a primary control set driven by the
           group's allowed-transitions intersection, PLUS a per-member link
@@ -617,7 +655,18 @@ export default function BookingDetail() {
               setBookingRequest(req);
             }
           }}
-          saver={(payload) => bookingService.updateStandardFields(bookingId, payload)}
+          // Refetch rather than return the PATCH's own answer, exactly as the
+          // two dialogs above do. `PATCH /bookings/{id}/standard-fields` is not
+          // the detail read, so its BookingResponse carries `agreement_gap_ack:
+          // null` — feeding that straight into `setBooking` would wipe "who
+          // acknowledged this gap, and when" off a page that was showing it,
+          // until the next full load. Review finding I1; guarded by
+          // `keeps the earlier session's acknowledger on the page after an
+          // env-override save`.
+          saver={async (payload) => {
+            await bookingService.updateStandardFields(bookingId, payload);
+            return bookingService.getBooking(bookingId);
+          }}
           onError={setError}
         />
       )}

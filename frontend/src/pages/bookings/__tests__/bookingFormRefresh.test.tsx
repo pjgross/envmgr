@@ -121,12 +121,15 @@ const CREATE_RESPONSE: BookingRequestCreateResponse = {
         start_date: '2026-08-10T09:00:00Z',
         end_date: '2026-08-11T09:00:00Z',
         status: 'draft',
+        agreement_gap: null,
+        has_unacknowledged_agreement_gap: false,
         environment_group_id: null,
         environment_group_name: null,
       },
     ],
   },
   detected_conflicts: {},
+  agreement_gaps: {},
 };
 
 async function fillAndSubmit() {

@@ -104,7 +104,7 @@ already matched, so it is unaffected.
 | Endpoint | Sortable fields | Default | New filters |
 |---|---|---|---|
 | `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | — |
-| `GET /bookings/` | `start_date`, `end_date`, `status` | `start_date` asc | — |
+| `GET /bookings/` | `start_date`, `end_date`, `status` | `start_date` asc | `agreement_gap` **✦** |
 | `GET /environments/` | `name`, `tier`, `status`, `owner`, `expires_at`, `created_at` | `name` asc | `search` |
 | `GET /change-requests` | `title`, `change_type`, `status`, `scheduled_start` | `scheduled_start` desc | — |
 | `GET /systems/` | `name` | `name` asc | `search` |
@@ -119,6 +119,24 @@ Four of the nine C1-era endpoints — releases, incidents, change-requests, depl
 `sorting()` was not allowed to change a default page's contents. That has a sharp edge for
 anyone building a client against this table; see point 3 under *What sub-project C3 must
 honour* below.
+
+**✦** `agreement_gap` is not C1's — it arrived with Phase 7 sub-project A3, long after this
+table was written, and it is a **filter only, never a sort key**: `BOOKING_SORTS` is unchanged
+(`start_date`, `end_date`, `status`), and an unknown `sort_by` is a 422 rather than a silent
+fallback. It is a tri-state `Optional[bool]` applied in SQL by
+`agreement_gap_service.gap_clause` (a `NOT EXISTS` over live usage agreements, joined to
+`BookingRequest` once for both this filter and `project_id`), never in Python after the page — the
+endpoint is bounded, so a post-query filter would window before filtering and make
+`X-Total-Count` describe the unfiltered set. `true` returns bookings no live agreement covers;
+`false` is the **exact complement**, covered bookings *plus* those whose request names no project,
+so the two partition the estate; **omission** is the no-selection sentinel — deliberately not a
+third value such as `all`, and an empty `?agreement_gap=` is a 422, not an ignored param. On the
+client side `BookingList` spells no-selection **`any`**, because `buildParams` drops `'all'` as
+its own sentinel (see *A filter whose value collides with the sentinel*, under the
+`ScopeWindowsTable` notes below). Note this filter does **not** reproduce that page's bug: it has
+one no-selection state and two meaningful ones, so no two meaningful states collapse onto the
+dropped sentinel and the grid always refetches. `any` is used because it is the right spelling,
+not because `all` was observed to break here.
 
 **§** `GET /environment-requests` is not part of C1's original nine — it shipped later, with
 sub-project B3b — but it joins the same two-sided contract (`REQUEST_SORTS` ↔
@@ -173,6 +191,18 @@ file that does not ship with the repository, so they're recorded here instead �
    lands, they will have no sort on these columns at all. That is a genuine reduction in
    capability, traded for correctness, and belongs in release notes or the UI copy rather than
    being discovered by a confused user.
+
+   **A thirteenth joined the set with Phase 7 sub-project A3: `agreement_gap` on the bookings
+   grid.** It is computed after the page is fetched, by
+   `agreement_gap_service.gap_warnings_for_bookings` batched over the page's row ids — the same
+   shape as `conflicts` beside it — so it is absent from `BOOKING_SORTS` by necessity and
+   `BookingList` marks it `sortable: false`. It differs from the twelve in one way worth stating:
+   there is no capability to lose. The column shipped after this grid was already server-paged, so
+   users never had a client-side sort of it to give up. Note also that `agreement_gap` **is** a
+   query parameter on `GET /bookings` — a *filter*, never a sort key (see the **✦** footnote
+   above). A column being filterable server-side is not evidence it is sortable server-side, and
+   whitelisting it because the name appears in the endpoint's signature would 422 on the first
+   header click.
 
 3. **`default_dir` is endpoint-wide, not per-field — C3 must always send `sort_dir` explicitly.**
    `sorting()` takes one `default_dir` for the whole endpoint, used only when the client sends no
@@ -1276,6 +1306,32 @@ mechanism as the `set_total_count` delta.
 `response_model=list[BookingResponse]` but is a `POST`, so it never satisfies the grep's `\.get\(`
 filter at all — invisible to this count in either direction, not merely unbounded. As with the last
 three passes, the groups below have **not** been re-checked against either new count; treat both
+figures as of this paragraph's own date.
+
+**As of the A3 branch (2026-08-08), both greps are UNCHANGED: the first still returns 62 and
+`set_total_count(response` still returns 46.** The "62"/"46" recorded immediately above was not
+stale going in — checked against this branch's merge-base with `main` (`f81fc439`), the counts
+there are exactly 62 and 46, matching the document, so this is a clean **zero** delta rather than
+a correction. A3 ships **no new list endpoint at all**: its one new route is `PUT
+/bookings/{booking_id}/agreement-gap/ack`, which is neither a `GET` nor a list. Confirmed the way
+the A1 and A2 passes did — by diffing the two greps' matched *lines* rather than trusting the
+counts, since a new hit and a disappearing false positive can cancel out and leave the number
+still: the matched sets are identical **in content**, entry for entry, and differ only in line
+numbers — **seven** entries in the first grep, across three files (`bookings.py` ×3,
+`booking_requests.py` ×2, `conflicts.py` ×2), and **four** in the second (`bookings.py`,
+`booking_requests.py`, `conflicts.py` ×2), all pushed further down their files by this branch's
+additions. (This paragraph said "two", naming two of the three files, until the whole-branch
+review recounted it. Reproduce with: strip the `path:LINENO:` prefix from both greps' output,
+sort, and diff — identical; then keep the line numbers and diff again to see which entries moved.)
+
+What A3 *does* add to this document's subject matter is a filter on an already-bounded endpoint:
+`?agreement_gap=` on `GET /bookings` (see the **✦** footnote on the nine-endpoints table above).
+It is applied in SQL, before the window, for the reason this whole document exists — the endpoint
+is `pagination()`-bound, so filtering in Python after the query would window the page before
+filtering it and make `X-Total-Count` describe the wrong set. It adds no sortable column: the
+grid's `agreement_gap` column is computed after the page is fetched and is a thirteenth member of
+point 2's permanently-unsortable set (see *What sub-project C3 must honour*). As with the last
+four passes, the groups below have **not** been re-checked against either count; treat both
 figures as of this paragraph's own date.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count

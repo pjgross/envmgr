@@ -24,17 +24,58 @@ import {
   deleteUsageAgreement,
   fetchProject,
   fetchProjectAgreements,
+  fetchProjectGapBookingCount,
 } from '../../store/projectSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
+
+/**
+ * Where the gap rollup below points: this project's bookings that no live
+ * usage agreement covers.
+ *
+ * BOTH QUERY PARAMS ARE REAL, and that is the entire risk being managed here.
+ * `BookingList` declares `filterKeys: ['booking_status', 'project_id',
+ * 'agreement_gap']` and `useServerGrid` hydrates every one of them out of
+ * `searchParams`, so a link carrying these two arrives filtered; `GET
+ * /bookings` in turn declares both, and `agreement_gap`'s value vocabulary is
+ * `'any' | 'true' | 'false'`, so `true` is a value it acts on rather than one
+ * it drops. Nothing anywhere errors on a param that is not — FastAPI drops an
+ * unknown query param silently, and `useServerGrid` simply never reads a key
+ * absent from `filterKeys`. A1 shipped a count linking to a `?project_id=`
+ * that `GET /environments` had never accepted; it rendered the whole estate as
+ * one project's environments, with a test and the admin guide both asserting
+ * it as correct.
+ *
+ * Exported so the link and the guard test are the SAME string — a test that
+ * asserts a hand-written href against a hand-written href guards nothing.
+ * `projectDetailGapLink.test.tsx` feeds this value to a real `BookingList` and
+ * asserts the fetch it issues actually carries the filter.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function gapBookingsHref(projectId: number): string {
+  return `/bookings/list?project_id=${projectId}&agreement_gap=true`;
+}
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
+  // A route param is a string and nothing between the address bar and here
+  // validates it. `Number('nope')` is NaN and `Number('1.5')` is 1.5, either of
+  // which would reach `gapBookingsHref` and render a link carrying
+  // `project_id=NaN` — and, because nothing is dispatched for a project that
+  // cannot be fetched, would render it beside the PREVIOUS project's count,
+  // which the slice still holds. One predicate, used by both the effect and
+  // the render, so the two cannot drift apart.
+  const projectIdIsValid = Number.isInteger(projectId) && projectId > 0;
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { current: project, agreements, agreementTotal, error: loadError } = useSelector(
-    (s: RootState) => s.project
-  );
+  const {
+    current: project,
+    agreements,
+    agreementTotal,
+    gapBookingCount,
+    gapBookingCountError,
+    error: loadError,
+  } = useSelector((s: RootState) => s.project);
   // GET /projects/{id} and GET .../usage-agreements are open to any tenant
   // member; POST/DELETE on the agreement are require_tenant_admin() — the
   // same split as Projects.tsx and the same reasoning as UserGroupDetail.tsx.
@@ -51,14 +92,15 @@ export default function ProjectDetail() {
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!Number.isNaN(projectId)) {
+    if (projectIdIsValid) {
       // Fetched directly rather than read off the list slice: a deep link or
       // a refresh on this route has never populated `projects`, and the list
       // is a server-paged window that may not even contain this project.
       dispatch(fetchProject(projectId));
       dispatch(fetchProjectAgreements(projectId));
+      dispatch(fetchProjectGapBookingCount(projectId));
     }
-  }, [dispatch, projectId]);
+  }, [dispatch, projectId, projectIdIsValid]);
 
   const handleAddAgreement = async () => {
     if (!selectedEnvironmentId) return;
@@ -83,6 +125,11 @@ export default function ProjectDetail() {
     setEndsAt('');
     setNotes('');
     dispatch(fetchProjectAgreements(projectId));
+    // The rollup is computed from these very rows: recording the missing
+    // agreement is the ONLY thing that closes a gap, so a count left alone
+    // here would keep reporting the gap the user just fixed, on the page they
+    // fixed it on. Same reason it is refetched after a Remove.
+    dispatch(fetchProjectGapBookingCount(projectId));
   };
 
   const handleRemoveAgreement = async (agreementId: number) => {
@@ -93,7 +140,58 @@ export default function ProjectDetail() {
       return;
     }
     dispatch(fetchProjectAgreements(projectId));
+    dispatch(fetchProjectGapBookingCount(projectId));
   };
+
+  // After every hook, so the hook order is unconditional. Nothing was fetched
+  // for this address, so everything the page could render belongs to whichever
+  // project was last viewed: the name, the agreements table, and — the one the
+  // user might act on — a count of bookings in gap beside a link that would
+  // send `project_id=NaN`, which `GET /bookings` answers with a 422 the user
+  // never asked for. Say what is wrong instead of rendering another project's
+  // numbers under this address.
+  if (!projectIdIsValid) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
+          Back to Projects
+        </Button>
+        <Alert severity="error">
+          That address does not name a project. Pick one from the Projects list.
+        </Alert>
+      </Box>
+    );
+  }
+
+  // The address names a project this tenant does not have — most often a
+  // SOFT-DELETED one, which is a real id that `get_project` refuses because it
+  // filters `deleted_at`. Everything below describes ONE project, and `current`
+  // is the only thing on this page that says WHICH; without this the page
+  // rendered "Project not found" above a working gap rollup — a correct,
+  // clickable number under a banner saying the thing it counts for does not
+  // exist. (The count really is correct: a booking request still points at the
+  // deleted project, which is exactly why that booking is in gap.)
+  //
+  // GATED ON `current`, NOT ON `loadError`. `projectSlice`'s `error` is shared
+  // with `fetchProjectAgreements`, whose `fulfilled` handler sets it to null, so
+  // a banner is not something this page can rely on still being there — whereas
+  // `current` is null until this project, specifically, loads. While the fetch
+  // is in flight `current` is also null, which is why the branch renders no
+  // claim of its own beyond the error the slice supplies.
+  if (project == null) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
+          Back to Projects
+        </Button>
+        {loadError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {loadError}
+          </Alert>
+        )}
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: 3 }}>
@@ -101,6 +199,8 @@ export default function ProjectDetail() {
         Back to Projects
       </Button>
 
+      {/* Reachable with the project loaded: the agreements list or a write can
+          fail on its own. */}
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {loadError}
@@ -139,11 +239,16 @@ export default function ProjectDetail() {
       <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
         Usage Agreements
       </Typography>
+      {/* A3 warns; it never blocks. The old copy ended "enforcement is a
+          separate, later piece of work" — true under A1, and false the moment
+          the warning shipped. What has NOT changed is the half that matters:
+          nothing here refuses a booking. */}
       <Alert severity="info" sx={{ mb: 2 }}>
         A usage agreement is a record of which environments this project is expected
         to use — it is not a rule. Nothing here stops this project booking an
-        environment it has no agreement for; enforcement is a separate, later
-        piece of work.
+        environment it has no agreement for: the booking is still created, and is
+        flagged with a warning on the booking itself and in the bookings list.
+        Recording the agreement here clears that warning on its own.
       </Alert>
 
       {addError && (
@@ -210,9 +315,48 @@ export default function ProjectDetail() {
         </Box>
       )}
 
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        {agreementTotal} agreement{agreementTotal === 1 ? '' : 's'}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 2, mb: 1, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle2">
+          {agreementTotal} agreement{agreementTotal === 1 ? '' : 's'}
+        </Typography>
+        {/* The other side of the same coin, beside the table it is computed
+            against: agreements recorded here, bookings not covered by any of
+            them there. Rendered only when the count is KNOWN — a failed
+            rollup shows the caption below instead, never a silent 0, because
+            "0 bookings in gap" and "nobody could tell you" are opposite
+            answers (CLAUDE.md's partial-read rule). */}
+        {gapBookingCount !== null && (
+          <>
+            <Link
+              component={RouterLink}
+              to={gapBookingsHref(projectId)}
+              variant="subtitle2"
+              color={gapBookingCount > 0 ? 'warning.main' : 'text.secondary'}
+            >
+              {gapBookingCount === 0
+                ? 'No bookings in gap'
+                : `${gapBookingCount} booking${gapBookingCount === 1 ? '' : 's'} in gap`}
+            </Link>
+            {/* The count is status-blind, and reads as current exposure if it
+                does not say so: `gap_clause` looks at the project, the
+                environment and the dates, NEVER at `Booking.status`, so ten
+                closed bookings count exactly as much as two live ones. The
+                linked list shows the same set for the same reason, so the two
+                agree — but "12 bookings in gap" on a project with two live
+                bookings is a number an admin would otherwise act on. Outside
+                the Link deliberately: inside it, this text would join the
+                link's accessible name. */}
+            <Typography variant="caption" color="text.secondary">
+              any status — drafts and closed included
+            </Typography>
+          </>
+        )}
+        {gapBookingCountError && (
+          <Typography variant="caption" color="text.secondary">
+            Bookings in gap: unavailable ({gapBookingCountError})
+          </Typography>
+        )}
+      </Box>
 
       <Paper variant="outlined">
         <Table size="small">

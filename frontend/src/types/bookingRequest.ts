@@ -7,6 +7,15 @@ export type EnvBookingSummary = {
   end_date: string;
   status: string;
   has_unacknowledged_conflicts?: boolean;
+  // A3's usage-agreement warning — see BookingResponse in booking.ts for
+  // what it means. REQUIRED here, not optional/defaulted, deliberately
+  // unlike has_unacknowledged_conflicts immediately above: the backend's
+  // EnvBookingSummary types this the same way (no default) precisely
+  // because it is constructed by keyword at six call sites across two
+  // routers, and a default would let a missed one silently render "no gap"
+  // for a booking that has one.
+  agreement_gap: string | null;
+  has_unacknowledged_agreement_gap: boolean;
   // Provenance, not a live link — set for a booking that arrived via an
   // environment group, null for a hand-picked environment.
   environment_group_id: number | null;
@@ -57,6 +66,15 @@ export type BookingRequestCreatePayload = {
 export type BookingRequestCreateResponse = {
   request: BookingRequestResponse;
   detected_conflicts: Record<number, EnvBookingSummary[]>;
+  // `booking_id -> message` for the bookings JUST CREATED that no live usage
+  // agreement covers. Keyed by booking id (not environment id, unlike
+  // detected_conflicts) because the gap is a property of one booking and a
+  // group booking may hold several bookings against the same environment
+  // over different dates. The same text is also on each booking's own
+  // `agreement_gap` in `request.bookings` — this map exists so the caller
+  // doesn't have to walk that list to know whether to say anything at all.
+  // Absent keys mean "no gap"; an empty map is the ordinary case.
+  agreement_gaps: Record<number, string>;
 };
 
 export type PreviewConflictsResponse = {

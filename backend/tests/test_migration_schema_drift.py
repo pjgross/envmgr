@@ -230,7 +230,19 @@ def test_upgrade_after_downgrade_nulls_orphaned_booking_group_id(scratch_databas
 
     booking_id = _seed_group_linked_booking(scratch_database)
 
-    down = _alembic("-1", scratch_database, command="downgrade")
+    # `envgroups-1`, NOT `-1`: this test is about the `envgroups` revision, and
+    # a bare `-1` means "one step back from the CURRENT head" — the moment any
+    # revision lands on top of envgroups, `-1` reverses that one instead and
+    # this test silently starts asserting nothing (it failed outright when
+    # `agreementack` landed, which is the lucky version of that). Same trap as
+    # the dev-database warning in CLAUDE.md, one level up.
+    #
+    # Alembic's relative-to-a-revision syntax says "one step back from
+    # envgroups" literally, so it stays correct if a revision is later inserted
+    # either side of it. Naming envgroups' current PARENT (`projects`) instead
+    # would encode the assumption that it stays the parent, and would quietly
+    # widen the window under test the day something is inserted between them.
+    down = _alembic("envgroups-1", scratch_database, command="downgrade")
     assert down.returncode == 0, down.stderr
 
     up_again = _alembic("head", scratch_database)

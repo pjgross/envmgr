@@ -15,7 +15,7 @@ call B3a made with group membership.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -64,6 +64,22 @@ class UsageAgreement(Base):
     """
 
     __tablename__ = "usage_agreement"
+    __table_args__ = (
+        # A3's coverage EXISTS correlates on exactly this pair — see
+        # agreement_gap_service.covered_exists_clause — and it runs on every
+        # `GET /bookings` load, once for the page. `project_id` and
+        # `environment_id` each had their own single-column index from A1, which
+        # forces the planner to pick one and filter the rest; this is the pair it
+        # actually asks for.
+        #
+        # Deliberately NOT prefixed with `tenant_id`, even though the clause
+        # filters it: a `project_id` identifies exactly one project, which
+        # belongs to exactly one tenant, so leading with `tenant_id` would only
+        # put the low-cardinality column first. `deleted_at` is left out for the
+        # same reason it is left out of every other index here — it is the
+        # majority value, not a discriminator.
+        Index("ix_usage_agreement_project_env", "project_id", "environment_id"),
+    )
 
     tenant_id: Mapped[int] = mapped_column(
         ForeignKey("tenant.id"), nullable=False, index=True
