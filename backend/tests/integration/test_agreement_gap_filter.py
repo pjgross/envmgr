@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 
+from app.api.v1.schemas.booking import BookingCreate
 from app.api.v1.schemas.environment_group import MemberCreate
 from app.core.pagination import TOTAL_COUNT_HEADER
 from app.db.models.booking_conflict_ack import BookingConflictAck
@@ -678,6 +679,16 @@ async def test_the_legacy_single_booking_create_carries_the_gap(
     with the entire suite green, and the review that found this gap proved
     exactly that mutation costs nothing today.
     """
+    # The seam's expiry date. It exists ONLY because BookingCreate cannot carry
+    # a project; the moment it can, this test should create one the ordinary way
+    # and the wrapper below becomes a lie that still passes. Comments do not
+    # fail, so this does.
+    assert "project_id" not in BookingCreate.model_fields, (
+        "BookingCreate now carries project_id, so POST /bookings/ can reach a "
+        "gap on its own. Delete create_then_link_a_project and pass the project "
+        "in the request body instead."
+    )
+
     project = await ensure_project(db_session, test_tenant.id, name="Legacy Unagreed")
     env = await ensure_environment(db_session, test_tenant.id, slot=13)
     real_create_booking = booking_service.create_booking
