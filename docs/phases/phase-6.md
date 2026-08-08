@@ -1,6 +1,6 @@
 # Phase 6: Infrastructure Topology
 
-> Status: ✅ **COMPLETE (2026-08-03).** Model + host-aware CRs (Phase 2.5), both IaC parsers, the topology API and the React Flow visualisation, environment comparison, GitHub OAuth + repository scanning, and drift detection are all shipped. Nothing outstanding — see *What is actually left* below for the corrected record. | Roadmap: [../plan.md](../plan.md)
+> Status: ✅ **COMPLETE (2026-08-03).** Model + host-aware CRs (Phase 2.5), both IaC parsers, the topology API and the React Flow visualisation, environment comparison, GitHub OAuth + repository scanning, and drift detection are all shipped. Nothing outstanding — see *What was actually left* below for the corrected record. | Roadmap: [../plan.md](../plan.md)
 > Duration: 6–8 weeks (remainder) | Started after Phase 5 completion
 
 ---
@@ -15,11 +15,11 @@ See [phase-2.md §Phase 2.5](phase-2.md#phase-25--hosts-and-multi-target-change-
 - `/api/v1/infrastructure-components` CRUD + `/impact` endpoint + env-subsystem-host PUT/GET endpoints.
 - Frontend: Hosts CRUD page, host-impact panel + booking Gantt on CR forms, per-env host attach dialog.
 
-**Do not re-add any of the above in Phase 6 proper.** The remaining Phase 6 tasks below write *into* these existing tables rather than introducing new ones.
+**Do not re-add any of the above.** Everything Phase 6 went on to build wrote *into* these existing tables rather than introducing new ones, and later work touching infrastructure topology should do the same — the model was deliberately shaped in Phase 2.5 to absorb Terraform and Docker Compose rows via the `source` enum.
 
 ---
 
-## What is actually left — corrected 2026-08-03
+## What was actually left — corrected 2026-08-03, and now all done
 
 The task list below was two-thirds wrong. Verified against the code, not the roadmap:
 
@@ -132,7 +132,10 @@ the plan's checkboxes were never ticked, which is what made it look outstanding.
 
 ## Notes
 
-> Detailed task breakdown to be added when Phase 5 is complete and Phase 6 planning begins.
+> The per-sub-project task breakdowns live with their specs and plans under
+> [../superpowers/](../superpowers/) rather than here — see the links in each section above.
+> (This line previously read "to be added when Phase 5 is complete and Phase 6 planning
+> begins", which outlived both.)
 
 **Dependency model integration:**
 > The Terraform and Docker Compose parsers in this phase **do not create a separate dependency model**. They write parsed connections into the `SystemDependency` and `ComponentDependency` tables established in Phase 1, using `source = terraform` or `source = docker_compose`. Manually declared dependencies (Phase 1, `source = manual`) and IaC-discovered dependencies coexist in the same tables and are queryable together. The `source` field allows filtering by how a dependency was discovered.
