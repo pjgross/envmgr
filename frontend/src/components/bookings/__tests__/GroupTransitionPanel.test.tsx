@@ -61,6 +61,8 @@ const MEMBER_A: EnvBookingSummary = {
   start_date: '2026-08-10T09:00:00Z',
   end_date: '2026-08-11T09:00:00Z',
   status: 'submitted',
+  agreement_gap: null,
+  has_unacknowledged_agreement_gap: false,
   environment_group_id: GROUP_ID,
   environment_group_name: GROUP_NAME,
 };
@@ -73,6 +75,8 @@ const MEMBER_B: EnvBookingSummary = {
   start_date: '2026-08-10T09:00:00Z',
   end_date: '2026-08-11T09:00:00Z',
   status: 'submitted',
+  agreement_gap: null,
+  has_unacknowledged_agreement_gap: false,
   environment_group_id: GROUP_ID,
   environment_group_name: GROUP_NAME,
 };

@@ -165,6 +165,7 @@ function makeCreateResponse(): BookingRequestCreateResponse {
       bookings: [],
     },
     detected_conflicts: {},
+    agreement_gaps: {},
   };
 }
 

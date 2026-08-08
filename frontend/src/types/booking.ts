@@ -38,6 +38,15 @@ export interface BookingResponse {
   updated_at: string;
   has_unacknowledged_conflicts?: boolean;
   booking_request_id?: number | null;
+  // A3's usage-agreement warning: the message, and whether anyone has
+  // accepted it. Computed from usage_agreement, never stored — the backend
+  // always sends both (see BookingResponse's required-positional `gap`
+  // guard in bookings.py), so these are required here rather than optional:
+  // an optional type would let a fixture claim "no gap data available" when
+  // the wire contract guarantees the opposite. A3 WARNS: neither field
+  // refuses or alters a booking.
+  agreement_gap: string | null;
+  has_unacknowledged_agreement_gap: boolean;
   // Provenance, not a live link — set for a booking that arrived via an
   // environment group, null for a hand-picked environment.
   environment_group_id: number | null;

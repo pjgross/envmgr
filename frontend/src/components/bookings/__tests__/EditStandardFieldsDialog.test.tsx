@@ -54,6 +54,8 @@ const BOOKING: BookingResponse = {
   test_phase_id: null,
   context_tag: 'none',
   custom_fields: null,
+  agreement_gap: null,
+  has_unacknowledged_agreement_gap: false,
   environment_group_id: null,
   environment_group_name: null,
   standard_field_permissions: {
