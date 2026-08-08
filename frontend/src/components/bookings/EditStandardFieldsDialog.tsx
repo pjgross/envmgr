@@ -9,12 +9,14 @@ import {
   Checkbox,
   FormControlLabel,
   FormControl,
+  FormHelperText,
   InputLabel,
   Select,
   MenuItem,
 } from '@mui/material';
 import type { BookingResponse } from '../../types/booking';
 import { formatApiError } from '../../services/apiError';
+import { useAllProjects } from '../../hooks/useAllProjects';
 
 type BookingType = { id: number; name: string };
 
@@ -39,6 +41,7 @@ export default function EditStandardFieldsDialog({
 }: EditStandardFieldsDialogProps) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({
     project_name: booking.project_name,
+    project_id: booking.project_id,
     start_date: booking.start_date.slice(0, 10),
     end_date: booking.end_date.slice(0, 10),
     booking_type: booking.booking_type_id,
@@ -48,14 +51,27 @@ export default function EditStandardFieldsDialog({
   }));
   const [saving, setSaving] = useState(false);
 
+  // is_active: true, useSharedList-backed — never state.project.projects,
+  // which is a page-scoped paged slice a second consumer can clobber.
+  const { projects, truncated: projectsTruncated } = useAllProjects();
+
   const sfPerms = booking.standard_field_permissions ?? {};
-  const canEdit = (field: string) => sfPerms[field]?.editable === true;
+  // project_id is deliberately absent from ENTITY_FIELD_SPECS["booking"]["valid"]
+  // (booking_lifecycle.py) — that set drives lifecycle field_permissions, a
+  // system update_standard_fields explicitly does not consult for this field
+  // (see its TODO). So standard_field_permissions never carries a
+  // "project_id" entry, and gating it through canEdit the way every other
+  // field here is gated would leave the picker permanently disabled — the
+  // same failure mode this task exists to fix. Treat it as always editable,
+  // matching the backend's actual (unwired) authorization for this field.
+  const canEdit = (field: string) => field === 'project_id' || sfPerms[field]?.editable === true;
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const fieldMap: Record<string, string> = {
         project_name: 'project_name',
+        project_id: 'project_id',
         start_date: 'start_date',
         end_date: 'end_date',
         booking_type: 'booking_type_id',
@@ -65,7 +81,7 @@ export default function EditStandardFieldsDialog({
       };
       const payload: Record<string, unknown> = {};
       for (const [key, apiKey] of Object.entries(fieldMap)) {
-        if (!sfPerms[key]?.editable) continue;
+        if (!canEdit(key)) continue;
         const v = values[key];
         if ((key === 'start_date' || key === 'end_date') && typeof v === 'string' && v) {
           payload[apiKey] = new Date(v).toISOString();
@@ -95,6 +111,43 @@ export default function EditStandardFieldsDialog({
           disabled={!canEdit('project_name')}
           onChange={(e) => setValues((v) => ({ ...v, project_name: e.target.value }))}
         />
+        <FormControl fullWidth size="small" disabled={!canEdit('project_id')}>
+          <InputLabel id="edit-standard-fields-project-label">Project</InputLabel>
+          <Select
+            labelId="edit-standard-fields-project-label"
+            label="Project"
+            value={(values.project_id as number | null) ?? ''}
+            onChange={(e) =>
+              setValues((v) => ({
+                ...v,
+                project_id: e.target.value === '' ? null : Number(e.target.value),
+              }))
+            }
+          >
+            <MenuItem value="">None</MenuItem>
+            {/* An archived project stays selectable only when it is still the
+                value on this booking, so opening this dialog after its
+                project was archived doesn't silently clear a link the
+                backend deliberately preserves (A1's carve-out on
+                update_standard_fields) — same shape as ReleaseForm's Owning
+                project select. */}
+            {booking.project_id != null &&
+              values.project_id === booking.project_id &&
+              !projects.some((p) => p.id === booking.project_id) && (
+                <MenuItem value={booking.project_id}>
+                  {booking.project_name_link ?? `#${booking.project_id}`} (archived)
+                </MenuItem>
+              )}
+            {projects.map((p) => (
+              <MenuItem key={p.id} value={p.id}>
+                {p.name}
+              </MenuItem>
+            ))}
+          </Select>
+          {projectsTruncated && (
+            <FormHelperText>Only the first {projects.length} projects are shown.</FormHelperText>
+          )}
+        </FormControl>
         <TextField
           label="Start Date"
           type="date"
