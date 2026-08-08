@@ -114,6 +114,7 @@ const CREATE_RESPONSE: BookingRequestCreateResponse = {
     rollup_status: 'draft',
     bookings: [
       {
+        has_unacknowledged_conflicts: false,
         id: 42,
         environment_id: 1,
         environment_name: 'Env A',

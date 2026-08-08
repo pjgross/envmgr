@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.environment import Environment
@@ -492,16 +493,24 @@ async def upsert_ack(
     existing = await get_ack(db, booking_id, tenant_id)
     now = datetime.now(timezone.utc)
     if existing is None:
-        ack = UsageAgreementAck(
-            tenant_id=tenant_id,
-            booking_id=booking_id,
-            notes=notes,
-            acknowledged_by=current_user.id,
-            acknowledged_at=now,
+        # A concurrent first-ack may land between the read above and this
+        # insert; `uq_agreement_ack_booking` then refuses ours. Same treatment
+        # as conflict_service.upsert_ack, deliberately — two sibling endpoints
+        # with different concurrency behaviour is worse than the bug, which is
+        # why A3 left its own copy alone rather than fixing one of the pair.
+        existing, inserted = await insert_or_reread(
+            db,
+            UsageAgreementAck(
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                notes=notes,
+                acknowledged_by=current_user.id,
+                acknowledged_at=now,
+            ),
+            lambda: get_ack(db, booking_id, tenant_id),
         )
-        db.add(ack)
-        await db.flush()
-        return ack
+        if inserted:
+            return existing
 
     existing.notes = notes
     existing.acknowledged_by = current_user.id

@@ -34,6 +34,7 @@ const HARBOR: ProjectResponse = {
 };
 
 const BOOKING: BookingResponse = {
+  has_unacknowledged_conflicts: false,
   id: 1,
   environment_id: 1,
   environment_name: 'Env A',

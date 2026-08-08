@@ -48,6 +48,12 @@ async def list_conflicts(
     gaps = await agreement_gap_service.gap_warnings_for_bookings(
         db, [c.booking for c in others], current_user.active_tenant_id
     )
+    # Whether each OTHER booking's owner has unanswered conflicts of their own —
+    # a different question from `ack` below, which is whether WE have answered
+    # about them. Batched for the same reason the gaps are.
+    unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
+        db, [c.booking.id for c in others], current_user.active_tenant_id
+    )
     items: list[ConflictItem] = []
     for c in others:
         ack = await conflict_service.get_ack(
@@ -65,6 +71,7 @@ async def list_conflicts(
                 environment_group_id=c.booking.environment_group_id,
                 environment_group_name=group_names.get(c.booking.environment_group_id),
                 **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
+                **conflict_service.conflict_fields(c.booking.id in unanswered),
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))
@@ -112,6 +119,9 @@ async def list_received_feedback(
     gaps = await agreement_gap_service.gap_warnings_for_bookings(
         db, [r.source_booking for r in rows], current_user.active_tenant_id
     )
+    unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
+        db, [r.source_booking.id for r in rows], current_user.active_tenant_id
+    )
     return [
         ReceivedFeedbackItem(
             willing_to_share=r.ack.willing_to_share,
@@ -128,6 +138,7 @@ async def list_received_feedback(
                 environment_group_id=r.source_booking.environment_group_id,
                 environment_group_name=group_names.get(r.source_booking.environment_group_id),
                 **agreement_gap_service.gap_fields(gaps.get(r.source_booking.id)),
+                **conflict_service.conflict_fields(r.source_booking.id in unanswered),
             ),
             source_request=RequestContextRef(
                 id=r.source_request.id,

@@ -1,13 +1,14 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, and_, or_, not_
+from sqlalchemy import Exists, select, and_, or_, not_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.pagination import Page, fetch_page_rows
+from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
 from app.db.models.booking_conflict_ack import BookingConflictAck
 from app.db.models.booking_request import BookingRequest
@@ -23,6 +24,32 @@ class ConflictingBooking:
     booking: Booking
     project_name: Optional[str]
     environment_name: Optional[str]
+
+
+def conflicts_with(other, *, subject_id, environment_id, start_date, end_date, tenant_id):
+    """What it means for `other` to conflict with a subject booking.
+
+    ONE definition, two consumers: `list_conflicts` passes literals off a
+    loaded `Booking`, and `_unacknowledged_conflict_exists` passes the
+    correlated `Booking` columns straight through. Both therefore ask the same
+    question, which is the point — a second copy of these five rules is
+    precisely the "two mechanisms enforcing one outcome" shape that has cost
+    this codebase repeated defects, because one test cannot then guard both.
+
+    Every argument is keyword-only and required: a positional call site that
+    silently swapped `start_date` and `end_date` would invert the overlap and
+    still typecheck.
+    """
+    return (
+        other.tenant_id == tenant_id,
+        other.id != subject_id,
+        other.environment_id == environment_id,
+        other.deleted_at.is_(None),
+        not_(other.status.in_(TERMINAL_STATES)),
+        # half-open overlap: [start, end)
+        other.start_date < end_date,
+        other.end_date > start_date,
+    )
 
 
 async def list_conflicts(
@@ -44,14 +71,14 @@ async def list_conflicts(
         .join(BookingRequest, BookingRequest.id == Booking.booking_request_id, isouter=True)
         .join(Environment, Environment.id == Booking.environment_id, isouter=True)
         .where(
-            Booking.tenant_id == tenant_id,
-            Booking.id != me.id,
-            Booking.environment_id == me.environment_id,
-            Booking.deleted_at.is_(None),
-            not_(Booking.status.in_(TERMINAL_STATES)),
-            # half-open overlap: [start, end)
-            Booking.start_date < me.end_date,
-            Booking.end_date > me.start_date,
+            *conflicts_with(
+                Booking,
+                subject_id=me.id,
+                environment_id=me.environment_id,
+                start_date=me.start_date,
+                end_date=me.end_date,
+                tenant_id=tenant_id,
+            )
         )
         .order_by(Booking.start_date, Booking.id)
     )
@@ -108,18 +135,26 @@ async def upsert_ack(
 
     now = datetime.now(timezone.utc)
     if existing is None:
-        ack = BookingConflictAck(
-            tenant_id=tenant_id,
-            booking_id=booking_id,
-            other_booking_id=other_booking_id,
-            willing_to_share=willing_to_share,
-            notes=notes,
-            acknowledged_by=current_user.id,
-            acknowledged_at=now,
+        # A concurrent first-ack may land between the read above and this
+        # insert; `uq_conflict_ack_pair` then refuses ours. insert_or_reread
+        # hands back the row that won so the update below applies to it — the
+        # later answer is recorded, as it would have been unraced. See
+        # app/core/upsert.py for why this needs a savepoint.
+        existing, inserted = await insert_or_reread(
+            db,
+            BookingConflictAck(
+                tenant_id=tenant_id,
+                booking_id=booking_id,
+                other_booking_id=other_booking_id,
+                willing_to_share=willing_to_share,
+                notes=notes,
+                acknowledged_by=current_user.id,
+                acknowledged_at=now,
+            ),
+            lambda: get_ack(db, booking_id, other_booking_id, tenant_id),
         )
-        db.add(ack)
-        await db.flush()
-        return ack
+        if inserted:
+            return existing
 
     existing.willing_to_share = willing_to_share
     existing.notes = notes
@@ -141,17 +176,119 @@ async def get_ack(
     )).scalar_one_or_none()
 
 
+def _unacknowledged_conflict_exists(tenant_id: int) -> Exists:
+    """EXISTS(a live conflicting booking this booking's owner has not answered).
+
+    Correlates against `Booking`, so any query selecting from Booking can use
+    it. The conditions are `list_conflicts`' verbatim — same tenant, a
+    different booking, same environment, not soft-deleted, not in a terminal
+    state, half-open `[start, end)` overlap — plus the unanswered test.
+
+    "UNANSWERED" IS `willing_to_share IS NULL`, NOT "no ack row". A row can
+    exist carrying only notes, and `has_unacknowledged_conflicts` has always
+    treated that as still unanswered (`ack is None or ack.willing_to_share is
+    None`). The inner `NOT EXISTS` therefore looks for an ack that HAS answered
+    and negates it, which covers both cases in one clause.
+
+    The ack's own `tenant_id` filter is load-bearing for the same reason
+    `agreement_gap_service.get_ack`'s is: `uq_conflict_ack_pair` is on
+    `(booking_id, other_booking_id)` alone, so a malformed row bearing another
+    tenant's `tenant_id` is insertable and must not silence our warning.
+    """
+    other = aliased(Booking)
+    ack = aliased(BookingConflictAck)
+    answered = (
+        select(ack.id)
+        .where(
+            ack.tenant_id == tenant_id,
+            ack.booking_id == Booking.id,
+            ack.other_booking_id == other.id,
+            ack.willing_to_share.is_not(None),
+        )
+        .correlate(Booking, other)
+        .exists()
+    )
+    return (
+        select(other.id)
+        .where(
+            *conflicts_with(
+                other,
+                subject_id=Booking.id,
+                environment_id=Booking.environment_id,
+                start_date=Booking.start_date,
+                end_date=Booking.end_date,
+                tenant_id=tenant_id,
+            ),
+            ~answered,
+        )
+        .correlate(Booking)
+        .exists()
+    )
+
+
+async def bookings_with_unacknowledged_conflicts(
+    db: AsyncSession, booking_ids: Iterable[int], tenant_id: int
+) -> set[int]:
+    """Which of `booking_ids` have a conflict their owner has not answered.
+
+    ONE query for the whole page. The per-row form this replaced cost
+    `list_conflicts` plus one `get_ack` PER CONFLICT, for every row — so a
+    50-row page issued 50 x (1 + conflicts) queries and got worse as the estate
+    got busier. Mirrors `agreement_gap_service.gap_warnings_for_bookings`,
+    which is the shape every response builder here now uses.
+
+    A booking in a terminal state has no conflicts by definition, exactly as
+    `list_conflicts` returns nothing for one — that filter is on the SUBJECT
+    here and on the OTHER booking inside the EXISTS, and both are needed.
+
+    Deliberately returns ids rather than rows: nothing downstream needs the
+    conflicting bookings themselves, and returning them would invite a caller
+    to render a page-sized set it never asked for.
+    """
+    ids = list(booking_ids)
+    if not ids:
+        return set()
+    rows = await db.execute(
+        select(Booking.id).where(
+            Booking.id.in_(ids),
+            Booking.tenant_id == tenant_id,
+            not_(Booking.status.in_(TERMINAL_STATES)),
+            _unacknowledged_conflict_exists(tenant_id),
+        )
+    )
+    return set(rows.scalars().all())
+
+
+def conflict_fields(flagged: bool) -> dict[str, object]:
+    """One booking's conflict flag as the field every response carries.
+
+    THE SINGLE SPELLING OF THAT PROJECTION, exactly as
+    `agreement_gap_service.gap_fields` is for the gap pair. Written as
+    `**conflict_fields(booking.id in conflicts)` so a call site reads as one
+    decision rather than a line that can be quietly edited to a constant.
+
+    A required field guards only that a site ANSWERS — not that it answers
+    about the right booking. That is why every site has a named test, and why
+    this takes the already-computed membership rather than a booking id and a
+    set: passing the wrong id is then visible at the call site instead of
+    hidden inside a helper.
+    """
+    return {"has_unacknowledged_conflicts": flagged}
+
+
 async def has_unacknowledged_conflicts(
     db: AsyncSession, booking_id: int, tenant_id: int
 ) -> bool:
-    conflicts, _ = await list_conflicts(db, booking_id, tenant_id)
-    if not conflicts:
-        return False
-    for c in conflicts:
-        ack = await get_ack(db, booking_id, c.booking.id, tenant_id)
-        if ack is None or ack.willing_to_share is None:
-            return True
-    return False
+    """The single-booking form, for detail reads.
+
+    DERIVED FROM THE BATCH, not a second implementation. Two mechanisms
+    answering one question means one test cannot guard both, and this codebase
+    has already shipped a count and a list that disagreed two ways. NEVER call
+    this in a loop over a page — that is the N x M this batch exists to kill.
+    """
+    return booking_id in await bookings_with_unacknowledged_conflicts(
+        db, [booking_id], tenant_id
+    )
 
 
 @dataclass

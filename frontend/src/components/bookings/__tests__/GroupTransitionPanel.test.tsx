@@ -54,6 +54,7 @@ const GROUP_ID = 7401;
 const GROUP_NAME = 'Checkout Squad';
 
 const MEMBER_A: EnvBookingSummary = {
+  has_unacknowledged_conflicts: false,
   id: 7501,
   environment_id: 7601,
   environment_name: 'Checkout API',
@@ -68,6 +69,7 @@ const MEMBER_A: EnvBookingSummary = {
 };
 
 const MEMBER_B: EnvBookingSummary = {
+  has_unacknowledged_conflicts: false,
   id: 7502,
   environment_id: 7602,
   environment_name: 'Checkout DB',

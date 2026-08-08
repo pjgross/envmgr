@@ -136,6 +136,7 @@ function envBooking(
   gap: string | null
 ): EnvBookingSummary {
   return {
+    has_unacknowledged_conflicts: false,
     id,
     environment_id: environmentId,
     environment_name: name,

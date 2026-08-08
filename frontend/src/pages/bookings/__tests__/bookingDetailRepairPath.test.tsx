@@ -86,6 +86,7 @@ const GROUP_NAME = 'Payments Squad';
 
 function envBooking(overrides: Partial<EnvBookingSummary>): EnvBookingSummary {
   return {
+    has_unacknowledged_conflicts: false,
     id: 0,
     environment_id: 0,
     environment_name: null,
