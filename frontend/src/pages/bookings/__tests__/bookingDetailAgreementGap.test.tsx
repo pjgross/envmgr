@@ -329,6 +329,14 @@ describe('BookingDetail — an unrelated save must not drop the acknowledgement'
     // …and the gap is still on the page: acknowledging is not resolving, and a
     // date edit does not resolve it either.
     expect(screen.getByText(GAP)).toBeInTheDocument();
+
+    // THE OTHER HALF, which the assertions above cannot see. Everything so far
+    // would also pass if the saver skipped the PATCH's response entirely and
+    // re-rendered the STALE local booking — the ack would survive precisely
+    // because nothing was replaced. That is I1 optimised the other way: the
+    // name is right and the user's edit is silently discarded. Pin the refetch
+    // itself — once for the initial load, once after the save.
+    expect(bookingService.getBooking).toHaveBeenCalledTimes(2);
   });
 });
 
