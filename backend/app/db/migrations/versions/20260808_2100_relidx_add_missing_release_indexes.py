@@ -65,10 +65,25 @@ INDEXES = [
 
 
 def upgrade() -> None:
+    # IF NOT EXISTS, and it is load-bearing rather than defensive. These indexes
+    # are declared on the models, so ANY database whose schema was ever touched
+    # by `init_db()`/`create_all` already has them while `alembic_version` knows
+    # nothing about them — which is the exact divergence this revision exists to
+    # close, so it must not fall over on the databases that have it. The dev
+    # database did precisely this on first run: DuplicateTableError on
+    # `ix_gate_criterion_assigned_to_user_id`.
+    #
+    # Production is migration-built (the image entrypoint runs `alembic upgrade
+    # head` BEFORE uvicorn, so `create_all` never front-runs it) and will create
+    # all fourteen. The semantic wanted here is "ensure these exist", and that
+    # is what this now says.
     for name, table, column in INDEXES:
-        op.create_index(name, table, [column])
+        op.create_index(name, table, [column], if_not_exists=True)
 
 
 def downgrade() -> None:
+    # Symmetrically tolerant: a database that never had one of these — because
+    # it upgraded straight past this revision — must still be able to step back
+    # through it.
     for name, table, _ in reversed(INDEXES):
-        op.drop_index(name, table_name=table)
+        op.drop_index(name, table_name=table, if_exists=True)
