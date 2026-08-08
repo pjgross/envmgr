@@ -29,8 +29,13 @@ def _summaries(
     children, group_names: dict[int, str], env_names: dict[int, str],
     gaps: dict[int, GapWarning],
 ) -> list[EnvBookingSummary]:
-    # Basic projection — has_unacknowledged_conflicts is filled in by the
-    # caller for the detail endpoint.
+    # Basic projection. `has_unacknowledged_conflicts` is filled in by NOBODY —
+    # not here, not by any caller, on any endpoint — and has been silently False
+    # on this type since it shipped. This comment used to claim the detail
+    # endpoint populated it, which was never true; it is corrected rather than
+    # deleted because that field is the counter-example the three
+    # required-positional arguments below exist to avoid, and it is cited as
+    # such in this type's own schema.
     #
     # `group_names` is a batch-resolved id->name map (see
     # environment_group_service.get_group_names, deliberately not filtering

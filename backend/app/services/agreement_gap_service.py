@@ -609,9 +609,20 @@ async def has_unacknowledged_agreement_gap(
     `test_the_batch_flag_and_the_single_booking_flag_agree` pins the two
     together so a future change to either is a change to both.
 
-    THEREFORE, STILL: never call this in a loop over a page. It re-loads the
-    booking and re-runs the whole batch for one row; a 50-row page is ~150
-    queries. A list endpoint wants `gap_warnings_for_bookings` once.
+    IT HAS NO PRODUCTION CALLER, DELIBERATELY. Every response builder in the API
+    goes through `gap_warnings_for_bookings` — including the single-booking
+    endpoints, via `bookings.py::_gap_for`, which cannot use this function
+    because it needs the MESSAGE as well as the flag. So the only callers today
+    are tests. It is kept rather than deleted because it is A3's named
+    single-booking interface (task 3) and the plain-language answer to "is there
+    something to warn about on this booking", which a service outside the API
+    layer may legitimately want; and because deleting it would delete the
+    cross-check that stops a future re-split of the two forms drifting.
+
+    THEREFORE, STILL: never call this in a loop over a page — the warning is
+    aimed at whoever adds the first production caller, not at existing code. It
+    re-loads the booking and re-runs the whole batch for one row; a 50-row page
+    is ~150 queries. A list endpoint wants `gap_warnings_for_bookings` once.
 
     A booking that is not this tenant's is not in gap here — the same silence
     `describe_gap` gives it, rather than an exception, because this feeds a
