@@ -308,6 +308,30 @@ export default function BookingForm({
     onCreated?.();
     const firstBookingId = response.request.bookings[0]?.id;
     snackbar.success('Booking created');
+
+    // Usage-agreement gaps (A3) — ONE warning per gap, never a single "some
+    // bookings have gaps" summary: a request can span several environments and
+    // the user needs to know WHICH ones to get an agreement for.
+    //
+    // The server's message is shown verbatim and deliberately not re-worded
+    // here: `agreement_gap_service` names the project and the environment in
+    // it and never falls back to an id, and a second wording assembled in the
+    // browser is a second answer to the same question — the divergence A1
+    // produced by writing a count and a list separately.
+    //
+    // Iterated over `agreement_gaps` itself rather than over
+    // `request.bookings`, so a gap for a booking missing from that list is
+    // still surfaced rather than silently dropped. Keys are booking ids, so
+    // the order is ascending booking id — deterministic, which the response's
+    // own list order is not guaranteed to be.
+    //
+    // A3 WARNS: this runs AFTER the success path above, changes nothing about
+    // it, and holds nothing open. The persistent home for the warning is the
+    // booking's own page, which the navigation below lands on.
+    for (const message of Object.values(response.agreement_gaps ?? {})) {
+      snackbar.warning(message);
+    }
+
     handleClose();
     if (firstBookingId) {
       navigate(`/bookings/${firstBookingId}`);
