@@ -24,17 +24,50 @@ import {
   deleteUsageAgreement,
   fetchProject,
   fetchProjectAgreements,
+  fetchProjectGapBookingCount,
 } from '../../store/projectSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
+
+/**
+ * Where the gap rollup below points: this project's bookings that no live
+ * usage agreement covers.
+ *
+ * BOTH QUERY PARAMS ARE REAL, and that is the entire risk being managed here.
+ * `BookingList` declares `filterKeys: ['booking_status', 'project_id',
+ * 'agreement_gap']` and `useServerGrid` hydrates every one of them out of
+ * `searchParams`, so a link carrying these two arrives filtered; `GET
+ * /bookings` in turn declares both, and `agreement_gap`'s value vocabulary is
+ * `'any' | 'true' | 'false'`, so `true` is a value it acts on rather than one
+ * it drops. Nothing anywhere errors on a param that is not — FastAPI drops an
+ * unknown query param silently, and `useServerGrid` simply never reads a key
+ * absent from `filterKeys`. A1 shipped a count linking to a `?project_id=`
+ * that `GET /environments` had never accepted; it rendered the whole estate as
+ * one project's environments, with a test and the admin guide both asserting
+ * it as correct.
+ *
+ * Exported so the link and the guard test are the SAME string — a test that
+ * asserts a hand-written href against a hand-written href guards nothing.
+ * `projectDetailGapLink.test.tsx` feeds this value to a real `BookingList` and
+ * asserts the fetch it issues actually carries the filter.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function gapBookingsHref(projectId: number): string {
+  return `/bookings/list?project_id=${projectId}&agreement_gap=true`;
+}
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { current: project, agreements, agreementTotal, error: loadError } = useSelector(
-    (s: RootState) => s.project
-  );
+  const {
+    current: project,
+    agreements,
+    agreementTotal,
+    gapBookingCount,
+    gapBookingCountError,
+    error: loadError,
+  } = useSelector((s: RootState) => s.project);
   // GET /projects/{id} and GET .../usage-agreements are open to any tenant
   // member; POST/DELETE on the agreement are require_tenant_admin() — the
   // same split as Projects.tsx and the same reasoning as UserGroupDetail.tsx.
@@ -57,6 +90,7 @@ export default function ProjectDetail() {
       // is a server-paged window that may not even contain this project.
       dispatch(fetchProject(projectId));
       dispatch(fetchProjectAgreements(projectId));
+      dispatch(fetchProjectGapBookingCount(projectId));
     }
   }, [dispatch, projectId]);
 
@@ -83,6 +117,11 @@ export default function ProjectDetail() {
     setEndsAt('');
     setNotes('');
     dispatch(fetchProjectAgreements(projectId));
+    // The rollup is computed from these very rows: recording the missing
+    // agreement is the ONLY thing that closes a gap, so a count left alone
+    // here would keep reporting the gap the user just fixed, on the page they
+    // fixed it on. Same reason it is refetched after a Remove.
+    dispatch(fetchProjectGapBookingCount(projectId));
   };
 
   const handleRemoveAgreement = async (agreementId: number) => {
@@ -93,6 +132,7 @@ export default function ProjectDetail() {
       return;
     }
     dispatch(fetchProjectAgreements(projectId));
+    dispatch(fetchProjectGapBookingCount(projectId));
   };
 
   return (
@@ -139,11 +179,16 @@ export default function ProjectDetail() {
       <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
         Usage Agreements
       </Typography>
+      {/* A3 warns; it never blocks. The old copy ended "enforcement is a
+          separate, later piece of work" — true under A1, and false the moment
+          the warning shipped. What has NOT changed is the half that matters:
+          nothing here refuses a booking. */}
       <Alert severity="info" sx={{ mb: 2 }}>
         A usage agreement is a record of which environments this project is expected
         to use — it is not a rule. Nothing here stops this project booking an
-        environment it has no agreement for; enforcement is a separate, later
-        piece of work.
+        environment it has no agreement for: the booking is still created, and is
+        flagged with a warning on the booking itself and in the bookings list.
+        Recording the agreement here clears that warning on its own.
       </Alert>
 
       {addError && (
@@ -210,9 +255,34 @@ export default function ProjectDetail() {
         </Box>
       )}
 
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        {agreementTotal} agreement{agreementTotal === 1 ? '' : 's'}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 2, mb: 1, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle2">
+          {agreementTotal} agreement{agreementTotal === 1 ? '' : 's'}
+        </Typography>
+        {/* The other side of the same coin, beside the table it is computed
+            against: agreements recorded here, bookings not covered by any of
+            them there. Rendered only when the count is KNOWN — a failed
+            rollup shows the caption below instead, never a silent 0, because
+            "0 bookings in gap" and "nobody could tell you" are opposite
+            answers (CLAUDE.md's partial-read rule). */}
+        {gapBookingCount !== null && (
+          <Link
+            component={RouterLink}
+            to={gapBookingsHref(projectId)}
+            variant="subtitle2"
+            color={gapBookingCount > 0 ? 'warning.main' : 'text.secondary'}
+          >
+            {gapBookingCount === 0
+              ? 'No bookings in gap'
+              : `${gapBookingCount} booking${gapBookingCount === 1 ? '' : 's'} in gap`}
+          </Link>
+        )}
+        {gapBookingCountError && (
+          <Typography variant="caption" color="text.secondary">
+            Bookings in gap: unavailable ({gapBookingCountError})
+          </Typography>
+        )}
+      </Box>
 
       <Paper variant="outlined">
         <Table size="small">

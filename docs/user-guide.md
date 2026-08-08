@@ -244,7 +244,8 @@ Tenant Admins can replace this template — see admin guide ch. 8 — so transit
 ### Calendar vs list view
 
 - **Calendar** at `/bookings/calendar` — a FullCalendar grid showing every booking as a coloured block. Use *Filter by Environment* to narrow it down, click a block to open the side drawer with details and transition buttons, or click *+ New Booking* in the toolbar. Best for "when can I get UAT?" planning.
-- **List** at `/bookings/list` — DataGrid columns in source order: *Purpose*, *Project*, *Environment*, *Booked By*, *Start*, *End*, *Type*, *Status*, *Conflicts*, and a kebab actions column. *Purpose* and *Project* are two different values on the same row — *Purpose* is the free-text label you type when creating the booking (see below), *Project* is the optional linked `Project` picked from the tenant's Projects admin screen, and one can be filled in without the other. A *Project* filter narrows the list to one project's bookings. Status chips filter to *All / Draft / Submitted / Approved / Rejected / Ext. Requested / Closed*. Tenant custom fields appear as hideable columns. Best for filtering by team or status.
+- **List** at `/bookings/list` — DataGrid columns in source order: *Purpose*, *Project*, *Environment*, *Group*, *Booked By*, *Start*, *End*, *Type*, *Status*, *Agreement*, *Conflicts*, and a kebab actions column. *Purpose* and *Project* are two different values on the same row — *Purpose* is the free-text label you type when creating the booking (see below), *Project* is the optional linked `Project` picked from the tenant's Projects admin screen, and one can be filled in without the other. A *Project* filter narrows the list to one project's bookings, and a *Usage agreement* filter narrows it to *All bookings / In gap / No gap* (see [Usage agreement warnings](#usage-agreement-warnings) below). Status chips filter to *All / Draft / Submitted / Approved / Rejected / Ext. Requested / Closed*. Tenant custom fields appear as hideable columns. Best for filtering by team or status.
+  *Agreement* and *Conflicts* are both computed after the page is fetched, so neither is sortable — their headers say so.
 
 ### Walkthrough: creating a booking
 
@@ -282,6 +283,26 @@ Booking a group is **not** shorthand for hand-picking its current members yourse
 ### Conflict detection
 
 Conflicts surface live in the new-booking dialog as you set the dates, and on the booking detail in the *Conflicts* panel after creation. A conflict is any other non-rejected booking on the **same environment** whose window overlaps yours. If either side requested exclusive use, the conflict is **blocking** (creation fails with HTTP 409). If both sides are shared, the conflict is a **warning** — the booking is created and gets an unacknowledged-conflicts indicator until the booker (or a delegate) acknowledges it. On a blocking conflict, pick a different window, drop the exclusive flag if shared use will do, or ask the existing booker to release their slot.
+
+### Usage agreement warnings
+
+If your tenant uses *Projects* (admin guide ch. 4), an Admin can record which environments each project is expected to use — a **usage agreement**, optionally with a start and end date. If you link a booking to a project and no agreement covers that project, that environment and those dates, the booking is flagged with a **usage agreement gap**.
+
+**It is a warning and only a warning.** The booking is created, it transitions normally, every button still works, and nothing needs approving because of it. It exists so that use of a shared estate outside what was agreed is visible, not to stop you working.
+
+You will see it in three places:
+
+- **While creating the booking** — one warning per environment in gap, as the booking is saved. The booking is created regardless.
+- **On the booking** (`/bookings/:id`) — a *Usage agreement gap* panel naming your project and the environment, e.g. *"Mortgage has no usage agreement for UAT-1"*, or *"Mortgage's booking falls outside its agreed window for UAT-1 (1 Jun 2026 – 30 Jun 2026)"*.
+- **In the list** (`/bookings/list`) — a warning icon in the *Agreement* column, and a *Usage agreement* filter to show only the bookings in gap.
+
+A booking with **no** project linked is never flagged: there is no project whose agreements could be checked. Under the list's *No gap* filter those bookings appear too, for the same reason — nothing assessed them.
+
+**Acknowledging is not resolving.** The panel offers an *Acknowledge* button, with an optional note. That records that you have seen the gap and accepted it, and it shows who acknowledged it and when — it does **not** create an agreement and it does **not** close the gap. The booking still appears under *In gap*, and the icon in the list stays (greyed rather than orange, to tell the two apart).
+
+**What actually clears the warning is recording the missing agreement** — ask an Admin to add it on the project's detail page. The check is recomputed every time the page loads, so the warning disappears on its own the moment the agreement exists; there is nothing to re-run and nothing to un-acknowledge. The other fix is that the booking is on the **wrong project**: click *Edit request* on the booking detail page and correct the *Project* field there, and the warning re-evaluates against the right one.
+
+One edge worth knowing: the agreement's dates are compared as exact moments, not whole days. An agreement recorded as ending *30 Jun* does not cover a booking that runs to 17:00 on 30 June, even though the warning prints the bound as "30 Jun 2026". If a gap looks wrong by a day, that is usually why — ask for the agreement's end date to be pushed out by one.
 
 ### Walkthrough: requesting an extension
 

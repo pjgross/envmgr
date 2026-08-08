@@ -272,13 +272,50 @@ recorded — never enforced — against the environments it uses. Manage them at
 **Usage agreements are a record, not a rule.** From a project's detail page an Admin can add a
 *usage agreement* — this project may use environment E, optionally within a window (*Starts*/
 *Ends*), with a note — and the same agreements appear read-only on that environment's own detail
-page, under *Projects using this environment*. **Nothing in this release enforces them.** A
-project may still be booked against an environment it has no usage agreement for; nothing warns
-and nothing refuses it. Usage agreements exist today so the estate's intended usage is written
-down somewhere queryable — enforcement, if the product ever adds it, is separate, later work.
-Overlapping windows for the same project/environment pair are allowed (two periods of intended
-use aren't a contradiction); only an exact duplicate — same project, same environment, same
-window — is refused.
+page, under *Projects using this environment*. Overlapping windows for the same
+project/environment pair are allowed (two periods of intended use aren't a contradiction); only
+an exact duplicate — same project, same environment, same window — is refused.
+
+**They now produce a warning — and nothing more.** Since Phase 7 sub-project A3, a booking whose
+request names a project that has no live agreement covering that environment for those dates is
+flagged. **Nothing is blocked.** The booking is still created, it still transitions, every button
+still works, and no approval step depends on it. A gap is a governance finding, not a gate. (The
+earlier wording on this page — "enforcement, if the product ever adds it, is separate, later
+work" — described A1 and is now out of date in one direction only: there is a warning, there is
+still no refusal.)
+
+Where the gaps show up:
+
+- **On the booking itself** (`/bookings/:id`) — a warning panel naming the project and the
+  environment, and either "has no usage agreement for" or "falls outside its agreed window for",
+  with the window quoted. Anyone in the tenant can *acknowledge* it, with an optional note; who
+  did so and when is then shown on the page and survives a reload.
+- **In the bookings list** (`/bookings/list`) — an *Agreement* column (a warning icon; greyed
+  once acknowledged) and a *Usage agreement* filter with *All bookings* / *In gap* / *No gap*.
+  The filter runs on the server, so it narrows the whole result set, not the page on screen.
+  *No gap* deliberately also sweeps in bookings that name **no** project at all: nothing assessed
+  them, so calling them "covered" would be a claim about a check that never ran.
+- **At the moment of creation** — the new-booking dialog raises one warning per environment in
+  gap, and creates the booking anyway.
+- **On the project's own detail page** — beside the agreements table, a count of that project's
+  bookings currently in gap, linking straight to the filtered list. It counts every booking of
+  that project regardless of lifecycle status (drafts and closed ones included), because the check
+  looks at the project, the environment and the dates and never at the status — the linked list
+  shows exactly the same set. If the count could not be loaded it says *unavailable* rather than
+  showing zero.
+
+**Acknowledging is not resolving.** An acknowledged gap is still a gap: it still appears under *In
+gap*, and the icon stays (greyed). The one thing that clears the warning is **recording the
+missing agreement here** — do that and the warning disappears on its own, with no other action and
+nothing to re-run, because the check is recomputed on every read rather than stored. Acknowledging
+records only that somebody looked at it and accepted it.
+
+Two consequences worth knowing before they surprise you. A window is compared as an **instant**,
+not a calendar day: an agreement recorded as ending *30 Jun* does not cover a booking that ends at
+17:00 on 30 June, even though the warning renders the bound as "30 Jun 2026". And **soft-deleting
+an environment does not delete the agreements pointing at it** (deleting a *project* does cascade
+to them), so those agreements stop counting as live — bookings covered only by one will start
+showing a gap.
 
 ### Password resets
 

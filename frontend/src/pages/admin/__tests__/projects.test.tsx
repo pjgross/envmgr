@@ -6,9 +6,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import Projects, { projectColumns } from '../Projects';
-import ProjectDetail from '../ProjectDetail';
+import ProjectDetail, { gapBookingsHref } from '../ProjectDetail';
 import projectReducer from '../../../store/projectSlice';
 import userGroupReducer from '../../../store/userGroupSlice';
+import { bookingService } from '../../../services/bookingService';
 import { projectService } from '../../../services/projectService';
 import { userGroupService } from '../../../services/userGroupService';
 import { getLastDataGridProps } from '../../../test/dataGridMock';
@@ -24,6 +25,16 @@ vi.mock('../../../services/projectService', () => ({
     listAgreementsForEnvironment: vi.fn(),
     createAgreement: vi.fn(),
     deleteAgreement: vi.fn(),
+  },
+}));
+
+// ProjectDetail's usage-agreement gap rollup (Phase 7 A3) counts through
+// `GET /bookings` — there is no count endpoint, and A3 added no backend at
+// all. `listBookings` reads `X-Total-Count`, so `limit: 1` buys the number
+// without the rows.
+vi.mock('../../../services/bookingService', () => ({
+  bookingService: {
+    listBookings: vi.fn(),
   },
 }));
 
@@ -363,6 +374,9 @@ describe('ProjectDetail', () => {
       rows: [],
       total: 0,
     });
+    // The gap rollup's default: two of this project's bookings are in gap.
+    // `rows` is deliberately empty — the page reads the total, never the rows.
+    vi.mocked(bookingService.listBookings).mockResolvedValue({ rows: [], total: 2 });
   });
 
   it('states the usage agreements section is a record, not an enforced rule', async () => {
@@ -425,6 +439,93 @@ describe('ProjectDetail', () => {
       expect(screen.getByText(/already has an agreement/i)).toBeInTheDocument()
     );
     expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('counts the bookings in gap from the filtered total, not from a page of rows', async () => {
+    // `X-Total-Count` describes the whole filtered set; `rows` is one row's
+    // worth of window. The mock returns an EMPTY rows array with total 2, so
+    // a component that counted `rows.length` renders "No bookings in gap" and
+    // fails here.
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    expect(await screen.findByText('2 bookings in gap')).toBeInTheDocument();
+    expect(bookingService.listBookings).toHaveBeenCalledWith({
+      project_id: 1,
+      agreement_gap: true,
+      limit: 1,
+    });
+  });
+
+  it('asks for the same filtered set its link points at', async () => {
+    // The count and the list the user lands on must be ONE query. Derived
+    // from the link the page actually rendered rather than from a literal, so
+    // changing one side without the other fails here.
+    renderDetail();
+    const link = await screen.findByRole('link', { name: /in gap/i });
+    const href = link.getAttribute('href') ?? '';
+    const url = new URL(href, 'http://localhost');
+    expect(url.pathname).toBe('/bookings/list');
+    expect(url.searchParams.get('project_id')).toBe('1');
+    expect(url.searchParams.get('agreement_gap')).toBe('true');
+    // And the request carries the same two values the URL does.
+    const params = vi.mocked(bookingService.listBookings).mock.calls[0][0];
+    expect(String(params?.project_id)).toBe(url.searchParams.get('project_id'));
+    expect(String(params?.agreement_gap)).toBe(url.searchParams.get('agreement_gap'));
+  });
+
+  it('renders the rollup as a link even when nothing is in gap', async () => {
+    vi.mocked(bookingService.listBookings).mockResolvedValue({ rows: [], total: 0 });
+    renderDetail();
+    const link = await screen.findByRole('link', { name: 'No bookings in gap' });
+    expect(link).toHaveAttribute('href', gapBookingsHref(1));
+  });
+
+  it('says the count is unavailable when it could not be loaded, rather than showing no gaps', async () => {
+    // A rollup nobody could compute must not read as a clean bill of health —
+    // the partial-read rule the drift dialog already broke once. A component
+    // falling back to 0 renders "No bookings in gap" and fails the second
+    // assertion here.
+    vi.mocked(bookingService.listBookings).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 500',
+      response: { status: 500, data: { detail: 'Booking index unavailable' } },
+    });
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    expect(await screen.findByText(/bookings in gap: unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^No bookings in gap$/)).not.toBeInTheDocument();
+    // The server's reason, not the axios status line — the rollup goes through
+    // a thunk, so `rejectWithValue(formatApiError(...))` is what carries it.
+    expect(screen.getByText(/booking index unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('re-counts after an agreement is added, because recording one is what closes a gap', async () => {
+    // A test that only ever mounts would pass against a page that fetches the
+    // count once and never again — leaving the rollup reporting the gap the
+    // user has just fixed, on the page they fixed it on.
+    vi.mocked(bookingService.listBookings)
+      .mockResolvedValueOnce({ rows: [], total: 2 })
+      .mockResolvedValue({ rows: [], total: 1 });
+    vi.mocked(projectService.createAgreement).mockResolvedValue(AGREEMENT);
+    renderDetail('Admin');
+    expect(await screen.findByText('2 bookings in gap')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Environment' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'staging-a' }));
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    expect(await screen.findByText('1 booking in gap')).toBeInTheDocument();
+  });
+
+  it('states plainly that a gap warns and never blocks', async () => {
+    renderDetail();
+    await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
+    // The old copy promised enforcement was "a separate, later piece of work";
+    // A3 shipped the warning, so that sentence became false. What must stay
+    // true and stated: the booking is still created.
+    expect(screen.getByText(/the booking is still created/i)).toBeInTheDocument();
+    expect(screen.queryByText(/separate, later piece of work/i)).not.toBeInTheDocument();
   });
 
   it('surfaces the server reason when removing a usage agreement is refused, not the axios status line', async () => {

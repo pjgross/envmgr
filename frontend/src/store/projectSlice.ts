@@ -1,4 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { bookingService } from '../services/bookingService';
 import { projectService } from '../services/projectService';
 import { formatApiError } from '../services/apiError';
 import type {
@@ -18,6 +19,23 @@ interface ProjectState {
   current: ProjectResponse | null;
   agreements: UsageAgreementResponse[];
   agreementTotal: number;
+  /**
+   * How many of this project's bookings are currently in a usage-agreement
+   * gap (Phase 7 A3), or null when it has not been loaded — or could not be.
+   *
+   * null is NOT zero, and the page must not render it as "no gaps": a count
+   * nobody could compute reading as a clean bill of health is the
+   * partial-read trap CLAUDE.md records against the drift dialog. Hence the
+   * separate error below rather than a fall back to 0.
+   */
+  gapBookingCount: number | null;
+  /**
+   * Why the count above is null, when the reason was a refusal rather than
+   * "not asked yet". Deliberately NOT folded into `error`: that banner is the
+   * project/agreements load, and a failed rollup must not read as a failed
+   * page.
+   */
+  gapBookingCountError: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -28,6 +46,8 @@ const initialState: ProjectState = {
   current: null,
   agreements: [],
   agreementTotal: 0,
+  gapBookingCount: null,
+  gapBookingCountError: null,
   loading: false,
   error: null,
 };
@@ -107,6 +127,50 @@ export const fetchProjectAgreements = createAsyncThunk<
     return await projectService.listAgreementsForProject(projectId);
   } catch (err) {
     return rejectWithValue(formatApiError(err, 'Failed to load usage agreements'));
+  }
+});
+
+/**
+ * How many of one project's bookings are currently in a usage-agreement gap
+ * (Phase 7 A3) — the number, without the rows.
+ *
+ * THERE IS NO COUNT ENDPOINT AND THIS DOES NOT ADD ONE. `GET /bookings` is
+ * `pagination()`-bound and answers with `X-Total-Count`, the total for the
+ * FILTERED set rather than for the returned window, so a `limit: 1` request
+ * yields the count for one row's worth of work. `listBookings` already reads
+ * that header (`services/bookingService.ts`).
+ *
+ * The parameters are byte-for-byte the ones behind ProjectDetail's link to
+ * `/bookings/list?project_id=…&agreement_gap=true`, which is the whole point:
+ * the count and the list the user lands on are ONE query with one window, so
+ * they cannot disagree. Both names are real — `list_bookings` in
+ * `backend/app/api/v1/bookings.py` declares `project_id` and `agreement_gap`
+ * — and that matters because FastAPI drops an unknown query param SILENTLY:
+ * A1 shipped a count linking to a `?project_id=` filter `GET /environments`
+ * never had, and it showed the whole estate as one project's environments
+ * with a test and the admin guide both asserting it as correct.
+ *
+ * Note the count spans every lifecycle status, drafts and closed bookings
+ * included — `gap_clause` filters on the project and the agreement, never on
+ * `Booking.status`. The linked list shows exactly the same set for the same
+ * reason.
+ */
+export const fetchProjectGapBookingCount = createAsyncThunk<
+  number,
+  number,
+  { rejectValue: string }
+>('project/fetchGapBookingCount', async (projectId, { rejectWithValue }) => {
+  try {
+    const { total } = await bookingService.listBookings({
+      project_id: projectId,
+      agreement_gap: true,
+      // The smallest window `pagination()` allows (`ge=1`). We want the
+      // header, not the rows.
+      limit: 1,
+    });
+    return total;
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to count bookings in gap'));
   }
 });
 
@@ -203,6 +267,24 @@ const projectSlice = createSlice({
       })
       .addCase(fetchProjectAgreements.rejected, (state, action) => {
         state.error = action.payload ?? 'Failed to load usage agreements';
+      })
+      // Same reasoning as fetchProject's pending handler above: `current` and
+      // this count are one project's, and navigating project A -> B must not
+      // render A's rollup under B's name for as long as the second request
+      // takes. Clearing on pending also clears the previous failure, so a
+      // stale "unavailable" caption cannot survive a successful reload.
+      .addCase(fetchProjectGapBookingCount.pending, (state) => {
+        state.gapBookingCount = null;
+        state.gapBookingCountError = null;
+      })
+      .addCase(fetchProjectGapBookingCount.fulfilled, (state, action) => {
+        state.gapBookingCount = action.payload;
+        state.gapBookingCountError = null;
+      })
+      .addCase(fetchProjectGapBookingCount.rejected, (state, action) => {
+        // `gapBookingCount` stays null. Never 0 — see the field's JSDoc: a
+        // count nobody could compute must not read as "no gaps".
+        state.gapBookingCountError = action.payload ?? 'Failed to count bookings in gap';
       })
       .addCase(fetchEnvironmentAgreements.pending, (state) => {
         state.agreements = [];
