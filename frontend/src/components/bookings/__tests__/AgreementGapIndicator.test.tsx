@@ -55,11 +55,21 @@ describe('AgreementGapIndicator', () => {
     expect(unacknowledged).not.toBe(acknowledged);
   });
 
-  it('never renders a numeric id — entities are named, never `#N`', async () => {
-    render(<AgreementGapIndicator gap={GAP} hasUnacknowledgedGap />);
+  // The by-name rule is kept BACKEND-side: agreement_gap_service composes the
+  // message and names the project and the environment. What this component can
+  // still get wrong is decorating it — appending an id, a booking number, a
+  // "(env 3)". So the guarantee worth pinning here is PASS-THROUGH: the tooltip
+  // is the server's string and nothing else.
+  //
+  // The obvious version of this test — render the fixture, assert no `/#\d/`
+  // appears — asserts nothing about the component at all: the fixture contains
+  // no digits, so only editing the test can make it fail. A review caught that.
+  it("renders the server's message verbatim, decorating it with nothing", async () => {
+    const gap = 'Mortgage has no usage agreement for UAT-1';
+    render(<AgreementGapIndicator gap={gap} hasUnacknowledgedGap />);
     await userEvent.hover(screen.getByLabelText('Usage agreement gap'));
-    await screen.findByText(GAP);
 
-    expect(document.body.textContent ?? '').not.toMatch(/#\d/);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toBe(gap);
   });
 });
