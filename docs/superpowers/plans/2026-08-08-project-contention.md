@@ -322,10 +322,11 @@ git commit -m "feat(contention): a nullable priority rank on Project, lower wins
 - Create: `backend/app/services/contention_service.py`, `backend/tests/test_contention_verdict.py`
 
 **Interfaces:**
-- Consumes: `Project.priority_rank` (Task 1); `conflict_service.conflicts_with`.
+- Consumes: `Project.priority_rank` (Task 1). **NOT `conflict_service.conflicts_with`** — an earlier draft of this line claimed it and was wrong. The verdict is about two projects, not about whether two bookings overlap; re-deriving overlap here would be the second definition of it that the constraints forbid. Whoever PAIRS the bookings owns overlap (Task 4), and `contention_service` does not import `conflict_service` at all.
 - Produces:
   - `ContentionVerdict` — `NamedTuple(outcome: str, winner_booking_id: Optional[int], reason: str)`
   - `OUTCOME_RANKED = "ranked"`, `OUTCOME_NO_PROJECT = "no_project"`, `OUTCOME_UNRANKED = "unranked"`, `OUTCOME_EQUAL_RANK = "equal_rank"`
+  - `REASON_NO_PROJECT`, `REASON_PROJECT_UNRESOLVABLE` — **four outcomes, five reasons**: `no_project` carries two, because "the request names no project" and "the request names a project this tenant cannot resolve (archived, or another tenant's)" are the same outcome and completely different things to tell a user. The second is the case where `get_project_names` renders the project's NAME on the same row, so a generic "not linked to a project" contradicts what is on screen. Deliberately not a fifth outcome.
   - `async def verdicts_for_pairs(db, pairs: Iterable[tuple[int, int]], tenant_id: int) -> dict[tuple[int, int], ContentionVerdict]`
   - `async def verdict_for_pair(db, booking_id: int, other_booking_id: int, tenant_id: int) -> ContentionVerdict`
 

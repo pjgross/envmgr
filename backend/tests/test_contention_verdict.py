@@ -24,6 +24,8 @@ from app.services.contention_service import (
     OUTCOME_NO_PROJECT,
     OUTCOME_RANKED,
     OUTCOME_UNRANKED,
+    REASON_NO_PROJECT,
+    REASON_PROJECT_UNRESOLVABLE,
 )
 from tests.factories import ensure_environment, ensure_project, make_booking
 
@@ -45,12 +47,13 @@ class _NoDatabase:
         )
 
 
-async def _project(db, tenant_id, name, rank=None, deleted_at=None):
+async def _project(db, tenant_id, name, rank=None, deleted_at=None, is_active=True):
     """A project with a priority rank. `ensure_project` is idempotent per
     (tenant, name), so every caller here passes a distinct name."""
     project = await ensure_project(db, tenant_id, name=name)
     project.priority_rank = rank
     project.deleted_at = deleted_at
+    project.is_active = is_active
     await db.flush()
     return project
 
@@ -348,6 +351,9 @@ async def test_another_tenants_project_rank_never_decides_our_verdict(
     )
     assert verdict.outcome == OUTCOME_NO_PROJECT
     assert verdict.winner_booking_id is None
+    # The REQUEST names a project; this tenant cannot resolve it. Telling the
+    # user "not linked to a project" would be a lie they can see is a lie.
+    assert verdict.reason == REASON_PROJECT_UNRESOLVABLE
 
 
 @pytest.mark.asyncio
@@ -411,6 +417,93 @@ async def test_a_soft_deleted_project_never_wins_an_argument(
     )
     assert verdict.outcome == OUTCOME_NO_PROJECT
     assert verdict.winner_booking_id is None
+    # THE CASE THAT SHOWS ITS OWN CONTRADICTION. Task 4 renders the project name
+    # from `get_project_names`, which deliberately does not filter `deleted_at`,
+    # so "Archived" appears on the row. The reason has to name the archiving.
+    assert verdict.reason == REASON_PROJECT_UNRESOLVABLE
+
+
+@pytest.mark.asyncio
+async def test_the_two_no_project_reasons_are_not_interchangeable(
+    db_session, test_tenant, test_user
+):
+    """One outcome, two reasons, and neither may be served for the other's case.
+
+    Pinned by the CHOICE between the two exported constants rather than word by
+    word — copy edits to either string flow through, but swapping which case
+    gets which, or collapsing them back into one string, fails here. The two
+    substring assertions are the minimum that stops "distinct" being satisfied
+    by two strings that say the same thing.
+    """
+    archived = await _project(
+        db_session,
+        test_tenant.id,
+        "Archived",
+        rank=1,
+        deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    ranked = await _project(db_session, test_tenant.id, "Ranked", rank=5)
+
+    on_archived = await _booking(
+        db_session, test_tenant.id, test_user.id, project_id=archived.id
+    )
+    on_ranked = await _booking(
+        db_session, test_tenant.id, test_user.id, project_id=ranked.id, slot=2
+    )
+    without = await _booking(db_session, test_tenant.id, test_user.id, slot=3)
+
+    unresolvable = await contention_service.verdict_for_pair(
+        db_session, on_archived.id, on_ranked.id, test_tenant.id
+    )
+    genuinely_none = await contention_service.verdict_for_pair(
+        db_session, without.id, on_ranked.id, test_tenant.id
+    )
+
+    # Same outcome — no fifth outcome was invented — different reason.
+    assert unresolvable.outcome == genuinely_none.outcome == OUTCOME_NO_PROJECT
+    assert unresolvable.reason != genuinely_none.reason
+    assert unresolvable.reason == REASON_PROJECT_UNRESOLVABLE
+    assert genuinely_none.reason == REASON_NO_PROJECT
+    # Each names its own case rather than the other's.
+    assert "archived" in unresolvable.reason.lower()
+    assert "archived" not in genuinely_none.reason.lower()
+    assert "not linked" in genuinely_none.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_an_inactive_project_still_carries_its_rank(
+    db_session, test_tenant, test_user
+):
+    """`is_active=False` does NOT take a project out of the contention.
+
+    THIS TEST EXISTS TO FAIL A "TIDY-UP". `Project.is_active` is deliberately
+    absent from the join, and adding `& Project.is_active.is_(True)` to
+    "harmonise" it with the UI pickers left every other test in this file green
+    while every booking on an archived-but-not-deleted project silently flipped
+    from `ranked` to `no_project`.
+
+    A1's rule: `is_active` and `deleted_at` are two DIFFERENT retirement states,
+    and `get_project` does not check `is_active` either. `is_active=False` means
+    "stop offering this in pickers"; the project is still running, its bookings
+    are still real, and its rank still has to decide the arguments they are in.
+    `deleted_at` is the one that means gone — and that one IS filtered, by
+    `test_a_soft_deleted_project_never_wins_an_argument`. Changing this is a
+    product decision, not a clean-up.
+    """
+    inactive = await _project(
+        db_session, test_tenant.id, "Inactive", rank=1, is_active=False
+    )
+    live = await _project(db_session, test_tenant.id, "Live", rank=5)
+    a = await _booking(db_session, test_tenant.id, test_user.id, project_id=inactive.id)
+    b = await _booking(
+        db_session, test_tenant.id, test_user.id, project_id=live.id, slot=2
+    )
+
+    verdict = await contention_service.verdict_for_pair(
+        db_session, a.id, b.id, test_tenant.id
+    )
+    assert verdict.outcome == OUTCOME_RANKED
+    assert verdict.winner_booking_id == a.id
 
 
 @pytest.mark.asyncio
@@ -430,6 +523,10 @@ async def test_a_booking_id_that_does_not_exist_is_no_project(
     )
     assert verdict.outcome == OUTCOME_NO_PROJECT
     assert verdict.winner_booking_id is None
+    # A booking we cannot resolve named no project we can see, so it must NOT
+    # claim an archived or cross-tenant PROJECT — that is a statement about a
+    # project, and there is none to make it about.
+    assert verdict.reason == REASON_NO_PROJECT
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +579,42 @@ async def test_the_rank_lookup_reports_a_project_less_booking_rather_than_droppi
     found = await contention_service._ranks_for(
         db_session, {no_project.id}, test_tenant.id
     )
-    assert found == {no_project.id: (None, None)}
+    assert found == {no_project.id: (None, None, None)}
+
+
+@pytest.mark.asyncio
+async def test_the_rank_lookup_keeps_the_requested_project_id_apart_from_the_resolved_one(
+    db_session, test_tenant, test_user
+):
+    """`_ranks_for` returns what the request NAMES and what this tenant can SEE
+    as two separate values, and they differ for an unresolvable link.
+
+    This is the distinction the two `no_project` reasons are built on, and it
+    exists only here: once the requested id is dropped, "names no project" and
+    "names an archived project" are the same `(None, ...)` to `_decide`, and the
+    verdict tells a user their booking has no project while the row beside it
+    renders that project's name (`get_project_names` deliberately does not
+    filter `deleted_at`).
+    """
+    archived = await _project(
+        db_session,
+        test_tenant.id,
+        "Archived",
+        rank=1,
+        deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    on_archived = await _booking(
+        db_session, test_tenant.id, test_user.id, project_id=archived.id
+    )
+    without = await _booking(db_session, test_tenant.id, test_user.id, slot=2)
+
+    found = await contention_service._ranks_for(
+        db_session, {on_archived.id, without.id}, test_tenant.id
+    )
+    # The request still names it; the tenant-and-liveness-filtered join does not.
+    assert found[on_archived.id] == (archived.id, None, None)
+    # Nothing named, nothing resolved — and that is a different pair of values.
+    assert found[without.id] == (None, None, None)
 
 
 @pytest.mark.asyncio
@@ -522,7 +654,7 @@ async def test_an_empty_pair_list_asks_the_database_nothing():
 
 @pytest.mark.asyncio
 async def test_the_batch_and_the_single_form_agree(
-    db_session, test_tenant, test_user
+    db_session, test_tenant, test_user, second_tenant_factory
 ):
     """One population, all four outcomes, and the two forms asserted AGAINST
     EACH OTHER rather than separately.
@@ -531,11 +663,29 @@ async def test_the_batch_and_the_single_form_agree(
     two ways: each was asserted against its own expectations and neither
     against the other. The four-outcome assertion is what stops this passing
     vacuously over a population that happens to be all `no_project`.
+
+    THE POPULATION IS NOT ALL WELL-FORMED, and that is deliberate. The malformed
+    shapes — a cross-tenant project link, an archived one, a booking id that
+    resolves to nothing, and another tenant's booking — are precisely the paths
+    whose behaviour CHANGED during implementation, so they are the likeliest
+    place for the two forms to drift apart. Asserting them only through the
+    single form would leave the batch path unchecked on exactly the four cases
+    that moved.
     """
+    other_tenant, other_admin = await second_tenant_factory()
+
     high = await _project(db_session, test_tenant.id, "High", rank=1)
     low = await _project(db_session, test_tenant.id, "Low", rank=5)
     same = await _project(db_session, test_tenant.id, "Same", rank=5)
     unranked = await _project(db_session, test_tenant.id, "Unranked", rank=None)
+    archived = await _project(
+        db_session,
+        test_tenant.id,
+        "Archived",
+        rank=1,
+        deleted_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    theirs = await _project(db_session, other_tenant.id, "Theirs", rank=1)
 
     b_high = await _booking(db_session, test_tenant.id, test_user.id, project_id=high.id)
     b_low = await _booking(
@@ -548,12 +698,35 @@ async def test_the_batch_and_the_single_form_agree(
         db_session, test_tenant.id, test_user.id, project_id=unranked.id, slot=4
     )
     b_none = await _booking(db_session, test_tenant.id, test_user.id, slot=5)
+    b_archived = await _booking(
+        db_session, test_tenant.id, test_user.id, project_id=archived.id, slot=6
+    )
+    b_cross_project = await _booking(
+        db_session, test_tenant.id, test_user.id, project_id=theirs.id, slot=7
+    )
+    b_other_tenant = await _booking(
+        db_session, other_tenant.id, other_admin.id, project_id=high.id
+    )
+    stale_id = (
+        max(
+            b.id
+            for b in (
+                b_high, b_low, b_same, b_unranked, b_none,
+                b_archived, b_cross_project, b_other_tenant,
+            )
+        )
+        + 10_000
+    )
 
     pairs = [
-        (b_high.id, b_low.id),        # ranked
-        (b_low.id, b_same.id),        # equal_rank
-        (b_high.id, b_unranked.id),   # unranked
-        (b_high.id, b_none.id),       # no_project
+        (b_high.id, b_low.id),          # ranked
+        (b_low.id, b_same.id),          # equal_rank
+        (b_high.id, b_unranked.id),     # unranked
+        (b_high.id, b_none.id),         # no_project — nothing named
+        (b_high.id, b_archived.id),     # no_project — named but archived
+        (b_cross_project.id, b_high.id),  # no_project — named in another tenant
+        (b_high.id, stale_id),          # no_project — the id resolves to nothing
+        (b_other_tenant.id, b_high.id),  # no_project — the BOOKING is not ours
     ]
     batch = await contention_service.verdicts_for_pairs(db_session, pairs, test_tenant.id)
 
@@ -570,3 +743,10 @@ async def test_the_batch_and_the_single_form_agree(
         OUTCOME_NO_PROJECT,
     }
     assert batch[(b_high.id, b_low.id)].winner_booking_id == b_high.id
+    # Not merely "some no_project": the batch must reach BOTH of its reasons,
+    # or the malformed half of the population is being answered generically.
+    assert {
+        verdict.reason
+        for verdict in batch.values()
+        if verdict.outcome == OUTCOME_NO_PROJECT
+    } == {REASON_NO_PROJECT, REASON_PROJECT_UNRESOLVABLE}

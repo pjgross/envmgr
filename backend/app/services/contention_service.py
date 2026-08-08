@@ -16,6 +16,11 @@ rather than a fabricated ordering. On today's data almost every pair is
 honest answer is exactly what makes the unranked estate visible instead of
 hiding it behind a spurious winner. Same rule as the drift report's absence
 categories, which return null with a reason and never `[]`.
+
+FOUR OUTCOMES, FIVE REASONS: `no_project` carries two, because "the request
+names no project" and "the request names a project this tenant cannot resolve"
+look identical to the verdict and completely different to the person reading the
+screen. See the constants below.
 """
 from typing import Iterable, NamedTuple, Optional
 
@@ -31,6 +36,22 @@ OUTCOME_NO_PROJECT = "no_project"
 OUTCOME_UNRANKED = "unranked"
 OUTCOME_EQUAL_RANK = "equal_rank"
 
+# The two `no_project` reasons. ONE OUTCOME, TWO REASONS — deliberately not a
+# fifth outcome, because "the link cannot be resolved" is not a different KIND
+# of answer, it is another way of saying priority cannot separate these. Only
+# the reason tells them apart, and it has to, because the second one is the case
+# where the UI CONTRADICTS the verdict on screen: `get_project_names`
+# deliberately does not filter `deleted_at`, so a row whose request names an
+# archived project renders that project's NAME right beside the verdict line. A
+# user told "not linked to a project" while looking at the project's name reads
+# it as a bug in the register. Naming the real problem — the link is archived,
+# or points outside this tenant — points them at the thing that is actually
+# wrong, which is the same call the deviation in `_ranks_for` made.
+REASON_NO_PROJECT = "at least one booking is not linked to a project"
+REASON_PROJECT_UNRESOLVABLE = (
+    "at least one booking's project is archived or belongs to another tenant"
+)
+
 
 class ContentionVerdict(NamedTuple):
     outcome: str
@@ -40,8 +61,18 @@ class ContentionVerdict(NamedTuple):
 
 async def _ranks_for(
     db: AsyncSession, booking_ids: set[int], tenant_id: int
-) -> dict[int, tuple[Optional[int], Optional[int]]]:
-    """booking id -> (project_id, priority_rank), for bookings in this tenant.
+) -> dict[int, tuple[Optional[int], Optional[int], Optional[int]]]:
+    """booking id -> (requested_project_id, resolved_project_id, priority_rank).
+
+    THREE VALUES, NOT TWO, AND THE FIRST TWO ARE NOT THE SAME QUESTION.
+    `requested` is what the REQUEST names (`BookingRequest.project_id`, raw and
+    unfiltered); `resolved` is what this tenant can actually SEE (`Project.id`
+    through the filtered LEFT join). They differ exactly when a request names a
+    project that is archived or belongs to another tenant — and that difference
+    is the only thing that can tell the two `no_project` reasons apart, so it is
+    computed here and must NOT be discarded on the way out. An earlier version
+    returned only the last two and `_decide` reported every unresolvable link as
+    "not linked to a project", directly beside the archived project's name.
 
     The Project join is LEFT and tenant-filtered on BOTH sides: a booking whose
     request points at another tenant's project must read as project-less here,
@@ -81,7 +112,7 @@ async def _ranks_for(
     decision.
     """
     rows = (await db.execute(
-        select(Booking.id, Project.id, Project.priority_rank)
+        select(Booking.id, BookingRequest.project_id, Project.id, Project.priority_rank)
         .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
         .join(
             Project,
@@ -92,12 +123,12 @@ async def _ranks_for(
         )
         .where(Booking.id.in_(booking_ids), Booking.tenant_id == tenant_id)
     )).all()
-    return {bid: (pid, rank) for bid, pid, rank in rows}
+    return {bid: (requested, pid, rank) for bid, requested, pid, rank in rows}
 
 
 def _decide(
-    a_id: int, a: tuple[Optional[int], Optional[int]],
-    b_id: int, b: tuple[Optional[int], Optional[int]],
+    a_id: int, a: tuple[Optional[int], Optional[int], Optional[int]],
+    b_id: int, b: tuple[Optional[int], Optional[int], Optional[int]],
 ) -> ContentionVerdict:
     """The whole decision, in branch order — and the order is load-bearing.
 
@@ -105,12 +136,22 @@ def _decide(
     FIRST or every project-less pair would report as `unranked` and invite
     someone to fix it by ranking a project that is not there.
     """
-    a_project, a_rank = a
-    b_project, b_rank = b
+    a_requested, a_project, a_rank = a
+    b_requested, b_project, b_rank = b
     if a_project is None or b_project is None:
+        # ONE OUTCOME, TWO REASONS. A request that NAMES a project we cannot
+        # resolve is a different thing to tell a user from one that names none:
+        # the first shows the project's name on the same row (see the constants
+        # above), so it is reported whenever EITHER side is in that state, even
+        # if the other side genuinely has no project — the contradiction on
+        # screen is what needs explaining, and "not linked to a project" does
+        # not explain it.
+        unresolvable = (a_requested is not None and a_project is None) or (
+            b_requested is not None and b_project is None
+        )
         return ContentionVerdict(
             OUTCOME_NO_PROJECT, None,
-            "at least one booking is not linked to a project",
+            REASON_PROJECT_UNRESOLVABLE if unresolvable else REASON_NO_PROJECT,
         )
     if a_rank is None or b_rank is None:
         # A RANKED PROJECT DOES NOT BEAT AN UNRANKED ONE. See the module note.
@@ -136,7 +177,10 @@ async def verdicts_for_pairs(
         return {}
     ids = {b for pair in pairs for b in pair}
     ranks = await _ranks_for(db, ids, tenant_id)
-    missing = (None, None)
+    # A booking id that resolved to nothing requested nothing either, as far as
+    # this tenant can tell — so it takes the plain `no_project` reason, not the
+    # "archived or another tenant's" one, which is a claim about a project.
+    missing = (None, None, None)
     return {
         (a, b): _decide(a, ranks.get(a, missing), b, ranks.get(b, missing))
         for a, b in pairs
