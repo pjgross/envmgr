@@ -172,8 +172,16 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   detect this sub-project overstepping; it is still the single backend guard on
   the promise. **If it ever fails, A3 has started blocking.** The UI side of the
   same promise was untested until Task 6's review gated `TransitionButtons` on
-  the gap and watched all 50 booking-page tests pass anyway — a constraint the
-  whole sub-project is named for, guarded on one side and nothing on the other.
+  the gap and watched every test then in `src/pages/bookings` (50 at the time)
+  pass anyway. **It is guarded on both sides now**: `describe('BookingDetail —
+  A3 WARNS, IT NEVER BLOCKS')` in
+  `frontend/src/pages/bookings/__tests__/bookingDetailAgreementGap.test.tsx`
+  holds *"still renders the transition controls, enabled, with an
+  UNACKNOWLEDGED gap on the page"* and *"…with an ACKNOWLEDGED gap on the
+  page"*. Both supply a real allowed transition of their own, because the rest
+  of that file stubs `getAllowedTransitions` to `[]` — and a page rendering no
+  transition control at all cannot detect one being gated, which is exactly why
+  the earlier mutation survived.
 - **The gap is COMPUTED on every read; only the acknowledgement is stored.**
   There is no `booking.in_gap` column and no cached verdict, so recording the
   missing agreement clears the warning with no other action, on the next read.
@@ -255,6 +263,9 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   It is counted through `GET /bookings`' `X-Total-Count` with `limit=1` — **A3
   added no count endpoint** — so the number and the list the link lands on are
   one query and cannot disagree. A failed count renders "unavailable", never 0.
+  **The count is status-blind and the page says so** — `gap_clause` never looks
+  at `Booking.status`, so drafts and closed bookings count exactly as much as
+  live ones, and "12 bookings in gap" would otherwise read as current exposure.
 
 ## What B1 established
 

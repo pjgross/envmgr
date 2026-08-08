@@ -58,6 +58,14 @@ export function gapBookingsHref(projectId: number): string {
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
+  // A route param is a string and nothing between the address bar and here
+  // validates it. `Number('nope')` is NaN and `Number('1.5')` is 1.5, either of
+  // which would reach `gapBookingsHref` and render a link carrying
+  // `project_id=NaN` — and, because nothing is dispatched for a project that
+  // cannot be fetched, would render it beside the PREVIOUS project's count,
+  // which the slice still holds. One predicate, used by both the effect and
+  // the render, so the two cannot drift apart.
+  const projectIdIsValid = Number.isInteger(projectId) && projectId > 0;
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const {
@@ -84,7 +92,7 @@ export default function ProjectDetail() {
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!Number.isNaN(projectId)) {
+    if (projectIdIsValid) {
       // Fetched directly rather than read off the list slice: a deep link or
       // a refresh on this route has never populated `projects`, and the list
       // is a server-paged window that may not even contain this project.
@@ -92,7 +100,7 @@ export default function ProjectDetail() {
       dispatch(fetchProjectAgreements(projectId));
       dispatch(fetchProjectGapBookingCount(projectId));
     }
-  }, [dispatch, projectId]);
+  }, [dispatch, projectId, projectIdIsValid]);
 
   const handleAddAgreement = async () => {
     if (!selectedEnvironmentId) return;
@@ -134,6 +142,26 @@ export default function ProjectDetail() {
     dispatch(fetchProjectAgreements(projectId));
     dispatch(fetchProjectGapBookingCount(projectId));
   };
+
+  // After every hook, so the hook order is unconditional. Nothing was fetched
+  // for this address, so everything the page could render belongs to whichever
+  // project was last viewed: the name, the agreements table, and — the one the
+  // user might act on — a count of bookings in gap beside a link that would
+  // send `project_id=NaN`, which `GET /bookings` answers with a 422 the user
+  // never asked for. Say what is wrong instead of rendering another project's
+  // numbers under this address.
+  if (!projectIdIsValid) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
+          Back to Projects
+        </Button>
+        <Alert severity="error">
+          That address does not name a project. Pick one from the Projects list.
+        </Alert>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: 3 }}>
@@ -266,16 +294,30 @@ export default function ProjectDetail() {
             "0 bookings in gap" and "nobody could tell you" are opposite
             answers (CLAUDE.md's partial-read rule). */}
         {gapBookingCount !== null && (
-          <Link
-            component={RouterLink}
-            to={gapBookingsHref(projectId)}
-            variant="subtitle2"
-            color={gapBookingCount > 0 ? 'warning.main' : 'text.secondary'}
-          >
-            {gapBookingCount === 0
-              ? 'No bookings in gap'
-              : `${gapBookingCount} booking${gapBookingCount === 1 ? '' : 's'} in gap`}
-          </Link>
+          <>
+            <Link
+              component={RouterLink}
+              to={gapBookingsHref(projectId)}
+              variant="subtitle2"
+              color={gapBookingCount > 0 ? 'warning.main' : 'text.secondary'}
+            >
+              {gapBookingCount === 0
+                ? 'No bookings in gap'
+                : `${gapBookingCount} booking${gapBookingCount === 1 ? '' : 's'} in gap`}
+            </Link>
+            {/* The count is status-blind, and reads as current exposure if it
+                does not say so: `gap_clause` looks at the project, the
+                environment and the dates, NEVER at `Booking.status`, so ten
+                closed bookings count exactly as much as two live ones. The
+                linked list shows the same set for the same reason, so the two
+                agree — but "12 bookings in gap" on a project with two live
+                bookings is a number an admin would otherwise act on. Outside
+                the Link deliberately: inside it, this text would join the
+                link's accessible name. */}
+            <Typography variant="caption" color="text.secondary">
+              any status — drafts and closed included
+            </Typography>
+          </>
         )}
         {gapBookingCountError && (
           <Typography variant="caption" color="text.secondary">

@@ -126,7 +126,7 @@ group-by toggle. See [phases/phase-6.md](phases/phase-6.md).
 
 See [phases/phase-7.md](phases/phase-7.md).
 
-**Objectives**: Project management, usage agreements between projects, environment groups, project-aware conflict detection. **Expanded 2026-07-16** ([requirements.md §2.12](requirements.md)): environment tiers as a first-class field; Reserved/Idle states; named-owner + expiry enforcement; naming & tagging conventions with untagged-quarantine; Environment Request Form + auto-generated Welcome Pack; soft (preemptible) vs hard reservations; priority-ordered contention resolution with escalation; decommissioning process + idle auto-detection (ghost-cost control); forward contention as a calendar leading indicator.
+**Objectives** ([requirements.md §2.3](requirements.md)): Project management, usage agreements between projects, environment groups, project-aware conflict detection — §2.3 is where usage agreements live ("projects define Usage Agreements governing how they cooperate in a shared environment"), and the §2.12 citation below scopes only the expansion that follows it, not this sentence. **Expanded 2026-07-16** ([requirements.md §2.12](requirements.md)): environment tiers as a first-class field; Reserved/Idle states; named-owner + expiry enforcement; naming & tagging conventions with untagged-quarantine; Environment Request Form + auto-generated Welcome Pack; soft (preemptible) vs hard reservations; priority-ordered contention resolution with escalation; decommissioning process + idle auto-detection (ghost-cost control); forward contention as a calendar leading indicator.
 
 ---
 

@@ -322,17 +322,34 @@ describe('Projects', () => {
   });
 });
 
-function renderDetail(role: 'Admin' | 'Member' = 'Admin') {
-  const store = configureStore({
+function makeDetailStore(role: 'Admin' | 'Member' = 'Admin') {
+  return configureStore({
     reducer: {
       project: projectReducer,
       userGroup: userGroupReducer,
       auth: (state = { user: { role, is_master_admin: false } }) => state,
     },
   });
+}
+
+/**
+ * `store` and `projectId` are options rather than fixtures so a test can mount
+ * the page TWICE against ONE store — the shape a mount-only test cannot see.
+ * Redux state outlives an unmount, so whatever the first project left behind is
+ * exactly what the second project's page starts from.
+ */
+function renderDetail(
+  role: 'Admin' | 'Member' = 'Admin',
+  options: {
+    projectId?: number | string;
+    store?: ReturnType<typeof makeDetailStore>;
+  } = {}
+) {
+  const store = options.store ?? makeDetailStore(role);
+  const projectId = options.projectId ?? 1;
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/tenant/projects/1']}>
+      <MemoryRouter initialEntries={[`/tenant/projects/${projectId}`]}>
         <Routes>
           <Route path="/tenant/projects/:id" element={<ProjectDetail />} />
         </Routes>
@@ -516,6 +533,94 @@ describe('ProjectDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
 
     expect(await screen.findByText('1 booking in gap')).toBeInTheDocument();
+  });
+
+  it('re-counts after an agreement is removed, because removing one can open a gap', async () => {
+    // The mirror of the add path, and the one the reviewer found unguarded:
+    // deleting the refetch on this path left every test in this directory
+    // green (70 at the time). Removing an agreement can only ever OPEN gaps,
+    // so a rollup left alone here under-reports on the very page that caused
+    // it.
+    vi.mocked(projectService.listAgreementsForProject).mockResolvedValue({
+      rows: [AGREEMENT],
+      total: 1,
+    });
+    vi.mocked(projectService.deleteAgreement).mockResolvedValue(undefined);
+    vi.mocked(bookingService.listBookings)
+      .mockResolvedValueOnce({ rows: [], total: 1 })
+      .mockResolvedValue({ rows: [], total: 3 });
+    renderDetail('Admin');
+    expect(await screen.findByText('1 booking in gap')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /^remove$/i }));
+
+    expect(await screen.findByText('3 bookings in gap')).toBeInTheDocument();
+  });
+
+  it('drops the previous project’s count while the next project’s is in flight (Finding I2)', async () => {
+    // Two mounts, ONE store. Redux state outlives the unmount, so without the
+    // thunk's `pending` handler project A's count is still sitting in the slice
+    // when project B's page renders — and B's request failing leaves it there.
+    // The page would then show A's number, under B's name, linking to B, on the
+    // same line as "unavailable". Two contradictory answers, one of them
+    // attributed to the wrong project.
+    const store = makeDetailStore('Admin');
+    const first = renderDetail('Admin', { store, projectId: 1 });
+    expect(await screen.findByText('2 bookings in gap')).toBeInTheDocument();
+    first.unmount();
+
+    vi.mocked(projectService.getProject).mockResolvedValue({
+      id: 2,
+      tenant_id: 1,
+      name: 'Pensions',
+      code: 'PEN',
+      description: null,
+      team_group_id: null,
+      team_group_name: null,
+      environment_count: 0,
+      is_active: true,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+    vi.mocked(bookingService.listBookings).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Request failed with status code 500',
+      response: { status: 500, data: { detail: 'Booking index unavailable' } },
+    });
+    renderDetail('Admin', { store, projectId: 2 });
+
+    expect(await screen.findByText('Pensions')).toBeInTheDocument();
+    expect(await screen.findByText(/bookings in gap: unavailable/i)).toBeInTheDocument();
+    // The stale number must be GONE, not merely accompanied by the caption.
+    expect(screen.queryByRole('link', { name: /in gap/i })).not.toBeInTheDocument();
+  });
+
+  it('says the count spans every lifecycle status, not just live bookings', async () => {
+    // `gap_clause` never looks at `Booking.status`, so "12 bookings in gap" on
+    // a project with two live bookings and ten closed ones is literally true
+    // and reads as current exposure. The admin guide says so; so must the page.
+    renderDetail();
+    expect(await screen.findByText('2 bookings in gap')).toBeInTheDocument();
+    expect(screen.getByText(/any status .* closed included/i)).toBeInTheDocument();
+  });
+
+  it('refuses to render a rollup for an address that does not name a project (Finding M5)', async () => {
+    // Same two-mount shape: nothing is dispatched for `Number('nope')`, so
+    // every number on screen would belong to the project last viewed — beside a
+    // link carrying `project_id=NaN`.
+    const store = makeDetailStore('Admin');
+    const first = renderDetail('Admin', { store, projectId: 1 });
+    expect(await screen.findByText('2 bookings in gap')).toBeInTheDocument();
+    first.unmount();
+
+    renderDetail('Admin', { store, projectId: 'nope' });
+
+    expect(await screen.findByText(/does not name a project/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /in gap/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Mortgage')).not.toBeInTheDocument();
+    // And nothing was asked of the server on this second mount.
+    expect(bookingService.listBookings).toHaveBeenCalledTimes(1);
+    expect(projectService.getProject).toHaveBeenCalledTimes(1);
   });
 
   it('states plainly that a gap warns and never blocks', async () => {
