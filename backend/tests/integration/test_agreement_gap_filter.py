@@ -663,6 +663,25 @@ async def test_the_list_deliberately_carries_no_acknowledgement(
     assert row["has_unacknowledged_agreement_gap"] is False
 
 
+@pytest.mark.asyncio
+async def test_shaping_a_missing_ack_row_fails_by_name_rather_than_as_a_500(db_session):
+    """`_ack_read` takes a ROW, and says so when handed nothing.
+
+    `PUT /bookings/{id}/agreement-gap/ack` declares
+    `response_model=AgreementGapAckRead`, which is NOT optional. A helper typed
+    `-> AgreementGapAckRead | None` under it means a None would leave FastAPI
+    raising a response-validation error and answering 500 with nothing in it
+    naming the cause. Unreachable today — `upsert_ack` always returns a row, and
+    the detail read tests for None itself — but the whole design of this field
+    is "make the impossible loud", and an unreachable branch is exactly the sort
+    that becomes reachable in a later refactor.
+    """
+    from app.api.v1.bookings import _ack_read
+
+    with pytest.raises(RuntimeError, match="no acknowledgement row"):
+        await _ack_read(db_session, None)
+
+
 # ── every construction site ──────────────────────────────────────────────────
 #
 # Twelve places populate the two new fields: six EnvBookingSummary(...) sites

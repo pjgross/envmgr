@@ -49,11 +49,19 @@ export interface BookingResponse {
   // refuses or alters a booking.
   agreement_gap: string | null;
   has_unacknowledged_agreement_gap: boolean;
-  // WHO accepted the gap and WHEN — populated by `GET /bookings/{id}` alone,
-  // like `request` above (the list omits it: detail-page information, and a
-  // paginated list would need a batch lookup for something no row renders).
-  // Optional for exactly that reason: an absent key means "this response is not
-  // the detail read", a present null means "nobody has acknowledged it".
+  // WHO accepted the gap and WHEN — carried by `GET /bookings/{id}` alone
+  // (detail-page information; a paginated list would need a batch lookup for
+  // something no row renders).
+  //
+  // DETAIL-ONLY IN VALUE, NOT IN KEY. No route sets
+  // `response_model_exclude_unset`, so FastAPI serialises `agreement_gap_ack`
+  // on EVERY BookingResponse — the list, the PATCH, the transition all send
+  // `"agreement_gap_ack": null`. There is therefore NO absent-key-vs-null
+  // distinction on the wire, and nothing may key on one: absence and null both
+  // mean "no acknowledgement to show here" and collapse with `?? null`. The
+  // `?` is TypeScript slack for fixtures, not a signal. If you need the ack,
+  // re-read the detail — do not infer it from a non-detail response (that
+  // inference is exactly review finding I1).
   agreement_gap_ack?: AgreementGapAckRead | null;
   // Provenance, not a live link — set for a booking that arrived via an
   // environment group, null for a hand-picked environment.

@@ -35,6 +35,7 @@ vi.mock('../../../services/bookingService', () => ({
     getAllowedTransitions: vi.fn().mockResolvedValue([]),
     getHistory: vi.fn().mockResolvedValue([]),
     transitionState: vi.fn(),
+    updateStandardFields: vi.fn(),
   },
 }));
 vi.mock('../../../services/agreementGapService', () => ({
@@ -76,7 +77,16 @@ const ENV_ID = 8701;
 // nothing can render a locally-guessed name beside a server-supplied one.
 const ACK_USER_ID = 4401;
 const ACK_USERNAME = 'rmanager';
+const EARLIER_ACK_USER_ID = 4404;
 const EARLIER_ACK_USERNAME = 'governance-lead';
+const EARLIER_ACK_AT = '2026-07-01T09:15:00Z';
+/** The ack a previous session left behind, as `GET /bookings/{id}` reports it. */
+const EARLIER_ACK = {
+  notes: 'accepted by the programme board',
+  acknowledged_by: EARLIER_ACK_USER_ID,
+  acknowledged_by_username: EARLIER_ACK_USERNAME,
+  acknowledged_at: EARLIER_ACK_AT,
+};
 const GAP =
   "Mortgage Replatform's booking falls outside its agreed window for Staging (1 Jan 2026 – 30 Jun 2026)";
 
@@ -164,16 +174,10 @@ describe('BookingDetail — the usage-agreement gap is on the page', () => {
     //
     // Nothing in-session sets an ack here: no click, no PUT. The name can only
     // have arrived on the response.
-    const acknowledgedAt = '2026-07-01T09:15:00Z';
     vi.mocked(bookingService.getBooking).mockResolvedValue(
       makeBooking({
         has_unacknowledged_agreement_gap: false,
-        agreement_gap_ack: {
-          notes: 'accepted by the programme board',
-          acknowledged_by: 4404,
-          acknowledged_by_username: EARLIER_ACK_USERNAME,
-          acknowledged_at: acknowledgedAt,
-        },
+        agreement_gap_ack: EARLIER_ACK,
       })
     );
     renderPage();
@@ -185,10 +189,10 @@ describe('BookingDetail — the usage-agreement gap is on the page', () => {
     expect(ackLine).toHaveTextContent(new RegExp(`Acknowledged by ${EARLIER_ACK_USERNAME}`, 'i'));
     // …and when.
     expect(ackLine).toHaveTextContent(
-      new RegExp(new Date(acknowledgedAt).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      new RegExp(new Date(EARLIER_ACK_AT).toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     );
     // By name, never `#N`, and never the nameless fallback when a name exists.
-    expect(ackLine.textContent).not.toContain('4404');
+    expect(ackLine.textContent).not.toContain(String(EARLIER_ACK_USER_ID));
     expect(ackLine.textContent).not.toMatch(/has been acknowledged/i);
     expect(screen.queryByRole('button', { name: /^Acknowledge$/ })).not.toBeInTheDocument();
   });
@@ -279,6 +283,55 @@ describe('BookingDetail — acknowledging from the page', () => {
   });
 });
 
+describe('BookingDetail — an unrelated save must not drop the acknowledgement', () => {
+  it("keeps the earlier session's acknowledger on the page after an env-override save", async () => {
+    // THE JOIN, NOT THE ENDS. Every other ack assertion in this file is made
+    // after the initial load or after the ack PUT; nothing asserted that a
+    // booking already displaying "Acknowledged by X" still displays it once
+    // page state is REPLACED by an unrelated save. That absence is precisely
+    // how review finding I1 shipped — the same shape as task 6's F1.
+    const user = userEvent.setup();
+
+    // The page opens on a gap somebody accepted in an earlier session.
+    vi.mocked(bookingService.getBooking).mockResolvedValue(
+      makeBooking({ has_unacknowledged_agreement_gap: false, agreement_gap_ack: EARLIER_ACK })
+    );
+    // What `PATCH /bookings/{id}/standard-fields` really answers: a
+    // BookingResponse that is NOT the detail read, so `agreement_gap_ack` is
+    // present and null — the wire always sends the key. Routing that straight
+    // into `setBooking` degrades the ack line to the nameless fallback, and
+    // "who and when" — the whole point of task 6b — vanishes until a reload.
+    vi.mocked(bookingService.updateStandardFields).mockResolvedValue(
+      makeBooking({
+        has_unacknowledged_agreement_gap: false,
+        agreement_gap_ack: null,
+        start_date: '2026-08-12T09:00:00Z',
+      })
+    );
+    renderPage();
+
+    const before = await screen.findByTestId('agreement-gap-ack');
+    expect(before).toHaveTextContent(new RegExp(`Acknowledged by ${EARLIER_ACK_USERNAME}`, 'i'));
+
+    await user.click(screen.getByRole('button', { name: /Edit dates/i }));
+    await user.click(await screen.findByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(bookingService.updateStandardFields).toHaveBeenCalled());
+
+    // Still named, and still by name.
+    await waitFor(() =>
+      expect(screen.getByTestId('agreement-gap-ack')).toHaveTextContent(
+        new RegExp(`Acknowledged by ${EARLIER_ACK_USERNAME}`, 'i')
+      )
+    );
+    const after = screen.getByTestId('agreement-gap-ack');
+    expect(after.textContent).not.toMatch(/has been acknowledged/i);
+    expect(after.textContent).not.toContain(String(EARLIER_ACK_USER_ID));
+    // …and the gap is still on the page: acknowledging is not resolving, and a
+    // date edit does not resolve it either.
+    expect(screen.getByText(GAP)).toBeInTheDocument();
+  });
+});
+
 describe('BookingDetail — A3 WARNS, IT NEVER BLOCKS', () => {
   // A3's central constraint, asserted on the UI side. The rest of this file's
   // fixture stubs `getAllowedTransitions` to `[]`, so the page under test
@@ -310,8 +363,15 @@ describe('BookingDetail — A3 WARNS, IT NEVER BLOCKS', () => {
 
   it('still renders the transition controls, enabled, with an ACKNOWLEDGED gap on the page', async () => {
     // The other half: neither state of the warning may gate the workflow.
+    //
+    // The ack row is real, not null: `has_unacknowledged_agreement_gap: false`
+    // with no ack is a state `GET /bookings/{id}` cannot produce (an
+    // acknowledged gap HAS a row — see the backend's
+    // `test_the_ack_survives_the_gap_closing…`), and a fixture describing an
+    // impossible state is what R1 was rewritten to stop. The assertions below
+    // are about transition controls and are indifferent to it either way.
     vi.mocked(bookingService.getBooking).mockResolvedValue(
-      makeBooking({ has_unacknowledged_agreement_gap: false })
+      makeBooking({ has_unacknowledged_agreement_gap: false, agreement_gap_ack: EARLIER_ACK })
     );
     vi.mocked(bookingService.getAllowedTransitions).mockResolvedValue([SUBMIT]);
     renderPage();

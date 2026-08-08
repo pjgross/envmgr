@@ -133,12 +133,14 @@ export default function AgreementGapPanel({
                 ? `Acknowledged by ${ackAuthor} on ${new Date(shownAck.acknowledged_at).toLocaleString()}`
                 : `Acknowledged on ${new Date(shownAck.acknowledged_at).toLocaleString()}`
               : // No ack row to read: the booking says the gap is acknowledged
-                // and nothing more. `GET /bookings/{id}` does not produce this
+                // and nothing more. `GET /bookings/{id}` cannot produce this
                 // (an acknowledged gap HAS a row — see
-                // test_the_detail_response_carries_the_acknowledgement...), so
-                // it stands for a caller that passes `gapAck={null}` from a
-                // response that never carried one, e.g. after an env-override
-                // save returns a plain BookingResponse.
+                // test_the_detail_response_carries_the_acknowledgement...), and
+                // since review finding I1 no page path feeds this panel a
+                // non-detail BookingResponse either. It survives for a caller
+                // that renders the panel from a response that never carried an
+                // ack — a list row, say — and its own panel test pins that the
+                // degradation is graceful rather than an id or a crash.
                 'This gap has been acknowledged.'}
             {shownAck?.notes ? ` — ${shownAck.notes}` : ''}
           </Typography>

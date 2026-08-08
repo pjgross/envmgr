@@ -655,7 +655,18 @@ export default function BookingDetail() {
               setBookingRequest(req);
             }
           }}
-          saver={(payload) => bookingService.updateStandardFields(bookingId, payload)}
+          // Refetch rather than return the PATCH's own answer, exactly as the
+          // two dialogs above do. `PATCH /bookings/{id}/standard-fields` is not
+          // the detail read, so its BookingResponse carries `agreement_gap_ack:
+          // null` — feeding that straight into `setBooking` would wipe "who
+          // acknowledged this gap, and when" off a page that was showing it,
+          // until the next full load. Review finding I1; guarded by
+          // `keeps the earlier session's acknowledger on the page after an
+          // env-override save`.
+          saver={async (payload) => {
+            await bookingService.updateStandardFields(bookingId, payload);
+            return bookingService.getBooking(bookingId);
+          }}
           onError={setError}
         />
       )}

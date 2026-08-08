@@ -100,18 +100,28 @@ async def _gap_for(db, booking, tenant_id: int) -> agreement_gap_service.GapWarn
     ).get(booking.id)
 
 
-async def _ack_read(db, ack) -> AgreementGapAckRead | None:
-    """Shape an ack row for the wire, resolving its author's NAME.
+async def _ack_read(db, ack) -> AgreementGapAckRead:
+    """Shape an ack ROW for the wire, resolving its author's NAME.
 
     THE ONLY way to build an `AgreementGapAckRead`: the schema's
     `acknowledged_by_username` is required and an ORM ack has no such attribute,
     so `model_validate(ack)` raises rather than silently sending null — the A1
     failure this codebase has already shipped once.
 
+    Takes a row and returns a model — deliberately NOT `ack | None -> read |
+    None`. It is used under `response_model=AgreementGapAckRead`, which is not
+    optional, so a None slipping through would surface as a FastAPI
+    response-validation 500 naming nothing. Callers that may hold no row (the
+    detail read) test for it themselves; `upsert_ack` always returns one, and if
+    it ever stops, the error below says so in one line.
+
     One extra indexed lookup on a detail read, and only when an ack exists.
     """
     if ack is None:
-        return None
+        raise RuntimeError(
+            "_ack_read was handed no acknowledgement row: an ack was expected "
+            "here and none exists. Callers that may have none must test for it."
+        )
     return AgreementGapAckRead(
         notes=ack.notes,
         acknowledged_by=ack.acknowledged_by,
@@ -244,12 +254,8 @@ async def get_booking(
     # malformed row bearing another tenant's tenant_id must not be read back as
     # ours, and `test_another_tenants_ack_row_is_never_read_back_as_ours` fails
     # without that filter.
-    resp.agreement_gap_ack = await _ack_read(
-        db,
-        await agreement_gap_service.get_ack(
-            db, booking.id, current_user.active_tenant_id
-        ),
-    )
+    ack = await agreement_gap_service.get_ack(db, booking.id, current_user.active_tenant_id)
+    resp.agreement_gap_ack = await _ack_read(db, ack) if ack is not None else None
     if booking.booking_request_id is not None:
         request_obj = await booking_request_service._get_request(
             db, booking.booking_request_id, current_user.active_tenant_id
