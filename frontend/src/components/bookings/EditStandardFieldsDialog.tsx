@@ -64,7 +64,24 @@ export default function EditStandardFieldsDialog({
   // field here is gated would leave the picker permanently disabled — the
   // same failure mode this task exists to fix. Treat it as always editable,
   // matching the backend's actual (unwired) authorization for this field.
-  const canEdit = (field: string) => field === 'project_id' || sfPerms[field]?.editable === true;
+  // `project_id` is editable unless the backend says otherwise.
+  //
+  // It is deliberately absent from ENTITY_FIELD_SPECS["booking"]["valid"],
+  // because PATCH /booking-requests/{id}/standard-fields gates on
+  // STANDARD_REQUEST_FIELDS and never consults lifecycle field permissions —
+  // see the `TODO permission gating` in booking_request_service. So sfPerms
+  // carries no entry for it, and gating on `sfPerms[...].editable` the normal
+  // way would render the field permanently disabled.
+  //
+  // Written as a FALLBACK, not an override: the moment the backend does start
+  // emitting a real project_id permission, that permission wins and this
+  // special case disarms itself. An unconditional `field === 'project_id' ||`
+  // would silently outrank it, and no test here would catch that — the
+  // fixtures cannot contain a permission the backend does not yet send.
+  const canEdit = (field: string) =>
+    field === 'project_id' && !(field in sfPerms)
+      ? true
+      : sfPerms[field]?.editable === true;
 
   const handleSave = async () => {
     setSaving(true);

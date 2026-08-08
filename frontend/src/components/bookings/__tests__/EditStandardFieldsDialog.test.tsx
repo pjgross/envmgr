@@ -275,4 +275,41 @@ describe('EditStandardFieldsDialog', () => {
     // dependency is the constant useSharedList key, not `open`.
     expect(projectService.listProjects).toHaveBeenCalledTimes(1);
   });
+
+  it('lets a real project_id permission win once the backend starts sending one', async () => {
+    // The canEdit special case is a FALLBACK, not an override: project_id is
+    // editable only WHILE standard_field_permissions carries no entry for it.
+    //
+    // This test asserts a contract the backend does not honour yet.
+    // PATCH /booking-requests/{id}/standard-fields gates on
+    // STANDARD_REQUEST_FIELDS and never consults lifecycle field permissions
+    // (its `TODO permission gating` says so), so today sfPerms has no
+    // project_id key and nothing else in this file distinguishes a fallback
+    // from an override — both forms pass all the other tests, which is exactly
+    // why this one exists.
+    //
+    // Whoever wires that TODO should find this already passing. If they
+    // instead find it failing, someone reverted the fallback to an override
+    // and a real permission is being silently ignored.
+    const gated = {
+      ...BOOKING,
+      standard_field_permissions: {
+        ...BOOKING.standard_field_permissions,
+        project_id: { editable: false },
+      },
+    };
+    render(
+      <EditStandardFieldsDialog
+        open
+        booking={gated}
+        bookingTypes={[]}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        saver={vi.fn()}
+      />
+    );
+
+    const projectSelect = await screen.findByLabelText(/^project$/i);
+    expect(projectSelect).toHaveAttribute('aria-disabled', 'true');
+  });
 });
