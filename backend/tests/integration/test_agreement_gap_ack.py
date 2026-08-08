@@ -15,16 +15,17 @@ import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models.project import UsageAgreement
 from app.db.models.usage_agreement_ack import UsageAgreementAck
 from app.services import agreement_gap_service
 from tests.factories import (
-    ensure_booking,
     ensure_booking_type,
     ensure_environment,
     ensure_project,
     ensure_user,
+    make_booking,
 )
 
 WINDOW_START = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -48,7 +49,7 @@ async def _in_gap_booking(db, tenant, user, name="Unagreed"):
     """A booking whose project has no agreement for its environment."""
     project = await ensure_project(db, tenant.id, name=name)
     env = await ensure_environment(db, tenant.id)
-    booking = await ensure_booking(
+    booking = await make_booking(
         db, tenant.id, booked_by=user.id, environment=env, project_id=project.id
     )
     return project, env, booking
@@ -113,12 +114,12 @@ async def test_a_booking_with_no_gap_is_never_unacknowledged_ack_or_no_ack(
     project = await ensure_project(db_session, test_tenant.id, name="Fully Agreed")
     env = await ensure_environment(db_session, test_tenant.id)
     await _agreement(db_session, test_tenant.id, project.id, env.id)
-    covered = await ensure_booking(
+    covered = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         project_id=project.id,
     )
     # A booking that names no project is never in gap either.
-    no_project = await ensure_booking(
+    no_project = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         project_id=None,
     )
@@ -179,7 +180,7 @@ async def test_acknowledging_another_tenants_booking_is_404(
     await ensure_booking_type(db_session, other_tenant.id)
     their_project = await ensure_project(db_session, other_tenant.id, name="Theirs")
     their_env = await ensure_environment(db_session, other_tenant.id)
-    theirs = await ensure_booking(
+    theirs = await make_booking(
         db_session, other_tenant.id, booked_by=other_admin.id, environment=their_env,
         project_id=their_project.id,
     )
@@ -215,7 +216,15 @@ async def test_re_acknowledging_updates_the_existing_row_rather_than_adding_a_se
     client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
 ):
     """It is an upsert keyed on booking_id alone: a gap is a property of ONE
-    booking, so a second row would be a second answer to a single question."""
+    booking, so a second row would be a second answer to a single question.
+
+    The TIMESTAMP is asserted as carefully as the notes and the author. "Who
+    accepted this risk, and when" is the only thing this table is for, and a
+    re-ack that keeps the original `acknowledged_at` says a governance finding
+    revised today was accepted three months ago. Dropping
+    `existing.acknowledged_at = now` from the update branch was the one mutation
+    the first version of this suite did not kill.
+    """
     _project, _env, booking = await _in_gap_booking(db_session, test_tenant, test_user)
     second_user = await ensure_user(db_session, test_tenant.id, username="second-acker")
 
@@ -224,6 +233,10 @@ async def test_re_acknowledging_updates_the_existing_row_rather_than_adding_a_se
         current_user=test_user, tenant_id=test_tenant.id,
     )
     first_id = first.id
+    # Read out as a VALUE, not held as an attribute: `first` is the same mapped
+    # row every path below updates in place, so `first.acknowledged_at` would
+    # move with it and compare equal to itself no matter what the code did.
+    first_at = first.acknowledged_at
 
     resp = await client.put(
         f"/api/v1/bookings/{booking.id}/agreement-gap/ack",
@@ -231,6 +244,13 @@ async def test_re_acknowledging_updates_the_existing_row_rather_than_adding_a_se
         json={"notes": "revised after review"},
     )
     assert resp.status_code == 200, resp.text
+    # The HTTP path refreshes it too, not just the direct service call.
+    via_http = datetime.fromisoformat(resp.json()["acknowledged_at"])
+    if via_http.tzinfo is None:
+        via_http = via_http.replace(tzinfo=timezone.utc)
+    assert via_http > first_at, (
+        "re-acknowledging over HTTP left the original timestamp in place"
+    )
 
     second = await agreement_gap_service.upsert_ack(
         db_session, booking.id, notes="third pass",
@@ -241,10 +261,15 @@ async def test_re_acknowledging_updates_the_existing_row_rather_than_adding_a_se
     assert second.id == first_id
     assert second.notes == "third pass"
     assert second.acknowledged_by == second_user.id
+    assert second.acknowledged_at > first_at, (
+        "the update branch must refresh acknowledged_at, not only the notes and "
+        "the author — otherwise the row records when the FIRST person looked"
+    )
     stored = await agreement_gap_service.get_ack(db_session, booking.id, test_tenant.id)
     assert stored is not None
     assert stored.id == first_id
     assert stored.notes == "third pass"
+    assert stored.acknowledged_at > first_at
 
 
 @pytest.mark.asyncio
@@ -295,19 +320,19 @@ async def test_the_flag_never_contradicts_the_message_over_a_mixed_population(
         starts_at=WINDOW_START, ends_at=WINDOW_END,
     )
 
-    covered = await ensure_booking(
+    covered = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=agreed_env,
         project_id=project.id,
     )
-    unagreed = await ensure_booking(
+    unagreed = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=unagreed_env,
         project_id=project.id,
     )
-    acknowledged = await ensure_booking(
+    acknowledged = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=unagreed_env,
         project_id=project.id,
     )
-    no_project = await ensure_booking(
+    no_project = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id, environment=unagreed_env,
         project_id=None,
     )
@@ -339,3 +364,100 @@ async def test_the_flag_never_contradicts_the_message_over_a_mixed_population(
         if flagged:
             assert booking_id in messages
     assert flags[acknowledged.id] is False and acknowledged.id in messages
+
+
+@pytest.mark.asyncio
+async def test_the_database_refuses_a_second_ack_row_for_one_booking(
+    db_session, test_tenant, test_user, second_tenant_factory
+):
+    """The upsert is not the only thing standing between one booking and two
+    answers — `uq_agreement_ack_booking` is, and nothing else asserts it.
+
+    Both engines get it: it is a plain `UniqueConstraint`, not a partial index,
+    so SQLite's `create_all` emits and enforces it exactly as PostgreSQL does.
+    (Partial indexes are the ones that go inert on SQLite; this is not one.)
+
+    Two rows would make `get_ack`'s `scalar_one_or_none()` raise
+    `MultipleResultsFound` and 500 every read of that booking's warning — a
+    failure that surfaces on READ, long after the write that caused it.
+
+    The duplicate is inserted under ANOTHER tenant's `tenant_id` as well as our
+    own, because the constraint deliberately names `booking_id` ALONE. Widening
+    it to `(tenant_id, booking_id)` — the reflexive thing to do to any
+    tenant-scoped table — would let a second row exist after all, and only the
+    cross-tenant half of this test would notice.
+    """
+    other_tenant, other_admin = await second_tenant_factory()
+    _project, _env, booking = await _in_gap_booking(db_session, test_tenant, test_user)
+    await agreement_gap_service.upsert_ack(
+        db_session, booking.id, notes="the one answer",
+        current_user=test_user, tenant_id=test_tenant.id,
+    )
+
+    duplicates = [
+        # Same tenant: the plain second-row case.
+        (test_tenant.id, test_user.id),
+        # Another tenant: proves the constraint is on booking_id alone.
+        (other_tenant.id, other_admin.id),
+    ]
+    for tenant_id, user_id in duplicates:
+        # A SAVEPOINT, so the failed INSERT does not abort the surrounding
+        # transaction — on PostgreSQL every later statement in this test would
+        # otherwise be refused with InFailedSQLTransaction.
+        with pytest.raises(IntegrityError):
+            async with db_session.begin_nested():
+                db_session.add(
+                    UsageAgreementAck(
+                        tenant_id=tenant_id,
+                        booking_id=booking.id,
+                        notes="a second answer to one question",
+                        acknowledged_by=user_id,
+                        acknowledged_at=datetime.now(timezone.utc),
+                    )
+                )
+                await db_session.flush()
+
+    assert await _ack_count(db_session) == 1
+    stored = await agreement_gap_service.get_ack(db_session, booking.id, test_tenant.id)
+    assert stored is not None and stored.notes == "the one answer"
+
+
+@pytest.mark.asyncio
+async def test_a_misspelled_field_is_refused_rather_than_silently_dropped(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """`extra="forbid"`, matching every write schema written since B1.
+
+    Without it Pydantic ignores the unknown key and returns 200 with `notes`
+    null: the caller is told the acknowledgement was recorded with their
+    reasoning, and the audit trail holds a blank. That is the
+    `POST /tenant/lifecycle-templates` failure CLAUDE.md records — a required
+    field silently dropped, unconfigurable through the product, discovered
+    sub-projects later.
+
+    `ConflictAckUpsert` does NOT forbid extras. It predates the convention;
+    `EnvironmentUpdate`, `EnvironmentHandoverUpdate`, `EnvironmentRequestUpdate`,
+    `ProjectCreate/Update` and `EnvironmentGroupCreate/Update` all do.
+    """
+    _project, _env, booking = await _in_gap_booking(db_session, test_tenant, test_user)
+
+    resp = await client.put(
+        f"/api/v1/bookings/{booking.id}/agreement-gap/ack",
+        headers=auth_headers,
+        json={"note": "singular, and therefore not the field"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert await _ack_count(db_session) == 0, (
+        "a refused request must write nothing — a 200 with notes=null is worse "
+        "than a 422, because the reader believes the reasoning was recorded"
+    )
+    # The correctly-spelled key still works, so the rule is a spelling check and
+    # not a broken endpoint.
+    ok = await client.put(
+        f"/api/v1/bookings/{booking.id}/agreement-gap/ack",
+        headers=auth_headers,
+        json={"notes": "plural, and therefore the field"},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["notes"] == "plural, and therefore the field"

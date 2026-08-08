@@ -18,7 +18,12 @@ from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.project import UsageAgreement
 from app.services import agreement_gap_service
-from tests.factories import ensure_booking_type, ensure_environment, ensure_project
+from tests.factories import (
+    ensure_booking_type,
+    ensure_environment,
+    ensure_project,
+    make_booking,
+)
 
 # One fixed calendar for every test: an agreed window of H1 2026, a booking
 # inside it, and one well outside it.
@@ -41,28 +46,25 @@ async def _booking(
     end=INSIDE_END,
     project_id=None,
 ):
-    """A booking and the request that carries its project link."""
-    request = BookingRequest(
-        tenant_id=tenant.id,
-        project_name="a purpose, not a project",
-        project_id=project_id,
-        booking_type_id=booking_type.id,
-        start_date=start,
-        end_date=end,
+    """A booking and the request that carries its project link.
+
+    A thin adapter onto `tests.factories.make_booking` — it exists only to keep
+    this file's ~25 call sites reading as they always have, and to supply the
+    dates the whole file is written around. It built its own rows until task 3's
+    review pointed out that a second builder can drift from the shared one (they
+    already differed in how the booking type was obtained), leaving these tests
+    asserting against a row shape nothing else produces.
+    """
+    return await make_booking(
+        db,
+        tenant.id,
         booked_by=user.id,
+        environment=env,
+        booking_type=booking_type,
+        project_id=project_id,
+        start=start,
+        end=end,
     )
-    db.add(request)
-    await db.flush()
-    booking = Booking(
-        tenant_id=tenant.id,
-        environment_id=env.id,
-        start_date=start,
-        end_date=end,
-        booking_request_id=request.id,
-    )
-    db.add(booking)
-    await db.flush()
-    return booking
 
 
 async def _agreement(db, tenant_id, project_id, environment_id, starts_at=None, ends_at=None):

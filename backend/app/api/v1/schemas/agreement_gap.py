@@ -23,4 +23,18 @@ class AgreementGapAckRead(BaseModel):
 
 
 class AgreementGapAckUpsert(BaseModel):
+    # Pydantic's default is extra="ignore", which would answer {"note": "..."}
+    # with a 200 and record notes=null — telling the caller their reasoning was
+    # filed while the audit trail holds a blank. That is exactly the
+    # POST /tenant/lifecycle-templates silent drop CLAUDE.md records.
+    #
+    # ConflictAckUpsert, this schema's model, does NOT forbid extras — but it
+    # predates the convention. Every write schema written since B1
+    # (EnvironmentUpdate, EnvironmentHandoverUpdate, EnvironmentRequestUpdate,
+    # ProjectCreate/Update, EnvironmentGroupCreate/Update) forbids them, so
+    # this follows the newer rule rather than the older sibling. With one
+    # optional field and a governance audit trail behind it, the whole payload
+    # is a misspelling away from being lost.
+    model_config = ConfigDict(extra="forbid")
+
     notes: Optional[str] = None

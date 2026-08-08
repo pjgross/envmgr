@@ -7,8 +7,17 @@ existing at all — and pass. Running the same suite against PostgreSQL surfaced
 30 such tests immediately.
 
 The pragma is on for SQLite now (see conftest), so both engines agree. These
-helpers give tests a real parent to point at instead of a hopeful integer, and
-each is idempotent per tenant so callers don't have to track what already exists.
+helpers give tests a real parent to point at instead of a hopeful integer.
+
+NAMING: `ensure_*` is idempotent per (tenant, name) — call it as often as you
+like and you get the same row back, so callers don't have to track what already
+exists. `make_*` ALWAYS creates a new row, because the thing it builds has no
+natural per-tenant identity to be idempotent about (a tenant may hold any number
+of bookings for one environment). Check the prefix before assuming.
+
+The one exception is `ensure_build`, which predates this convention and always
+creates a row despite its name — its own docstring says so, and it has call
+sites in seven modules, so it keeps the name until something else takes it.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -226,27 +235,39 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
     return environment
 
 
-async def ensure_booking(
+async def make_booking(
     db: AsyncSession,
     tenant_id: int,
     *,
     booked_by: int,
     environment: Environment,
     project_id: int | None = None,
+    booking_type: BookingType | None = None,
     start: datetime = datetime(2026, 3, 1, tzinfo=timezone.utc),
     end: datetime = datetime(2026, 3, 5, tzinfo=timezone.utc),
 ) -> Booking:
     """A booking, plus the BookingRequest that carries its project link.
 
-    ALWAYS A NEW ROW — a tenant may hold any number of bookings for one
-    environment, so there is nothing to be idempotent about, and tests that want
-    two distinct bookings must get two.
+    `make_`, not `ensure_`: ALWAYS A NEW ROW. A tenant may hold any number of
+    bookings for one environment, so there is nothing to be idempotent about, and
+    tests that want two distinct bookings must get two. It was called
+    `ensure_booking` until a reviewer pointed out that a name promising
+    idempotence on a helper that has none is the kind of thing a future test
+    author reads once and trusts.
+
+    THE ONLY BOOKING BUILDER. `test_agreement_gap.py`'s `_booking` is a thin
+    adapter onto this — two builders drifting apart is how a test ends up
+    asserting against a row shape the code under test never sees.
+
+    Pass `booking_type` when the caller already has one (a fixture, or another
+    tenant's); otherwise the idempotent per-tenant default is used.
 
     `booking_request.project_id` is what A3's gap predicate reads; the booking
     itself has no project column. `project_name` is the free text the UI labels
     "Purpose" and is deliberately unrelated to it (A1).
     """
-    booking_type = await ensure_booking_type(db, tenant_id)
+    if booking_type is None:
+        booking_type = await ensure_booking_type(db, tenant_id)
     request = BookingRequest(
         tenant_id=tenant_id,
         project_name="a purpose, not a project",
