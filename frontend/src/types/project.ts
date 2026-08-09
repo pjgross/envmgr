@@ -9,8 +9,15 @@ export interface ProjectResponse {
   environment_count: number;
   is_active: boolean;
   // A4's contention priority. LOWER WINS; null means unranked, a real state,
-  // not "not yet loaded" — REQUIRED because the backend's ProjectResponse
-  // gives it no Pydantic default either.
+  // not "not yet loaded".
+  //
+  // Required here even though `ProjectResponse.priority_rank` IS defaulted
+  // (`Optional[int] = None`): the default is what the field carries when a
+  // project has no rank, not permission to omit the key. FastAPI serialises it
+  // on every response, exactly as it does for `code` and `description` above,
+  // both of which are likewise required-and-nullable here. Optional in TS would
+  // mean "the server might not send this", which is a different and untrue
+  // claim.
   priority_rank: number | null;
   created_at: string;
   updated_at: string;
