@@ -70,6 +70,17 @@ class Environment(Base):
     )
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # B2 — the stored verdict of the tenant's naming pattern. NULL means "no
+    # pattern applies" (no policy, disabled, or a null pattern), NOT "unknown"
+    # and NOT "failing": every clause and every cell treats null as compliant.
+    #
+    # Stored rather than computed because no regex is portable across both
+    # engines, and every filter here must run in SQL. Its whole invalidation
+    # surface is: create_environment_record, update_environment (name changed),
+    # environment_request_service fulfilment, and a policy write. A future
+    # write path that sets `name` without going through those produces a lying
+    # verdict — see test_environment_compliance_write_paths.py.
+    name_compliant: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
