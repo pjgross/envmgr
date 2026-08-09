@@ -6,9 +6,17 @@
  * A4 ADVISES; IT NEVER ACTS. Recording a decision writes four columns on the
  * escalation and touches neither booking — not its status, not its dates, not
  * its lifecycle. Acting on the decision stays with the owning team, through the
- * ordinary transition path, which for an A2 group booking moves the whole group
- * atomically. The advisory line on the page says so, because a queue of
- * decisions reads like a queue of things that will happen by themselves.
+ * ordinary transition path. The advisory line on the page says so, because a
+ * queue of decisions reads like a queue of things that will happen by
+ * themselves.
+ *
+ * AND WHERE A SIDE IS AN A2 GROUP BOOKING, THE ROW AND THE OPTION SAY SO, BY
+ * NAME. That transition moves every member of the group atomically, so a
+ * decision naming one member is a decision about all of them — and this page,
+ * not the booking page, is where the decision is actually made. It is said per
+ * row and per radio option rather than as a general caution on the page: a
+ * hedge that fires on every row, most of which have no group, tells the reader
+ * nothing about the one in front of them.
  *
  * EVERY ROW IS IDENTIFIED BY NAME. `booking_id` / `other_booking_id` are on the
  * response and are deliberately not rendered: a worklist is a list of
@@ -87,6 +95,62 @@ function stateParam(value: string | number | undefined): { state?: EscalationSta
 function sideLabel(environmentName: string | null, projectName: string | null): string {
   const project = projectName ?? 'no linked project';
   return environmentName ? `${project} on ${environmentName}` : project;
+}
+
+/**
+ * WHAT MOVING THAT BOOKING WOULD ACTUALLY MOVE — said about THIS row, never in
+ * general.
+ *
+ * A2 transitions a group booking ATOMICALLY: every member moves or none does.
+ * So a decision naming one member of a five-environment group booking is a
+ * decision about all five, and a line reading "Payments Rebuild on Staging
+ * gives way" describes a consequence that is not the one that happens. This
+ * page is where the decision is MADE, which makes the misreading worse here
+ * than anywhere else A4 renders.
+ *
+ * Returns null for the ordinary case — no group, nothing to say. A blanket
+ * advisory covering every row instead ("…and where that booking came from a
+ * group…") hedges on the majority of rows that have no group and therefore
+ * tells a reader nothing about the row in front of them; that is exactly what
+ * this replaces. Wording matches `ContentionVerdict`'s group note, because a
+ * reader who sees both should not have to work out whether they mean the same
+ * thing.
+ */
+function groupNote(groupName: string | null, subject = 'that booking'): string | null {
+  return groupName
+    ? `Moving ${subject} moves every environment in ${groupName} — the group was booked as one unit and transitions together.`
+    : null;
+}
+
+/**
+ * A radio option in the Decide dialog: the side by name, and — where that side
+ * is one member of a group booking — what choosing it would move.
+ *
+ * The note is part of the OPTION rather than a line under the question,
+ * because the reader is choosing BETWEEN the two sides and only one of them
+ * may be a group booking. It is the accessible name of the radio too, which is
+ * what makes "I did not know that moved five environments" untrue by
+ * construction.
+ */
+function optionLabel(label: string, groupName: string | null) {
+  const note = groupNote(groupName, 'this booking');
+  return (
+    <Box sx={{ py: 0.5 }}>
+      <Typography variant="body2">{label}</Typography>
+      {note && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          {note}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+/** The group of whichever side a booking id names, or null. */
+function groupNameOf(row: Escalation, bookingId: number): string | null {
+  return bookingId === row.booking_id
+    ? row.booking_group_name
+    : row.other_booking_group_name;
 }
 
 export default function EscalationWorklist() {
@@ -272,39 +336,48 @@ export default function EscalationWorklist() {
       headerName: 'Decision',
       flex: 1,
       minWidth: 200,
-      renderCell: (params) =>
-        params.row.decision_yields_booking_id === null ? (
-          '—'
-        ) : (
+      renderCell: (params) => {
+        const row = params.row;
+        const yields = row.decision_yields_booking_id;
+        if (yields === null) return '—';
+        // WHAT ACTING ON THIS DECISION WOULD ACTUALLY MOVE. The line below
+        // names one environment; if that booking was made as one member of an
+        // A2 group, the ordinary transition moves every member. Per row and by
+        // name — a general hedge on the page says nothing about this row.
+        const note = groupNote(groupNameOf(row, yields));
+        return (
           <Box sx={{ py: 0.5 }}>
             <Typography variant="body2">
               {/* By name: which SIDE gives way, not which id. */}
-              {params.row.decision_yields_booking_id === params.row.booking_id
-                ? sideLabel(
-                    params.row.booking_environment_name,
-                    params.row.booking_project_name
-                  )
+              {yields === row.booking_id
+                ? sideLabel(row.booking_environment_name, row.booking_project_name)
                 : sideLabel(
-                    params.row.other_booking_environment_name,
-                    params.row.other_booking_project_name
+                    row.other_booking_environment_name,
+                    row.other_booking_project_name
                   )}{' '}
               gives way
             </Typography>
-            {params.row.decision_notes && (
-              <Typography variant="caption" color="text.secondary">
-                {params.row.decision_notes}
+            {note && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {note}
               </Typography>
             )}
-            {params.row.decided_by_username && (
+            {row.decision_notes && (
+              <Typography variant="caption" color="text.secondary">
+                {row.decision_notes}
+              </Typography>
+            )}
+            {row.decided_by_username && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                Recorded by {params.row.decided_by_username}
-                {params.row.decided_at
-                  ? ` on ${new Date(params.row.decided_at).toLocaleDateString()}`
+                Recorded by {row.decided_by_username}
+                {row.decided_at
+                  ? ` on ${new Date(row.decided_at).toLocaleDateString()}`
                   : ''}
               </Typography>
             )}
           </Box>
-        ),
+        );
+      },
     },
     {
       field: 'actions',
@@ -329,11 +402,16 @@ export default function EscalationWorklist() {
         Contention Escalations
       </Typography>
 
+      {/* WHAT THIS PAGE DOES, in general — and NOTHING about groups, which is
+          a fact about a particular row and is now said on the rows and the
+          options it applies to. A blanket "…and where that booking came from a
+          group, moving it moves the whole group" fires on every row, most of
+          which have no group, so it hedges instead of telling the reader
+          anything about what is in front of them. */}
       <Alert severity="info" sx={{ mb: 2 }} data-testid="worklist-advisory">
         These are contentions somebody has been asked to decide. Recording a decision moves
         nothing: it names which booking should give way and who said so. Acting on it stays
-        with the team that owns the booking — and where that booking came from an environment
-        group, moving it moves the whole group.
+        with the team that owns the booking.
       </Alert>
 
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
@@ -381,8 +459,7 @@ export default function EscalationWorklist() {
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             This records who should give way and why. It moves no booking — the team that owns
-            it does that through the ordinary transition, and a booking made as part of an
-            environment group moves with its group.
+            it does that through the ordinary transition.
           </Typography>
           {decideError && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -397,21 +474,31 @@ export default function EscalationWorklist() {
                 value={yieldsId === '' ? '' : String(yieldsId)}
                 onChange={(e) => setYieldsId(Number(e.target.value))}
               >
-                {/* Offered BY NAME. A radio labelled `8002` is unanswerable. */}
+                {/* Offered BY NAME. A radio labelled `8002` is unanswerable.
+                    AND WITH WHAT CHOOSING IT WOULD MOVE: an option reading
+                    "Payments Rebuild on Staging" for one member of a
+                    five-environment A2 group booking asks the reader to choose
+                    a consequence they have not been told about. */}
                 <FormControlLabel
                   value={String(target.booking_id)}
                   control={<Radio />}
-                  label={sideLabel(
-                    target.booking_environment_name,
-                    target.booking_project_name
+                  label={optionLabel(
+                    sideLabel(
+                      target.booking_environment_name,
+                      target.booking_project_name
+                    ),
+                    target.booking_group_name
                   )}
                 />
                 <FormControlLabel
                   value={String(target.other_booking_id)}
                   control={<Radio />}
-                  label={sideLabel(
-                    target.other_booking_environment_name,
-                    target.other_booking_project_name
+                  label={optionLabel(
+                    sideLabel(
+                      target.other_booking_environment_name,
+                      target.other_booking_project_name
+                    ),
+                    target.other_booking_group_name
                   )}
                 />
               </RadioGroup>

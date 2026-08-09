@@ -49,6 +49,19 @@ export interface Escalation {
   other_booking_environment_name: string | null;
   other_booking_project_name: string | null;
 
+  // WHICH SIDE IS AN A2 GROUP BOOKING, by name — part of what identifies the
+  // booking, not decoration. A group booking transitions ATOMICALLY, so a
+  // decision naming one member is a decision about every member: a worklist
+  // that reads "Payments Rebuild on Staging gives way" about one member of a
+  // five-environment group booking has described a consequence that will not
+  // happen, and the worklist is where the decision is actually made.
+  //
+  // Null is the ordinary case — most bookings belong to no group. An ARCHIVED
+  // group still arrives named (`get_group_names` deliberately does not filter
+  // `deleted_at`), because its bookings still move together.
+  booking_group_name: string | null;
+  other_booking_group_name: string | null;
+
   decision_yields_booking_id: number | null;
   decision_notes: string | null;
   decided_by: number | null;

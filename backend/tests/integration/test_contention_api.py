@@ -54,6 +54,7 @@ from app.services.contention_service import (
 from tests.factories import (
     ensure_booking_type,
     ensure_environment,
+    ensure_environment_group,
     ensure_project,
     make_booking,
 )
@@ -1338,6 +1339,60 @@ async def test_an_escalation_still_names_a_booking_whose_environment_was_archive
     assert row["other_booking_environment_name"] == "test-env-4"
     assert row["booking_project_name"] == "Payments Rebuild"
     assert row["other_booking_project_name"] == "Payments Rebuild"
+
+
+@pytest.mark.asyncio
+async def test_the_worklist_names_the_environment_group_a_yielding_booking_belongs_to(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """A DECISION ABOUT ONE MEMBER OF A GROUP BOOKING IS A DECISION ABOUT ALL OF
+    THEM (A2 transitions a group atomically), and the worklist is where the
+    decision is made — so the row must say which group, by name.
+
+    Without this the Decide dialog offers "Payments Rebuild on test-env-6" and
+    the reader believes one environment moves. Only one side is in a group here,
+    so a site filling both from one lookup, or hedging in the general case
+    instead of naming this row's group, cannot pass.
+    """
+    group = await ensure_environment_group(
+        db_session, test_tenant.id, name="Q3 Regression Suite"
+    )
+    project = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    await db_session.flush()
+    a, b = await _pair(
+        db_session, test_tenant, test_user.id, slot=6,
+        projects=(project.id, project.id),
+    )
+    grouped, ungrouped = (a, b) if a.id < b.id else (b, a)
+    grouped.environment_group_id = group.id
+    await db_session.flush()
+
+    created = await _escalate(client, auth_headers, a.id, b.id, owner_user_id=test_user.id)
+    assert created.status_code == 201, created.text
+
+    row = (await client.get(
+        "/api/v1/contention-escalations", headers=auth_headers
+    )).json()[0]
+
+    # `booking_*` is the LOWER stored id, `other_booking_*` the higher.
+    assert row["booking_id"] == grouped.id
+    assert row["booking_group_name"] == "Q3 Regression Suite"
+    assert row["other_booking_id"] == ungrouped.id
+    # No group is the ordinary case and is a real state, not a missing value.
+    assert row["other_booking_group_name"] is None
+
+    # AND THE NAME OUTLIVES THE GROUP. `get_group_names` deliberately does not
+    # filter `deleted_at`: an archived group still renders its name on the
+    # bookings made against it, which still transition together.
+    from datetime import datetime as _dt
+
+    group.deleted_at = _dt.now(timezone.utc)
+    await db_session.flush()
+
+    after = (await client.get(
+        "/api/v1/contention-escalations", headers=auth_headers
+    )).json()[0]
+    assert after["booking_group_name"] == "Q3 Regression Suite"
 
 
 @pytest.mark.asyncio

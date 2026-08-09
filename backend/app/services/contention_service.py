@@ -37,7 +37,10 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.contention_escalation import ContentionEscalation
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.services import conflict_service, environment_service, project_service
+from app.services import (
+    conflict_service, environment_group_service, environment_service,
+    project_service,
+)
 
 OUTCOME_RANKED = "ranked"
 OUTCOME_NO_PROJECT = "no_project"
@@ -782,26 +785,36 @@ class BookingLabel(NamedTuple):
     bookings the reader has never seen, so an integer identifies nothing — and
     `EnvBookingSummary.project_name` is no help either: that field is
     `BookingRequest.project_name`, the free text the UI labels "Purpose", not
-    the linked project. Both members are nullable because BOTH ABSENCES ARE
-    REAL STATES: a booking need not be linked to a project at all, and a
-    counterparty this tenant cannot see resolves to neither name.
+    the linked project. Every member is nullable because EVERY ABSENCE IS A
+    REAL STATE: a booking need not be linked to a project at all, most bookings
+    belong to no environment group, and a counterparty this tenant cannot see
+    resolves to no name at all.
+
+    `group_name` IS PART OF WHAT IDENTIFIES THE BOOKING, not decoration. A2
+    transitions a group booking ATOMICALLY, so a decision naming one member
+    moves every member; a screen that says "X on Staging gives way" about a
+    five-environment group booking has described a consequence that will not
+    happen. Resolved through `environment_group_service.get_group_names`, the
+    read-rendering lookup, which deliberately does not filter `deleted_at` —
+    an archived group still renders its name on the bookings made against it.
     """
 
     environment_name: Optional[str]
     project_name: Optional[str]
+    group_name: Optional[str]
 
 
 # A booking this tenant cannot see, or one that no longer resolves. Named
 # rather than written as a literal at each site so the two absences — "no
 # project" and "no booking" — do not have to be told apart by a reader
 # comparing tuples.
-NO_LABEL = BookingLabel(environment_name=None, project_name=None)
+NO_LABEL = BookingLabel(environment_name=None, project_name=None, group_name=None)
 
 
 async def booking_labels(
     db: AsyncSession, booking_ids: Iterable[int], tenant_id: int
 ) -> dict[int, BookingLabel]:
-    """`booking id -> BookingLabel`, for a whole page in three queries.
+    """`booking id -> BookingLabel`, for a whole page in four queries.
 
     THE NAMES TRAVEL WITH THE ROW, exactly as `usernames_for` makes them do for
     people and for the same stated reason: the browser must not resolve them
@@ -810,10 +823,11 @@ async def booking_labels(
     per row would also be the N+1 that three sub-projects have now had to undo
     on the conflicts endpoint.
 
-    RESOLVED THROUGH `get_environment_names` AND `get_project_names`, never by a
-    join written here — those two are the repo's read-rendering lookups and
-    carry the rule this function depends on: NEITHER FILTERS `deleted_at`, while
-    their write-validating siblings (`get_environment`, `get_project`) do. That
+    RESOLVED THROUGH `get_environment_names`, `get_project_names` AND
+    `get_group_names`, never by a join written here — those three are the repo's
+    read-rendering lookups and carry the rule this function depends on: NONE
+    FILTERS `deleted_at`, while their write-validating siblings
+    (`get_environment`, `get_project`, `get_group`) do. That
     is not an oversight being inherited. It is what lets an archived project's
     name render beside `REASON_PROJECT_UNRESOLVABLE` — the verdict says the link
     cannot be resolved, and the row says which project it was, which is the only
@@ -828,15 +842,26 @@ async def booking_labels(
 
     `Booking.tenant_id` IS filtered, and that is the whole isolation boundary
     here: asked as a tenant that cannot see a booking, this answers with nothing
-    rather than confirming an environment or a project name. The two name
-    lookups are tenant-qualified themselves as well, so a request pointing at
-    another tenant's project resolves to `None` rather than leaking its name.
+    rather than confirming an environment, a project or a group name. The three
+    name lookups are tenant-qualified themselves as well, so a request pointing
+    at another tenant's project resolves to `None` rather than leaking its name.
+
+    `environment_group_id` IS PROVENANCE, NOT A LIVE LINK (A2): membership is
+    frozen at create, so this reads the id STORED ON THE BOOKING and never
+    re-reads the group's current members. What it answers is "this booking was
+    made as one member of that group", which is exactly the fact that makes a
+    decision naming it a decision about every member.
     """
     ids = {bid for bid in booking_ids if bid is not None}
     if not ids:
         return {}
     rows = (await db.execute(
-        select(Booking.id, Booking.environment_id, BookingRequest.project_id)
+        select(
+            Booking.id,
+            Booking.environment_id,
+            BookingRequest.project_id,
+            Booking.environment_group_id,
+        )
         .join(
             BookingRequest,
             BookingRequest.id == Booking.booking_request_id,
@@ -847,17 +872,21 @@ async def booking_labels(
     if not rows:
         return {}
     environment_names = await environment_service.get_environment_names(
-        db, {environment_id for _, environment_id, _ in rows}, tenant_id
+        db, {environment_id for _, environment_id, _, _ in rows}, tenant_id
     )
     project_names = await project_service.get_project_names(
-        db, {project_id for _, _, project_id in rows}, tenant_id
+        db, {project_id for _, _, project_id, _ in rows}, tenant_id
+    )
+    group_names = await environment_group_service.get_group_names(
+        db, {group_id for _, _, _, group_id in rows}, tenant_id
     )
     return {
         booking_id: BookingLabel(
             environment_name=environment_names.get(environment_id),
             project_name=project_names.get(project_id),
+            group_name=group_names.get(group_id),
         )
-        for booking_id, environment_id, project_id in rows
+        for booking_id, environment_id, project_id, group_id in rows
     }
 
 

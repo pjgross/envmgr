@@ -171,6 +171,27 @@ describe('the priority rank field', () => {
     );
   });
 
+  it('refuses a draft that is not a whole number rather than silently clearing the rank', async () => {
+    // `Number('1.5')` is 1.5 and `Number('abc')` is NaN — and NaN SERIALISES TO
+    // JSON `null`, which is this field's wire form for "unrank this project".
+    // Sending it would therefore CLEAR the rank of a project the admin was
+    // trying to rank, with a 200 and no complaint: the same silent failure the
+    // explicit null exists to prevent, arriving from the opposite direction.
+    const user = userEvent.setup();
+    vi.mocked(projectService.getProject).mockResolvedValue(project({ priority_rank: 2 }) as never);
+    renderPage();
+
+    const field = await screen.findByLabelText(/Priority rank/i);
+    await waitFor(() => expect(field).toHaveValue(2));
+    await user.clear(field);
+    await user.type(field, '1.5');
+    await user.click(screen.getByRole('button', { name: /Save rank/i }));
+
+    expect(await screen.findByText(/whole number/i)).toBeInTheDocument();
+    // Nothing was sent at all — emphatically not `{ priority_rank: null }`.
+    expect(projectService.updateProject).not.toHaveBeenCalled();
+  });
+
   it("shows the server's reason when a rank is refused", async () => {
     const user = userEvent.setup();
     vi.mocked(projectService.updateProject).mockRejectedValue({

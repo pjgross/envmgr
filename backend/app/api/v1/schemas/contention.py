@@ -62,6 +62,20 @@ class EscalationRead(BaseModel):
     other_booking_environment_name: Optional[str]
     other_booking_project_name: Optional[str]
 
+    # WHICH SIDE IS AN A2 GROUP BOOKING, by name. A decision names one booking
+    # and the team acts on it through the ordinary transition — which for a
+    # group booking moves EVERY member atomically. A worklist row that said
+    # "X on Staging gives way" about one member of a five-environment group
+    # booking would describe a consequence that is not the one that happens,
+    # and the worklist is where the decision is actually made.
+    #
+    # Null is the ordinary case: most bookings belong to no group. Resolved by
+    # `environment_group_service.get_group_names`, which deliberately does NOT
+    # filter `deleted_at` — an archived group still renders its name on the
+    # bookings made against it, and those bookings still transition together.
+    booking_group_name: Optional[str]
+    other_booking_group_name: Optional[str]
+
     decision_yields_booking_id: Optional[int]
     decision_notes: Optional[str]
     decided_by: Optional[int]
@@ -92,6 +106,8 @@ class EscalationRead(BaseModel):
             booking_project_name=view.booking_label.project_name,
             other_booking_environment_name=view.other_booking_label.environment_name,
             other_booking_project_name=view.other_booking_label.project_name,
+            booking_group_name=view.booking_label.group_name,
+            other_booking_group_name=view.other_booking_label.group_name,
             decision_yields_booking_id=escalation.decision_yields_booking_id,
             decision_notes=escalation.decision_notes,
             decided_by=escalation.decided_by,

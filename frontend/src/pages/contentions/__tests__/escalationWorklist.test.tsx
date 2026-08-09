@@ -107,6 +107,11 @@ function escalation(overrides: Partial<Escalation> = {}): Escalation {
     booking_project_name: 'Mortgage Replatform',
     other_booking_environment_name: 'Staging',
     other_booking_project_name: 'Payments Rebuild',
+    // The ordinary case — neither side is a group booking. The tests that care
+    // override one side only, so a site filling both from one lookup, or
+    // hedging in general instead of naming this row's group, cannot pass.
+    booking_group_name: null,
+    other_booking_group_name: null,
     decision_yields_booking_id: null,
     decision_notes: null,
     decided_by: null,
@@ -303,6 +308,34 @@ describe('recording a decision', () => {
     await waitFor(() => expect(contentionService.list).toHaveBeenCalledTimes(2));
   });
 
+  it('sends notes: null for an empty box, which CLEARS a reason already on record', async () => {
+    // `record_decision`'s documented contract: a second decision passing None
+    // clears the first one's stated reason, because the row holds the decision
+    // that stands and a reason carried over from a superseded one would be
+    // attributed to the new decision. `notes: ''` would store an empty string
+    // instead, which is a different thing on the wire and reads as "a reason
+    // was given" to anything checking for null.
+    const user = userEvent.setup();
+    vi.mocked(contentionService.decide).mockResolvedValue(
+      escalation({ state: 'answered', decision_yields_booking_id: 8002 })
+    );
+    renderPage();
+    await screen.findByTestId('row-101');
+
+    await user.click(screen.getByRole('button', { name: /Decide/i }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('radio', { name: /Payments Rebuild/ }));
+    // Notes deliberately untouched.
+    await user.click(within(dialog).getByRole('button', { name: /^Record decision$/i }));
+
+    await waitFor(() =>
+      expect(contentionService.decide).toHaveBeenCalledWith(101, {
+        yields_booking_id: 8002,
+        notes: null,
+      })
+    );
+  });
+
   it("shows the SERVER's refusal when a decision is rejected", async () => {
     const user = userEvent.setup();
     vi.mocked(contentionService.decide).mockRejectedValue(
@@ -361,6 +394,97 @@ describe('recording a decision', () => {
     expect(row).toHaveTextContent(/answered/i);
     expect(row).toHaveTextContent('Payments Rebuild');
     expect(row).toHaveTextContent('Payments can slip a week');
+  });
+});
+
+describe('a side that is an A2 group booking', () => {
+  // A GROUP BOOKING TRANSITIONS ALL-OR-NOTHING. So a decision naming one member
+  // is a decision about every member, and this page — not the booking page — is
+  // where the decision is actually made. An option reading "Payments Rebuild on
+  // Staging" for one member of a five-environment group booking asks the reader
+  // to choose a consequence nobody has told them about.
+
+  it('names the environment group on the option that belongs to one', async () => {
+    const user = userEvent.setup();
+    vi.mocked(contentionService.list).mockResolvedValue({
+      rows: [escalation({ other_booking_group_name: 'Q3 Regression Suite' })],
+      total: 1,
+    });
+    renderPage();
+    await screen.findByTestId('row-101');
+
+    await user.click(screen.getByRole('button', { name: /Decide/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    // The group is named ON THE OPTION — it is part of the radio's accessible
+    // name, so choosing it cannot be done without reading it.
+    const grouped = within(dialog).getByRole('radio', { name: /Payments Rebuild/ });
+    expect(grouped).toHaveAccessibleName(/Q3 Regression Suite/);
+    expect(grouped).toHaveAccessibleName(/every environment/i);
+    // …and NOT on the other side, which is not a group booking. A hedge
+    // covering both options tells the reader nothing about either.
+    expect(
+      within(dialog).getByRole('radio', { name: /Mortgage Replatform/ })
+    ).not.toHaveAccessibleName(/Q3 Regression Suite/);
+  });
+
+  it('says nothing about groups when neither booking is in one', async () => {
+    // The guard against replacing a per-row statement with a blanket one: the
+    // majority of rows have no group, and a caution that fires on all of them
+    // says nothing about the row in front of the reader.
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('row-101');
+
+    await user.click(screen.getByRole('button', { name: /Decide/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(dialog.textContent).not.toMatch(/environment group|every environment|whole group/i);
+  });
+
+  it('names the group on a recorded decision, not just the one environment', async () => {
+    // The Decision cell reads "<project> on <environment> gives way". For a
+    // group booking that is one of five environments, and the row must say so.
+    vi.mocked(contentionService.list).mockResolvedValue({
+      rows: [
+        escalation({
+          state: 'answered',
+          decision_yields_booking_id: 8002,
+          other_booking_group_name: 'Q3 Regression Suite',
+          decided_by: ME,
+          decided_by_username: 'release-manager',
+          decided_at: '2026-09-10T14:00:00Z',
+        }),
+      ],
+      total: 1,
+    });
+    renderPage();
+
+    const row = await screen.findByTestId('row-101');
+    expect(row).toHaveTextContent('Payments Rebuild');
+    expect(row).toHaveTextContent(/every environment in Q3 Regression Suite/i);
+  });
+
+  it('names the group of the side the decision actually names, never the other', async () => {
+    // Both sides are group bookings and the decision names one of them. A cell
+    // that read the group off the row rather than off the yielding side would
+    // name the wrong group, confidently.
+    vi.mocked(contentionService.list).mockResolvedValue({
+      rows: [
+        escalation({
+          state: 'answered',
+          decision_yields_booking_id: 8001,
+          booking_group_name: 'Mortgage Cutover',
+          other_booking_group_name: 'Q3 Regression Suite',
+        }),
+      ],
+      total: 1,
+    });
+    renderPage();
+
+    const row = await screen.findByTestId('row-101');
+    expect(row).toHaveTextContent(/every environment in Mortgage Cutover/i);
+    expect(row.textContent).not.toMatch(/every environment in Q3 Regression Suite/i);
   });
 });
 

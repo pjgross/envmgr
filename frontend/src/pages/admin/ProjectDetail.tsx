@@ -124,16 +124,34 @@ export default function ProjectDetail() {
 
   const handleSaveRank = async () => {
     setRankError(null);
-    setSavingRank(true);
     // AN EXPLICIT NULL, never an omitted key. The backend keys on
     // `model_fields_set`, so an omitted `priority_rank` means "leave alone" —
     // an empty box that sent nothing would silently keep the old rank. Same
     // contract B1 gave `expires_at` and A1 gave `team_group_id`.
     const trimmed = rankDraft.trim();
+    let rank: number | null = null;
+    if (trimmed !== '') {
+      const parsed = Number(trimmed);
+      // AN UNPARSEABLE DRAFT MUST NOT BE SENT. `Number('abc')` is `NaN`, and
+      // `NaN` SERIALISES TO JSON `null` — which is this field's wire form for
+      // "unrank this project". So the one bad input would silently CLEAR the
+      // rank rather than being refused, the same silent failure the explicit
+      // null above exists to prevent, arriving from the opposite direction.
+      // Only integrality is checked here: `ge=1` is the server's rule and its
+      // refusal is the one the user should read.
+      if (!Number.isInteger(parsed)) {
+        setRankError(
+          'A priority rank is a whole number — 1 is highest. Leave it empty for no rank.'
+        );
+        return;
+      }
+      rank = parsed;
+    }
+    setSavingRank(true);
     const result = await dispatch(
       updateProject({
         id: projectId,
-        data: { priority_rank: trimmed === '' ? null : Number(trimmed) },
+        data: { priority_rank: rank },
       })
     );
     setSavingRank(false);

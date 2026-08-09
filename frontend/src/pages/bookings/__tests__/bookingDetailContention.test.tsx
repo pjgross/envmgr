@@ -161,6 +161,11 @@ function makeEscalation(overrides: Partial<Escalation> = {}): Escalation {
     booking_project_name: 'Mortgage Replatform',
     other_booking_environment_name: 'Staging',
     other_booking_project_name: 'Payments Rebuild',
+    // Neither side is a group booking by default; the group note on this
+    // panel is driven by `subjectGroupName` / `environment_group_name`, and
+    // these two carry the same fact for the WORKLIST's rows.
+    booking_group_name: null,
+    other_booking_group_name: null,
     decision_yields_booking_id: null,
     decision_notes: null,
     decided_by: null,
