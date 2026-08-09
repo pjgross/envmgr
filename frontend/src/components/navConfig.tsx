@@ -25,6 +25,7 @@ import BugReportIcon from '@mui/icons-material/BugReport';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import AssignmentIcon from '@mui/icons-material/Assignment';
+import GavelIcon from '@mui/icons-material/Gavel';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -75,6 +76,11 @@ export const navGroups: NavItem[] = [
       { label: 'Bookings — List', path: '/bookings/list', icon: <ListIcon /> },
       { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
       { label: 'Environment Requests', path: '/environment-requests', icon: <AssignmentIcon /> },
+      // Readable by any tenant member, deliberately: a decider needs to see
+      // the queue they are in, and everyone else needs to see that a clash they
+      // are party to has been put to someone. Who may ANSWER one is settled on
+      // the row, not by hiding the page.
+      { label: 'Contention Escalations', path: '/contentions', icon: <GavelIcon /> },
     ],
   },
   {

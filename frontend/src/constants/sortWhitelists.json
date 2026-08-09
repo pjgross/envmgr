@@ -48,5 +48,10 @@
     "sortable": ["status", "kind", "needed_by", "created_at"],
     "default": "created_at",
     "default_dir": "desc"
+  },
+  "contention-escalations": {
+    "sortable": ["respond_by", "created_at", "decided_at"],
+    "default": "respond_by",
+    "default_dir": "asc"
   }
 }

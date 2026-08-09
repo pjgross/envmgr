@@ -44,6 +44,24 @@ class EscalationRead(BaseModel):
     state: str
     bookings_live: bool
 
+    # WHICH ARGUMENT THIS IS, in the only terms a human recognises. A worklist
+    # is a list of things the reader has never seen, so `booking_id` /
+    # `other_booking_id` identify nothing on their own, and `Booking #12` is
+    # exactly the `#N` fallback this codebase does not render. Resolved
+    # server-side and batched by `contention_service.booking_labels`, for the
+    # same reason the usernames above are.
+    #
+    # `booking_*` is `booking_id` and `other_booking_*` is `other_booking_id` —
+    # the LOWER and HIGHER id, because the pair is stored normalised. Neither
+    # side is "mine": a worklist reader is often party to neither booking.
+    #
+    # All four nullable, and each null is a REAL STATE: a booking need not link
+    # to a project, and a booking this tenant cannot resolve has no names at all.
+    booking_environment_name: Optional[str]
+    booking_project_name: Optional[str]
+    other_booking_environment_name: Optional[str]
+    other_booking_project_name: Optional[str]
+
     decision_yields_booking_id: Optional[int]
     decision_notes: Optional[str]
     decided_by: Optional[int]
@@ -70,6 +88,10 @@ class EscalationRead(BaseModel):
             respond_by=escalation.respond_by,
             state=view.state,
             bookings_live=view.bookings_live,
+            booking_environment_name=view.booking_label.environment_name,
+            booking_project_name=view.booking_label.project_name,
+            other_booking_environment_name=view.other_booking_label.environment_name,
+            other_booking_project_name=view.other_booking_label.project_name,
             decision_yields_booking_id=escalation.decision_yields_booking_id,
             decision_notes=escalation.decision_notes,
             decided_by=escalation.decided_by,
@@ -94,19 +116,52 @@ class ContentionRead(BaseModel):
     # escalated, rather than inheriting None from the schema.
     escalation: Optional[EscalationRead]
 
+    # THE TWO PROJECTS BY NAME, because `winner_booking_id` alone cannot be
+    # rendered. A4's design says the line should read "Mortgage Replatform
+    # outranks Payments Rebuild"; nothing on this response could say that while
+    # it carried only ids, and the caller cannot fill the gap either —
+    # `EnvBookingSummary.project_name` on the same item is
+    # `BookingRequest.project_name`, the free text the UI labels "Purpose", not
+    # the linked project. Resolving the counterparty's project per row would be
+    # the N+1 this endpoint has had undone three times.
+    #
+    # `booking_project_name` is the SUBJECT of the request — the booking whose
+    # conflicts page this is — and `other_project_name` is the row's own
+    # booking. Deliberately NOT the normalised (lower, higher) order the
+    # escalation uses: a verdict is read from one side, so the pair is keyed
+    # here AS GIVEN, matching `verdicts_for_pairs`' own contract.
+    #
+    # Both nullable, and null is a real state: `no_project` is the commonest
+    # outcome in today's data.
+    booking_project_name: Optional[str]
+    other_project_name: Optional[str]
+
     @classmethod
-    def from_verdict(cls, verdict, view=None) -> "ContentionRead":
+    def from_verdict(
+        cls, verdict, view, booking_project_name, other_project_name
+    ) -> "ContentionRead":
         """`verdict` is a `ContentionVerdict`; `view` an `EscalationView` or None.
 
         Taking the verdict OBJECT rather than three loose fields is what stops a
         call site quietly composing an outcome from one pair and a winner from
         another — the shape a batch lookup keyed on the wrong tuple produces.
+
+        EVERY PARAMETER IS REQUIRED-POSITIONAL, `view` included — it used to
+        default to None. A1 shipped a response field that rendered `null` at
+        four of five construction sites with the suite green, because Pydantic
+        silently defaults a missing value rather than raising; the fix there was
+        to make the helper take it required-positional, turning an omission into
+        a `TypeError`. The same applies here twice over, since a project name
+        omitted at the one construction site would render every verdict as
+        project-less on a page where the projects are the entire subject.
         """
         return cls(
             outcome=verdict.outcome,
             winner_booking_id=verdict.winner_booking_id,
             reason=verdict.reason,
             escalation=EscalationRead.from_view(view) if view is not None else None,
+            booking_project_name=booking_project_name,
+            other_project_name=other_project_name,
         )
 
 

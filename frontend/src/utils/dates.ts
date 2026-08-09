@@ -19,6 +19,40 @@ export function toDateInputValue(iso: string | null | undefined): string {
 }
 
 /**
+ * `days` working days after `from`, weekends skipped, in UTC.
+ *
+ * A4's escalation asks a named person to decide by a named date, and that date
+ * defaults to three WORKING days ahead. Three CALENDAR days lands on a Saturday
+ * for anything raised Wednesday, Thursday or Friday — more than half the week —
+ * which hands the owner a deadline nobody is at work for and makes the
+ * escalation read `expired` the moment they open it on Monday.
+ *
+ * UTC on both the arithmetic and the weekday, matching `expiryDayDelta` above:
+ * a `<input type="date">` yields "YYYY-MM-DD" and this app writes deadlines at
+ * `T00:00:00Z`, so reading the weekday in local time would shift the skip by a
+ * day for anyone east or west of UTC.
+ *
+ * A weekend START is not itself skipped forward first — it does not need to be.
+ * Counting only working days from Saturday reaches the same date as counting
+ * from the Friday before it, which is the honest answer: no working day has
+ * passed in between.
+ *
+ * Deliberately knows nothing about public holidays. There is no holiday
+ * calendar in this product, and inventing one per tenant to compute a DEFAULT
+ * the escalator can freely overwrite would be a table nobody asked for.
+ */
+export function addWorkingDays(from: Date, days: number): Date {
+  const out = new Date(from.getTime());
+  let remaining = days;
+  while (remaining > 0) {
+    out.setUTCDate(out.getUTCDate() + 1);
+    const day = out.getUTCDay();
+    if (day !== 0 && day !== 6) remaining -= 1;
+  }
+  return out;
+}
+
+/**
  * Whole-calendar-day delta between an ISO expiry and "now", both read in UTC.
  * Null when there is no expiry.
  *

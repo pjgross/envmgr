@@ -531,6 +531,20 @@ export default function BookingDetail() {
           (currentUser!.id === bookingRequest?.booked_by ||
             (bookingRequest?.delegate_user_ids ?? []).includes(currentUser!.id))
         }
+        // A4's group note needs the SUBJECT booking's group, which only this
+        // page knows: `ConflictItem` carries the group of the OTHER booking.
+        subjectGroupName={booking.environment_group_name}
+        // Mirrors `assert_may_escalate` as closely as this page can — see
+        // ConflictsPanel's prop docs for why the other booking's owner is not
+        // covered here. Admin included, master admin with them, the way every
+        // other gate in this app treats the two.
+        canEscalate={
+          Boolean(currentUser) &&
+          (currentUser!.id === bookingRequest?.booked_by ||
+            (bookingRequest?.delegate_user_ids ?? []).includes(currentUser!.id) ||
+            currentUser!.role === 'Admin' ||
+            currentUser!.is_master_admin === true)
+        }
       />
 
       {/* Custom Fields */}

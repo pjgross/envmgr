@@ -85,6 +85,22 @@ async def list_conflicts(
     views = await contention_service.escalation_views(
         db, escalations.values(), current_user.active_tenant_id, now
     )
+    # WHICH PROJECTS ARE ARGUING, by name. A verdict names a winning BOOKING and
+    # the screen has to name the winning PROJECT — and no other field here can
+    # supply it: `EnvBookingSummary.project_name` below is the request's free
+    # text ("Purpose"), not the linked project. Batched over the page beside the
+    # five batches above, never per row.
+    #
+    # THE SUBJECT IS IN THE SET TOO. Its own project is one half of every line
+    # on this page, and it is not among `others`.
+    labels = await contention_service.booking_labels(
+        db,
+        [booking_id, *(c.booking.id for c in others)],
+        current_user.active_tenant_id,
+    )
+    subject_project_name = labels.get(
+        booking_id, contention_service.NO_LABEL
+    ).project_name
     items: list[ConflictItem] = []
     for c in others:
         ack = await conflict_service.get_ack(
@@ -108,6 +124,8 @@ async def list_conflicts(
             contention=ContentionRead.from_verdict(
                 verdicts[(booking_id, c.booking.id)],
                 views.get(escalation.id) if escalation else None,
+                subject_project_name,
+                labels.get(c.booking.id, contention_service.NO_LABEL).project_name,
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))

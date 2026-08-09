@@ -164,6 +164,27 @@ Project ranks for the page come from **one batch lookup**, alongside the existin
 gap and conflict batches. Three sub-projects have now added a field to this endpoint and every
 one had to be batched; the per-row form is the thing that keeps being undone (issue #3).
 
+**Corrected in task 6 — the pair's names travel on the response.** As first written, this
+design asked the UI for a line reading "Mortgage Replatform outranks Payments Rebuild" from a
+payload that carried no project name at all: `winner_booking_id` is an integer, and
+`EnvBookingSummary.project_name` on the same item is `BookingRequest.project_name`, the free
+text the UI labels "Purpose". The counterparty's project could only have been resolved per
+row — the N+1 the paragraph above exists to forbid. So `ContentionRead` also carries
+`booking_project_name` and `other_project_name` (keyed **as given**, subject then row), and
+`EscalationRead` carries `booking_environment_name` / `booking_project_name` /
+`other_booking_environment_name` / `other_booking_project_name` (keyed by the **stored,
+normalised** pair, since a worklist reader is party to neither side). All resolved by one
+batched `contention_service.booking_labels`, through `project_service.get_project_names` and
+`environment_service.get_environment_names`.
+
+Two properties of those two resolvers are load-bearing rather than inherited: **neither filters
+`deleted_at`**, which is what puts an archived project's NAME beside a verdict saying its link
+cannot be resolved — the only way `REASON_PROJECT_UNRESOLVABLE` is readable — and both are
+tenant-qualified, so a request pointing at another tenant's project renders no name. Likewise
+`booking_labels` does **not** filter `Booking.deleted_at`, deliberately unlike `bookings_live`
+beside it: liveness says the contention has gone away, a label says which contention it *was*,
+and an escalation outlives its bookings.
+
 **New:**
 
 | endpoint | purpose |

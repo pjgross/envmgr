@@ -1094,3 +1094,276 @@ async def test_a_contention_changes_no_booking_behaviour(
 
     # INCLUDING the booking the decision names as yielding.
     assert await _stored() == before
+
+
+# ---------------------------------------------------------------------------
+# WHO IS ARGUING, BY NAME. Task 6 addition.
+#
+# The verdict and the escalation both name BOOKINGS, and a booking id tells a
+# reader nothing. A4's design says "Mortgage Replatform outranks Payments
+# Rebuild"; nothing on the wire could say that, because `ContentionRead`
+# carried only ids and `EnvBookingSummary.project_name` is the free-text
+# "Purpose" on the request, not the linked project.
+#
+# So the names TRAVEL WITH THE ROW, resolved server-side and batched, exactly
+# as `usernames_for` already does for people and for the same stated reason:
+# the browser must not resolve them against a capped collection, where a name
+# past the cap is information LOST, not merely hidden.
+#
+# `get_project_names` and `get_environment_names` are the resolvers, and
+# NEITHER FILTERS `deleted_at` — deliberately. That is what makes the
+# archived-project case renderable as A4 intends it: the row shows the
+# project's name AND the verdict says the link cannot be resolved, which is
+# the contradiction `REASON_PROJECT_UNRESOLVABLE` exists to explain.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_contention_names_both_projects_so_a_ranked_verdict_can_be_read(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """A `ranked` verdict names a WINNING BOOKING; the screen must name the
+    winning PROJECT.
+
+    Both sides are carried, keyed to the two positions in the pair, so a
+    consumer holding `winner_booking_id` can say which project won without a
+    second request and without guessing.
+    """
+    high = await ensure_project(db_session, test_tenant.id, name="Mortgage Replatform")
+    low = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    high.priority_rank = 1
+    low.priority_rank = 5
+    await db_session.flush()
+    mine, theirs = await _pair(
+        db_session, test_tenant, test_user.id, projects=(high.id, low.id)
+    )
+
+    items = await _conflicts(client, auth_headers, mine.id)
+
+    contention = items[0]["contention"]
+    assert contention["outcome"] == OUTCOME_RANKED
+    assert contention["winner_booking_id"] == mine.id
+    # The subject of the request is `booking_project_name`; the row's own
+    # booking is `other_project_name`. Two different names, so a site that
+    # filled both from one lookup cannot pass.
+    assert contention["booking_project_name"] == "Mortgage Replatform"
+    assert contention["other_project_name"] == "Payments Rebuild"
+
+
+@pytest.mark.asyncio
+async def test_the_same_pair_read_from_the_other_side_swaps_the_two_names(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """`booking_project_name` is the SUBJECT of the request, not the lower id.
+
+    Asserted from both directions over one pair: a site that resolved the names
+    off the normalised pair, or off the row alone, answers the same way twice
+    and is caught here rather than by a reader noticing the wrong project won.
+    """
+    high = await ensure_project(db_session, test_tenant.id, name="Mortgage Replatform")
+    low = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    high.priority_rank = 1
+    low.priority_rank = 5
+    await db_session.flush()
+    mine, theirs = await _pair(
+        db_session, test_tenant, test_user.id, projects=(high.id, low.id)
+    )
+
+    from_mine = (await _conflicts(client, auth_headers, mine.id))[0]["contention"]
+    from_theirs = (await _conflicts(client, auth_headers, theirs.id))[0]["contention"]
+
+    assert from_mine["booking_project_name"] == "Mortgage Replatform"
+    assert from_mine["other_project_name"] == "Payments Rebuild"
+    assert from_theirs["booking_project_name"] == "Payments Rebuild"
+    assert from_theirs["other_project_name"] == "Mortgage Replatform"
+    # The verdict itself is symmetric — the same booking wins either way.
+    assert from_mine["winner_booking_id"] == from_theirs["winner_booking_id"] == mine.id
+
+
+@pytest.mark.asyncio
+async def test_an_archived_projects_name_still_renders_beside_the_unresolvable_reason(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """THE CASE THE SECOND `no_project` REASON EXISTS FOR.
+
+    `_ranks_for` refuses an archived project (its join filters `deleted_at`), so
+    the verdict is `no_project` with `REASON_PROJECT_UNRESOLVABLE`.
+    `get_project_names` deliberately does NOT filter `deleted_at`, so the name
+    is still on the row. Both at once is the point: "this booking's project is
+    archived" is only readable when the screen can say WHICH project.
+    """
+    from datetime import datetime as _dt
+
+    live = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    archived = await ensure_project(db_session, test_tenant.id, name="Mortgage Replatform")
+    live.priority_rank = 5
+    archived.priority_rank = 1
+    archived.deleted_at = _dt.now(timezone.utc)
+    await db_session.flush()
+    mine, theirs = await _pair(
+        db_session, test_tenant, test_user.id, projects=(archived.id, live.id)
+    )
+
+    contention = (await _conflicts(client, auth_headers, mine.id))[0]["contention"]
+
+    assert contention["outcome"] == OUTCOME_NO_PROJECT
+    assert contention["reason"] == contention_service.REASON_PROJECT_UNRESOLVABLE
+    assert contention["winner_booking_id"] is None
+    # …and the name is still there to explain it.
+    assert contention["booking_project_name"] == "Mortgage Replatform"
+    assert contention["other_project_name"] == "Payments Rebuild"
+
+
+@pytest.mark.asyncio
+async def test_a_booking_with_no_project_carries_a_null_name_not_a_placeholder(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """No project is a REAL STATE, not a missing value — so the field is null
+    rather than a fabricated label, and the reason says which of the two
+    `no_project` cases this is."""
+    live = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    live.priority_rank = 5
+    await db_session.flush()
+    mine, theirs = await _pair(
+        db_session, test_tenant, test_user.id, projects=(None, live.id)
+    )
+
+    contention = (await _conflicts(client, auth_headers, mine.id))[0]["contention"]
+
+    assert contention["outcome"] == OUTCOME_NO_PROJECT
+    assert contention["reason"] == contention_service.REASON_NO_PROJECT
+    assert contention["booking_project_name"] is None
+    assert contention["other_project_name"] == "Payments Rebuild"
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_project_name_never_reaches_our_conflicts_page(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    second_tenant_factory,
+):
+    """TENANT ISOLATION ON THE NEW FIELD, assumed unguarded until this fails.
+
+    A request may legitimately point at a project id belonging to another
+    tenant. `_ranks_for` already reports that as `no_project`; the NAME must not
+    leak either, so the field is null and the reason is the unresolvable one.
+    """
+    other_tenant, _other_admin = await second_tenant_factory()
+    theirs_project = await ensure_project(
+        db_session, other_tenant.id, name="Their Secret Programme"
+    )
+    ours = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    await db_session.flush()
+    mine, other = await _pair(
+        db_session, test_tenant, test_user.id, projects=(theirs_project.id, ours.id)
+    )
+
+    contention = (await _conflicts(client, auth_headers, mine.id))[0]["contention"]
+
+    assert contention["booking_project_name"] is None
+    assert contention["other_project_name"] == "Payments Rebuild"
+    assert contention["reason"] == contention_service.REASON_PROJECT_UNRESOLVABLE
+
+
+@pytest.mark.asyncio
+async def test_the_worklist_identifies_both_bookings_by_environment_and_project(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """A WORKLIST IS A LIST OF THINGS YOU HAVE NEVER SEEN BEFORE, so an id
+    identifies nothing.
+
+    Each escalation carries, for BOTH sides, the environment name and the linked
+    project name — the two things that tell a human which argument this is.
+    """
+    high = await ensure_project(db_session, test_tenant.id, name="Mortgage Replatform")
+    low = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    await db_session.flush()
+    a, b = await _pair(
+        db_session, test_tenant, test_user.id, slot=3, projects=(high.id, low.id)
+    )
+    created = await _escalate(client, auth_headers, a.id, b.id, owner_user_id=test_user.id)
+    assert created.status_code == 201, created.text
+
+    resp = await client.get("/api/v1/contention-escalations", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    row = resp.json()[0]
+
+    # Both bookings are on `test-env-3` — the pair is a clash, so it must be one
+    # environment. The names are per-side all the same, so a site that filled
+    # one from the other is not silently right.
+    assert row["booking_environment_name"] == "test-env-3"
+    assert row["other_booking_environment_name"] == "test-env-3"
+    # Stored normalised (min, max), so the projects follow the STORED order.
+    lower_name, higher_name = (
+        ("Mortgage Replatform", "Payments Rebuild")
+        if a.id < b.id
+        else ("Payments Rebuild", "Mortgage Replatform")
+    )
+    assert row["booking_project_name"] == lower_name
+    assert row["other_booking_project_name"] == higher_name
+
+
+@pytest.mark.asyncio
+async def test_an_escalation_still_names_a_booking_whose_environment_was_archived(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """AN ESCALATION OUTLIVES ITS BOOKINGS, so its labels must outlive them too.
+
+    Soft-deleting the booking and its environment makes the pair read as no
+    longer live — and the row must still say WHICH argument it was, or the audit
+    trail it exists to hold becomes two integers.
+    """
+    from datetime import datetime as _dt
+
+    from app.db.models.environment import Environment
+
+    project = await ensure_project(db_session, test_tenant.id, name="Payments Rebuild")
+    await db_session.flush()
+    a, b = await _pair(
+        db_session, test_tenant, test_user.id, slot=4, projects=(project.id, project.id)
+    )
+    created = await _escalate(client, auth_headers, a.id, b.id, owner_user_id=test_user.id)
+    assert created.status_code == 201, created.text
+
+    env = await db_session.get(Environment, a.environment_id)
+    env.deleted_at = _dt.now(timezone.utc)
+    a.deleted_at = _dt.now(timezone.utc)
+    await db_session.flush()
+
+    row = (await client.get(
+        "/api/v1/contention-escalations", headers=auth_headers
+    )).json()[0]
+
+    assert row["bookings_live"] is False
+    assert row["booking_environment_name"] == "test-env-4"
+    assert row["other_booking_environment_name"] == "test-env-4"
+    assert row["booking_project_name"] == "Payments Rebuild"
+    assert row["other_booking_project_name"] == "Payments Rebuild"
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_booking_labels_are_never_resolved_for_us(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    second_tenant_factory,
+):
+    """TENANT ISOLATION ON THE LABEL LOOKUP ITSELF.
+
+    Asked as a tenant that cannot see the bookings, the resolver answers with
+    nothing rather than confirming an environment or project name — the same
+    rule `bookings_live` follows.
+    """
+    other_tenant, other_admin = await second_tenant_factory()
+    await ensure_booking_type(db_session, other_tenant.id)
+    theirs_project = await ensure_project(
+        db_session, other_tenant.id, name="Their Secret Programme"
+    )
+    await db_session.flush()
+    theirs_a, theirs_b = await _pair(
+        db_session, other_tenant, other_admin.id, slot=5,
+        projects=(theirs_project.id, theirs_project.id),
+    )
+
+    labels = await contention_service.booking_labels(
+        db_session, [theirs_a.id, theirs_b.id], test_tenant.id
+    )
+
+    assert labels == {}

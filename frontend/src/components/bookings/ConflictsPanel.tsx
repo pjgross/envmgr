@@ -16,14 +16,39 @@ import { Link as RouterLink } from 'react-router-dom';
 import { bookingService } from '../../services/bookingService';
 import type { ConflictItem, ReceivedFeedbackItem } from '../../types/conflict';
 import { formatApiError } from '../../services/apiError';
+import ContentionVerdict from './ContentionVerdict';
 import ReceivedFeedbackList from './ReceivedFeedbackList';
 
 type Props = {
   bookingId: number;
   canAcknowledge: boolean;
+  /**
+   * The environment group the SUBJECT booking belongs to, if any — passed
+   * straight through to `ContentionVerdict`. `ConflictItem` carries the group
+   * for the OTHER booking only, so without this the group note could never fire
+   * for our own side, and A2 transitions a group atomically.
+   */
+  subjectGroupName: string | null;
+  /**
+   * May this user ask for a decision? Mirrors
+   * `contention_service.assert_may_escalate` as closely as the page can: the
+   * owner or a delegate of the SUBJECT booking, or an Admin.
+   *
+   * DELIBERATELY NARROWER THAN THE SERVER'S RULE, which also allows the owner
+   * or a delegate of the OTHER booking. Nothing on `ConflictItem` says who owns
+   * the other side, and it is not worth a per-row lookup to find out: that
+   * person sees the same contention, with the control, on their own booking's
+   * page. A button that 403s on click is worse than one that is absent.
+   */
+  canEscalate: boolean;
 };
 
-export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
+export default function ConflictsPanel({
+  bookingId,
+  canAcknowledge,
+  subjectGroupName,
+  canEscalate,
+}: Props) {
   const [tab, setTab] = useState(0);
   const [items, setItems] = useState<ConflictItem[]>([]);
   const [received, setReceived] = useState<ReceivedFeedbackItem[]>([]);
@@ -139,6 +164,19 @@ export default function ConflictsPanel({ bookingId, canAcknowledge }: Props) {
                     {new Date(it.other_booking.end_date).toLocaleDateString()}
                     {' · '}status {it.other_booking.status}
                   </Typography>
+                  {/* A4's verdict, and the ask, NEXT TO THE CONDITION THEY ACT
+                      ON — A2's repair-panel lesson. `contention` is required on
+                      every ConflictItem, so there is nothing to guard here.
+                      `reload` is the escalation's refresh: the escalation is
+                      part of this very payload. */}
+                  <ContentionVerdict
+                    bookingId={bookingId}
+                    otherBooking={it.other_booking}
+                    contention={it.contention}
+                    subjectGroupName={subjectGroupName}
+                    canEscalate={canEscalate}
+                    onEscalated={reload}
+                  />
                   <FormControlLabel
                     control={
                       <Checkbox

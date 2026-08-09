@@ -29,6 +29,26 @@ export interface Escalation {
   state: EscalationState;
   bookings_live: boolean;
 
+  // WHICH ARGUMENT THIS IS, in the only terms a human recognises. The worklist
+  // is a list of contentions the reader has never seen, so two booking ids
+  // identify nothing and `Booking #12` is exactly the `#N` fallback this
+  // codebase does not render. Resolved server-side and batched by
+  // `contention_service.booking_labels`, the same rule as `owner_username`
+  // above: a browser-side lookup would go to a capped collection, where a name
+  // past the cap is information LOST, not merely hidden.
+  //
+  // `booking_*` describes `booking_id` and `other_booking_*` describes
+  // `other_booking_id` — the LOWER and HIGHER id, since the pair is stored
+  // normalised. Neither is "mine": a worklist reader is often party to neither.
+  //
+  // Required-and-nullable, never optional: the server sends all four on every
+  // response, and each null is a real state (a booking need not be linked to a
+  // project, and a booking this tenant cannot resolve has no names at all).
+  booking_environment_name: string | null;
+  booking_project_name: string | null;
+  other_booking_environment_name: string | null;
+  other_booking_project_name: string | null;
+
   decision_yields_booking_id: number | null;
   decision_notes: string | null;
   decided_by: number | null;
@@ -43,6 +63,23 @@ export interface Contention {
   winner_booking_id: number | null;
   reason: string;
   escalation: Escalation | null;
+
+  // THE TWO PROJECTS BY NAME, because `winner_booking_id` on its own cannot be
+  // rendered. A4's design says the line reads "Mortgage Replatform outranks
+  // Payments Rebuild", and nothing else on a `ConflictItem` can supply that:
+  // `other_booking.project_name` is `BookingRequest.project_name`, the free
+  // text the UI labels "Purpose", NOT the linked project.
+  //
+  // `booking_project_name` is the SUBJECT of the request — the booking whose
+  // conflicts page this is — and `other_project_name` is the row's own booking.
+  // Keyed as-given, not (lower, higher): a verdict is read from one side.
+  //
+  // Both nullable. `no_project` is the commonest outcome in today's data, and
+  // an ARCHIVED project still renders its name here beside a verdict saying the
+  // link cannot be resolved — `get_project_names` deliberately does not filter
+  // `deleted_at`, which is the only thing that makes that reason readable.
+  booking_project_name: string | null;
+  other_project_name: string | null;
 }
 
 // Body of POST /bookings/{id}/contentions/{other_id}/escalate.

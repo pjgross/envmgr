@@ -37,7 +37,7 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.contention_escalation import ContentionEscalation
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.services import conflict_service
+from app.services import conflict_service, environment_service, project_service
 
 OUTCOME_RANKED = "ranked"
 OUTCOME_NO_PROJECT = "no_project"
@@ -775,12 +775,105 @@ async def usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, 
     return {uid: username for uid, username in rows}
 
 
+class BookingLabel(NamedTuple):
+    """What identifies one contending booking TO A HUMAN.
+
+    Not the id. A verdict names a winning booking and a worklist row names two
+    bookings the reader has never seen, so an integer identifies nothing — and
+    `EnvBookingSummary.project_name` is no help either: that field is
+    `BookingRequest.project_name`, the free text the UI labels "Purpose", not
+    the linked project. Both members are nullable because BOTH ABSENCES ARE
+    REAL STATES: a booking need not be linked to a project at all, and a
+    counterparty this tenant cannot see resolves to neither name.
+    """
+
+    environment_name: Optional[str]
+    project_name: Optional[str]
+
+
+# A booking this tenant cannot see, or one that no longer resolves. Named
+# rather than written as a literal at each site so the two absences — "no
+# project" and "no booking" — do not have to be told apart by a reader
+# comparing tuples.
+NO_LABEL = BookingLabel(environment_name=None, project_name=None)
+
+
+async def booking_labels(
+    db: AsyncSession, booking_ids: Iterable[int], tenant_id: int
+) -> dict[int, BookingLabel]:
+    """`booking id -> BookingLabel`, for a whole page in three queries.
+
+    THE NAMES TRAVEL WITH THE ROW, exactly as `usernames_for` makes them do for
+    people and for the same stated reason: the browser must not resolve them
+    against a capped collection, where a name past the cap is information LOST,
+    not merely hidden (docs/pagination.md). Resolving the counterparty's project
+    per row would also be the N+1 that three sub-projects have now had to undo
+    on the conflicts endpoint.
+
+    RESOLVED THROUGH `get_environment_names` AND `get_project_names`, never by a
+    join written here — those two are the repo's read-rendering lookups and
+    carry the rule this function depends on: NEITHER FILTERS `deleted_at`, while
+    their write-validating siblings (`get_environment`, `get_project`) do. That
+    is not an oversight being inherited. It is what lets an archived project's
+    name render beside `REASON_PROJECT_UNRESOLVABLE` — the verdict says the link
+    cannot be resolved, and the row says which project it was, which is the only
+    way that reason is readable at all.
+
+    `Booking.deleted_at` IS DELIBERATELY NOT FILTERED, unlike `bookings_live`
+    beside it, and the two answer different questions on purpose: liveness says
+    the contention has gone away, while a label says which contention it WAS. An
+    escalation outlives its bookings, so a labels lookup that dropped a deleted
+    booking would reduce the audit trail this record exists to hold back to two
+    integers on the day it matters most.
+
+    `Booking.tenant_id` IS filtered, and that is the whole isolation boundary
+    here: asked as a tenant that cannot see a booking, this answers with nothing
+    rather than confirming an environment or a project name. The two name
+    lookups are tenant-qualified themselves as well, so a request pointing at
+    another tenant's project resolves to `None` rather than leaking its name.
+    """
+    ids = {bid for bid in booking_ids if bid is not None}
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(Booking.id, Booking.environment_id, BookingRequest.project_id)
+        .join(
+            BookingRequest,
+            BookingRequest.id == Booking.booking_request_id,
+            isouter=True,
+        )
+        .where(Booking.id.in_(ids), Booking.tenant_id == tenant_id)
+    )).all()
+    if not rows:
+        return {}
+    environment_names = await environment_service.get_environment_names(
+        db, {environment_id for _, environment_id, _ in rows}, tenant_id
+    )
+    project_names = await project_service.get_project_names(
+        db, {project_id for _, _, project_id in rows}, tenant_id
+    )
+    return {
+        booking_id: BookingLabel(
+            environment_name=environment_names.get(environment_id),
+            project_name=project_names.get(project_id),
+        )
+        for booking_id, environment_id, project_id in rows
+    }
+
+
 class EscalationView(NamedTuple):
     """An escalation plus everything a response needs that is not a column.
 
     Every field is COMPUTED — the state from two columns and a clock, liveness
-    from the two bookings, the names from the user table — which is why the
-    record needs no status column and A4 needs no scheduler.
+    from the two bookings, the names from the user table, the labels from
+    `booking_labels` — which is why the record needs no status column and A4
+    needs no scheduler.
+
+    THE LABELS ARE PER SIDE AND NAMED FOR THE STORED POSITIONS. `booking_*`
+    describes `escalation.booking_id` and `other_*` describes
+    `escalation.other_booking_id`; the pair is stored normalised, so those are
+    the LOWER and HIGHER id, not "mine" and "theirs". A worklist reader has no
+    side, which is why neither is privileged here.
     """
 
     escalation: ContentionEscalation
@@ -789,6 +882,8 @@ class EscalationView(NamedTuple):
     owner_username: Optional[str]
     escalated_by_username: Optional[str]
     decided_by_username: Optional[str]
+    booking_label: BookingLabel
+    other_booking_label: BookingLabel
 
 
 async def escalation_views(
@@ -797,17 +892,33 @@ async def escalation_views(
     tenant_id: int,
     now: datetime,
 ) -> dict[int, EscalationView]:
-    """`escalation id -> EscalationView`, for a whole page in two queries.
+    """`escalation id -> EscalationView`, for a whole page in a fixed number of
+    queries.
 
     BATCH, NEVER PER ROW. Three sub-projects have now added a field to the
     conflicts endpoint and every per-row form has had to be undone; a per-row
-    liveness or username lookup here would cost ~3N queries per page for
+    liveness, username or label lookup here would cost ~5N queries per page for
     something every row needs.
+
+    A booking with no label — another tenant's, or an id that resolves to
+    nothing — falls back to `NO_LABEL` rather than raising: this feeds a
+    rendering, not a permission decision, and a worklist that 500s because one
+    row's counterparty went away is worse than one that renders that side
+    unnamed.
     """
     escalations = list(escalations)
     if not escalations:
         return {}
     live = await bookings_live(db, escalations, tenant_id)
+    labels = await booking_labels(
+        db,
+        [
+            booking_id
+            for escalation in escalations
+            for booking_id in (escalation.booking_id, escalation.other_booking_id)
+        ],
+        tenant_id,
+    )
     names = await usernames_for(
         db,
         [
@@ -828,6 +939,8 @@ async def escalation_views(
             owner_username=names.get(escalation.owner_user_id),
             escalated_by_username=names.get(escalation.escalated_by),
             decided_by_username=names.get(escalation.decided_by),
+            booking_label=labels.get(escalation.booking_id, NO_LABEL),
+            other_booking_label=labels.get(escalation.other_booking_id, NO_LABEL),
         )
         for escalation in escalations
     }
