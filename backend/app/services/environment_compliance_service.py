@@ -55,16 +55,17 @@ and it is a real gap in the *import*, not merely a theoretical one, left open
 deliberately here rather than widened into this task.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Optional
 
 import regex
 from fastapi import HTTPException, status
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import String, and_, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.core.day_boundaries import expiry_boundary
 from app.api.v1.schemas.environment_naming_policy import (
     CUSTOM_FIELD_PREFIX,
     FIXED_ATTRIBUTES,
@@ -74,6 +75,20 @@ from app.db.models.environment_naming_policy import EnvironmentNamingPolicy
 from app.services.custom_field_service import list_definitions
 
 logger = logging.getLogger(__name__)
+
+
+def _utc(value: Optional[datetime]) -> Optional[datetime]:
+    """SQLite hands back naive datetimes where PostgreSQL hands back aware ones,
+    so normalise before any Python-side arithmetic — the stored values are UTC
+    on both engines. A comparison that skips this raises TypeError on the SQLite
+    leg only, which is a 500 the PostgreSQL leg cannot see.
+
+    One of six copies in this codebase, by the decision recorded in
+    `app.core.day_boundaries._utc`.
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
 
 # Mirrors CustomFieldDefinition's own validation
 # (app/api/v1/schemas/custom_field.py: FIELD_KEY_RE). Every field_key that can
@@ -679,3 +694,186 @@ async def recompute_tenant(
         env.name_compliant = evaluate_name(policy, env.name)
     await db.flush()
     return len(envs)
+
+
+# ---------------------------------------------------------------------------
+# The two verdicts: in gap, and quarantined
+# ---------------------------------------------------------------------------
+
+# The SQL half of each required attribute. `_is_attribute_missing` below is the
+# Python mirror, used only to WORD a message over a row this clause already
+# selected. THE TWO MUST CHANGE TOGETHER — guarded by
+# test_the_sql_clause_and_the_python_mirror_agree_row_for_row.
+_ATTRIBUTE_CLAUSES = {
+    "owner": lambda: Environment.owner_user_id.is_(None),
+    "expiry": lambda: Environment.expires_at.is_(None),
+    "operations_group": lambda: Environment.operations_group_id.is_(None),
+}
+
+_ATTRIBUTE_LABELS = {
+    "owner": "no named owner",
+    "expiry": "no expiry date",
+    "operations_group": "no operating team",
+}
+
+
+def _attribute_clauses(policy: EnvironmentNamingPolicy) -> list:
+    """One clause per required attribute.
+
+    An attribute this module does not recognise is SKIPPED rather than treated
+    as missing. `_assert_attributes_known` refuses an unknown one at save time,
+    so reaching here means the row was written straight to the database — and
+    judging the whole estate against a rule nobody can satisfy is the worse of
+    the two failures.
+    """
+    clauses = []
+    for attr in policy.required_attributes or []:
+        if attr in _ATTRIBUTE_CLAUSES:
+            clauses.append(_ATTRIBUTE_CLAUSES[attr]())
+        elif attr.startswith(CUSTOM_FIELD_PREFIX):
+            key = attr[len(CUSTOM_FIELD_PREFIX) :]
+            try:
+                clauses.append(custom_field_missing_clause(key))
+            except ValueError:
+                # An unsafe field_key would make the two engines disagree about
+                # whether the field is missing; see that function. Skip it here
+                # rather than let a stored policy 500 every environment list.
+                logger.error(
+                    "Environment naming policy requires a custom field whose key "
+                    "cannot be compared portably; it was ignored. tenant_id=%s "
+                    "field_key=%r",
+                    getattr(policy, "tenant_id", None),
+                    key,
+                )
+    return clauses
+
+
+def noncompliance_clause(
+    policy: Optional[EnvironmentNamingPolicy],
+) -> ColumnElement[bool]:
+    """SQL true when an environment fails the policy.
+
+    NO GRACE APPLIES HERE — an environment is in gap the moment the policy says
+    so. Quarantine is the subset that has been in gap long enough.
+
+    Returns a false literal when no policy is in force, rather than leaving the
+    caller to skip the clause: no caller can then forget, and `~clause` stays
+    the exact complement in both cases.
+    """
+    if policy is None or not policy.is_enabled:
+        return false()
+    # `is_(False)` and NOT `.is_not(True)`: NULL means NO PATTERN APPLIES and
+    # counts as compliant. `.is_not(True)` puts the whole estate in gap the
+    # moment a tenant enables an attributes-only policy.
+    return or_(Environment.name_compliant.is_(False), *_attribute_clauses(policy))
+
+
+def quarantine_clause(
+    policy: Optional[EnvironmentNamingPolicy], now: datetime
+) -> ColumnElement[bool]:
+    """In gap AND grace has fully elapsed.
+
+    `effective_from` and `grace_days` are scalars from a single policy row, so
+    the policy-age half is a plain Python comparison: while the policy itself is
+    younger than the grace period, NOTHING is quarantined and there is no clause
+    to run at all.
+
+    Day-granular via A4's `expiry_boundary`. A DEADLINE IS A DAY: at instant
+    precision an environment created at 15:00 loses most of its last grace day,
+    and — worse — the filter then hides the rows closest to their deadline.
+
+    `effective_from` is normalised through `_utc` first. SQLite hands back a
+    naive datetime where PostgreSQL hands back an aware one, and comparing naive
+    against the aware cutoff raises TypeError — an engine-dependent 500 on every
+    environment list, invisible on the PostgreSQL leg.
+    """
+    if policy is None or not policy.is_enabled:
+        return false()
+    cutoff = expiry_boundary(now) - timedelta(days=policy.grace_days)
+    if _utc(policy.effective_from) > cutoff:
+        return false()
+    return and_(noncompliance_clause(policy), Environment.created_at <= cutoff)
+
+
+async def quarantined_ids(
+    db: AsyncSession,
+    tenant_id: int,
+    policy: Optional[EnvironmentNamingPolicy],
+    now: datetime,
+    env_ids: list[int],
+) -> set[int]:
+    """Which of these environments are quarantined, decided by the SAME clause
+    the filter uses.
+
+    One clock per request decides both, so a filtered row and its rendered chip
+    can never disagree — A4's rule, learned from an escalation that rendered
+    `expired` while `?state=open` was still returning it.
+    """
+    if not env_ids or policy is None or not policy.is_enabled:
+        return set()
+    rows = (
+        (
+            await db.execute(
+                select(Environment.id).where(
+                    Environment.id.in_(env_ids),
+                    Environment.tenant_id == tenant_id,
+                    quarantine_clause(policy, now),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return set(rows)
+
+
+def gaps_for_environments(
+    envs: list[Environment], policy: Optional[EnvironmentNamingPolicy]
+) -> dict[int, list[str]]:
+    """Rendered gap messages for a WHOLE PAGE, keyed by environment id.
+
+    Once per RESPONSE, never once per row. There is deliberately no per-row
+    public helper: A3 shipped one as a cross-check and had to write "no
+    production caller" in its docstring to stop a 50-row page costing ~150
+    queries. Every input here is already on the selected row, so the batch form
+    costs nothing extra and the per-row form would only invite the mistake.
+
+    Every environment gets a key, including the compliant ones — a missing key
+    would make a caller's `gaps[env.id]` a KeyError on exactly the rows that are
+    fine.
+    """
+    if policy is None or not policy.is_enabled:
+        return {env.id: [] for env in envs}
+
+    out: dict[int, list[str]] = {}
+    for env in envs:
+        messages: list[str] = []
+        if env.name_compliant is False:
+            example = policy.name_pattern_example
+            hint = f" (for example: '{example}')" if example else ""
+            messages.append(
+                f"The name does not match this tenant's naming convention{hint}"
+            )
+        for attr in policy.required_attributes or []:
+            if attr in _ATTRIBUTE_LABELS:
+                if _is_attribute_missing(env, attr):
+                    messages.append(_ATTRIBUTE_LABELS[attr])
+            elif attr.startswith(CUSTOM_FIELD_PREFIX):
+                key = attr[len(CUSTOM_FIELD_PREFIX) :]
+                value = (env.custom_fields or {}).get(key)
+                if value is None or str(value).strip() == "":
+                    messages.append(f"no {key.replace('_', ' ')}")
+        out[env.id] = messages
+    return out
+
+
+def _is_attribute_missing(env: Environment, attr: str) -> bool:
+    """The Python mirror of `_ATTRIBUTE_CLAUSES`, for wording a message over a
+    row the SQL clause already selected. These two must change together."""
+    if attr == "owner":
+        return env.owner_user_id is None
+    if attr == "expiry":
+        return env.expires_at is None
+    if attr == "operations_group":
+        return env.operations_group_id is None
+    return False

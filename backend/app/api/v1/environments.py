@@ -67,6 +67,17 @@ async def list_environments(
     ),
     expiring_within_days: Optional[int] = Query(None, ge=0),
     governance_gap: Optional[bool] = None,
+    compliance_gap: Optional[bool] = Query(
+        None,
+        description=(
+            "Fails the tenant's naming/tagging policy. No selection is an "
+            "OMITTED key — an empty value is a 422, and `false` is the exact "
+            "complement (compliant plus every environment no policy covers)."
+        ),
+    ),
+    quarantined: Optional[bool] = Query(
+        None, description="In gap, and grace has fully elapsed. Advisory only."
+    ),
     search: Optional[str] = None,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(ENVIRONMENT_SORTS, default="name")),
@@ -84,6 +95,8 @@ async def list_environments(
         operations_group_id=operations_group_id,
         expiring_within_days=expiring_within_days,
         governance_gap=governance_gap,
+        compliance_gap=compliance_gap,
+        quarantined=quarantined,
         sort=sort,
     )
     set_total_count(response, total)
