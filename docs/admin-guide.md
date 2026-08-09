@@ -369,8 +369,10 @@ Changing a rank takes effect on the next page load. The verdict is recomputed on
 stored nowhere, so there is no cache to clear and nothing to re-run — and equally, no record of
 what the verdict *was* yesterday.
 
-Ranks are set only by editing an existing project; the *New Project* dialog has no rank field, so
-every project is born unranked. Clearing the box and saving unranks a project again.
+A rank can be set when you create a project or by editing one later. The *New Project* dialog has
+no rank field, so a project created through the UI starts unranked and you set the rank by editing
+it; the API accepts `priority_rank` on creation as well. Clearing the box and saving unranks a
+project again.
 
 For what happens when someone is formally asked to decide a contention, see the user guide's
 *Contention escalations* — the worklist is readable by any tenant member, and answering is limited

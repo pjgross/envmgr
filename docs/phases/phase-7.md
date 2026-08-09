@@ -326,11 +326,15 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   non-admins — because a bare integer whose direction a reader has to guess
   decides every contention backwards, confidently, with nothing to notice. The
   advisory alert above them says what a rank *does*, not which way it points.
-- **The rank is set only by `PATCH /projects/{id}`.** `ProjectCreate` has no
-  `priority_rank` field at all, so a project is always born unranked; the PATCH
-  schema is `extra="forbid"` and keys on `model_fields_set`, so an omitted key
-  means "leave alone" and only an **explicit null** unranks — the contract B1
-  gave `expires_at` and A1 gave `team_group_id`.
+- **The rank is settable on both create and update**, though the *New Project*
+  dialog has no rank field, so a project created through the UI starts unranked.
+  `ProjectCreate` originally had no `priority_rank` at all and no
+  `extra="forbid"`, so `POST /projects` with a rank returned **201 with the rank
+  silently discarded** — the `POST /tenant/lifecycle-templates` silent-drop class,
+  and **found by opening the running app, not by any test**. Both were added.
+  The PATCH schema keys on `model_fields_set`, so an omitted key means "leave
+  alone" and only an **explicit null** unranks — the contract B1 gave
+  `expires_at` and A1 gave `team_group_id`.
 - **The verdict is COMPUTED on every read, never stored.** It depends on two
   bookings *and* two project ranks, so four separate edits could falsify a
   cached one — a worse invalidation surface than A3's gap, which is computed
