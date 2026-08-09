@@ -26,8 +26,9 @@ from datetime import datetime, timezone
 from typing import Iterable, NamedTuple, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, not_, or_, select
+from sqlalchemy import Exists, and_, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
@@ -257,10 +258,18 @@ def escalation_state(escalation: ContentionEscalation, now: datetime) -> str:
     second escalation of a contention that already has an answer. The branch
     ORDER is the rule, and `test_answering_late_is_still_answered` is what pins
     it.
+
+    BOTH SIDES OF THE COMPARISON ARE NORMALISED, not just the stored one. `now`
+    comes from the caller, and a caller that reaches for `datetime.utcnow()` —
+    naive, and the historically easy mistake in this package — would otherwise
+    raise `TypeError: can't compare offset-naive and offset-aware datetimes`
+    from a READ path, on both engines, with the traceback nowhere near the call
+    site that chose the wrong clock. `_utc` on both sides removes the class
+    rather than relying on every future call site to get it right.
     """
     if escalation.decided_at is not None:
         return STATE_ANSWERED
-    if _utc(escalation.respond_by) < now:
+    if _utc(escalation.respond_by) < _utc(now):
         return STATE_EXPIRED
     return STATE_OPEN
 
@@ -398,28 +407,88 @@ async def _assert_bookings_visible(
         )
 
 
+def _pair_conflict_exists(higher: int, tenant_id: int) -> Exists:
+    """EXISTS(the other member of this pair, clashing with the correlated Booking).
+
+    THE OVERLAP IS NEVER RE-DERIVED HERE. `conflict_service.conflicts_with` is
+    the single definition of what a clash is (same tenant, a different booking,
+    same environment, neither soft-deleted, neither terminal, half-open
+    `[start, end)` overlap), composed into an EXISTS exactly as
+    `conflict_service._unacknowledged_conflict_exists` does. A second copy of
+    those rules is precisely the "two mechanisms enforcing one outcome" shape
+    that has cost this codebase repeated defects.
+
+    Composed rather than asked of `list_conflicts` because this is a MEMBERSHIP
+    question — "is `higher` among them?" — and `list_conflicts` answers it by
+    building a `ConflictingBooking` (two outer joins, project and environment
+    labels) for every clash on that environment, on a per-escalation write path,
+    only to throw all but one row away.
+    """
+    other = aliased(Booking)
+    return (
+        select(other.id)
+        .where(
+            *conflict_service.conflicts_with(
+                other,
+                subject_id=Booking.id,
+                environment_id=Booking.environment_id,
+                start_date=Booking.start_date,
+                end_date=Booking.end_date,
+                tenant_id=tenant_id,
+            ),
+            other.id == higher,
+        )
+        .correlate(Booking)
+        .exists()
+    )
+
+
 async def _assert_in_conflict(
     db: AsyncSession, lower: int, higher: int, tenant_id: int
 ) -> None:
-    """The pair must really be in contention — asked of `conflict_service`.
+    """The pair must really be in contention.
 
-    THE OVERLAP IS NEVER RE-DERIVED HERE. `conflicts_with` is the single
-    definition of what a clash is (same tenant, same environment, neither
-    soft-deleted, neither terminal, half-open `[start, end)` overlap) and a
-    second copy is precisely the "two mechanisms enforcing one outcome" shape
-    that has cost this codebase repeated defects.
+    VISIBILITY IS CHECKED FIRST, UNCONDITIONALLY, and that ordering is the
+    fix for a real defect rather than a tidy-up. The overlap question is asked
+    of ONE booking about the other, so the two positions are not symmetric:
+    `conflicts_with` filters the counterparty's `deleted_at`, while the subject
+    side has to be filtered separately. When the visibility check hung off the
+    empty branch only, a soft-deleted booking was invisible in one position and
+    not the other — so the SAME pair was accepted or refused depending on which
+    of the two happened to hold the lower id, and the accepting direction
+    created an escalation against a deleted booking that no withdraw path can
+    remove. Asking `_assert_bookings_visible` up front costs one query and makes
+    both orderings answer the same way.
 
-    WHY THE 404 CHECK LIVES INSIDE THE 400. `list_conflicts` is itself
-    tenant-scoped, so another tenant's booking comes back as "no conflicts" —
-    and answering "these two bookings do not overlap" about a pair the caller
-    cannot see would be both a claim about invisible rows and, quite often,
-    false. So an empty result is refined: not ours is 404, ours-and-disjoint is
-    400.
+    WHY A 404 STILL SITS AHEAD OF THE 400. Everything below is tenant-scoped, so
+    another tenant's booking would otherwise come back as "no conflict" — and
+    answering "these two bookings do not overlap" about a pair the caller cannot
+    see would be both a claim about invisible rows and, quite often, false. Not
+    ours is 404; ours-and-disjoint is 400.
+
+    THE SUBJECT'S `deleted_at` IS DELIBERATELY NOT FILTERED BELOW. The check
+    above already guarantees it, and a second copy would mean two mechanisms
+    enforcing one outcome — so a mutation that moved the visibility check back
+    where it was would still pass, and the test guarding this would guard
+    nothing. `tenant_id` is repeated because the repo's rule is that every query
+    on a tenant-scoped table carries it, which is a rule about queries, not
+    about this call site.
+
+    The subject's TERMINAL filter has no such backstop and is load-bearing:
+    `list_conflicts` returns nothing at all for a terminal subject, and
+    `conflicts_with` only filters the counterparty's status.
     """
-    conflicts, _total = await conflict_service.list_conflicts(db, lower, tenant_id)
-    if higher in {row.booking.id for row in conflicts}:
-        return
     await _assert_bookings_visible(db, (lower, higher), tenant_id)
+    found = (await db.execute(
+        select(Booking.id).where(
+            Booking.id == lower,
+            Booking.tenant_id == tenant_id,
+            not_(Booking.status.in_(conflict_service.TERMINAL_STATES)),
+            _pair_conflict_exists(higher, tenant_id),
+        )
+    )).first()
+    if found is not None:
+        return
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
@@ -450,7 +519,9 @@ async def create_escalation(
     the deadline would let either party restart the other's clock at will, and
     would quietly re-open a contention that already has an answer. Changing an
     owner or a deadline is therefore an explicit edit, not a side effect of
-    asking again.
+    asking again. Returning it is also the FIRST thing this function does, so
+    "escalate again" keeps answering the same way after the pair stops
+    overlapping — see the comment on the ordering below.
 
     `respond_by` is NOT required to be in the future. A deadline already passed
     is a legitimate thing to record — it reads as `expired` immediately, which
@@ -459,6 +530,24 @@ async def create_escalation(
     validation in the service where the API schema is the honest place for one.
     """
     lower, higher = normalise_pair(booking_id, other_booking_id)
+
+    # THE EXISTING RECORD IS LOOKED FOR FIRST, BEFORE THE CONFLICT CHECK, so
+    # that re-asking stays idempotent for the whole life of the escalation.
+    # Nothing re-checks overlap after creation and the dates are editable, so a
+    # pair can stop clashing while its escalation is still open and unanswered;
+    # with the conflict check in front, the second call would then 400 with
+    # "these two bookings are not in conflict" about a contention the caller can
+    # see on screen, and a UI that re-posts on a double click would show it. The
+    # check still guards every NEW record below — a resolved clash cannot be
+    # escalated afresh — which is the half of it that was ever doing work.
+    #
+    # This is safe to answer before any booking is validated because
+    # `get_escalation` is tenant-scoped: a record found here belongs to this
+    # tenant, and therefore so do both its bookings.
+    existing = await get_escalation(db, lower, higher, tenant_id)
+    if existing is not None:
+        return existing
+
     await _assert_in_conflict(db, lower, higher, tenant_id)
 
     # `owner_user_id` is a client-supplied foreign key, so it is checked against
@@ -475,12 +564,11 @@ async def create_escalation(
             status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found"
         )
 
-    existing = await get_escalation(db, lower, higher, tenant_id)
-    if existing is not None:
-        return existing
-
-    # A concurrent escalation of the same clash may land between the read above
-    # and this insert; `uq_contention_pair` then refuses ours. `insert_or_reread`
+    # A concurrent escalation of the same clash may land between the `existing`
+    # read above and this insert; `uq_contention_pair` then refuses ours. That
+    # constraint is the backstop, and `test_uq_contention_pair_refuses_a_second_row_for_the_same_pair`
+    # guards the constraint itself so that deleting the race test cannot silently
+    # unguard it. `insert_or_reread`
     # hands back the row that won — the second escalator gets the first one's
     # record, which is what they would have got had the two calls not
     # overlapped. See app/core/upsert.py for why this needs a savepoint.
@@ -522,6 +610,15 @@ async def record_decision(
     answers "who decided this, and when" about the decision that stands. What it
     must never do is drift back to `open` — `escalation_state` keys on
     `decided_at`, which is only ever set here.
+
+    THAT INCLUDES THE NOTES, AND `None` IS AN ANSWER, NOT AN OMISSION. A second
+    decision passing `notes=None` clears the first one's stated reason. DECIDED,
+    NOT OVERLOOKED: this row holds the decision that stands, and a reason
+    carried over from a superseded decision would be attributed to the new one —
+    which is worse than no reason at all on a record whose purpose is an audit
+    trail. Keeping both would mean an append-only history table, which nobody
+    has asked for and which the ack precedent does not have either. If a history
+    is ever wanted, it is a new table, not a `COALESCE` here.
     """
     escalation = (await db.execute(
         select(ContentionEscalation).where(

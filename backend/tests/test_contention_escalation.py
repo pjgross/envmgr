@@ -21,10 +21,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models.booking import Booking
 from app.db.models.contention_escalation import ContentionEscalation
-from app.services import contention_service
+from app.services import conflict_service, contention_service
 from app.services.contention_service import (
     STATE_ANSWERED,
     STATE_EXPIRED,
@@ -209,6 +210,107 @@ async def test_a_second_escalation_does_not_move_the_first_ones_owner_or_deadlin
     assert contention_service._utc(again.respond_by) == FUTURE
 
 
+@pytest.mark.asyncio
+async def test_re_escalating_still_returns_the_record_once_the_pair_stops_clashing(
+    db_session, test_tenant, test_user
+):
+    """Re-asking is idempotent for the LIFE of the escalation, not just while
+    the clash lasts.
+
+    Nothing re-checks overlap after creation and the dates are editable, so a
+    pair can stop clashing while its escalation is still open and unanswered.
+    With the conflict check ahead of the existing-record lookup, the second call
+    then 400'd with "these two bookings are not in conflict" about a contention
+    the caller is looking at — and a UI that re-posts on a double click would
+    show exactly that. The check still guards every NEW record, which is the
+    half of it that was doing work.
+    """
+    a, b = await _conflicting_pair(db_session, test_tenant.id, test_user.id)
+    first = await _escalate(db_session, test_tenant, test_user, a, b)
+
+    # Move B clear of A, so the pair genuinely no longer overlaps.
+    b.start_date = END + timedelta(days=10)
+    b.end_date = END + timedelta(days=15)
+    await db_session.flush()
+    # Non-vacuous: assert the pair really has stopped clashing, or an edit that
+    # silently failed to disjoin them would leave this test asserting nothing.
+    conflicts, _total = await conflict_service.list_conflicts(
+        db_session, a.id, test_tenant.id
+    )
+    assert b.id not in {row.booking.id for row in conflicts}
+
+    again = await _escalate(db_session, test_tenant, test_user, b, a)
+
+    assert again.id == first.id
+    assert len(await _all_escalations(db_session)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_pair_that_never_clashed_still_cannot_be_escalated_afresh(
+    db_session, test_tenant, test_user
+):
+    """The other half of the reordering above, stated separately.
+
+    Returning an EXISTING record early must not weaken the check on a NEW one —
+    the conflict check has simply moved behind the lookup, not gone.
+    """
+    env = await ensure_environment(db_session, test_tenant.id)
+    early = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=START, end=END,
+    )
+    late = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=END + timedelta(days=1), end=END + timedelta(days=5),
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        await _escalate(db_session, test_tenant, test_user, early, late)
+    assert excinfo.value.status_code == 400
+    assert len(await _all_escalations(db_session)) == 0
+
+
+@pytest.mark.asyncio
+async def test_uq_contention_pair_refuses_a_second_row_for_the_same_pair(
+    db_session, test_tenant, test_user
+):
+    """THE CONSTRAINT ITSELF, with no stub and no `insert_or_reread`.
+
+    `test_a_lost_create_race_records_one_escalation` was the only thing that
+    failed when `uq_contention_pair` was removed — so deleting or rewriting that
+    test would silently unguard the constraint too, and the constraint is the
+    only thing that makes a second record for one contention IMPOSSIBLE rather
+    than merely unlikely. This asserts the database refuses it; the race test
+    then guards the RECOVERY, which is a different question.
+
+    The insert runs inside a savepoint that is rolled back, because a failed
+    flush leaves the session in a pending-rollback state on both engines and
+    poisons the transaction outright on PostgreSQL — the same reason
+    `app/core/upsert.py` uses one.
+    """
+    a, b = await _conflicting_pair(db_session, test_tenant.id, test_user.id)
+    lower, higher = normalise_pair(a.id, b.id)
+
+    def _row():
+        return ContentionEscalation(
+            tenant_id=test_tenant.id,
+            booking_id=lower,
+            other_booking_id=higher,
+            escalated_by=test_user.id,
+            owner_user_id=test_user.id,
+            respond_by=FUTURE,
+        )
+
+    savepoint = await db_session.begin_nested()
+    db_session.add(_row())
+    db_session.add(_row())
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+    await savepoint.rollback()
+
+    assert len(await _all_escalations(db_session)) == 0
+
+
 # ---------------------------------------------------------------------------
 # The state, computed from two columns and nothing else.
 # ---------------------------------------------------------------------------
@@ -297,6 +399,51 @@ async def test_the_deadline_is_compared_across_engines_without_raising(
     )
 
     assert contention_service.escalation_state(reread, NOW) == STATE_OPEN
+
+
+class _FabricatedRow:
+    """Just the two columns `escalation_state` reads.
+
+    `escalation_state` is a PURE FUNCTION, so the naive/aware hazard can be put
+    to it directly instead of via an engine that happens to produce naive values
+    — which is what makes the two tests below fail on BOTH engines, unlike the
+    round-trip test above. Not a substitute for it: that one is the only thing
+    asserting SQLite really does hand back naive values in the first place.
+    """
+
+    def __init__(self, respond_by, decided_at=None):
+        self.respond_by = respond_by
+        self.decided_at = decided_at
+
+
+def test_escalation_state_normalises_a_naive_respond_by():
+    """The STORED side, fabricated naive exactly as SQLite returns it.
+
+    Both outcomes are asserted, so the guard cannot be satisfied by a function
+    that stopped comparing at all.
+    """
+    assert contention_service.escalation_state(
+        _FabricatedRow(FUTURE.replace(tzinfo=None)), NOW
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        _FabricatedRow(PAST.replace(tzinfo=None)), NOW
+    ) == STATE_EXPIRED
+
+
+def test_escalation_state_normalises_a_naive_now():
+    """The CALLER'S side. `now` comes from whoever is rendering the row, and
+    `datetime.utcnow()` — naive — is the historically easy mistake in this
+    package. Unnormalised it raises TypeError from a READ path on both engines,
+    500-ing every row of a list with a traceback nowhere near the call site that
+    chose the wrong clock.
+    """
+    naive_now = NOW.replace(tzinfo=None)
+    assert contention_service.escalation_state(
+        _FabricatedRow(FUTURE), naive_now
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        _FabricatedRow(PAST), naive_now
+    ) == STATE_EXPIRED
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +648,115 @@ async def test_escalating_a_pair_that_is_not_in_conflict_is_refused_either_way_r
     with pytest.raises(HTTPException) as excinfo:
         await _escalate(db_session, test_tenant, test_user, late, early)
     assert excinfo.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_a_pair_is_refused_when_the_named_counterparty_is_not_the_one_clashing(
+    db_session, test_tenant, test_user
+):
+    """The check is a MEMBERSHIP question, not "does this booking clash at all".
+
+    Composing `conflicts_with` into an EXISTS is only equivalent to asking
+    `list_conflicts` and testing `higher in {...}` while the EXISTS pins the
+    counterparty's id. Without that, a booking with ANY clash on its environment
+    could be escalated against a booking it does not overlap — and the two
+    innocent-looking spellings differ only on an environment holding three
+    bookings, which no other test in this file builds.
+    """
+    env = await ensure_environment(db_session, test_tenant.id)
+    subject = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=START, end=END,
+    )
+    # A real clash for `subject`, so the EXISTS has something to find.
+    await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=START + timedelta(days=1), end=END + timedelta(days=1),
+    )
+    # The booking actually named — same environment, disjoint window.
+    bystander = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=END + timedelta(days=10), end=END + timedelta(days=15),
+    )
+
+    for pair in ((subject, bystander), (bystander, subject)):
+        with pytest.raises(HTTPException) as excinfo:
+            await _escalate(db_session, test_tenant, test_user, *pair)
+        assert excinfo.value.status_code == 400
+    assert len(await _all_escalations(db_session)) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_terminal_booking_has_no_contention_to_escalate(
+    db_session, test_tenant, test_user
+):
+    """400, from BOTH positions of the pair.
+
+    A booking in a terminal state has no conflicts by definition — that is what
+    `list_conflicts` says about its own subject, and what `conflicts_with` says
+    about the counterparty. The two are separate filters on separate rows, so
+    each side needs asking: the counterparty's lives inside `conflicts_with`,
+    and the subject's is the only one this service has to carry itself.
+    """
+    a, b = await _conflicting_pair(db_session, test_tenant.id, test_user.id)
+    a.status = "closed"
+    await db_session.flush()
+
+    for pair in ((a, b), (b, a)):
+        with pytest.raises(HTTPException) as excinfo:
+            await _escalate(db_session, test_tenant, test_user, *pair)
+        assert excinfo.value.status_code == 400
+    assert len(await _all_escalations(db_session)) == 0
+
+
+@pytest.mark.asyncio
+async def test_escalating_a_soft_deleted_booking_is_404_whichever_id_it_holds(
+    db_session, test_tenant, test_user
+):
+    """BOTH ID ORDERINGS, because one of them used to be fine.
+
+    The overlap question is asked of ONE booking about the other, and the two
+    positions are not symmetric: `conflicts_with` filters the counterparty's
+    `deleted_at`, and the subject's has to be filtered separately. While the
+    visibility check hung off the "no conflict" branch only, a pair whose
+    LOWER-id member was soft-deleted sailed through — `list_conflicts` does not
+    filter its subject's `deleted_at`, so the deleted booking still reported the
+    live one as a clash — and an escalation was created against a deleted
+    booking, naming an owner and starting a clock, with no withdraw path to
+    remove it. The identical situation with the HIGHER-id member deleted was a
+    clean 404. Two identical situations, two outcomes, decided by an id ordering
+    no user can see.
+
+    Reachable from the ordinary UI: a booking is cancelled while someone has the
+    conflicts page open, and they click Escalate.
+    """
+    lower_deleted_a, lower_deleted_b = await _conflicting_pair(
+        db_session, test_tenant.id, test_user.id, slot=1
+    )
+    higher_deleted_c, higher_deleted_d = await _conflicting_pair(
+        db_session, test_tenant.id, test_user.id, slot=2
+    )
+    # `_conflicting_pair` creates the first booking first, so the first of each
+    # tuple holds the lower id — asserted rather than assumed, because the whole
+    # point of this test is which side is deleted.
+    assert lower_deleted_a.id < lower_deleted_b.id
+    assert higher_deleted_c.id < higher_deleted_d.id
+
+    lower_deleted_a.deleted_at = datetime.now(timezone.utc)
+    higher_deleted_d.deleted_at = datetime.now(timezone.utc)
+    await db_session.flush()
+
+    for first, second in (
+        (lower_deleted_a, lower_deleted_b),
+        (lower_deleted_b, lower_deleted_a),
+        (higher_deleted_c, higher_deleted_d),
+        (higher_deleted_d, higher_deleted_c),
+    ):
+        with pytest.raises(HTTPException) as excinfo:
+            await _escalate(db_session, test_tenant, test_user, first, second)
+        assert excinfo.value.status_code == 404
+
+    assert len(await _all_escalations(db_session)) == 0
 
 
 @pytest.mark.asyncio
