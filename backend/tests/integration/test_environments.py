@@ -96,6 +96,34 @@ async def test_create_environment_duplicate_name(client: AsyncClient, auth_heade
 
 
 @pytest.mark.asyncio
+async def test_a_name_longer_than_the_column_is_refused_at_the_schema(
+    client: AsyncClient, auth_headers
+):
+    """B2: environment.name is String(200) and a tenant-supplied naming regex
+    is run against whatever arrives. Uncapped, a 100 kB name reached the
+    matcher before the column ever rejected it."""
+    assert (await post_environment(client, auth_headers, "e" * 200)).status_code == 201
+    over = await post_environment(client, auth_headers, "f" * 201)
+    assert over.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_renamed_environment_is_capped_at_the_same_length(
+    client: AsyncClient, auth_headers
+):
+    created = await post_environment(client, auth_headers, "RenameLengthEnv")
+    env_id = created.json()["id"]
+    ok = await client.patch(
+        f"/api/v1/environments/{env_id}", headers=auth_headers, json={"name": "g" * 200}
+    )
+    assert ok.status_code == 200
+    over = await client.patch(
+        f"/api/v1/environments/{env_id}", headers=auth_headers, json={"name": "h" * 201}
+    )
+    assert over.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_list_environments(client: AsyncClient, auth_headers):
     """GET /environments returns all non-deleted environments for the tenant."""
     await post_environment(client, auth_headers, "EnvAlpha")

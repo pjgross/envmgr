@@ -7,8 +7,20 @@ from app.db.models.environment import EnvironmentStatus
 from app.api.v1.schemas.system import SystemResponse
 
 
+# environment.name is String(200), and B2's naming-convention check runs a
+# tenant-supplied regex against whatever arrives here. Without this cap a
+# 100 kB body reached the matcher before the column ever rejected it, turning
+# "an admin wrote a slow pattern for their own tenant" into "anyone who can
+# rename an environment stalls the shared process" — the amplifier, not the
+# footgun. Kept as a literal rather than importing
+# environment_compliance_service.MAX_NAME_LENGTH (a schema importing a service
+# would invert the layering); the two are pinned equal, along with the column
+# itself, by test_environment_compliance_evaluator's agreement test.
+_NAME_MAX_LENGTH = 200
+
+
 class EnvironmentCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=_NAME_MAX_LENGTH)
     description: Optional[str] = None
     tier_id: int
     owner_user_id: int
@@ -27,7 +39,7 @@ class EnvironmentUpdate(BaseModel):
     # quietly ignored rather than rejected — a second, unguarded door.
     model_config = ConfigDict(extra="forbid")
 
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=_NAME_MAX_LENGTH)
     description: Optional[str] = None
     tier_id: Optional[int] = None
     owner_user_id: Optional[int] = None
