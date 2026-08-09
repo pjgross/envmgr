@@ -23,6 +23,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
+from app.core.pagination import Sort
 from app.db.models.booking import Booking
 from app.db.models.contention_escalation import ContentionEscalation
 from app.services import conflict_service, contention_service
@@ -567,6 +568,43 @@ async def test_the_state_filter_puts_the_deadline_day_in_open_not_expired(
     assert await _ids(STATE_EXPIRED, next_day) == {escalation.id}
     assert await _ids(STATE_OPEN, next_day) == set()
     assert contention_service.escalation_state(escalation, next_day) == STATE_EXPIRED
+
+
+def test_the_worklist_orders_by_a_unique_key():
+    """A STRUCTURAL ASSERTION, deliberately — the health-history precedent.
+
+    None of the three sortable columns is unique: two escalations may share a
+    `respond_by`, and `decided_at` is null on EVERY open row. So `LIMIT`/`OFFSET`
+    over that partial order is free to duplicate rows across pages and drop
+    others the moment there is a tie.
+
+    It cannot be caught behaviourally in the small — dropping
+    `.order_by(ContentionEscalation.id)` leaves every paging test green on both
+    engines, because tied rows come back in a stable order in practice. This
+    repo's rule against asserting emitted SQL is about behaviour a test CAN
+    observe; where it cannot, `environment_health_service.history_query` has
+    already settled that the clause itself is the thing to assert.
+
+    Against the SERVICE'S OWN query, not one rebuilt here — rebuilding it would
+    assert only that the test wrote a tiebreaker.
+    """
+    compiled = str(
+        contention_service.worklist_query(
+            1,
+            now=NOW,
+            sort=Sort(
+                column=contention_service.ESCALATION_SORTS["respond_by"],
+                descending=False,
+            ),
+        )
+    )
+    assert "ORDER BY" in compiled
+    assert compiled.rstrip().endswith("contention_escalation.id"), (
+        "the ORDER BY must END in a unique key, after whatever apply_sort added"
+    )
+    # And the sort itself is still in front of it — chained AFTER apply_sort,
+    # never instead of it.
+    assert "respond_by" in compiled.split("ORDER BY", 1)[1]
 
 
 # ---------------------------------------------------------------------------

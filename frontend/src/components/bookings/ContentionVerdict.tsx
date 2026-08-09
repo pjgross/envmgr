@@ -6,7 +6,9 @@
  * is resolved". An Escalate control is a request for a human decision, not a
  * gate — and even an expired escalation is rendered as a missed deadline, never
  * as a blocker. `ContentionVerdict.test.tsx`'s last describe block is the guard
- * on that, over every outcome and every escalation state.
+ * on that, over all four outcomes and all three escalation states — including
+ * the `contention-sides` line and the decision summary, which are the paths
+ * most likely to acquire copy like "this must be resolved before…".
  *
  * THREE OF THE FOUR OUTCOMES HAVE NO WINNER, and each arrives with its own
  * `reason` from the server. THIS FILE RENDERS THAT STRING. It does not compose

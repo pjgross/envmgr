@@ -504,12 +504,42 @@ describe('re-rendering with different props', () => {
 });
 
 describe('A4 advises; it never acts', () => {
-  it('disables nothing and claims to prevent nothing, on every outcome', async () => {
+  it('disables nothing and claims to prevent nothing, on every outcome and every state', async () => {
+    // ALL FOUR OUTCOMES AND ALL THREE STATES. This loop used to cover two of
+    // each while its name claimed otherwise, and the uncovered shapes were not
+    // arbitrary: `no_project` and `equal_rank` are the two outcomes that render
+    // the `contention-sides` line, and `answered` is the state that renders the
+    // decision summary and the group note — i.e. the three code paths most
+    // likely to acquire copy like "this must be resolved before…".
     for (const c of [
       contention(),
       contention({ outcome: 'unranked', winner_booking_id: null, reason: 'r' }),
+      contention({ outcome: 'no_project', winner_booking_id: null, reason: 'r' }),
+      contention({ outcome: 'equal_rank', winner_booking_id: null, reason: 'r' }),
       contention({ escalation: escalation({ state: 'expired' }) }),
       contention({ escalation: escalation({ state: 'open' }) }),
+      contention({
+        escalation: escalation({
+          state: 'answered',
+          decision_yields_booking_id: OTHER_ID,
+          decision_notes: 'Payments can slip a week',
+          decided_by: OWNER_ID,
+          decided_by_username: OWNER,
+          decided_at: '2026-09-14T10:00:00Z',
+        }),
+      }),
+      // An answered escalation on a side that is a group booking — the decision
+      // summary AND the group note rendering together.
+      contention({
+        outcome: 'no_project',
+        winner_booking_id: null,
+        reason: 'r',
+        escalation: escalation({
+          state: 'answered',
+          decision_yields_booking_id: OTHER_ID,
+          decided_at: '2026-09-14T10:00:00Z',
+        }),
+      }),
     ]) {
       const { unmount } = renderVerdict({ contention: c });
       const panel = await screen.findByTestId('contention-panel');

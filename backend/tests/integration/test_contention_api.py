@@ -271,6 +271,51 @@ async def test_the_conflicts_endpoint_carries_the_escalation_once_one_is_raised(
     assert escalation["owner_username"] == test_user.username
 
 
+@pytest.mark.asyncio
+async def test_the_conflicts_page_shows_the_escalation_from_the_higher_id_side_too(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """THE PAIR IS KEYED AS GIVEN, AND THE HIGHER-ID SIDE IS THE UNTESTED HALF.
+
+    `escalations_for_pairs` keys by the pair the CALLER holds and normalises
+    internally; its docstring says a caller that pre-normalised "would silently
+    answer nothing for every pair the caller happened to hold the other way
+    round". Every other escalation test on this endpoint opens the drawer from
+    the LOWER-id booking, so pre-normalising `conflicts.py`'s lookup survived
+    mutation.
+
+    THIS IS THE SAME ASYMMETRY THAT PRODUCED THIS BRANCH'S ONE REAL DEFECT —
+    `_assert_in_conflict` accepted or refused the same pair depending on which
+    booking held the lower id. That was fixed in the service and the identical
+    blind spot was left in the endpoint's coverage.
+
+    What it costs: open the drawer from the higher-id side of an escalated clash
+    and the escalation VANISHES — no owner, no deadline, no state — and the page
+    offers **Escalate** again on a contention that already has one.
+
+    Both directions are asserted, so a lookup broken the other way round cannot
+    pass either.
+    """
+    a, b = await _pair(db_session, test_tenant, test_user.id)
+    lower, higher = (a, b) if a.id < b.id else (b, a)
+    created = await _escalate(
+        client, auth_headers, lower.id, higher.id, owner_user_id=test_user.id
+    )
+    assert created.status_code == 201, created.text
+
+    from_lower = await _conflicts(client, auth_headers, lower.id)
+    from_higher = await _conflicts(client, auth_headers, higher.id)
+
+    for side, items in (("lower", from_lower), ("higher", from_higher)):
+        escalation = items[0]["contention"]["escalation"]
+        assert escalation is not None, (
+            f"the escalation disappeared when read from the {side}-id side"
+        )
+        assert escalation["id"] == created.json()["id"], side
+        assert escalation["owner_username"] == test_user.username, side
+        assert escalation["state"] == STATE_OPEN, side
+
+
 # ---------------------------------------------------------------------------
 # Escalating.
 # ---------------------------------------------------------------------------
@@ -488,6 +533,75 @@ async def test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403(
 
 
 @pytest.mark.asyncio
+async def test_a_bystander_escalating_an_already_escalated_pair_gets_403_not_the_record(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """THE GATE RUNS BEFORE THE LOOKUP, and this is the only test that says so.
+
+    `contentions.py` reads the existing escalation to answer a re-ask with 200
+    instead of 201, and that read DUPLICATES `create_escalation`'s own early
+    return — so a tidying pass merging the two, or simply moving the gate below
+    it, is an easy and invisible change. Measured: moving `assert_may_escalate`
+    below the `get_escalation` call leaves the whole suite green without this
+    test, because the sibling 403 test only ever posts to a pair that has NO
+    escalation and therefore still 403s on the create path.
+
+    With the two reordered, a bystander receives 200 and the WHOLE record: the
+    owner's id and username, the deadline, the state, any decision and its
+    notes, who decided it, and both bookings' environment, project and group
+    names — about a contention they have no part in. So the assertions below
+    check the body carries none of it, not merely that the status is 403.
+    """
+    owner = await _user(db_session, test_tenant, "named-decider")
+    a, b = await _pair(db_session, test_tenant, test_user.id)
+    created = await _escalate(
+        client, auth_headers, a.id, b.id, owner_user_id=owner.id
+    )
+    assert created.status_code == 201, created.text
+    await _user(db_session, test_tenant, "bystander")
+    await db_session.commit()
+    headers = await _login(client, test_tenant, "bystander", "password123")
+
+    resp = await _escalate(client, headers, a.id, b.id, owner_user_id=owner.id)
+
+    assert resp.status_code == 403, resp.text
+    # WHICH 403 — the escalate gate's own, not some unrelated refusal.
+    assert "escalate this contention" in resp.json()["detail"]
+    # AND NOTHING ABOUT THE RECORD CAME BACK WITH IT.
+    body = resp.text
+    assert "named-decider" not in body, "the owner's name leaked to a bystander"
+    assert str(created.json()["id"]) not in body
+    assert STATE_OPEN not in body
+
+
+@pytest.mark.asyncio
+async def test_the_escalate_response_names_who_asked_as_well_as_who_must_answer(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """`escalated_by` is WHO ASKED, beside who must answer.
+
+    An escalation is the audit trail of an argument, and the worklist renders
+    this as *Raised by*. Nothing asserted it: writing `escalated_by=owner_user_id`
+    instead of `current_user.id` survived mutation, and every other escalate
+    test names the caller as the owner too, so the two are indistinguishable
+    there. Here they are deliberately DIFFERENT PEOPLE.
+    """
+    owner = await _user(db_session, test_tenant, "the-decider")
+    a, b = await _pair(db_session, test_tenant, test_user.id)
+
+    resp = await _escalate(client, auth_headers, a.id, b.id, owner_user_id=owner.id)
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["escalated_by"] == test_user.id
+    assert body["escalated_by_username"] == test_user.username
+    # …and not the owner, who is the other name on the row.
+    assert body["owner_user_id"] == owner.id
+    assert body["escalated_by"] != body["owner_user_id"]
+    assert body["escalated_by_username"] != body["owner_username"]
+
+
+@pytest.mark.asyncio
 async def test_a_misspelled_key_on_the_escalate_body_is_a_422(
     client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
 ):
@@ -653,6 +767,65 @@ async def test_deciding_another_tenants_escalation_is_404_not_403(
         db_session, theirs_a.id, theirs_b.id, other_tenant.id
     )
     assert untouched.decided_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_second_decision_with_no_notes_clears_the_first_ones_reason(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """`notes: None` IS AN ANSWER, NOT AN OMISSION — stated three times, tested
+    nowhere until now.
+
+    The contract is asserted in `record_decision`'s docstring, in
+    `EscalationDecision`'s, and in the schema comment; making the assignment
+    conditional on `notes is not None` survived mutation, because NO TEST
+    RECORDS TWO DECISIONS ON ONE ESCALATION AT ALL.
+
+    What that costs: a second decision reverses the first with the notes box
+    left empty, and the superseded reason stays on the row — now rendered beside
+    the NEW decider's name and timestamp. "Recorded by alice" above bob's
+    reasoning for the opposite call, on a record whose entire purpose is an
+    audit trail.
+
+    The frontend half IS guarded (`escalationWorklist.test.tsx` asserts
+    `notes: null` goes on the wire); this is the backend end of the same seam.
+    """
+    owner = await _user(db_session, test_tenant, "first-decider")
+    a, b, escalation = await _escalation_owned_by(
+        client, auth_headers, db_session, test_tenant, test_user.id, owner.id
+    )
+    await db_session.commit()
+    owner_headers = await _login(client, test_tenant, "first-decider", "password123")
+
+    first = await client.put(
+        f"/api/v1/contention-escalations/{escalation['id']}/decision",
+        json={"yields_booking_id": b.id, "notes": "b can slip a week"},
+        headers=owner_headers,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["decision_notes"] == "b can slip a week"
+    assert first.json()["decided_by"] == owner.id
+
+    # The reversal, by somebody else, with the notes box left empty.
+    second = await client.put(
+        f"/api/v1/contention-escalations/{escalation['id']}/decision",
+        json={"yields_booking_id": a.id},
+        headers=auth_headers,
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["decision_yields_booking_id"] == a.id
+    assert second.json()["decided_by"] == test_user.id
+    assert second.json()["decision_notes"] is None, (
+        "the superseded reason would now be attributed to the new decider"
+    )
+    # …and it is CLEARED IN THE DATABASE, not merely omitted from this response.
+    listed = await client.get(
+        "/api/v1/contention-escalations", headers=auth_headers
+    )
+    row = listed.json()[0]
+    assert row["decision_notes"] is None
+    assert row["decided_by_username"] == test_user.username
 
 
 @pytest.mark.asyncio
@@ -837,6 +1010,67 @@ async def test_the_state_filter_narrows_the_page_in_sql_not_after_it(
     assert len(resp.json()) == 1
     assert _ids(resp) == {pop.open}
     assert _total(resp) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_answered_but_overdue_escalation_is_answered_and_never_expired(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """`decided_at IS NULL` IN THE EXPIRED PREDICATE — the clause nothing tested.
+
+    `state_predicate`'s docstring says it REPRODUCES `escalation_state`'s branch
+    order rather than approximating it, and that is precisely the clause with no
+    test behind it: dropping `decided_at.is_(None)` from the EXPIRED branch
+    survived mutation, because no fixture anywhere builds an escalation that is
+    answered AND overdue.
+
+    Yet answering late is an ordinary, documented outcome — the user guide says
+    so. Such a row is answered and past its deadline at once, so with the
+    predicate weakened the Expired queue fills with contentions that have
+    already been decided, each row's own chip reading **Answered** while it sits
+    under the Expired filter. That is the exact filter-vs-render disagreement
+    `state_predicate` exists to prevent.
+    """
+    a, b, escalation = await _escalation_owned_by(
+        client, auth_headers, db_session, test_tenant, test_user.id, test_user.id
+    )
+    # Overdue by a week, then answered — late, which still counts as answered.
+    row = await contention_service.get_escalation_by_id(
+        db_session, escalation["id"], test_tenant.id
+    )
+    row.respond_by = PAST
+    await db_session.flush()
+    was_expired = await client.get(
+        f"/api/v1/contention-escalations?state={STATE_EXPIRED}", headers=auth_headers
+    )
+    assert _ids(was_expired) == {escalation["id"]}, (
+        "the premise: unanswered and overdue, this row IS expired"
+    )
+
+    answered = await client.put(
+        f"/api/v1/contention-escalations/{escalation['id']}/decision",
+        json={"yields_booking_id": b.id, "notes": "late, but decided"},
+        headers=auth_headers,
+    )
+    assert answered.status_code == 200, answered.text
+    assert answered.json()["state"] == STATE_ANSWERED
+
+    expired_queue = await client.get(
+        f"/api/v1/contention-escalations?state={STATE_EXPIRED}", headers=auth_headers
+    )
+    answered_queue = await client.get(
+        f"/api/v1/contention-escalations?state={STATE_ANSWERED}", headers=auth_headers
+    )
+
+    assert expired_queue.json() == [], (
+        "a decided contention must not sit in the Expired queue with an "
+        "Answered chip on it"
+    )
+    assert _total(expired_queue) == 0
+    assert _ids(answered_queue) == {escalation["id"]}
+    assert _total(answered_queue) == 1
+    assert answered_queue.json()[0]["state"] == STATE_ANSWERED
+    assert a.id != b.id
 
 
 @pytest.mark.asyncio

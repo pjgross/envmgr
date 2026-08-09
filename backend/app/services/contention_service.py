@@ -761,6 +761,43 @@ def state_predicate(state: str, now: datetime):
     raise ValueError(f"unknown escalation state {state!r}")
 
 
+def worklist_query(
+    tenant_id: int,
+    *,
+    now: datetime,
+    sort: Optional[Sort] = None,
+    state: Optional[str] = None,
+    owner_user_id: Optional[int] = None,
+):
+    """The worklist query, EXPOSED SO ITS `ORDER BY` CAN BE ASSERTED DIRECTLY.
+
+    The tiebreaker below cannot be guarded behaviourally: dropping
+    `.order_by(ContentionEscalation.id)` leaves every paging test green on both
+    engines, because tied rows happen to come back in a stable order in
+    practice. This seam is the same one `environment_health_service.history_query`
+    exists for, and the structural assertion on it is the documented exception to
+    this repo's don't-assert-emitted-SQL rule — that rule is about behaviour a
+    test CAN observe.
+
+    Everything the endpoint asks for is built here, filters included, so the
+    assertion is made against the query the service really runs rather than one
+    the test rebuilt — which would assert only that the test wrote a tiebreaker.
+    """
+    query = select(ContentionEscalation).where(
+        ContentionEscalation.tenant_id == tenant_id,
+        ContentionEscalation.deleted_at.is_(None),
+    )
+    if state is not None:
+        query = query.where(state_predicate(state, now))
+    if owner_user_id is not None:
+        query = query.where(ContentionEscalation.owner_user_id == owner_user_id)
+    # The tiebreaker is chained AFTER apply_sort, never instead of it: none of
+    # the sortable columns is unique (two escalations may share a deadline, and
+    # `decided_at` is null on every open one), and LIMIT/OFFSET over a partial
+    # order duplicates and drops rows across pages.
+    return apply_sort(query, sort).order_by(ContentionEscalation.id)
+
+
 async def list_escalations(
     db: AsyncSession,
     tenant_id: int,
@@ -797,21 +834,17 @@ async def list_escalations(
     convention; A4 has no withdraw path by design, so a mistakenly raised
     escalation can currently only be closed by answering it, which puts a
     decision in the audit trail that nobody really made.
+
+    The query itself lives in `worklist_query` — see there for why it is a
+    separate, exposed function.
     """
-    query = select(ContentionEscalation).where(
-        ContentionEscalation.tenant_id == tenant_id,
-        ContentionEscalation.deleted_at.is_(None),
+    return await fetch_page(
+        db,
+        worklist_query(
+            tenant_id, now=now, sort=sort, state=state, owner_user_id=owner_user_id
+        ),
+        page,
     )
-    if state is not None:
-        query = query.where(state_predicate(state, now))
-    if owner_user_id is not None:
-        query = query.where(ContentionEscalation.owner_user_id == owner_user_id)
-    # The tiebreaker is chained AFTER apply_sort, never instead of it: none of
-    # the sortable columns is unique (two escalations may share a deadline, and
-    # `decided_at` is null on every open one), and LIMIT/OFFSET over a partial
-    # order duplicates and drops rows across pages.
-    query = apply_sort(query, sort).order_by(ContentionEscalation.id)
-    return await fetch_page(db, query, page)
 
 
 async def usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
