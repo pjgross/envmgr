@@ -67,9 +67,10 @@ async def _conflicting_pair(db, tenant_id, user_id, slot=1):
     """Two bookings that really are in conflict: one environment, overlapping
     windows, neither in a terminal state.
 
-    Real conflict, not a fabricated one — `create_escalation` asks
-    `conflict_service.list_conflicts` rather than re-deriving overlap, so a pair
-    built to look conflicting without being so would fail for the wrong reason.
+    Real conflict, not a fabricated one — `create_escalation` composes
+    `conflict_service.conflicts_with` (via `_pair_conflict_exists`) rather than
+    re-deriving overlap, so a pair built to look conflicting without being so
+    would fail for the wrong reason.
     """
     env = await ensure_environment(db, tenant_id, slot=slot)
     a = await make_booking(
@@ -632,8 +633,9 @@ async def test_escalating_a_pair_that_is_not_in_conflict_is_refused_either_way_r
 ):
     """The overlap question is symmetric, and so is the refusal.
 
-    `list_conflicts` is asked about ONE of the two bookings, so a pair checked
-    from one side only would depend on which id the caller passed first.
+    `conflicts_with` (via `_pair_conflict_exists`) is asked about ONE of the
+    two bookings, so a pair checked from one side only would depend on which
+    id the caller passed first.
     """
     env = await ensure_environment(db_session, test_tenant.id)
     early = await make_booking(
@@ -764,7 +766,7 @@ async def test_bookings_in_different_environments_are_not_a_contention(
     db_session, test_tenant, test_user
 ):
     """Overlapping in time is not enough — a contention is a clash over one
-    environment, and `list_conflicts` is the single definition of that."""
+    environment, and `conflicts_with` is the single definition of that."""
     a = await make_booking(
         db_session, test_tenant.id, booked_by=test_user.id,
         environment=await ensure_environment(db_session, test_tenant.id, slot=1),
@@ -857,6 +859,39 @@ async def test_an_owner_from_another_tenant_is_refused(
         )
     assert excinfo.value.status_code == 404
     assert len(await _all_escalations(db_session)) == 0
+
+
+@pytest.mark.asyncio
+async def test_re_asking_with_a_cross_tenant_owner_returns_the_existing_record_unchanged(
+    db_session, test_tenant, test_user, second_tenant_factory
+):
+    """200, not 404 — deliberately, and pinned so it cannot drift back.
+
+    The re-ask path returns the EXISTING record before `owner_user_id` is ever
+    looked at (see the comment on the `existing` early return in
+    `create_escalation`), so once a record exists, a cross-tenant — or simply
+    nonexistent — owner id on a second call is silently ignored rather than
+    validated. That is acceptable: nothing is created or reassigned from it,
+    and the response carries the record's TRUE owner, not the one just
+    supplied, so nothing is leaked and nothing needs correcting.
+    """
+    other_tenant, other_admin = await second_tenant_factory()
+    a, b = await _conflicting_pair(db_session, test_tenant.id, test_user.id)
+
+    first = await _escalate(db_session, test_tenant, test_user, a, b)
+
+    again = await contention_service.create_escalation(
+        db_session,
+        booking_id=b.id,
+        other_booking_id=a.id,
+        owner_user_id=other_admin.id,
+        respond_by=FUTURE,
+        current_user=test_user,
+        tenant_id=test_tenant.id,
+    )
+
+    assert again.id == first.id
+    assert again.owner_user_id == test_user.id
 
 
 @pytest.mark.asyncio

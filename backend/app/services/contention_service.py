@@ -544,6 +544,14 @@ async def create_escalation(
     # This is safe to answer before any booking is validated because
     # `get_escalation` is tenant-scoped: a record found here belongs to this
     # tenant, and therefore so do both its bookings.
+    #
+    # `owner_user_id` IS DELIBERATELY NOT VALIDATED ON THIS PATH. The early
+    # return below hands back the record that already exists, unchanged (see
+    # the docstring above), so a caller-supplied owner — even a nonexistent or
+    # cross-tenant one — is simply ignored rather than checked: there is
+    # nothing to leak, since the response carries the TRUE owner, not the one
+    # just supplied. Pinned by
+    # `test_re_asking_with_a_cross_tenant_owner_returns_the_existing_record_unchanged`.
     existing = await get_escalation(db, lower, higher, tenant_id)
     if existing is not None:
         return existing
