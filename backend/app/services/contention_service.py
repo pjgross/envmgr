@@ -30,6 +30,10 @@ from sqlalchemy import Exists, and_, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+# Re-exported: A DEADLINE IS A DAY has ONE owner, now in app.core so B2 can
+# share it without closing the cycle contention_service → environment_service
+# → environment_compliance_service → contention_service.
+from app.core.day_boundaries import expiry_boundary
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
@@ -252,41 +256,6 @@ def _utc(value: Optional[datetime]) -> Optional[datetime]:
     if value is None or value.tzinfo is not None:
         return value
     return value.replace(tzinfo=timezone.utc)
-
-
-def expiry_boundary(now: datetime) -> datetime:
-    """The instant a deadline becomes late: the START OF THE UTC DAY `now` is in.
-
-    A DEADLINE IS A DAY, NOT AN INSTANT, and this is the one place that decides
-    so. `respond_by` is written by a `<input type="date">` through
-    `toIsoDatetime`, which yields `"YYYY-MM-DDT00:00:00Z"` — so comparing it
-    against `now` at instant precision made an escalation read `expired` from
-    one minute past midnight on the very day it was due. The owner opening the
-    worklist at 09:00 saw "decide by 10/08/2026" beside an **Expired** chip,
-    having been given none of the day the product promised them; and because
-    `state_predicate` compares the same way, `?state=open` EXCLUDED every
-    contention due today — the queue hiding exactly the rows closest to their
-    deadline.
-
-    CALENDAR DAYS, COMPARED CONSISTENTLY — the rule this repo already paid for
-    once. `expiryDayDelta`/`isExpiryOverdue` (frontend/src/utils/dates.ts) exist
-    because `formatExpiry` reported an environment "overdue by 1 day" throughout
-    the day it actually expired, for the same reason: a floored instant delta
-    against a value stored at midnight. See CLAUDE.md's pitfall on day
-    arithmetic.
-
-    Both `escalation_state` and `state_predicate` call this, so the computed
-    state and its SQL filter cannot drift apart — the "two mechanisms enforcing
-    one outcome" shape that has repeatedly cost this branch. Portable: it
-    returns a plain instant, so the predicate needs no dialect date functions.
-
-    Normalised through `astimezone(timezone.utc)`, not `replace(...)` alone: a
-    caller holding an aware clock in another offset would otherwise get midnight
-    in THAT offset, which is a different day.
-    """
-    return _utc(now).astimezone(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
 
 
 def escalation_state(escalation: ContentionEscalation, now: datetime) -> str:
