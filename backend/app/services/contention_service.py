@@ -30,6 +30,7 @@ from sqlalchemy import Exists, and_, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
@@ -628,19 +629,11 @@ async def record_decision(
     has asked for and which the ack precedent does not have either. If a history
     is ever wanted, it is a new table, not a `COALESCE` here.
     """
-    escalation = (await db.execute(
-        select(ContentionEscalation).where(
-            ContentionEscalation.id == escalation_id,
-            ContentionEscalation.tenant_id == tenant_id,
-            ContentionEscalation.deleted_at.is_(None),
-        )
-    )).scalar_one_or_none()
-    if escalation is None:
-        # Another tenant's escalation is 404, NEVER 403 — a 403 confirms the
-        # record exists.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Escalation not found"
-        )
+    # Tenant-filtered, and another tenant's escalation is 404, NEVER 403 — a 403
+    # confirms the record exists. ONE SPELLING of that lookup, shared with the
+    # API's decision gate: two copies of a tenant filter on one path means a
+    # test cannot tell which of them it is guarding.
+    escalation = await get_escalation_by_id(db, escalation_id, tenant_id)
 
     if yields_booking_id not in (escalation.booking_id, escalation.other_booking_id):
         # BOTH members, because the pair is stored normalised: a check written
@@ -657,3 +650,309 @@ async def record_decision(
     escalation.decided_at = datetime.now(timezone.utc)
     await db.flush()
     return escalation
+
+
+# ===========================================================================
+# The API's half: the worklist query, the batch view, and the TWO PERMISSION
+# GATES.
+#
+# `create_escalation` and `record_decision` above carry no authorization —
+# they are write primitives. Every rule about WHO may ask and WHO may answer
+# lives below, and is asserted through HTTP in
+# tests/integration/test_contention_api.py.
+# ===========================================================================
+
+
+ESCALATION_SORTS = {
+    "respond_by": ContentionEscalation.respond_by,
+    "created_at": ContentionEscalation.created_at,
+    "decided_at": ContentionEscalation.decided_at,
+}
+
+
+def state_predicate(state: str, now: datetime):
+    """The three states as SQL, over the same two columns `escalation_state`
+    reads — and nothing else.
+
+    IN SQL, NEVER IN PYTHON. A worklist filtered after the page was fetched
+    would window the unfiltered set first: the rows returned would be whatever
+    the page happened to hold, and `X-Total-Count` would describe the unfiltered
+    total. `X-Total-Count` is the only evidence available from outside that this
+    ran in the query, which is why every filtered test asserts it.
+
+    THE BRANCH ORDER OF `escalation_state` IS REPRODUCED HERE, not approximated:
+    `answered` is `decided_at IS NOT NULL` with no reference to the deadline, so
+    a late answer is `answered` in the filter exactly as it is on the row. The
+    two are separate mechanisms answering one question, so every state test
+    asserts the filtered row's own computed `state` as well as its id.
+
+    `now` is the CALLER'S clock, passed in rather than taken here, so the page's
+    filter and the page's rendered states are computed from one instant. Taken
+    twice, a row whose deadline falls between the two reads would be selected as
+    open and rendered as expired.
+    """
+    if state == STATE_ANSWERED:
+        return ContentionEscalation.decided_at.is_not(None)
+    if state == STATE_EXPIRED:
+        return and_(
+            ContentionEscalation.decided_at.is_(None),
+            ContentionEscalation.respond_by < now,
+        )
+    if state == STATE_OPEN:
+        return and_(
+            ContentionEscalation.decided_at.is_(None),
+            ContentionEscalation.respond_by >= now,
+        )
+    raise ValueError(f"unknown escalation state {state!r}")
+
+
+async def list_escalations(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    now: datetime,
+    page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
+    state: Optional[str] = None,
+) -> tuple[list[ContentionEscalation], int]:
+    """The worklist: every escalation this tenant can see, plus the unwindowed
+    total.
+
+    AN ESCALATION OUTLIVES ITS BOOKINGS, so nothing here joins them or filters
+    on their state — a contention that has gone away keeps its record, and
+    `bookings_live` says so. Filtering the worklist by liveness would delete the
+    audit trail from the only screen that shows it.
+
+    `deleted_at` IS filtered: a withdrawn escalation is gone, matching
+    `get_escalation`.
+    """
+    query = select(ContentionEscalation).where(
+        ContentionEscalation.tenant_id == tenant_id,
+        ContentionEscalation.deleted_at.is_(None),
+    )
+    if state is not None:
+        query = query.where(state_predicate(state, now))
+    # The tiebreaker is chained AFTER apply_sort, never instead of it: none of
+    # the sortable columns is unique (two escalations may share a deadline, and
+    # `decided_at` is null on every open one), and LIMIT/OFFSET over a partial
+    # order duplicates and drops rows across pages.
+    query = apply_sort(query, sort).order_by(ContentionEscalation.id)
+    return await fetch_page(db, query, page)
+
+
+async def usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
+    """`user id -> username`, for rendering names on escalation rows.
+
+    DELIBERATELY NOT TENANT-QUALIFIED, and this is the trap in the whole field —
+    the rule `agreement_gap_service.ack_author_username` carries, in batch form.
+    Under master-admin impersonation `current_user.id` and
+    `current_user.active_tenant_id` belong to different tenants, so
+    `record_decision` legitimately writes a `decided_by` that sits OUTSIDE the
+    escalation's own `tenant_id`. A `User.tenant_id == tenant_id` join renders
+    that decider as nobody — the governance trail losing exactly the name it
+    exists to hold, and only under impersonation.
+    `test_the_deciders_name_resolves_from_outside_the_escalations_tenant` fails
+    with that join added. **Do not "harden" this into a tenant-qualified join.**
+
+    Not a leak: the caller's authority to see these escalations was already
+    settled by the tenant-filtered query that produced them, and a username is
+    the same thing the record's own author column already discloses.
+
+    Nor does it filter `is_active` or `deleted_at`: A1's rule is that write
+    validation filters retirement while read RENDERING does not — an archived
+    user still renders their name on the row they wrote.
+
+    Resolved SERVER-SIDE and carried with the row. The browser must not look
+    these up in the capped tenant-users collection, where a name past the cap is
+    information lost, not merely hidden (docs/pagination.md).
+    """
+    user_ids = {uid for uid in user_ids if uid is not None}
+    if not user_ids:
+        return {}
+    rows = (await db.execute(
+        select(User.id, User.username).where(User.id.in_(user_ids))
+    )).all()
+    return {uid: username for uid, username in rows}
+
+
+class EscalationView(NamedTuple):
+    """An escalation plus everything a response needs that is not a column.
+
+    Every field is COMPUTED — the state from two columns and a clock, liveness
+    from the two bookings, the names from the user table — which is why the
+    record needs no status column and A4 needs no scheduler.
+    """
+
+    escalation: ContentionEscalation
+    state: str
+    bookings_live: bool
+    owner_username: Optional[str]
+    escalated_by_username: Optional[str]
+    decided_by_username: Optional[str]
+
+
+async def escalation_views(
+    db: AsyncSession,
+    escalations: Iterable[ContentionEscalation],
+    tenant_id: int,
+    now: datetime,
+) -> dict[int, EscalationView]:
+    """`escalation id -> EscalationView`, for a whole page in two queries.
+
+    BATCH, NEVER PER ROW. Three sub-projects have now added a field to the
+    conflicts endpoint and every per-row form has had to be undone; a per-row
+    liveness or username lookup here would cost ~3N queries per page for
+    something every row needs.
+    """
+    escalations = list(escalations)
+    if not escalations:
+        return {}
+    live = await bookings_live(db, escalations, tenant_id)
+    names = await usernames_for(
+        db,
+        [
+            uid
+            for escalation in escalations
+            for uid in (
+                escalation.owner_user_id,
+                escalation.escalated_by,
+                escalation.decided_by,
+            )
+        ],
+    )
+    return {
+        escalation.id: EscalationView(
+            escalation=escalation,
+            state=escalation_state(escalation, now),
+            bookings_live=live[escalation.id],
+            owner_username=names.get(escalation.owner_user_id),
+            escalated_by_username=names.get(escalation.escalated_by),
+            decided_by_username=names.get(escalation.decided_by),
+        )
+        for escalation in escalations
+    }
+
+
+async def get_escalation_by_id(
+    db: AsyncSession, escalation_id: int, tenant_id: int
+) -> ContentionEscalation:
+    """One escalation by id, or 404.
+
+    Another tenant's escalation is 404, NEVER 403 — a 403 confirms the record
+    exists. The API's decision gate reads the row through this, so the tenant
+    filter is settled before the owner-or-Admin question is ever asked.
+    """
+    escalation = (await db.execute(
+        select(ContentionEscalation).where(
+            ContentionEscalation.id == escalation_id,
+            ContentionEscalation.tenant_id == tenant_id,
+            ContentionEscalation.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if escalation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Escalation not found"
+        )
+    return escalation
+
+
+def _is_admin(user: User) -> bool:
+    """Admin, or a master admin acting in this tenant.
+
+    Both, everywhere: the rest of the app treats `is_master_admin` as satisfying
+    an Admin bypass, and the two places that forgot (B3b's transition gate and
+    `assert_may_edit_handover`) showed a master admin a button that 403'd on
+    click.
+    """
+    return user.role == "Admin" or bool(user.is_master_admin)
+
+
+async def assert_may_escalate(
+    db: AsyncSession,
+    booking_id: int,
+    other_booking_id: int,
+    tenant_id: int,
+    current_user: User,
+) -> None:
+    """The owner or a delegate of EITHER contending booking, or an Admin.
+
+    `conflict_service._authorize_ack` is the precedent, widened to the pair: an
+    acknowledgement is one person's answer about their own booking, while a
+    contention belongs to both sides of it — and either party may legitimately
+    be the one who wants a decision. A gate written against the subject id alone
+    would refuse whichever party happened to open the other booking's drawer,
+    for a record that is symmetric by construction.
+
+    DELIBERATELY NARROWER THAN A3'S ACK, which any tenant member may record.
+    Escalating names SOMEONE ELSE as the decider and starts a clock against
+    them, so a bystander must not be able to do it to two bookings they have no
+    part in.
+
+    VISIBILITY IS SETTLED BEFORE THE 403 IS EVER RAISED, and that is what makes
+    a cross-tenant pair 404 rather than 403 — the refusal below reads
+    `BookingRequest` WITHOUT a tenant filter (the ids come from `Booking`, which
+    was just checked), so without the check above, a bystander naming two of
+    another tenant's bookings would be told "you are not the owner", which
+    confirms they exist. `test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403`
+    fails with the line removed.
+
+    Its position relative to the Admin BYPASS is, measuredly, immaterial: an
+    Admin who skipped it still hits `create_escalation`'s own check and still
+    gets a 404. It sits at the top because that is where the question belongs,
+    not because moving it changes an answer — a mutation that moved it below the
+    bypass left all 27 tests green, and this note exists so a later reader does
+    not mistake the ordering for a guarded rule.
+
+    It lives here rather than in `create_escalation` for the same reason
+    `record_decision` carries no authorization: those two are the service's
+    write primitives and are called by tests and, one day, by other services
+    with their own rules. The API is where a user's authority is decided.
+    """
+    await _assert_bookings_visible(db, (booking_id, other_booking_id), tenant_id)
+    if _is_admin(current_user):
+        return
+    requests = (await db.execute(
+        select(BookingRequest)
+        .join(Booking, Booking.booking_request_id == BookingRequest.id)
+        .where(Booking.id.in_({booking_id, other_booking_id}))
+    )).scalars().all()
+    for request in requests:
+        if current_user.id == request.booked_by:
+            return
+        if request.delegate_user_ids and current_user.id in request.delegate_user_ids:
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Only the owner or a delegate of one of these bookings, or an "
+            "admin, may escalate this contention"
+        ),
+    )
+
+
+def assert_may_decide(escalation: ContentionEscalation, current_user: User) -> None:
+    """The NAMED OWNER, or an Admin. 403 otherwise.
+
+    THE ADMIN PATH IS NOT A CONVENIENCE. A4 ships no edit and no withdraw path,
+    so an escalation naming the wrong owner — or one whose owner has since left
+    — has exactly one way out: someone with authority answers it. B3b
+    established the failure mode by shipping the opposite: gating solely on one
+    person left a workflow permanently stuck, and produced two unrecoverable
+    states.
+
+    Nobody else, though. The decision is the record of who said what should give
+    way, and a decider chosen at random by whoever clicked first is not an audit
+    trail. Note the caller need not be the owner for the record to name them:
+    `record_decision` writes `decided_by = current_user.id`, so an Admin
+    answering on someone else's behalf is visible as exactly that.
+
+    The escalation is loaded by `get_escalation_by_id`, which is tenant-filtered
+    and 404s — so a cross-tenant record never reaches this function to be
+    refused with a 403 that would confirm it exists.
+    """
+    if current_user.id == escalation.owner_user_id or _is_admin(current_user):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the named owner, or an admin, may decide this contention",
+    )
