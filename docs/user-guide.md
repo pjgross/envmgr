@@ -362,6 +362,14 @@ An escalation outlives the bookings it was about. If one or both are closed or r
 stays and is marked *no longer live* rather than disappearing — it is the record of an argument and
 who settled it.
 
+**Two group bookings that collide on several environments produce one contention per environment,
+and each is decided separately.** Nothing stops those decisions contradicting each other — "group
+A gives way on env1, group B gives way on env2" cannot both be acted on, because a group
+transitions as one unit. The rows are honest about it individually (each says what moving that
+booking would move), but nobody is told the set is unsatisfiable, so read the sibling rows before
+deciding one of them. This follows from A4 recording advice rather than acting on it: a human,
+not the system, reconciles the set.
+
 ### Usage agreement warnings
 
 If your tenant uses *Projects* (admin guide ch. 4), an Admin can record which environments each project is expected to use — a **usage agreement**, optionally with a start and end date. If you link a booking to a project and no agreement covers that project, that environment and those dates, the booking is flagged with a **usage agreement gap**.

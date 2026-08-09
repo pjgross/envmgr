@@ -366,7 +366,18 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
   which is what an escalation raised about a clash already upon someone should
   say. Answering late is still `answered`: the branch order is the rule, and
   `state_predicate` reproduces it in SQL so the worklist filter and the rendered
-  row cannot disagree.
+  row cannot disagree. **A deadline is a DAY, not an instant**: both compare
+  `respond_by` against `expiry_boundary(now)` — the start of the current UTC day
+  — because the UI writes it at `T00:00:00Z`. Compared at instant precision an
+  escalation read `expired` from one minute past midnight on its own deadline
+  day, and `?state=open` therefore hid every contention due today. Same class as
+  `formatExpiry`'s "overdue by 1 day", which the frontend settled the same way.
+- **The worklist filters by state AND by owner, both in SQL.**
+  `?owner_user_id=` (the *To decide: Mine* chip) is what makes the page usable
+  for the reader it exists for — everyone's queue is not "what I must decide".
+  Both are **filters, not permissions**: any tenant member may read the whole
+  list, and omission is the sentinel on both (no `all` value on the wire, for
+  the `buildParams` reason).
 - **One escalation per contention, keyed on the UNORDERED pair.** The pair is
   normalised (`min`, `max`) and backed by `uq_contention_pair`, so both owners
   escalating the same clash cannot create two records with two owners and two

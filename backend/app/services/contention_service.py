@@ -354,7 +354,10 @@ async def escalations_for_pairs(
     escalation with it. Keying by the NORMALISED pair instead would silently
     answer nothing for every pair the caller happened to hold the other way
     round — while the lookup itself still has to normalise, because the row is
-    stored that way.
+    stored that way. That direction now has a named guard on the endpoint too
+    (`test_the_conflicts_page_shows_the_escalation_from_the_higher_id_side_too`):
+    pre-normalising `conflicts.py`'s key used to survive mutation, because every
+    escalation test opened the drawer from the LOWER-id side.
 
     A pair with no escalation is simply ABSENT, so a caller may `.get()` its way
     to `escalation: None` without a second question — the same shape as
@@ -460,8 +463,15 @@ def _pair_conflict_exists(higher: int, tenant_id: int) -> Exists:
 
     THE OVERLAP IS NEVER RE-DERIVED HERE. `conflict_service.conflicts_with` is
     the single definition of what a clash is (same tenant, a different booking,
-    same environment, neither soft-deleted, neither terminal, half-open
-    `[start, end)` overlap), composed into an EXISTS exactly as
+    same environment, half-open `[start, end)` overlap) — and EVERY ONE OF ITS
+    PREDICATES APPLIES TO THE COUNTERPARTY ALONE: `other.tenant_id`,
+    `other.deleted_at` and `other.status`. The SUBJECT side is filtered
+    separately by the caller or not at all, which is exactly the asymmetry that
+    produced this branch's one real behavioural defect (see
+    `_assert_in_conflict` below, and the two notes there that say the same
+    thing). Do not read this as "neither soft-deleted, neither terminal": a
+    reader deciding whether a subject-side filter is redundant would be told it
+    is, and it is not. Composed into an EXISTS exactly as
     `conflict_service._unacknowledged_conflict_exists` does. A second copy of
     those rules is precisely the "two mechanisms enforcing one outcome" shape
     that has cost this codebase repeated defects.
@@ -668,7 +678,10 @@ async def record_decision(
     `decided_at`, which is only ever set here.
 
     THAT INCLUDES THE NOTES, AND `None` IS AN ANSWER, NOT AN OMISSION. A second
-    decision passing `notes=None` clears the first one's stated reason. DECIDED,
+    decision passing `notes=None` clears the first one's stated reason
+    (`test_a_second_decision_with_no_notes_clears_the_first_ones_reason`; making
+    the assignment conditional on `notes is not None` used to survive, because
+    no test recorded two decisions on one escalation at all). DECIDED,
     NOT OVERLOOKED: this row holds the decision that stands, and a reason
     carried over from a superseded decision would be attributed to the new one —
     which is worse than no reason at all on a record whose purpose is an audit
@@ -1152,8 +1165,10 @@ async def assert_may_escalate(
     Admin who skipped it still hits `create_escalation`'s own check and still
     gets a 404. It sits at the top because that is where the question belongs,
     not because moving it changes an answer — a mutation that moved it below the
-    bypass left all 27 tests green, and this note exists so a later reader does
-    not mistake the ordering for a guarded rule.
+    bypass leaves the whole contention suite green (re-measured at the final-fix
+    pass: 90 passed with it moved), and this note exists so a later reader does
+    not mistake the ordering for a guarded rule. A bare count would rot; what is
+    load-bearing is that NOTHING fails, not how many things pass.
 
     It lives here rather than in `create_escalation` for the same reason
     `record_decision` carries no authorization: those two are the service's

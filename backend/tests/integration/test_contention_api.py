@@ -1,7 +1,8 @@
 """A4 task 4: the verdict and the escalation on the API surface.
 
-A4 ADVISES; IT NEVER ACTS. `test_a_contention_changes_no_booking_behaviour` at
-the foot of this file is the guard the whole sub-project rests on — A4's
+A4 ADVISES; IT NEVER ACTS. `test_a_contention_changes_no_booking_behaviour`,
+under its own banner comment about two thirds of the way down this file, is the
+guard the whole sub-project rests on — A4's
 counterpart to A1's `test_an_agreement_changes_no_booking_behaviour`, written
 for the same reason: to catch a LATER sub-project quietly making this act.
 
@@ -506,9 +507,10 @@ async def test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403(
     THE DETAIL IS ASSERTED, NOT JUST THE STATUS. An unrouted URL answers 404
     too, and this test cannot make a successful call through the route first
     (its whole point is a caller with no authority over any pair). Measured, not
-    inferred: with the escalate POST's path renamed, 23 of this file's tests
-    fail and the status-only form of this one PASSES — and it is the ONLY test
-    that fails when `_assert_bookings_visible` is removed from
+    inferred: with the escalate POST's path renamed, most of this file fails
+    (36 of 45 at the final-fix pass; the count moves with the file, the fact
+    does not) and the status-only form of this one PASSES — and it is the ONLY
+    test that fails when `_assert_bookings_visible` is removed from
     `assert_may_escalate`, so its vacuity would leave that guard unguarded the
     day the route moves. `_assert_bookings_visible` raises "Booking not found";
     FastAPI's unrouted 404 says "Not Found", so the assertion below also pins
@@ -1222,8 +1224,9 @@ async def test_the_worklist_actually_orders_by_the_field_it_was_asked_for(
 
     The 422 above proves only that `sort_by` is VALIDATED. Measured, not
     inferred: replacing `apply_sort(query, sort)` with `apply_sort(query, None)`
-    in `list_escalations` — accept the parameter, refuse garbage, then ignore it
-    — left all 27 of this file's other tests green. The worklist grid would
+    in `worklist_query` — accept the parameter, refuse garbage, then ignore it —
+    leaves every other test in this file green (re-measured at the final-fix
+    pass: this is still the only failure). The worklist grid would
     render a sorted header over rows in `id` order and nothing would object.
     This is docs/pagination.md's rule in its own words: assert the order the user
     sees, never the SQL that was emitted.

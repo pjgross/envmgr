@@ -308,7 +308,8 @@ export default function EscalationWorklist() {
       headerName: 'Contention',
       flex: 1,
       minWidth: 260,
-      // Composed from four columns; nothing single backs it, so it cannot be
+      // Composed from five fields on the row (both sides' project and
+      // environment names, plus liveness); nothing single backs it, so it cannot be
       // whitelisted and a sortable header on it would 422 on click.
       sortable: false,
       renderCell: (params) => (

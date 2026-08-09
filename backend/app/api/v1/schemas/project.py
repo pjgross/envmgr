@@ -5,10 +5,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProjectCreate(BaseModel):
-    """`extra="forbid"`, matching every write schema written since B1 — without
-    it, a misspelled or unrecognised key (e.g. `priority_rank` before this
-    field existed here) was silently dropped: 201 Created, the caller believes
-    the value was stored, and it never was.
+    """`extra="forbid"`, matching this file's `ProjectUpdate` and the convention
+    B1 established — without it, a misspelled or unrecognised key (e.g.
+    `priority_rank` before this field existed here) was silently dropped: 201
+    Created, the caller believes the value was stored, and it never was.
+
+    NOT A CLAIM ABOUT THE REPO. Counted rather than asserted: eight write
+    schemas written since B1 still have no `extra="forbid"` —
+    `EnvironmentGroupCreate`, `UserGroupCreate`/`Update`/`MemberCreate`,
+    `EnvironmentRequestCreate`/`Transition` and
+    `EnvironmentTierCreate`/`Update` — as does `POST /tenant/lifecycle-templates`,
+    whose silent drop of `required_fields` is a recorded, unfixed defect. Saying
+    "every write schema since B1" is how those eight stay invisible.
     """
 
     model_config = ConfigDict(extra="forbid")

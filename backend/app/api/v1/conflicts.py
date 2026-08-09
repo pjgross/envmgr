@@ -63,10 +63,15 @@ async def list_conflicts(
     # plus booking_labels further down) beside the three above (group_names,
     # gaps, unanswered), never one pair at a time. Three sub-projects have now
     # added a field to this endpoint and every per-row form has had to be undone.
-    # NOT the whole story for this endpoint: `conflict_service.get_ack` in the
-    # loop below is still one query per row. That is pre-existing, not A4's, and
-    # is the only un-batched lookup left here — do not read the rule above as a
-    # statement that the endpoint as a whole is batched.
+    # NOT the whole story for this endpoint, in two ways, neither of which the
+    # rule above should be read as denying. `conflict_service.get_ack` in the
+    # loop below is still one query per row — pre-existing, not A4's, and the
+    # only un-batched lookup left here. And `booking_labels` runs TWICE per
+    # page: once below, and again inside `escalation_views` whenever at least
+    # one pair is escalated — so the three name lookups it makes each run twice,
+    # and `get_group_names` a third time, from the batch above. Constant per
+    # page rather than an N+1, recorded rather than fixed late on a long branch;
+    # the fix is to hoist one call and pass the labels in.
     #
     # The pairs are keyed AS GIVEN, `(subject, other)`, which is the contract
     # both batch functions state: `escalations_for_pairs` normalises internally,

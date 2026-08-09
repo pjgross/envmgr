@@ -6,6 +6,15 @@ Two people acknowledging the same thing inside one transaction window both see
 "no row", both INSERT, and one gets an IntegrityError — surfacing as a 500 on an
 ordinary governance action that should simply have recorded the second answer.
 
+THERE IS NOW A THIRD CALLER, AND IT INVERTS THAT INTENT.
+`contention_service.create_escalation` (A4) is not an acknowledgement service and
+deliberately does NOT apply the later writer's answer: an escalation names SOMEONE
+ELSE as the decider and starts a clock against them, so the loser of the race gets
+the winner's record UNCHANGED — **first writer wins** — rather than reassigning the
+owner and resetting the deadline. What this helper guarantees is the same either
+way (one row, no 500, the winner's row returned); what the caller does with the
+row it gets back is the caller's rule, not this one's.
+
 WHY A SAVEPOINT, AND NOT JUST `try/except`. A failed flush leaves the SQLAlchemy
 Session in a pending-rollback state on BOTH engines — every later statement
 raises PendingRollbackError until something rolls back — and PostgreSQL

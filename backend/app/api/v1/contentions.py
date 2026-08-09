@@ -70,6 +70,13 @@ async def escalate_contention(
 
     THE GATE RUNS BEFORE THE LOOKUP, so a bystander cannot use this route to
     discover whether a contention they have no part in has been escalated.
+    Guarded by name:
+    `test_a_bystander_escalating_an_already_escalated_pair_gets_403_not_the_record`
+    fails — with 200 and the whole record — if the two are reordered. It needs
+    its own test because the lookup here DUPLICATES `create_escalation`'s early
+    return, so merging or moving the two is an easy and otherwise invisible
+    change, and the sibling 403 test only ever posts to a pair that has no
+    escalation.
     """
     tenant_id = current_user.active_tenant_id
     now = datetime.now(timezone.utc)

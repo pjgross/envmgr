@@ -183,7 +183,7 @@ In `backend/app/db/models/project.py`, inside `class Project`, after `code`:
     # A4's verdict reports an unranked pair as "priority does not separate
     # these", never as a loss: treating unranked as lowest would declare the
     # entire existing estate the loser the day this ships, which is the shape
-    # B1's governance-gap chip took when it flagged every environment.
+    # B3a's governance-gap chip took when it flagged every environment.
     priority_rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 ```
 

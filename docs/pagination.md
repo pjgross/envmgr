@@ -1209,10 +1209,22 @@ has its own backend whitelist (`contention_service.ESCALATION_SORTS`: sortable `
 lives in both `ESCALATION_SORTS` and `frontend/src/constants/sortWhitelists.json`, and
 `test_sort_whitelist_contract.py` enforces the two agree.
 
-**None of the three sortable columns is unique**, which is why `list_escalations` chains
+**None of the three sortable columns is unique**, which is why the query chains
 `apply_sort(query, sort).order_by(ContentionEscalation.id)` rather than either alone: two
 escalations may share a `respond_by`, and `decided_at` is **null on every open one**, so a
-`LIMIT`/`OFFSET` over that partial order would duplicate and drop rows across pages.
+`LIMIT`/`OFFSET` over that partial order would duplicate and drop rows across pages. That
+tiebreaker has a **structural assertion**, not a behavioural one — dropping it changes nothing
+observable on either engine — so the query lives in an exposed
+`contention_service.worklist_query` and `test_the_worklist_orders_by_a_unique_key` asserts its
+`ORDER BY` ends in a unique key. Same seam, and the same documented exception to the
+don't-assert-emitted-SQL rule, as `environment_health_service.history_query` above.
+
+One more thing this endpoint records about the two CI legs, and it points the opposite way to
+the usual "SQLite cannot see this": the `decided_at` NULL-pinning assertion in
+`test_the_worklist_actually_orders_by_the_field_it_was_asked_for` is guarded **only by the
+SQLite leg** — dropping `nullsfirst`/`nullslast` from the shared `apply_sort` fails there and
+PASSES on PostgreSQL, which already sorts NULLs last on ASC. `apply_sort` is shared, so this is
+evidence for keeping both legs rather than a fact about A4.
 
 Of the three whitelisted columns the grid renders two — *Respond by* and *Decision* (`decided_at`);
 `created_at` is a valid API sort with no column of its own. Everything else the grid renders is
@@ -1377,15 +1389,22 @@ the A1, A2 and A3 passes did, by diffing the two greps' matched *lines* rather t
 counts, since a new hit and a disappearing false positive can cancel out: strip the `path:LINENO:`
 prefix from both greps' output, sort, and diff. The content diff is **one added line in each**, and
 nothing else moved — no entry disappeared, and no line-number churn beyond `conflicts.py`'s
-`@router.get(` sliding from line 99 to 153 as A4's batch lookups were inserted above it.
+`@router.get(` sliding from line 99 to 156 as A4's batch lookups were inserted above it.
 
 A4's two other new routes are invisible to both counts and neither is a list: `POST
 /bookings/{booking_id}/contentions/{other_id}/escalate` and `PUT
 /contention-escalations/{escalation_id}/decision` both return a single `EscalationRead`. What A4
 adds to this document's subject matter beyond the one endpoint is **four batched lookups on an
 already-bounded endpoint**: `GET /bookings/{booking_id}/conflicts` now calls `verdicts_for_pairs`,
-`escalations_for_pairs`, `escalation_views` and `booking_labels` once each for the whole page,
-never per row — the N+1 shape three sub-projects have now had to undo on that endpoint. They sit
+`escalations_for_pairs`, `escalation_views` and `booking_labels` for the whole page rather than
+per row — the N+1 shape three sub-projects have now had to undo on that endpoint. **Not "once
+each", though, and the exception is the expensive one**: `conflicts.py` calls `booking_labels`
+directly AND `escalation_views` calls it again for the same page whenever at least one pair is
+escalated, so `get_environment_names`, `get_project_names` and `get_group_names` each run
+**twice** — and `get_group_names` a **third** time, from the endpoint's own group-name batch.
+Still constant per page rather than an N+1, which is why it is recorded here rather than fixed
+late on a 21-commit branch; the fix is to hoist one `booking_labels` call above both consumers,
+ticketed with `get_ack` below. They sit
 beside the three batches that were already there (`get_group_names`,
 `gap_warnings_for_bookings`, `bookings_with_unacknowledged_conflicts`). **It is not fully batched
 even so, and the code says so**: `conflict_service.get_ack` is still one query per row inside the

@@ -105,7 +105,7 @@ return **null with a reason, never `[]`**.
 Two consequences, both deliberate:
 
 - **A ranked project does NOT beat an unranked one.** Tempting, but it declares the entire
-  existing estate the loser on first deploy — the shape B1's governance-gap chip took when it
+  existing estate the loser on first deploy — the shape B3a's governance-gap chip took when it
   flagged every environment and looked exactly like a bug.
 - **Two bookings from the same project never separate** (`equal_rank` by construction). Correct:
   A4 is *project*-aware contention, and intra-project scheduling is not a priority question.
@@ -180,12 +180,19 @@ text the UI labels "Purpose". The counterparty's project could only have been re
 row — the N+1 the paragraph above exists to forbid. So `ContentionRead` also carries
 `booking_project_name` and `other_project_name` (keyed **as given**, subject then row), and
 `EscalationRead` carries `booking_environment_name` / `booking_project_name` /
-`other_booking_environment_name` / `other_booking_project_name` (keyed by the **stored,
-normalised** pair, since a worklist reader is party to neither side). All resolved by one
-batched `contention_service.booking_labels`, through `project_service.get_project_names` and
-`environment_service.get_environment_names`.
+`other_booking_environment_name` / `other_booking_project_name` — **and
+`booking_group_name` / `other_booking_group_name`** (keyed by the **stored, normalised** pair,
+since a worklist reader is party to neither side). All resolved by one batched
+`contention_service.booking_labels`, through **three** read-rendering lookups:
+`project_service.get_project_names`, `environment_service.get_environment_names` and
+`environment_group_service.get_group_names`.
 
-Two properties of those two resolvers are load-bearing rather than inherited: **neither filters
+The group name was added last and is the most load-bearing of the six, not the least: A2
+transitions a group booking **atomically**, so a Decide dialog offering "Payments Rebuild on
+Staging gives way" about one member of a five-environment group booking describes a consequence
+that is not the one that happens — and the worklist is where the decision is actually made.
+
+Two properties of those resolvers are load-bearing rather than inherited: **neither filters
 `deleted_at`**, which is what puts an archived project's NAME beside a verdict saying its link
 cannot be resolved — the only way `REASON_PROJECT_UNRESOLVABLE` is readable — and both are
 tenant-qualified, so a request pointing at another tenant's project renders no name. Likewise

@@ -44,7 +44,10 @@ class Project(Base):
     # A4's verdict reports an unranked pair as "priority does not separate
     # these", never as a loss: treating unranked as lowest would declare the
     # entire existing estate the loser the day this ships, which is the shape
-    # B1's governance-gap chip took when it flagged every environment.
+    # B3a's governance-gap chip took when it flagged every environment. (B3a,
+    # not B1: B1's `governance_gap` was a missing OWNER only, and its import
+    # sets one — B3a widened it to owner OR operations group with no backfill,
+    # which is what made it match the whole estate on first deploy.)
     priority_rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     team_group_id: Mapped[Optional[int]] = mapped_column(

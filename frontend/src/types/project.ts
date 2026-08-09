@@ -29,6 +29,11 @@ export interface ProjectCreate {
   description?: string | null;
   team_group_id?: number | null;
   is_active?: boolean;
+  // Settable on create as well as update, though the New Project dialog has no
+  // rank field. `POST /projects` silently DISCARDED this until a browser pass
+  // caught it, and `ProjectCreate` is `extra="forbid"` now — so the two sides of
+  // this schema drifting apart is exactly how that comes back.
+  priority_rank?: number | null;
 }
 
 export interface ProjectUpdate {
