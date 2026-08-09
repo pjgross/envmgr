@@ -116,3 +116,28 @@ unreachable RSC issue. Revisit once a release above 8.2.0 ships.
   Note the two parsers are not interchangeable: HCL gives *declared* resources — no computed
   values, no resource ids — so scanning `.tf` and importing `.tfstate` for the same
   infrastructure will not produce identical rows.
+
+## Added 2026-08-09 — environment naming conventions (Phase 7 B2)
+
+- **`regex` 2026.7.19** — the mrab-regex engine, for its per-match `timeout=` argument.
+  Already in the tree as a `python-hcl2` transitive; this **promotes it to a direct
+  dependency**, so it adds no new supply-chain surface, only a declared reliance on it.
+  Clean on the audit gate (`no unaccepted advisories across 59 packages`).
+
+  The reason is that `re` has no per-match timeout. B2's environment naming pattern is
+  written by a **tenant admin** and evaluated in the shared multi-tenant process — on every
+  environment write and once per row of a tenant-wide sweep — so every match has to be
+  bounded or one tenant's regex pins the server for all of them. Two earlier designs bounded
+  only the *policy save*, with a subprocess probe, and left the write path and the sweep with
+  no bound at all. `regex` is a syntax superset of `re`, so patterns written for one work in
+  the other, and `environment_compliance_service` imports exactly one engine — there is no
+  second opinion anywhere for the first to disagree with.
+
+  **The swap opens a hole of its own, and it is worse than the one it closes.** `regex`
+  expands bounded repeats at **compile** time where `re` does not, and no match timeout
+  covers compilation: `(((a{1000}){1000}){1000})` is 25 characters, well inside the pattern
+  length cap, and compiles under `re` in 0.2 ms while taking unbounded time and memory under
+  `regex` — memory exhaustion takes the container down rather than failing one request. That
+  is what `MAX_REPEAT_WEIGHT` exists for, checked before `regex.compile` is ever called. Any
+  future change to this dependency, or to the guard, has to keep the compile-time ceiling and
+  the per-match timeout together; either alone leaves the service exposed.

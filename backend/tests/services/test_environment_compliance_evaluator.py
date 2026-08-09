@@ -1,3 +1,4 @@
+import logging
 import time
 
 import pytest
@@ -8,10 +9,20 @@ from app.db.models.environment_naming_policy import EnvironmentNamingPolicy
 from app.services import environment_compliance_service as svc
 
 # An ordinary "segments separated by optional hyphens" convention — the kind a
-# well-meaning admin writes. Polynomial backtracking: ~0.005s against a
-# 28-character name, ~3s at 100, >90s at 200. The old 28-character probe
-# accepted it.
+# well-meaning admin writes. Catastrophic under `re` (>90s against a
+# 200-character name), microseconds under `regex`, which is the point of the
+# engine swap. Kept, with its two transliterations below, because these are the
+# patterns the two earlier probes waved through.
 POLYNOMIAL_PATTERN = r"[a-z]*-?[a-z]*-?[a-z]*-?[a-z]*-?[a-z]*-?[a-z]*-(dev|uat|prod)"
+POLYNOMIAL_UPPER = r"[A-Z]*-?[A-Z]*-?[A-Z]*-?[A-Z]*-?[A-Z]*-?[A-Z]*-(DEV|UAT|PROD)"
+POLYNOMIAL_DIGITS = r"[0-9]*-?[0-9]*-?[0-9]*-?[0-9]*-?[0-9]*-?[0-9]*-(dev|uat|prod)"
+
+# Patterns `regex` really is slow on, verified by measurement rather than by
+# reputation. `(a+)+$` and friends are NOT among them — `regex` optimises those
+# away, which is exactly why a probe can no longer be the safety boundary.
+SLOW_LOWER = r"(a|a)*$"
+SLOW_UPPER = r"(A|A)*$"
+SLOW_DIGITS = r"(1|1)*$"
 
 
 def _policy(**kw) -> EnvironmentNamingPolicy:
@@ -124,17 +135,61 @@ async def test_an_empty_pattern_skips_the_probe_too():
 
 
 # ---------------------------------------------------------------------------
-# The ReDoS probe
+# One bounded engine
 # ---------------------------------------------------------------------------
 
 
-def test_the_probe_subject_is_as_long_as_a_name_can_be():
-    """The C1 hole was a 28-character probe measuring a cost the matcher never
-    pays. Probe width and column width are now the same number by
+def test_there_is_exactly_one_matching_call_site():
+    """The whole design rests on one engine with one opinion.
+
+    Read the source rather than trusting a comment: `re` must not be imported
+    at all, and `fullmatch` must appear exactly once outside a docstring — in
+    `name_matches`.
+    """
+    import inspect
+
+    source = inspect.getsource(svc)
+    code = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "import re\n" not in code and "import re " not in code
+    assert code.count("fullmatch(") == 1, "more than one matcher call site"
+    assert "fullmatch(" in inspect.getsource(svc.name_matches)
+
+
+def test_every_match_is_handed_the_timeout():
+    """The bound is the engine's, not ours — so the argument has to be there.
+
+    Dropping `timeout=` leaves every functional test green and every match
+    unbounded again, which is precisely how the last two rounds shipped.
+    """
+    import inspect
+
+    body = inspect.getsource(svc.name_matches)
+    assert "timeout=svc.MATCH_TIMEOUT_SECONDS" in body.replace("svc.", "") or (
+        "timeout=MATCH_TIMEOUT_SECONDS" in body
+    )
+
+
+def test_the_probe_subjects_are_as_long_as_a_name_can_be():
+    """The first review's hole was a 28-character probe measuring a cost the
+    matcher never pays. Probe width and column width are the same number by
     construction."""
     assert svc.MAX_NAME_LENGTH == 200
-    assert len(svc._PROBE_STRING) == svc.MAX_NAME_LENGTH
     assert Environment.__table__.c.name.type.length == svc.MAX_NAME_LENGTH
+    for label, subject in svc._PROBE_SUBJECTS.items():
+        assert len(subject) == svc.MAX_NAME_LENGTH, label
+
+
+def test_the_probe_covers_more_than_one_alphabet():
+    """The second review's hole: 200 lowercase 'a's measures only patterns
+    written over 'a'. Every uppercase or digit convention escaped it."""
+    subjects = "".join(svc._PROBE_SUBJECTS.values())
+    assert any(c.islower() for c in subjects)
+    assert any(c.isupper() for c in subjects)
+    assert any(c.isdigit() for c in subjects)
+    assert "-" in subjects
+    assert len(svc._PROBE_SUBJECTS) >= 4
 
 
 def test_the_api_schemas_cap_the_name_at_the_same_length():
@@ -151,53 +206,104 @@ def test_the_api_schemas_cap_the_name_at_the_same_length():
         assert svc.MAX_NAME_LENGTH in limits, model.__name__
 
 
+def test_a_name_longer_than_the_column_is_never_handed_to_the_matcher():
+    """The spreadsheet import calls create_environment_record directly, so the
+    schema cap does not cover it. A 201-character name fully matches `[a-z]+`,
+    so the only way to answer False is to short-circuit on length."""
+    assert svc.name_matches(r"[a-z]+", "a" * svc.MAX_NAME_LENGTH) is True
+    assert svc.name_matches(r"[a-z]+", "a" * (svc.MAX_NAME_LENGTH + 1)) is False
+
+
+# ---------------------------------------------------------------------------
+# A pattern that cannot be evaluated is NO PATTERN, never a refusal
+# ---------------------------------------------------------------------------
+
+
+def test_a_pattern_that_times_out_evaluates_to_none_not_false():
+    """B2 must not mark an environment non-compliant because the server ran out
+    of time on its own admin's regex."""
+    policy = _policy(name_pattern=SLOW_LOWER)
+    subject = "a" * (svc.MAX_NAME_LENGTH - 1) + "!"
+    assert svc.name_matches(SLOW_LOWER, subject) is None
+    assert svc.evaluate_name(policy, subject) is None
+
+
+def test_a_pattern_that_times_out_refuses_nothing():
+    """The other direction: a user's save must not fail because their admin
+    wrote a slow pattern. `assert_name_allowed` tests `is not False`, so None
+    is accepted; a truth test here would refuse."""
+    policy = _policy(name_pattern=SLOW_LOWER)
+    subject = "a" * (svc.MAX_NAME_LENGTH - 1) + "!"
+    svc.assert_name_allowed(policy, submitted=subject, stored="something else")
+
+
+def test_an_unevaluable_pattern_is_logged_at_error_with_tenant_and_pattern(caplog):
+    """Failing open silently would hide a broken convention forever."""
+    policy = _policy(tenant_id=4242, name_pattern=SLOW_LOWER)
+    with caplog.at_level(logging.ERROR, logger=svc.__name__):
+        svc.evaluate_name(policy, "a" * (svc.MAX_NAME_LENGTH - 1) + "!")
+    assert caplog.records, "nothing logged"
+    message = caplog.records[-1].getMessage()
+    assert "4242" in message
+    assert SLOW_LOWER in message
+
+
+def test_a_stored_pattern_that_cannot_compile_is_no_pattern_rather_than_a_500():
+    """Nothing re-validates a pattern on read, and Task 6 runs the stored one
+    once per environment. A row written straight into the database must degrade
+    to 'no pattern applies', not raise out of a sweep."""
+    policy = _policy(name_pattern="[unclosed")
+    assert svc.evaluate_name(policy, "anything") is None
+    svc.assert_name_allowed(policy, submitted="anything", stored="other")
+
+
+def test_a_stored_repeat_bomb_is_no_pattern_rather_than_a_hang():
+    """The read path gets the compile ceiling too, or the sweep is the hole."""
+    policy = _policy(name_pattern=r"(((a{1000}){1000}){1000})")
+    started = time.perf_counter()
+    assert svc.evaluate_name(policy, "anything") is None
+    assert time.perf_counter() - started < 1.0
+
+
+# ---------------------------------------------------------------------------
+# The save-time probe
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_a_catastrophic_pattern_is_refused_by_the_probe():
-    """The pattern runs in the shared server process, so one catastrophic
-    pattern pins a worker for EVERY tenant and Python's `re` has no timeout."""
+async def test_a_pattern_slow_on_lower_case_is_refused():
     with pytest.raises(HTTPException) as exc:
-        await svc.validate_pattern_async(r"(a+)+$", None)
+        await svc.validate_pattern_async(SLOW_LOWER, None)
     assert exc.value.status_code == 422
     assert "too slow" in exc.value.detail.lower()
 
 
 @pytest.mark.asyncio
-async def test_a_polynomial_pattern_that_is_cheap_at_28_characters_is_refused():
-    """C1. Exponential blowup is obvious at any length; POLYNOMIAL blowup is
-    5ms at 28 characters and over 90 seconds at 200, and it is the shape a
-    well-meaning admin actually writes."""
-    assert svc.name_matches(POLYNOMIAL_PATTERN, "a" * 27 + "!") is False  # cheap
+async def test_a_pattern_slow_only_on_UPPER_CASE_is_refused():
+    """Round two's hole, in one test. `(A|A)*$` costs microseconds against 200
+    lowercase 'a's and never terminates against 200 'A's. Delete the upper-case
+    probe subject and this is the test that fails."""
     with pytest.raises(HTTPException) as exc:
-        await svc.validate_pattern_async(POLYNOMIAL_PATTERN, None)
+        await svc.validate_pattern_async(SLOW_UPPER, None)
     assert exc.value.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_a_polynomial_pattern_of_the_a_star_family_is_refused():
-    """`a*a*a*a*a*a*b` — 53s at 200 characters, milliseconds at 28."""
-    with pytest.raises(HTTPException):
-        await svc.validate_pattern_async(r"a*a*a*a*a*a*b", None)
+async def test_a_pattern_slow_only_on_digits_is_refused():
+    """Same hole, digits. A build-number naming convention is not exotic."""
+    with pytest.raises(HTTPException) as exc:
+        await svc.validate_pattern_async(SLOW_DIGITS, None)
+    assert exc.value.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_the_probe_measures_fullmatch_not_search():
-    """`(a+)+` (no `$`) is the discriminating case: `search` finds a match at
-    offset 0 instantly, `fullmatch` never terminates. If the child ever drifts
-    to `search` it would measure a cost `name_matches` does not pay, and wave
-    this through."""
-    with pytest.raises(HTTPException):
-        await svc.validate_pattern_async(r"(a+)+", None)
-
-
-@pytest.mark.asyncio
-async def test_the_guard_returns_promptly_rather_than_hanging():
-    """The point of killing a child instead of abandoning a thread: a refused
-    pattern costs the timeout and nothing more."""
+async def test_the_probe_returns_promptly_rather_than_hanging():
+    """Five bounded matches, so a refusal costs at most five budgets."""
     started = time.perf_counter()
     with pytest.raises(HTTPException):
-        await svc.validate_pattern_async(POLYNOMIAL_PATTERN, None)
+        await svc.validate_pattern_async(SLOW_LOWER, None)
     elapsed = time.perf_counter() - started
-    assert elapsed < svc._PROBE_TIMEOUT_SECONDS + 2.0, elapsed
+    assert elapsed < len(svc._PROBE_SUBJECTS) * svc.MATCH_TIMEOUT_SECONDS + 1.0, elapsed
 
 
 @pytest.mark.asyncio
@@ -206,18 +312,212 @@ async def test_an_ordinary_pattern_passes_the_probe():
 
 
 @pytest.mark.asyncio
-async def test_an_ordinary_pattern_costs_little_more_than_interpreter_startup():
-    """~13ms measured. If this ever approaches the timeout, the probe has
+async def test_an_ordinary_pattern_costs_microseconds():
+    """Five 200-character matches. If this approaches one budget the probe has
     stopped being free at policy-save frequency."""
     started = time.perf_counter()
     await svc.validate_pattern_async(r"[a-z]+-(dev|uat|prod)-\d{2}", None)
-    assert time.perf_counter() - started < svc._PROBE_TIMEOUT_SECONDS
+    assert time.perf_counter() - started < svc.MATCH_TIMEOUT_SECONDS
 
 
-def test_a_name_longer_than_the_column_is_never_handed_to_the_matcher():
-    """The probe proves a bound at 200 characters and no further, and every
-    caller of name_matches is synchronous and on the event loop. A 201-character
-    name fully matches `[a-z]+`, so the only way to answer False is to
-    short-circuit on length before compiling anything against it."""
-    assert svc.name_matches(r"[a-z]+", "a" * svc.MAX_NAME_LENGTH) is True
-    assert svc.name_matches(r"[a-z]+", "a" * (svc.MAX_NAME_LENGTH + 1)) is False
+# ---------------------------------------------------------------------------
+# The patterns that escaped the two earlier probes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param(r"(a+)+$", id="the-textbook-exponential"),
+        pytest.param(r"(a+)+", id="unanchored-textbook-exponential"),
+        pytest.param(r"(x+)+$", id="round-two-the-error-messages-own-example"),
+        pytest.param(r"(A+)+$", id="round-two-upper-case"),
+        pytest.param(r"(1+)+$", id="round-two-digits"),
+        pytest.param(POLYNOMIAL_PATTERN, id="round-one-polynomial"),
+        pytest.param(POLYNOMIAL_UPPER, id="round-two-polynomial-upper-case"),
+        pytest.param(POLYNOMIAL_DIGITS, id="round-two-polynomial-digits"),
+        pytest.param(r"a*a*a*a*a*a*b", id="round-one-a-star-family"),
+    ],
+)
+async def test_the_patterns_that_escaped_are_now_HARMLESS_not_merely_refused(pattern):
+    """These are the exact patterns two rounds of review found escaping, and
+    the honest outcome is not "they are now refused" — it is that they are no
+    longer dangerous.
+
+    `regex` optimises every one of them away, so all nine are ACCEPTED at save
+    time and each evaluates in microseconds against every probe alphabet. Under
+    `re` the same patterns cost 90 seconds or never terminated. Asserting a
+    refusal here would be asserting a behaviour the engine does not have and
+    does not need to have.
+
+    What makes the class dead is not this list. It is that the match is
+    bounded whatever the pattern — pinned by the timeout tests above, which use
+    patterns `regex` genuinely is slow on.
+    """
+    await svc.validate_pattern_async(pattern, None)
+    for label, subject in svc._PROBE_SUBJECTS.items():
+        started = time.perf_counter()
+        verdict = svc.name_matches(pattern, subject)
+        elapsed = time.perf_counter() - started
+        assert verdict is not None, f"{pattern!r} timed out on {label}"
+        assert elapsed < svc.MATCH_TIMEOUT_SECONDS, f"{pattern!r} slow on {label}"
+
+
+# ---------------------------------------------------------------------------
+# Compilation: the one hole the engine swap opens
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param(r"(((a{1000}){1000}){1000})", id="three-levels-of-1000"),
+        pytest.param(r"(a{1000}){1000}", id="two-levels-of-1000"),
+        pytest.param(r"((a{100}){100})", id="two-levels-of-100"),
+        pytest.param(r"a{1000000}", id="one-flat-million"),
+    ],
+)
+async def test_a_repeat_bomb_is_refused_before_it_is_compiled(pattern):
+    """`regex` EXPANDS bounded repeats at compile time where `re` does not, and
+    no timeout covers compilation. Twenty-six characters of
+    `(((a{1000}){1000}){1000})` costs `re` 0.2ms and costs `regex` unbounded
+    time and hundreds of megabytes — a container killer, strictly worse than
+    the request-level stall the swap removes.
+
+    The assertion on elapsed time is the real one: the refusal has to happen
+    BEFORE `regex.compile` sees the pattern, not after.
+    """
+    started = time.perf_counter()
+    with pytest.raises(HTTPException) as exc:
+        await svc.validate_pattern_async(pattern, None)
+    assert exc.value.status_code == 422
+    assert time.perf_counter() - started < 1.0, "the bomb was compiled"
+
+
+def test_the_repeat_ceiling_counts_NESTING_not_every_count_in_the_pattern():
+    """`a{1000}b{1000}` and `(a{1000}){1000}` have the same naive product and
+    costs three orders of magnitude apart — siblings add, nesting multiplies.
+    A product of every count in the pattern cannot tell them apart, and would
+    refuse ordinary conventions to catch bombs."""
+    assert svc._repeat_weight(r"(a{1000}){1000}") == 1_000_000
+    assert svc._repeat_weight(r"a{1000}b{1000}") == 2000
+    # Realistic conventions all land in the low hundreds, far under the ceiling.
+    for pattern in (
+        r"[a-z]+-(dev|uat|prod)-\d{2}",
+        r"[a-z]{1,50}-[a-z]{1,50}-[a-z]{1,50}",
+        r"(?:[a-z]{1,20}-){1,10}(dev|uat|prod)",
+        r"[a-z]{1,200}",
+        POLYNOMIAL_PATTERN,
+    ):
+        assert svc._repeat_weight(pattern) <= svc.MAX_REPEAT_WEIGHT, pattern
+
+
+def test_the_weight_scan_does_not_read_braces_it_should_not():
+    """It is a conservative scanner, not a parser, but a `{` inside an escape
+    or a character class is not a quantifier and must not be counted as one."""
+    assert svc._repeat_weight(r"a\{1000\}") <= svc.MAX_REPEAT_WEIGHT
+    assert svc._repeat_weight(r"[{1000}]x") <= svc.MAX_REPEAT_WEIGHT
+    # A malformed pattern must not make the scan raise — the compiler is what
+    # rejects it, and this runs first.
+    for pattern in ("[unclosed", "((((", "a{", "a{,}", ")("):
+        svc._repeat_weight(pattern)
+
+
+# ---------------------------------------------------------------------------
+# I-2: a tenant-supplied pattern must never be an HTTP 500
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_enormous_repeat_count_is_a_422_not_an_overflowerror():
+    """`re.compile('a{4294967296}')` raises OverflowError, which sailed past an
+    `except re.error` and reached the client as a 500."""
+    for call in (
+        lambda: svc.validate_pattern("a{4294967296}", None),
+        svc.validate_pattern_async("a{4294967296}", None),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            result = call() if callable(call) else await call
+            assert result is None
+        assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_pattern_containing_a_space_is_accepted_not_a_500():
+    """Recorded in review as a ValueError. It is not: 'a b' is a perfectly
+    ordinary regex under both engines and always was. The 500 belonged to the
+    subprocess, which no longer exists."""
+    await svc.validate_pattern_async("a b", None)
+    assert svc.name_matches("a b", "a b") is True
+
+
+@pytest.mark.asyncio
+async def test_a_pattern_containing_a_lone_surrogate_is_not_a_500():
+    """This one was real: the probe passed the pattern to a child process as
+    argv, and encoding '\\ud800' as UTF-8 raised UnicodeEncodeError out of the
+    endpoint. In-process there is nothing to encode."""
+    await svc.validate_pattern_async("a\ud800b", None)
+    assert svc.name_matches("a\ud800b", "a\ud800b") is True
+
+
+@pytest.mark.asyncio
+async def test_no_tenant_supplied_pattern_escapes_as_a_non_http_error():
+    """The general rule behind the three cases above. Anything a tenant can
+    type is either accepted or a 422 — never an unhandled exception."""
+    hostile = [
+        "a{4294967296}",
+        "a b",
+        "a\ud800b",
+        "[unclosed",
+        "*a",
+        "a{2,1}",
+        r"(?P<1>a)",
+        r"\p{NotARealProperty}",
+        r"(?#unterminated",
+        "(" * 200,
+        "\\",
+        "\x00",
+        r"(?<=a*)b",
+        r"[a-\d]",
+        "(((a{1000}){1000}){1000})",
+        SLOW_LOWER,
+    ]
+    for pattern in hostile:
+        try:
+            await svc.validate_pattern_async(pattern, None)
+        except HTTPException as e:
+            assert e.status_code == 422, pattern
+        # Anything else propagates and fails the test, which is the assertion.
+
+
+def test_the_stored_pattern_path_cannot_raise_either(caplog):
+    """Same list, but through the read path, which has no HTTPException to hide
+    behind: every one has to produce a verdict of None and refuse nothing.
+
+    PAIRED WITH A SUBJECT, because unevaluability is a property of the pattern
+    AND the name together, not of the pattern alone. Every entry but the last is
+    unusable whatever it is handed — it cannot compile, or it blows the length
+    or expansion ceiling before compilation is attempted. `SLOW_LOWER` is the
+    exception: it compiles cleanly and answers in microseconds against a short
+    name, so pairing it with 'dev-01' asserted None on a pattern that correctly
+    returns False. It needs the full-width subject that actually makes it
+    backtrack, which is the same one the timeout tests above use.
+    """
+    wide = "a" * (svc.MAX_NAME_LENGTH - 1) + "!"
+    hostile = [
+        ("a{4294967296}", "dev-01"),
+        ("[unclosed", "dev-01"),
+        ("*a", "dev-01"),
+        (r"(?P<1>a)", "dev-01"),
+        ("(((a{1000}){1000}){1000})", "dev-01"),
+        ("a" * 501, "dev-01"),
+        (SLOW_LOWER, wide),
+    ]
+    with caplog.at_level(logging.ERROR, logger=svc.__name__):
+        for pattern, subject in hostile:
+            assert svc.evaluate_name(_policy(name_pattern=pattern), subject) is None
+            svc.assert_name_allowed(
+                _policy(name_pattern=pattern), submitted=subject, stored="other"
+            )
