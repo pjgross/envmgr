@@ -8,6 +8,17 @@ export interface ProjectResponse {
   team_group_name: string | null;
   environment_count: number;
   is_active: boolean;
+  // A4's contention priority. LOWER WINS; null means unranked, a real state,
+  // not "not yet loaded".
+  //
+  // Required here even though `ProjectResponse.priority_rank` IS defaulted
+  // (`Optional[int] = None`): the default is what the field carries when a
+  // project has no rank, not permission to omit the key. FastAPI serialises it
+  // on every response, exactly as it does for `code` and `description` above,
+  // both of which are likewise required-and-nullable here. Optional in TS would
+  // mean "the server might not send this", which is a different and untrue
+  // claim.
+  priority_rank: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +29,11 @@ export interface ProjectCreate {
   description?: string | null;
   team_group_id?: number | null;
   is_active?: boolean;
+  // Settable on create as well as update, though the New Project dialog has no
+  // rank field. `POST /projects` silently DISCARDED this until a browser pass
+  // caught it, and `ProjectCreate` is `extra="forbid"` now — so the two sides of
+  // this schema drifting apart is exactly how that comes back.
+  priority_rank?: number | null;
 }
 
 export interface ProjectUpdate {
@@ -26,6 +42,12 @@ export interface ProjectUpdate {
   description?: string | null;
   team_group_id?: number | null;
   is_active?: boolean;
+  // `number | null`, key omitted to mean "leave alone" — the backend keys on
+  // model_fields_set, so only an explicit null clears the rank, the same
+  // contract `team_group_id` already has. Not in Task 5's own file list but
+  // added here because Task 6 (the project admin rank field) modifies
+  // ProjectDetail.tsx, not this file, and has nothing else to add it to.
+  priority_rank?: number | null;
 }
 
 export interface UsageAgreementResponse {

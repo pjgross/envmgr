@@ -284,6 +284,92 @@ Booking a group is **not** shorthand for hand-picking its current members yourse
 
 Conflicts surface live in the new-booking dialog as you set the dates, and on the booking detail in the *Conflicts* panel after creation. A conflict is any other non-rejected booking on the **same environment** whose window overlaps yours. If either side requested exclusive use, the conflict is **blocking** (creation fails with HTTP 409). If both sides are shared, the conflict is a **warning** — the booking is created and gets an unacknowledged-conflicts indicator until the booker (or a delegate) acknowledges it. On a blocking conflict, pick a different window, drop the exclusive flag if shared use will do, or ask the existing booker to release their slot.
 
+### Project priority and contention
+
+Under each conflicting booking in the *Conflicts* panel there is a *Project priority* line. It is
+**advice about which of the two projects outranks the other, and nothing else**. Nothing is moved,
+cancelled or rescheduled because of it, no button is disabled, and no approval depends on it — the
+line tells you what the tenant's recorded priorities say, and you and the other booker still decide
+what to do.
+
+What the line can say:
+
+- **"Mortgage Replatform outranks Payments Rebuild"** — both bookings are linked to projects, both
+  projects have a priority rank, and the ranks differ. Lower ranks win: rank 1 is the highest.
+- **"No winner — at least one project has no priority rank"** — the projects resolve, but at least
+  one has no rank recorded. This means **priority does not separate these two**; it does *not* mean
+  the unranked one loses. A ranked project does not beat an unranked one.
+- **"No winner — at least one booking is not linked to a project"** — one or both bookings have no
+  *Project* set, so there is nothing to compare. This is the commonest case.
+- **"No winner — at least one booking's project is archived or belongs to another tenant"** — the
+  booking names a project that can no longer be resolved. The project's name may still be printed
+  underneath, because deleted projects keep rendering their name on the rows that reference them;
+  that pairing is the clue, not a contradiction.
+- **"No winner — both projects have the same priority rank"** — both ranked, equally.
+
+Where the winner is not named, a second line shows which project is on each side, so you can see
+who to talk to. Ranks are set by an Admin on the project's own page; the line is recomputed every
+time the page loads, so a rank change shows up on your next reload with nothing to re-run.
+
+### Contention escalations
+
+If the two of you cannot agree, you can **ask a named person to decide** — click *Escalate* on the
+conflict, choose the decision owner, and set a *Respond by* date (it defaults to three working days
+out). The button appears on *your* booking's page if you are its booker or a delegate, and on any
+booking if you are an Admin. The other booker sees the same contention, with the same button, on
+their own booking's page — the server accepts an escalation from either side.
+
+**Escalating asks a person; it does not change either booking.** It records the ask, the owner and
+the deadline. Nothing is moved or cancelled at any point — not when you escalate, not when the
+decision is recorded, not when the deadline passes. Acting on a decision stays with the team that
+owns the booking, through the ordinary transition controls.
+
+A contention has **one** escalation, however many people click *Escalate*. If somebody has already
+raised it, clicking again shows you their record rather than creating a second one with a different
+owner and a different clock — and it will not reassign the owner or reset the deadline. There is no
+edit or withdraw; if the wrong person was named, or that person has left, an Admin can answer it
+instead.
+
+Every escalation, and its answer, is listed at **Environment Management → Contention Escalations**
+(`/contentions`). Any tenant member can read the page; the *Decide* button appears only for the
+named owner and for Admins. Each row shows both sides by project and environment, who must decide,
+who raised it, the deadline, and one of three states.
+
+Two sets of chips narrow the list: **State**, and **To decide** — *Anyone* or *Mine*. *Mine* shows
+only the contentions you have been named to decide, which is what makes the page usable once a
+tenant has more than a handful. Both narrow the query itself, so the count beside the pages
+describes what you filtered to, and both are filters rather than permissions: the whole list stays
+readable, and whether you can *answer* a row is a separate question.
+
+The three states are:
+
+- **Open** — not yet answered, deadline still ahead. **The deadline day itself counts as open all
+  day**: an escalation due today is in the *Open* queue until midnight, not the *Expired* one.
+- **Answered** — a decision has been recorded. Answering after the deadline still counts as
+  answered; the decision arrived, and that is the fact worth keeping.
+- **Expired** — the deadline day has passed with no answer. It is a missed deadline, not a failure,
+  and nothing was blocked by it. The state is worked out when the page loads, so no job has to run
+  for it to appear.
+
+Recording a decision means picking which booking should give way and, optionally, writing why. Both
+are recorded against your name and the time. A later decision overwrites the earlier one entirely —
+including the reason, so if you leave the notes empty on a second decision the first one's reason is
+cleared rather than carried over. **If the booking that gives way is one environment of a group
+booking, moving it moves every environment in that group** — the dialog says so on the option
+itself, because the group transitions as one unit.
+
+An escalation outlives the bookings it was about. If one or both are closed or removed, the row
+stays and is marked *no longer live* rather than disappearing — it is the record of an argument and
+who settled it.
+
+**Two group bookings that collide on several environments produce one contention per environment,
+and each is decided separately.** Nothing stops those decisions contradicting each other — "group
+A gives way on env1, group B gives way on env2" cannot both be acted on, because a group
+transitions as one unit. The rows are honest about it individually (each says what moving that
+booking would move), but nobody is told the set is unsatisfiable, so read the sibling rows before
+deciding one of them. This follows from A4 recording advice rather than acting on it: a human,
+not the system, reconciles the set.
+
 ### Usage agreement warnings
 
 If your tenant uses *Projects* (admin guide ch. 4), an Admin can record which environments each project is expected to use — a **usage agreement**, optionally with a start and end date. If you link a booking to a project and no agreement covers that project, that environment and those dates, the booking is flagged with a **usage agreement gap**.

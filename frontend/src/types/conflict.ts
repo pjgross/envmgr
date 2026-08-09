@@ -1,4 +1,5 @@
 import type { EnvBookingSummary } from './bookingRequest';
+import type { Contention } from './contention';
 
 export type ConflictAck = {
   willing_to_share: boolean | null;
@@ -9,6 +10,11 @@ export type ConflictAck = {
 
 export type ConflictItem = {
   other_booking: EnvBookingSummary;
+  // REQUIRED — the backend always sends it (ConflictItem.contention has no
+  // Pydantic default). An optional field here would make the type lie about
+  // that contract, the way `has_unacknowledged_conflicts` stayed dead at
+  // every construction site for months once it was allowed to be omitted.
+  contention: Contention;
   ack: ConflictAck | null;
 };
 

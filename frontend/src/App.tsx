@@ -23,6 +23,9 @@ const BuildDetail = lazy(() => import('./pages/builds/BuildDetail'));
 const BuildList = lazy(() => import('./pages/builds/BuildList'));
 const ChangeRequestDetail = lazy(() => import('./pages/change-requests/ChangeRequestDetail'));
 const ChangeRequestList = lazy(() => import('./pages/change-requests/ChangeRequestList'));
+const ContentionEscalations = lazy(
+  () => import('./pages/contentions/EscalationWorklist')
+);
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const DeploymentDetail = lazy(() => import('./pages/deployments/DeploymentDetail'));
 const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
@@ -219,6 +222,7 @@ function App() {
             <Route path="/bookings/calendar" element={<BookingCalendar />} />
             <Route path="/bookings/list" element={<BookingList />} />
             <Route path="/bookings/:id" element={<BookingDetail />} />
+            <Route path="/contentions" element={<ContentionEscalations />} />
             <Route path="/change-requests" element={<ChangeRequestList />} />
             <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
             <Route path="/releases" element={<ReleaseList />} />

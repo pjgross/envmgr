@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5,7 +7,8 @@ from app.core.pagination import Page, pagination, set_total_count
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.services import (
-    agreement_gap_service, conflict_service, environment_group_service,
+    agreement_gap_service, conflict_service, contention_service,
+    environment_group_service,
 )
 from app.api.v1.schemas.conflict import (
     ConflictAckUpsert,
@@ -15,6 +18,7 @@ from app.api.v1.schemas.conflict import (
     UserRef,
     RequestContextRef,
 )
+from app.api.v1.schemas.contention import ContentionRead
 from app.api.v1.schemas.booking_request import EnvBookingSummary
 
 router = APIRouter(prefix="/bookings", tags=["conflicts"])
@@ -54,11 +58,63 @@ async def list_conflicts(
     unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
         db, [c.booking.id for c in others], current_user.active_tenant_id
     )
+    # A4's verdict and its escalation, BATCHED OVER THE PAGE — four calls
+    # (verdicts_for_pairs, escalations_for_pairs and escalation_views below,
+    # plus booking_labels further down) beside the three above (group_names,
+    # gaps, unanswered), never one pair at a time. Three sub-projects have now
+    # added a field to this endpoint and every per-row form has had to be undone.
+    # NOT the whole story for this endpoint, in two ways, neither of which the
+    # rule above should be read as denying. `conflict_service.get_ack` in the
+    # loop below is still one query per row — pre-existing, not A4's, and the
+    # only un-batched lookup left here. And `booking_labels` runs TWICE per
+    # page: once below, and again inside `escalation_views` whenever at least
+    # one pair is escalated — so the three name lookups it makes each run twice,
+    # and `get_group_names` a third time, from the batch above. Constant per
+    # page rather than an N+1, recorded rather than fixed late on a long branch;
+    # the fix is to hoist one call and pass the labels in.
+    #
+    # The pairs are keyed AS GIVEN, `(subject, other)`, which is the contract
+    # both batch functions state: `escalations_for_pairs` normalises internally,
+    # so the caller must NOT pre-normalise or half its lookups would miss.
+    now = datetime.now(timezone.utc)
+    pairs = [(booking_id, c.booking.id) for c in others]
+    verdicts = await contention_service.verdicts_for_pairs(
+        db, pairs, current_user.active_tenant_id
+    )
+    escalations = await contention_service.escalations_for_pairs(
+        db, pairs, current_user.active_tenant_id
+    )
+    # The liveness and the names an EscalationRead needs, batched the same way.
+    # `views`, not `escalation_views` — a local of the service function's own
+    # name makes `views.get(...)` below read as a call into the service, and a
+    # later edit dropping the `contention_service.` prefix would fail
+    # confusingly. Matches `contentions.py`.
+    views = await contention_service.escalation_views(
+        db, escalations.values(), current_user.active_tenant_id, now
+    )
+    # WHICH PROJECTS ARE ARGUING, by name. A verdict names a winning BOOKING and
+    # the screen has to name the winning PROJECT — and no other field here can
+    # supply it: `EnvBookingSummary.project_name` below is the request's free
+    # text ("Purpose"), not the linked project. Batched over the page beside the
+    # six batches above (group_names, gaps, unanswered, verdicts, escalations,
+    # views), never per row.
+    #
+    # THE SUBJECT IS IN THE SET TOO. Its own project is one half of every line
+    # on this page, and it is not among `others`.
+    labels = await contention_service.booking_labels(
+        db,
+        [booking_id, *(c.booking.id for c in others)],
+        current_user.active_tenant_id,
+    )
+    subject_project_name = labels.get(
+        booking_id, contention_service.NO_LABEL
+    ).project_name
     items: list[ConflictItem] = []
     for c in others:
         ack = await conflict_service.get_ack(
             db, booking_id, c.booking.id, current_user.active_tenant_id
         )
+        escalation = escalations.get((booking_id, c.booking.id))
         items.append(ConflictItem(
             other_booking=EnvBookingSummary(
                 id=c.booking.id,
@@ -72,6 +128,12 @@ async def list_conflicts(
                 environment_group_name=group_names.get(c.booking.environment_group_id),
                 **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
                 **conflict_service.conflict_fields(c.booking.id in unanswered),
+            ),
+            contention=ContentionRead.from_verdict(
+                verdicts[(booking_id, c.booking.id)],
+                views.get(escalation.id) if escalation else None,
+                subject_project_name,
+                labels.get(c.booking.id, contention_service.NO_LABEL).project_name,
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))

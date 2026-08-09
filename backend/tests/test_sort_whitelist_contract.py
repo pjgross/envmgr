@@ -20,6 +20,7 @@ from app.api.v1.incidents import INCIDENT_SORTS
 from app.api.v1.infrastructure_components import INFRASTRUCTURE_SORTS
 from app.api.v1.releases import RELEASE_SORTS
 from app.api.v1.systems import SYSTEM_SORTS
+from app.services.contention_service import ESCALATION_SORTS
 from app.services.environment_request_service import REQUEST_SORTS
 
 CONTRACT = (
@@ -42,6 +43,12 @@ WHITELISTS = {
     "deployments": (DEPLOYMENT_SORTS, "deployed_at", "desc"),
     "builds": (BUILD_SORTS, "commit_timestamp", "desc"),
     "environment-requests": (REQUEST_SORTS, "created_at", "desc"),
+    # Registered by A4 task 6, the day `EscalationWorklist.tsx` landed — the
+    # entry the comment below used to reserve. `GET /contention-escalations`
+    # takes sorting(ESCALATION_SORTS, default="respond_by") with no
+    # `default_dir`, so the shared "asc" applies, and the grid sorts it
+    # server-side.
+    "contention-escalations": (ESCALATION_SORTS, "respond_by", "asc"),
     # "tenant-groups" is deliberately absent, the same way "environment-tiers"
     # is: USER_GROUP_SORTS and the endpoint's sorting() stay in place as a
     # valid API contract, but UserGroups.tsx renders a client-side DataGrid

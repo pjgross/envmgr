@@ -25,6 +25,7 @@ import {
   fetchProject,
   fetchProjectAgreements,
   fetchProjectGapBookingCount,
+  updateProject,
 } from '../../store/projectSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 
@@ -91,6 +92,14 @@ export default function ProjectDetail() {
   const [addError, setAddError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
+  // A4's priority rank. Held as the raw string the input carries so that EMPTY
+  // is distinguishable from 0: empty means "unrank this project" and is sent as
+  // an explicit null, while `Number('')` is 0, which the backend refuses
+  // (`ge=1`) and which would read as the highest rank there is.
+  const [rankDraft, setRankDraft] = useState('');
+  const [rankError, setRankError] = useState<string | null>(null);
+  const [savingRank, setSavingRank] = useState(false);
+
   useEffect(() => {
     if (projectIdIsValid) {
       // Fetched directly rather than read off the list slice: a deep link or
@@ -101,6 +110,60 @@ export default function ProjectDetail() {
       dispatch(fetchProjectGapBookingCount(projectId));
     }
   }, [dispatch, projectId, projectIdIsValid]);
+
+  // Seeded from whichever project is actually loaded, keyed on its id — not on
+  // `project`, whose identity changes on every refetch and would throw away an
+  // edit in progress. Null renders as an empty box, which is the same thing it
+  // means on the wire: no rank.
+  const loadedProjectId = project?.id;
+  const loadedRank = project?.priority_rank ?? null;
+  useEffect(() => {
+    setRankDraft(loadedRank === null ? '' : String(loadedRank));
+    setRankError(null);
+  }, [loadedProjectId, loadedRank]);
+
+  const handleSaveRank = async () => {
+    setRankError(null);
+    // AN EXPLICIT NULL, never an omitted key. The backend keys on
+    // `model_fields_set`, so an omitted `priority_rank` means "leave alone" —
+    // an empty box that sent nothing would silently keep the old rank. Same
+    // contract B1 gave `expires_at` and A1 gave `team_group_id`.
+    const trimmed = rankDraft.trim();
+    let rank: number | null = null;
+    if (trimmed !== '') {
+      const parsed = Number(trimmed);
+      // AN UNPARSEABLE DRAFT MUST NOT BE SENT. `Number('abc')` is `NaN`, and
+      // `NaN` SERIALISES TO JSON `null` — which is this field's wire form for
+      // "unrank this project". So the one bad input would silently CLEAR the
+      // rank rather than being refused, the same silent failure the explicit
+      // null above exists to prevent, arriving from the opposite direction.
+      // Only integrality is checked here: `ge=1` is the server's rule and its
+      // refusal is the one the user should read.
+      if (!Number.isInteger(parsed)) {
+        setRankError(
+          'A priority rank is a whole number — 1 is highest. Leave it empty for no rank.'
+        );
+        return;
+      }
+      rank = parsed;
+    }
+    setSavingRank(true);
+    const result = await dispatch(
+      updateProject({
+        id: projectId,
+        data: { priority_rank: rank },
+      })
+    );
+    setSavingRank(false);
+    if (updateProject.rejected.match(result)) {
+      // `payload`, not `error.message`: the slice already routes this through
+      // formatApiError in rejectWithValue, and `error.message` is the generic
+      // "Request failed with status code 422".
+      setRankError(result.payload ?? 'Failed to save the priority rank');
+      return;
+    }
+    dispatch(fetchProject(projectId));
+  };
 
   const handleAddAgreement = async () => {
     if (!selectedEnvironmentId) return;
@@ -235,6 +298,63 @@ export default function ProjectDetail() {
           '— no team'
         )}
       </Typography>
+
+      <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
+        Contention Priority
+      </Typography>
+      {/* A4 ADVISES; IT NEVER ACTS. A rank decides which project's booking
+          OUGHT to give way when two clash; nothing anywhere moves, refuses or
+          reschedules a booking because of it. An admin typing a priority into a
+          governance screen may reasonably expect otherwise, so the page says
+          it. */}
+      <Alert severity="info" sx={{ mb: 2 }} data-testid="priority-rank-advisory">
+        A priority rank is used when two projects' bookings clash on the same environment:
+        it says whose booking ought to give way. Nothing is moved, refused or rescheduled
+        because of it — the verdict is advice, shown beside the clash, and a human still
+        decides.
+      </Alert>
+      {rankError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {rankError}
+        </Alert>
+      )}
+      {canWrite ? (
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 2, flexWrap: 'wrap' }}>
+          <TextField
+            label="Priority rank"
+            type="number"
+            size="small"
+            value={rankDraft}
+            onChange={(e) => setRankDraft(e.target.value)}
+            inputProps={{ min: 1, step: 1 }}
+            sx={{ width: 200 }}
+            // THE DIRECTION IS THE WHOLE POINT. A bare integer whose direction
+            // a reader has to guess is a defect generator: guess it backwards
+            // and every contention is decided backwards, confidently, with
+            // nothing to notice it. The backend refuses 0 and negatives; it
+            // cannot refuse a 9 that was meant to be a 1.
+            helperText="1 is highest. Leave empty for no rank."
+            FormHelperTextProps={{ 'data-testid': 'priority-rank-help' } as never}
+          />
+          <Button
+            variant="outlined"
+            size="small"
+            sx={{ mt: 0.5 }}
+            onClick={handleSaveRank}
+            disabled={savingRank}
+          >
+            Save rank
+          </Button>
+        </Box>
+      ) : (
+        // Same read/write split as the rest of this page: the project is
+        // readable by any tenant member, writes are require_tenant_admin().
+        <Typography color="text.secondary" sx={{ mb: 2 }} data-testid="priority-rank-readonly">
+          {/* "Not ranked" rather than 0 — null is a real state, and A4 treats
+              it as one: a ranked project does NOT beat an unranked one. */}
+          Priority rank: {project?.priority_rank ?? 'not ranked'} (1 is highest)
+        </Typography>
+      )}
 
       <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
         Usage Agreements

@@ -1123,6 +1123,7 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 | `GET /environment-groups` | `environment_group_service.list_groups` — new with the A2 environment-groups branch, likewise postdates the 51/28/24 counts **‖** | 1000 |
 | `GET /environment-groups/{group_id}/members` | `environment_group_service.list_members`, row variant — group direction, same branch **‖** | 1000 |
 | `GET /environments/{id}/groups` | `environment_group_service.list_groups_for_environment`, row variant — environment direction, same branch **‖**; the read behind `EnvironmentGroupsPanel`'s "Member of" | 1000 |
+| `GET /contention-escalations` | `contention_service.list_escalations` — new with the A4 project-contention branch, likewise postdates the 51/28/24 counts **※**; `X-Total-Count` set, ordered `apply_sort(...)` then a `ContentionEscalation.id` tiebreaker | 1000 |
 
 **†** `membership` is a special case: the endpoint returns `{"current": ..., "history": [...]}`,
 not a bare array, so it was never part of the `list[...]` count above or below. `current` is at
@@ -1200,7 +1201,50 @@ paginates and sorts environment groups server-side. `GET /environment-groups/{gr
 and `GET /environments/{id}/groups` take no `sort_by` at all, like `/tenant/groups/{group_id}/members`
 — no `sorting()` dependency, always returned in whatever order their query builds.
 
-Two more endpoints ship on the same branch and are worth noting even though neither takes a row in
+**※** `GET /contention-escalations` (`backend/app/api/v1/contentions.py`), added by sub-project A4,
+has its own backend whitelist (`contention_service.ESCALATION_SORTS`: sortable `respond_by`,
+`created_at`, `decided_at`; default `respond_by` asc) wired through `sorting()`. It is the
+**second** post-C1 addition that **is** in the two-sided `WHITELISTS`/JSON contract, after
+`environment-requests` — `EscalationWorklist.tsx` renders `sortingMode="server"`, so its entry
+lives in both `ESCALATION_SORTS` and `frontend/src/constants/sortWhitelists.json`, and
+`test_sort_whitelist_contract.py` enforces the two agree.
+
+**None of the three sortable columns is unique**, which is why the query chains
+`apply_sort(query, sort).order_by(ContentionEscalation.id)` rather than either alone: two
+escalations may share a `respond_by`, and `decided_at` is **null on every open one**, so a
+`LIMIT`/`OFFSET` over that partial order would duplicate and drop rows across pages. That
+tiebreaker has a **structural assertion**, not a behavioural one — dropping it changes nothing
+observable on either engine — so the query lives in an exposed
+`contention_service.worklist_query` and `test_the_worklist_orders_by_a_unique_key` asserts its
+`ORDER BY` ends in a unique key. Same seam, and the same documented exception to the
+don't-assert-emitted-SQL rule, as `environment_health_service.history_query` above.
+
+One more thing this endpoint records about the two CI legs, and it points the opposite way to
+the usual "SQLite cannot see this": the `decided_at` NULL-pinning assertion in
+`test_the_worklist_actually_orders_by_the_field_it_was_asked_for` is guarded **only by the
+SQLite leg** — dropping `nullsfirst`/`nullslast` from the shared `apply_sort` fails there and
+PASSES on PostgreSQL, which already sorts NULLs last on ASC. `apply_sort` is shared, so this is
+evidence for keeping both legs rather than a fact about A4.
+
+Of the three whitelisted columns the grid renders two — *Respond by* and *Decision* (`decided_at`);
+`created_at` is a valid API sort with no column of its own. Everything else the grid renders is
+**permanently unsortable** and is marked `sortable: false`. `state` is computed from two columns and a clock (`escalation_state`), so no
+column backs it — its *filter* (`?state=open|answered|expired`) is applied in SQL by
+`state_predicate`, which reproduces `escalation_state`'s branch order rather than approximating it,
+precisely so the page's filter and the page's rendered states cannot disagree. `bookings_live` is a
+second query over the two bookings; the three username columns are joined from `user`; and the
+*Contention* column composes four fields into one cell. The `state` filter's "no selection" is
+**omission** — there is deliberately no `all` value on the wire and the URL spells it `any`, since
+`buildParams` drops a filter valued `all` as its own sentinel and the grid would never refetch (the
+`ScopeWindowsTable` hazard, again).
+
+The endpoint's **second** filter, `?owner_user_id=`, follows the same two rules: applied in SQL
+(the *Mine* chip narrows the query, never the fetched page — `X-Total-Count` is the only evidence
+from outside that it did) and omitted rather than spelled, with the URL saying `anyone`. It is a
+**filter, not a permission**: any tenant member may read the whole worklist, and who may *answer* a
+row is settled on the decision route.
+
+Two more endpoints ship on the A2 branch and are worth noting even though neither takes a row in
 the table above: `POST /booking-requests/{request_id}/groups/{group_id}/transition` and
 `GET /booking-requests/{request_id}/groups/{group_id}/allowed-transitions` both declare
 `response_model=list[...]` (`list[BookingResponse]` and `list[AllowedTransitionResponse]`
@@ -1333,6 +1377,41 @@ grid's `agreement_gap` column is computed after the page is fetched and is a thi
 point 2's permanently-unsortable set (see *What sub-project C3 must honour*). As with the last
 four passes, the groups below have **not** been re-checked against either count; treat both
 figures as of this paragraph's own date.
+
+**As of the A4 branch (2026-08-09), the first grep returns 63 and `set_total_count(response`
+returns 47 — a delta of exactly +1 on each.** The "62"/"46" recorded immediately above was **not**
+stale going in: checked against this branch's merge-base with `main` (`edc2de3e`), the counts there
+are exactly 62 and 46, matching the document, so this is a clean delta rather than a correction.
+Both new hits are the same endpoint, `GET /contention-escalations` in
+`backend/app/api/v1/contentions.py` — A4's only `GET` returning a list, `pagination()`-bound and
+`set_total_count`-ing from the start (**※** in the "Bounded so far" table above). Confirmed the way
+the A1, A2 and A3 passes did, by diffing the two greps' matched *lines* rather than trusting the
+counts, since a new hit and a disappearing false positive can cancel out: strip the `path:LINENO:`
+prefix from both greps' output, sort, and diff. The content diff is **one added line in each**, and
+nothing else moved — no entry disappeared, and no line-number churn beyond `conflicts.py`'s
+`@router.get(` sliding from line 99 to 156 as A4's batch lookups were inserted above it.
+
+A4's two other new routes are invisible to both counts and neither is a list: `POST
+/bookings/{booking_id}/contentions/{other_id}/escalate` and `PUT
+/contention-escalations/{escalation_id}/decision` both return a single `EscalationRead`. What A4
+adds to this document's subject matter beyond the one endpoint is **four batched lookups on an
+already-bounded endpoint**: `GET /bookings/{booking_id}/conflicts` now calls `verdicts_for_pairs`,
+`escalations_for_pairs`, `escalation_views` and `booking_labels` for the whole page rather than
+per row — the N+1 shape three sub-projects have now had to undo on that endpoint. **Not "once
+each", though, and the exception is the expensive one**: `conflicts.py` calls `booking_labels`
+directly AND `escalation_views` calls it again for the same page whenever at least one pair is
+escalated, so `get_environment_names`, `get_project_names` and `get_group_names` each run
+**twice** — and `get_group_names` a **third** time, from the endpoint's own group-name batch.
+Still constant per page rather than an N+1, which is why it is recorded here rather than fixed
+late on a 21-commit branch; the fix is to hoist one `booking_labels` call above both consumers,
+ticketed with `get_ack` below. They sit
+beside the three batches that were already there (`get_group_names`,
+`gap_warnings_for_bookings`, `bookings_with_unacknowledged_conflicts`). **It is not fully batched
+even so, and the code says so**: `conflict_service.get_ack` is still one query per row inside the
+item loop. That is pre-existing, not A4's, and is recorded here so the batching note above is not
+read as a claim about the endpoint as a whole. As with the last five passes, the
+groups below have **not** been re-checked against either count; treat both figures as of this
+paragraph's own date.
 
 `membership` still never appears in that 51: it returns a dict, not a bare array, so the count
 never saw it before the fix and doesn't now. It is documented in the bounded table above (flagged

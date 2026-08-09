@@ -19,6 +19,16 @@ describe('visibleNavGroups', () => {
     ]);
   });
 
+  it('shows the contention worklist to a regular user', () => {
+    // The worklist is readable by any tenant member, deliberately: a decider
+    // needs to see the queue they are in, and everyone else needs to see that a
+    // clash they are party to has been put to someone. Who may ANSWER one is a
+    // different question, settled on the row.
+    expect(childLabels(regular, 'Environment Management')).toContain(
+      'Contention Escalations'
+    );
+  });
+
   it('hides Release Templates from a regular user', () => {
     expect(childLabels(regular, 'Release Management')).not.toContain('Release Templates');
   });
