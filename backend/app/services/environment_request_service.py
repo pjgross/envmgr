@@ -27,7 +27,11 @@ from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.user import User
 from app.db.models.user_group import UserGroup, UserGroupMember
-from app.services import environment_service, lifecycle_service
+from app.services import (
+    environment_compliance_service,
+    environment_service,
+    lifecycle_service,
+)
 from app.services.environment_request_defaults import ENTITY_TYPE
 
 
@@ -696,6 +700,13 @@ async def _fulfil_new_environment(
     # drift apart.
     await environment_service.assert_name_available(db, tenant_id, req.proposed_name)
 
+    # B2: fulfilment RECORDS the verdict and never refuses. An approved request
+    # that cannot be fulfilled is an unrecoverable state — the exact class B3b
+    # produced twice, and there is no un-approve path to escape it with. The
+    # pattern is checked at SUBMIT time instead, while the name is still
+    # correctable by the person who chose it.
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
+
     env = Environment(
         tenant_id=tenant_id,
         name=req.proposed_name,
@@ -705,6 +716,9 @@ async def _fulfil_new_environment(
         expires_at=req.expires_at,
         operations_group_id=req.operations_group_id,
         status=EnvironmentStatus.INACTIVE,
+        name_compliant=environment_compliance_service.evaluate_name(
+            policy, req.proposed_name
+        ),
     )
     db.add(env)
     try:
@@ -748,6 +762,20 @@ async def transition(
 
     if to_state == "submitted":
         await _assert_routable(db, req, tenant_id)
+        if req.proposed_name:
+            # B2's refusal for this entity, placed at the LAST moment the name
+            # is still correctable by its author. Fulfilment cannot refuse (see
+            # `_fulfil_new_environment`), so if the name is not judged here it
+            # is never judged on a path that can do anything about it.
+            #
+            # `stored=None` because a request's proposed name has no previous
+            # value to be grandfathered against — the carve-out that keeps a
+            # policy from freezing the existing estate does not apply to a name
+            # being proposed for the first time.
+            policy = await environment_compliance_service.load_policy(db, tenant_id)
+            environment_compliance_service.assert_name_allowed(
+                policy, req.proposed_name, None
+            )
 
     created: Optional[Environment] = None
     if to_state == "fulfilled" and req.kind == "new_environment":

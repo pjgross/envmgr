@@ -30,7 +30,7 @@ from app.api.v1.schemas.environment import (
 )
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
-from app.services import user_group_service
+from app.services import environment_compliance_service, user_group_service
 
 
 @dataclass
@@ -338,6 +338,19 @@ async def assert_name_available(
 async def create_environment(
     db: AsyncSession, data: EnvironmentCreate, tenant_id: int
 ) -> Environment:
+    """The API create path — and the only create path that REFUSES a
+    non-conforming name.
+
+    The refusal lives here rather than in `create_environment_record` because
+    the spreadsheet import calls that function directly, per row, inside an
+    `except (ValueError, ValidationError)`. An HTTPException raised from there
+    escapes that handler and aborts the ENTIRE upload — a failure this codebase
+    has already shipped once — so one non-conforming row would throw away every
+    other row in the file. The record path still stores the verdict; it simply
+    does not refuse. See test_environment_compliance_write_paths.py.
+    """
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
+    environment_compliance_service.assert_name_allowed(policy, data.name, None)
     return await create_environment_record(
         db,
         tenant_id,
@@ -378,6 +391,10 @@ async def create_environment_record(
     await _validate_client_foreign_keys(
         db, tenant_id, tier_id, owner_user_id, operations_group_id
     )
+    # B2: RECORD the verdict, never refuse it. `create_environment` above owns
+    # the refusal for the interactive path; the spreadsheet import reaches this
+    # function directly and must not lose a whole upload to one bad row.
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
     env = Environment(
         name=name,
         description=description,
@@ -388,6 +405,7 @@ async def create_environment_record(
         status=env_status,
         tenant_id=tenant_id,
         custom_fields=custom_fields,
+        name_compliant=environment_compliance_service.evaluate_name(policy, name),
     )
     db.add(env)
     await db.flush()
@@ -422,7 +440,16 @@ async def update_environment(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="An environment with this name already exists in this tenant",
             )
+        # Only a CHANGED name is judged: this branch is already guarded by
+        # `data.name != env.name`, so a full-form save re-sending the stored
+        # name never reaches here and activating a policy cannot freeze the
+        # estate's next save.
+        policy = await environment_compliance_service.load_policy(db, tenant_id)
+        environment_compliance_service.assert_name_allowed(policy, data.name, env.name)
         env.name = data.name
+        env.name_compliant = environment_compliance_service.evaluate_name(
+            policy, data.name
+        )
 
     # An environment must be compliant AFTER the patch. A compliant one can be
     # patched freely; a legacy one cannot be patched at all until the patch
