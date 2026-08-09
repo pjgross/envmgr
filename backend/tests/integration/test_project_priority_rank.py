@@ -20,6 +20,49 @@ async def test_a_new_project_is_unranked(client: AsyncClient, auth_headers: dict
 
 
 @pytest.mark.asyncio
+async def test_a_rank_can_be_set_at_creation(client: AsyncClient, auth_headers: dict):
+    """The defect: `ProjectCreate` had neither `priority_rank` nor
+    `extra="forbid"`, so a caller who set a rank at creation got 201 Created
+    with the value silently discarded (stored as null) and nothing to
+    indicate it was dropped."""
+    resp = await client.post(
+        "/api/v1/projects",
+        json={"name": "Payments Rebuild", "code": "PAY", "priority_rank": 5},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["priority_rank"] == 5
+
+
+@pytest.mark.asyncio
+async def test_a_creation_rank_below_one_is_refused(
+    client: AsyncClient, auth_headers: dict
+):
+    """Same ge=1 contract as the PATCH path: rank 1 is the highest, so 0 is a
+    caller who guessed the direction wrong, not "even higher"."""
+    resp = await client.post(
+        "/api/v1/projects",
+        json={"name": "Bad Rank At Birth", "priority_rank": 0},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_a_misspelled_key_on_creation_is_a_422(
+    client: AsyncClient, auth_headers: dict
+):
+    """`extra="forbid"`: an unknown key must be refused, not silently dropped.
+    Dropped, the caller believes the value they sent was stored."""
+    resp = await client.post(
+        "/api/v1/projects",
+        json={"name": "Typo Project", "priorty_rank": 5},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
 async def test_a_rank_can_be_set_and_read_back(
     client: AsyncClient, auth_headers: dict, db_session, test_tenant
 ):

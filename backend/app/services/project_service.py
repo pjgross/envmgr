@@ -234,6 +234,7 @@ async def create_project(
         description=data.description,
         team_group_id=data.team_group_id,
         is_active=data.is_active,
+        priority_rank=data.priority_rank,
     )
     db.add(project)
     await db.flush()

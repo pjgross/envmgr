@@ -5,11 +5,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProjectCreate(BaseModel):
+    """`extra="forbid"`, matching every write schema written since B1 — without
+    it, a misspelled or unrecognised key (e.g. `priority_rank` before this
+    field existed here) was silently dropped: 201 Created, the caller believes
+    the value was stored, and it never was.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=200)
     code: Optional[str] = Field(default=None, max_length=50)
     description: Optional[str] = None
     team_group_id: Optional[int] = None
     is_active: bool = True
+    # A4's contention priority. LOWER WINS; null (the default) means
+    # unranked, the same real, non-backfilled state ProjectUpdate gives it.
+    # ge=1 for the same reason as ProjectUpdate: rank 1 is the HIGHEST, so 0
+    # and negatives are a caller who guessed the direction wrong.
+    priority_rank: Optional[int] = Field(None, ge=1)
 
 
 class ProjectUpdate(BaseModel):
