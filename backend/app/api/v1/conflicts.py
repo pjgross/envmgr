@@ -58,8 +58,10 @@ async def list_conflicts(
     unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
         db, [c.booking.id for c in others], current_user.active_tenant_id
     )
-    # A4's verdict and its escalation, BATCHED OVER THE PAGE — three calls beside
-    # the three above, never one pair at a time. Three sub-projects have now
+    # A4's verdict and its escalation, BATCHED OVER THE PAGE — four calls
+    # (verdicts_for_pairs, escalations_for_pairs and escalation_views below,
+    # plus booking_labels further down) beside the three above (group_names,
+    # gaps, unanswered), never one pair at a time. Three sub-projects have now
     # added a field to this endpoint and every per-row form has had to be undone.
     # NOT the whole story for this endpoint: `conflict_service.get_ack` in the
     # loop below is still one query per row. That is pre-existing, not A4's, and
@@ -89,7 +91,8 @@ async def list_conflicts(
     # the screen has to name the winning PROJECT — and no other field here can
     # supply it: `EnvBookingSummary.project_name` below is the request's free
     # text ("Purpose"), not the linked project. Batched over the page beside the
-    # five batches above, never per row.
+    # six batches above (group_names, gaps, unanswered, verdicts, escalations,
+    # views), never per row.
     #
     # THE SUBJECT IS IN THE SET TOO. Its own project is one half of every line
     # on this page, and it is not among `others`.

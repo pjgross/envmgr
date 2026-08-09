@@ -285,9 +285,13 @@ async def get_escalation(
 
     Normalises the pair itself, so a caller holding (B,A) is not told there is
     no escalation while looking at the clash it was raised for. Filters
-    `deleted_at`: a withdrawn escalation is gone, and tenant scoping is here
-    rather than left to the caller because the pair columns are globally unique
-    ids — without it another tenant's record answers this question.
+    `deleted_at` for consistency with the house soft-delete convention — no
+    code path writes it today, A4 ships no withdraw path by design, and a
+    mistakenly raised escalation can currently only be closed by answering it
+    (see `assert_may_decide`), which puts a decision in the audit trail that
+    nobody really made. Tenant scoping is here rather than left to the caller
+    because the pair columns are globally unique ids — without it another
+    tenant's record answers this question.
     """
     lower, higher = normalise_pair(booking_id, other_booking_id)
     return (await db.execute(
@@ -726,8 +730,11 @@ async def list_escalations(
     `bookings_live` says so. Filtering the worklist by liveness would delete the
     audit trail from the only screen that shows it.
 
-    `deleted_at` IS filtered: a withdrawn escalation is gone, matching
-    `get_escalation`.
+    `deleted_at` IS filtered, matching `get_escalation` — but nothing writes
+    it today. The column exists for consistency with the house soft-delete
+    convention; A4 has no withdraw path by design, so a mistakenly raised
+    escalation can currently only be closed by answering it, which puts a
+    decision in the audit trail that nobody really made.
     """
     query = select(ContentionEscalation).where(
         ContentionEscalation.tenant_id == tenant_id,
