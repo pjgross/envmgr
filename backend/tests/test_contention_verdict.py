@@ -385,6 +385,12 @@ async def test_another_tenants_booking_is_not_resolved_even_against_our_project(
     )
     assert verdict.outcome == OUTCOME_NO_PROJECT
     assert verdict.winner_booking_id is None
+    # THE PLAIN REASON, not the archived one. A booking we cannot see
+    # contributes nothing at all — it does not "name a project we could not
+    # resolve", because we never read its request. Claiming otherwise would put
+    # an archived-project explanation on a row that shows no project name, which
+    # is the mirror image of the contradiction that reason exists to prevent.
+    assert verdict.reason == REASON_NO_PROJECT
 
 
 @pytest.mark.asyncio
@@ -468,6 +474,26 @@ async def test_the_two_no_project_reasons_are_not_interchangeable(
     assert "archived" in unresolvable.reason.lower()
     assert "archived" not in genuinely_none.reason.lower()
     assert "not linked" in genuinely_none.reason.lower()
+
+    # BOTH SIDES OF THE DISJUNCTION, because a conflict pair has no inherent
+    # order and `_decide` tests each side separately. Every assertion above puts
+    # the unresolvable booking FIRST, so deleting the second half of
+    # `unresolvable = (a...) or (b...)` left all 21 tests green — the shipped
+    # code correct, the rule half-protected, and a later simplify pass free to
+    # reintroduce the exact contradiction this reason exists to explain, for
+    # half the pair orderings, silently.
+    reversed_order = await contention_service.verdict_for_pair(
+        db_session, on_ranked.id, on_archived.id, test_tenant.id
+    )
+    assert reversed_order.reason == REASON_PROJECT_UNRESOLVABLE
+
+    # And the same when the OTHER side genuinely has no project at all: the
+    # contradiction on screen is what needs explaining, whichever position it
+    # occupies.
+    unresolvable_second = await contention_service.verdict_for_pair(
+        db_session, without.id, on_archived.id, test_tenant.id
+    )
+    assert unresolvable_second.reason == REASON_PROJECT_UNRESOLVABLE
 
 
 @pytest.mark.asyncio
