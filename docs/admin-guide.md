@@ -327,6 +327,55 @@ booking and check its *Project* field: the picker labels an archived value *(arc
 *Edit request* on the booking's page can point it at the live project instead, after which the
 warning re-evaluates on the next read.
 
+### Contention priority
+
+A project's detail page carries a *Contention Priority* section holding one number: the
+**priority rank**. It is used when two projects' bookings collide on the same environment, and it
+answers exactly one question — *whose booking ought to give way?* Set it by typing a whole number
+and clicking *Save rank* (Admin only; everyone else sees the current value read-only).
+
+**Lower wins. Rank 1 is the highest priority**, rank 2 gives way to rank 1, and so on. There is no
+upper bound and no requirement that ranks be unique or contiguous — they are compared, not
+counted. Zero and negative numbers are refused, because a caller entering one has almost certainly
+guessed the direction backwards, and a silently accepted wrong guess would decide every contention
+backwards with nothing to notice it.
+
+**Nothing is ever blocked, moved or rescheduled because of a rank.** No booking is refused, no
+transition is gated, no button is disabled, and nothing runs on a schedule. The rank produces a
+*verdict* — a line of advice shown beside the clash on the booking's *Conflicts* panel — and a
+human still decides and still acts. An admin typing a priority into a governance screen may
+reasonably expect otherwise, which is why the page says so above the field.
+
+**Unranked is normal, and it is not a loss.** No project has a rank until someone sets one: the
+column shipped nullable with no backfill, so on first deploy every project is unranked. A booking
+whose project is unranked is not "lowest priority" — **a ranked project does not beat an unranked
+one**. The verdict says *"at least one project has no priority rank"*, meaning **priority does not
+separate these two**, and stops there rather than inventing a winner. That is deliberate: treating
+unranked as lowest would have declared the entire existing estate the loser on the day the feature
+shipped.
+
+There are four possible outcomes and **three of them have no winner**, each with its own wording.
+Five messages, not four, because "no project" splits in two — the difference matters on screen:
+
+| What the verdict says | What it means |
+| --- | --- |
+| *"<Project A> outranks <Project B>"* | Both projects are ranked and the ranks differ. This is the only verdict that names a winner. |
+| *"at least one booking is not linked to a project"* | One or both bookings have no *Project* set. There is nothing to compare. |
+| *"at least one booking's project is archived or belongs to another tenant"* | The booking names a project that cannot be resolved here. The project's **name** may still render beside this message — deleted projects keep rendering their name on rows that reference them — so this is the case to check when the two appear to contradict each other. |
+| *"at least one project has no priority rank"* | Both projects resolve, but at least one is unranked. |
+| *"both projects have the same priority rank"* | Both are ranked, and equally. |
+
+Changing a rank takes effect on the next page load. The verdict is recomputed on every read and
+stored nowhere, so there is no cache to clear and nothing to re-run — and equally, no record of
+what the verdict *was* yesterday.
+
+Ranks are set only by editing an existing project; the *New Project* dialog has no rank field, so
+every project is born unranked. Clearing the box and saving unranks a project again.
+
+For what happens when someone is formally asked to decide a contention, see the user guide's
+*Contention escalations* — the worklist is readable by any tenant member, and answering is limited
+to the named owner or an Admin.
+
 ### Password resets
 
 > **Not yet available:** there is no tenant-admin password-reset flow on `/tenant/users`. If a user has lost their password, ask your Master Admin to call `POST /api/v1/admin/tenants/{tenant_id}/users/{user_id}/reset-password` with a fresh `new_password`, then share the new value out of band.
