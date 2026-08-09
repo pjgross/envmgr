@@ -22,14 +22,20 @@ names no project" and "the request names a project this tenant cannot resolve"
 look identical to the verdict and completely different to the person reading the
 screen. See the constants below.
 """
+from datetime import datetime, timezone
 from typing import Iterable, NamedTuple, Optional
 
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import and_, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.upsert import insert_or_reread
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
+from app.db.models.contention_escalation import ContentionEscalation
 from app.db.models.project import Project
+from app.db.models.user import User
+from app.services import conflict_service
 
 OUTCOME_RANKED = "ranked"
 OUTCOME_NO_PROJECT = "no_project"
@@ -195,3 +201,354 @@ async def verdict_for_pair(
     return (await verdicts_for_pairs(db, [(booking_id, other_booking_id)], tenant_id))[
         (booking_id, other_booking_id)
     ]
+
+
+# ===========================================================================
+# The escalation record — THE ONE THING A4 STORES.
+#
+# The verdict above is computed; so is the escalation's STATE. What is stored
+# is the asking (who, of whom, by when) and the answer (which booking should
+# give way, on whose say-so, when, and why). Nothing else, and in particular no
+# status column: `open`, `answered` and `expired` follow from `respond_by` and
+# `decided_at`, which is why A4 ships no scheduler and nothing to invalidate.
+#
+# A4 STILL NEVER ACTS. `record_decision` writes four columns on the escalation
+# and touches neither booking — not status, not dates, not lifecycle.
+# `test_recording_a_decision_changes_nothing_on_either_booking` is the guard.
+#
+# It lives in this module rather than a second one for the same reason
+# `agreement_gap_service` holds both the gap and its acknowledgement: one
+# subject, one file. A reader asking "what does A4 do about this pair" finds
+# the verdict and the escalation together.
+# ===========================================================================
+
+STATE_OPEN = "open"
+STATE_ANSWERED = "answered"
+STATE_EXPIRED = "expired"
+
+
+def normalise_pair(a: int, b: int) -> tuple[int, int]:
+    """(min, max). A conflict is symmetric; the record is not."""
+    return (a, b) if a < b else (b, a)
+
+
+def _utc(value: Optional[datetime]) -> Optional[datetime]:
+    """SQLite hands back naive datetimes for `DateTime(timezone=True)` columns
+    while PostgreSQL hands back aware ones. Comparing the two raises, so
+    normalise before any Python-side arithmetic — the stored values are UTC on
+    both engines.
+
+    A copy of `agreement_gap_service._utc`, which is itself one of four in this
+    package (environment_health_service, environment_utilization_service and
+    release_metrics_service carry the others). Copied rather than imported
+    because reaching into another service's private helper couples two modules
+    that share nothing else; the repo has settled on the copy.
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
+def escalation_state(escalation: ContentionEscalation, now: datetime) -> str:
+    """COMPUTED, never stored — which is why A4 needs no scheduler.
+
+    Answering LATE is still `answered`: the decision arrived, and rewriting it
+    as expired would lose the fact that someone did decide — and would invite a
+    second escalation of a contention that already has an answer. The branch
+    ORDER is the rule, and `test_answering_late_is_still_answered` is what pins
+    it.
+    """
+    if escalation.decided_at is not None:
+        return STATE_ANSWERED
+    if _utc(escalation.respond_by) < now:
+        return STATE_EXPIRED
+    return STATE_OPEN
+
+
+async def get_escalation(
+    db: AsyncSession, booking_id: int, other_booking_id: int, tenant_id: int
+) -> Optional[ContentionEscalation]:
+    """The escalation for this contention, asked in EITHER direction.
+
+    Normalises the pair itself, so a caller holding (B,A) is not told there is
+    no escalation while looking at the clash it was raised for. Filters
+    `deleted_at`: a withdrawn escalation is gone, and tenant scoping is here
+    rather than left to the caller because the pair columns are globally unique
+    ids — without it another tenant's record answers this question.
+    """
+    lower, higher = normalise_pair(booking_id, other_booking_id)
+    return (await db.execute(
+        select(ContentionEscalation).where(
+            ContentionEscalation.booking_id == lower,
+            ContentionEscalation.other_booking_id == higher,
+            ContentionEscalation.tenant_id == tenant_id,
+            ContentionEscalation.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+
+async def escalations_for_pairs(
+    db: AsyncSession, pairs: Iterable[tuple[int, int]], tenant_id: int
+) -> dict[tuple[int, int], ContentionEscalation]:
+    """One query for a page of conflict pairs. Keyed by the pair AS GIVEN.
+
+    The same contract as `verdicts_for_pairs`, deliberately: a caller walking a
+    conflicts page holds one tuple per pair and looks up the verdict and the
+    escalation with it. Keying by the NORMALISED pair instead would silently
+    answer nothing for every pair the caller happened to hold the other way
+    round — while the lookup itself still has to normalise, because the row is
+    stored that way.
+
+    A pair with no escalation is simply ABSENT, so a caller may `.get()` its way
+    to `escalation: None` without a second question — the same shape as
+    `agreement_gap_service.gaps_for_bookings`.
+    """
+    pairs = list(pairs)
+    if not pairs:
+        return {}
+    wanted = {pair: normalise_pair(*pair) for pair in pairs}
+    rows = (await db.execute(
+        select(ContentionEscalation).where(
+            ContentionEscalation.tenant_id == tenant_id,
+            ContentionEscalation.deleted_at.is_(None),
+            # An OR of equality pairs rather than `tuple_(...).in_(...)`:
+            # row-value IN is not portable across both engines this suite runs
+            # on. Same call as `agreement_gap_service._windows_for_pairs`.
+            or_(*[
+                and_(
+                    ContentionEscalation.booking_id == lower,
+                    ContentionEscalation.other_booking_id == higher,
+                )
+                for lower, higher in set(wanted.values())
+            ]),
+        )
+    )).scalars().all()
+    by_normalised = {(row.booking_id, row.other_booking_id): row for row in rows}
+    return {
+        pair: by_normalised[normalised]
+        for pair, normalised in wanted.items()
+        if normalised in by_normalised
+    }
+
+
+async def bookings_live(
+    db: AsyncSession, escalations: Iterable[ContentionEscalation], tenant_id: int
+) -> dict[int, bool]:
+    """`escalation id -> is this pair still a live contention?`
+
+    COMPUTED, NEVER STORED, and an escalation OUTLIVES ITS BOOKINGS on purpose:
+    the record is the audit trail of an argument, so soft-deleting or closing a
+    booking must not delete the ask or the answer. It must make the pair read as
+    no longer live, so a UI can say the contention has gone away instead of
+    dropping the row and the decision with it.
+
+    "Live" is `conflict_service.TERMINAL_STATES` ({rejected, closed}) plus
+    `deleted_at`, NOT `booking_states.INACTIVE_BOOKING_STATUSES` — that set
+    counts a draft as inactive, and conflict_service deliberately counts drafts
+    AS conflicts. An escalation is about a conflict, so it must read live
+    exactly while `list_conflicts` would still report the pair; using the other
+    set would mark a contention dead that the conflicts page still shows.
+
+    Tenant-scoped like everything else here: asked as a tenant that cannot see
+    the bookings, the answer is False rather than a confirmation that they
+    exist.
+    """
+    escalations = list(escalations)
+    if not escalations:
+        return {}
+    ids = {
+        booking_id
+        for escalation in escalations
+        for booking_id in (escalation.booking_id, escalation.other_booking_id)
+    }
+    live_ids = set((await db.execute(
+        select(Booking.id).where(
+            Booking.id.in_(ids),
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+            not_(Booking.status.in_(conflict_service.TERMINAL_STATES)),
+        )
+    )).scalars().all())
+    return {
+        escalation.id: escalation.booking_id in live_ids
+        and escalation.other_booking_id in live_ids
+        for escalation in escalations
+    }
+
+
+async def _assert_bookings_visible(
+    db: AsyncSession, booking_ids: tuple[int, ...], tenant_id: int
+) -> None:
+    """Both ids must be live bookings of THIS tenant — 404 otherwise, never 403.
+
+    A cross-tenant id must not be confirmed to exist, and both positions are
+    checked: validating the subject alone would let the record name a
+    counterparty from a tenant the reader cannot open.
+    """
+    found = set((await db.execute(
+        select(Booking.id).where(
+            Booking.id.in_(set(booking_ids)),
+            Booking.tenant_id == tenant_id,
+            Booking.deleted_at.is_(None),
+        )
+    )).scalars().all())
+    if not set(booking_ids) <= found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        )
+
+
+async def _assert_in_conflict(
+    db: AsyncSession, lower: int, higher: int, tenant_id: int
+) -> None:
+    """The pair must really be in contention — asked of `conflict_service`.
+
+    THE OVERLAP IS NEVER RE-DERIVED HERE. `conflicts_with` is the single
+    definition of what a clash is (same tenant, same environment, neither
+    soft-deleted, neither terminal, half-open `[start, end)` overlap) and a
+    second copy is precisely the "two mechanisms enforcing one outcome" shape
+    that has cost this codebase repeated defects.
+
+    WHY THE 404 CHECK LIVES INSIDE THE 400. `list_conflicts` is itself
+    tenant-scoped, so another tenant's booking comes back as "no conflicts" —
+    and answering "these two bookings do not overlap" about a pair the caller
+    cannot see would be both a claim about invisible rows and, quite often,
+    false. So an empty result is refined: not ours is 404, ours-and-disjoint is
+    400.
+    """
+    conflicts, _total = await conflict_service.list_conflicts(db, lower, tenant_id)
+    if higher in {row.booking.id for row in conflicts}:
+        return
+    await _assert_bookings_visible(db, (lower, higher), tenant_id)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "These two bookings are not in conflict, so there is nothing to "
+            "escalate"
+        ),
+    )
+
+
+async def create_escalation(
+    db: AsyncSession,
+    *,
+    booking_id: int,
+    other_booking_id: int,
+    owner_user_id: int,
+    respond_by: datetime,
+    current_user: User,
+    tenant_id: int,
+) -> ContentionEscalation:
+    """Ask a named person to decide this contention by a named date.
+
+    ONE ESCALATION PER CONTENTION, keyed on the unordered pair. Escalating
+    (B,A) after (A,B) returns the EXISTING record, unchanged — deliberately
+    unlike the two acknowledgement upserts, where the later answer wins. An
+    acknowledgement is one person's answer about their own booking; an
+    escalation names SOMEONE ELSE as the decider and starts a clock against
+    them, so letting the second escalator silently reassign the owner and reset
+    the deadline would let either party restart the other's clock at will, and
+    would quietly re-open a contention that already has an answer. Changing an
+    owner or a deadline is therefore an explicit edit, not a side effect of
+    asking again.
+
+    `respond_by` is NOT required to be in the future. A deadline already passed
+    is a legitimate thing to record — it reads as `expired` immediately, which
+    is exactly what an escalation raised about a clash that is already upon
+    someone should say — and refusing it here would put a clock-dependent
+    validation in the service where the API schema is the honest place for one.
+    """
+    lower, higher = normalise_pair(booking_id, other_booking_id)
+    await _assert_in_conflict(db, lower, higher, tenant_id)
+
+    # `owner_user_id` is a client-supplied foreign key, so it is checked against
+    # the CALLER'S ACTIVE TENANT — the IDOR-class gap the 2026-07-16 isolation
+    # audit found four of. Deliberately no `is_active` check, matching
+    # `environment_service._validate_client_foreign_keys`: a deactivated account
+    # is a different retirement state, and a contention already assigned to
+    # someone who has since left still names them.
+    found = (await db.execute(
+        select(User.id).where(User.id == owner_user_id, User.tenant_id == tenant_id)
+    )).first()
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found"
+        )
+
+    existing = await get_escalation(db, lower, higher, tenant_id)
+    if existing is not None:
+        return existing
+
+    # A concurrent escalation of the same clash may land between the read above
+    # and this insert; `uq_contention_pair` then refuses ours. `insert_or_reread`
+    # hands back the row that won — the second escalator gets the first one's
+    # record, which is what they would have got had the two calls not
+    # overlapped. See app/core/upsert.py for why this needs a savepoint.
+    escalation, _inserted = await insert_or_reread(
+        db,
+        ContentionEscalation(
+            tenant_id=tenant_id,
+            booking_id=lower,
+            other_booking_id=higher,
+            escalated_by=current_user.id,
+            owner_user_id=owner_user_id,
+            respond_by=respond_by,
+        ),
+        lambda: get_escalation(db, lower, higher, tenant_id),
+    )
+    await db.flush()
+    return escalation
+
+
+async def record_decision(
+    db: AsyncSession,
+    escalation_id: int,
+    *,
+    yields_booking_id: int,
+    notes: Optional[str],
+    current_user: User,
+    tenant_id: int,
+) -> ContentionEscalation:
+    """Record which booking a human said should give way. AND NOTHING ELSE.
+
+    A4 ADVISES; IT NEVER ACTS: neither booking's status, dates nor lifecycle is
+    touched here, and nothing is published. Acting on the decision is the owning
+    team's job, through the ordinary transition path — which for an A2 group
+    booking moves the whole group atomically, something this service must never
+    reach inside.
+
+    A second decision overwrites the first, author and timestamp included, the
+    same way the two acknowledgement upserts record the later answer: the row
+    answers "who decided this, and when" about the decision that stands. What it
+    must never do is drift back to `open` — `escalation_state` keys on
+    `decided_at`, which is only ever set here.
+    """
+    escalation = (await db.execute(
+        select(ContentionEscalation).where(
+            ContentionEscalation.id == escalation_id,
+            ContentionEscalation.tenant_id == tenant_id,
+            ContentionEscalation.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if escalation is None:
+        # Another tenant's escalation is 404, NEVER 403 — a 403 confirms the
+        # record exists.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Escalation not found"
+        )
+
+    if yields_booking_id not in (escalation.booking_id, escalation.other_booking_id):
+        # BOTH members, because the pair is stored normalised: a check written
+        # against `booking_id` alone would refuse whichever booking happened to
+        # take the higher id.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The yielding booking must be one of the two in contention",
+        )
+
+    escalation.decision_yields_booking_id = yields_booking_id
+    escalation.decision_notes = notes
+    escalation.decided_by = current_user.id
+    escalation.decided_at = datetime.now(timezone.utc)
+    await db.flush()
+    return escalation

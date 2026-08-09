@@ -73,6 +73,7 @@ from app.db.models.environment_group import (  # noqa: F401
     EnvironmentGroup,
     EnvironmentGroupMember,
 )
+from app.db.models.contention_escalation import ContentionEscalation  # noqa: F401
 
 # This will be expanded as we add more models
 __all__ = [
