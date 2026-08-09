@@ -267,6 +267,73 @@ describe('the worklist', () => {
       .forEach((c) => expect(sortable).toContain(c.field));
   });
 
+  it('narrows the queue to the reader\'s own contentions, in the request', async () => {
+    // THE FILTER THIS PAGE WAS BUILT FOR. Its purpose is "what a named owner
+    // opens to see what they must decide", and everyone's queue is not that:
+    // with sixty escalations in a tenant, the decider hunts their own username
+    // down the *To decide* column. Sent as `owner_user_id` on the wire — a
+    // browser-side narrowing would filter one windowed PAGE and leave the total
+    // describing the whole set.
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('row-101');
+
+    await user.click(screen.getByRole('button', { name: 'Mine' }));
+
+    await waitFor(() =>
+      expect(contentionService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ owner_user_id: ME })
+      )
+    );
+  });
+
+  it('sends no owner at all for "Anyone" — omission is the sentinel', async () => {
+    // Same rule as `state`: the wire has no "everyone" value, and the chip
+    // vocabulary avoids `all` because that is `buildParams`' own "no selection"
+    // sentinel — two chips building byte-identical params never refetch.
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('row-101');
+    await user.click(screen.getByRole('button', { name: 'Mine' }));
+    await waitFor(() =>
+      expect(contentionService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ owner_user_id: ME })
+      )
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Anyone' }));
+
+    await waitFor(() => {
+      const calls = vi.mocked(contentionService.list).mock.calls;
+      const last = calls[calls.length - 1]?.[0];
+      expect(last).not.toHaveProperty('owner_user_id');
+    });
+  });
+
+  it('filters to the person actually signed in, not to a row on the page', async () => {
+    // `owner_user_id` must come from the session, not from whatever the first
+    // row happens to be assigned to: the reader's own queue is often EMPTY,
+    // which is precisely when reading it off a row gives someone else's.
+    const user = userEvent.setup();
+    signIn(OTHER_PERSON);
+    renderPage();
+    await screen.findByTestId('row-101');
+
+    await user.click(screen.getByRole('button', { name: 'Mine' }));
+
+    await waitFor(() =>
+      expect(contentionService.list).toHaveBeenLastCalledWith(
+        expect.objectContaining({ owner_user_id: OTHER_PERSON })
+      )
+    );
+    // Row 101's own owner is ME — reading the filter off the row would pass the
+    // assertion above only by accident, so pin that it did not.
+    const calls = vi.mocked(contentionService.list).mock.calls;
+    expect(calls[calls.length - 1]?.[0]).not.toEqual(
+      expect.objectContaining({ owner_user_id: ME })
+    );
+  });
+
   it('says when a row is no longer a live contention, and keeps the row', async () => {
     vi.mocked(contentionService.list).mockResolvedValue({
       rows: [escalation({ bookings_live: false })],

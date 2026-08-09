@@ -1226,6 +1226,12 @@ second query over the two bookings; the three username columns are joined from `
 `buildParams` drops a filter valued `all` as its own sentinel and the grid would never refetch (the
 `ScopeWindowsTable` hazard, again).
 
+The endpoint's **second** filter, `?owner_user_id=`, follows the same two rules: applied in SQL
+(the *Mine* chip narrows the query, never the fetched page — `X-Total-Count` is the only evidence
+from outside that it did) and omitted rather than spelled, with the URL saying `anyone`. It is a
+**filter, not a permission**: any tenant member may read the whole worklist, and who may *answer* a
+row is settled on the decision route.
+
 Two more endpoints ship on the A2 branch and are worth noting even though neither takes a row in
 the table above: `POST /booking-requests/{request_id}/groups/{group_id}/transition` and
 `GET /booking-requests/{request_id}/groups/{group_id}/allowed-transitions` both declare

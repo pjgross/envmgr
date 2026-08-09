@@ -107,6 +107,13 @@ async def list_contention_escalations(
             "deliberately no 'all' value."
         ),
     ),
+    owner_user_id: Optional[int] = Query(
+        None,
+        description=(
+            "Filter to the contentions one named person has been asked to "
+            "decide. OMIT for everyone's — a filter, not a permission."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(
         sorting(contention_service.ESCALATION_SORTS, default="respond_by")
@@ -126,6 +133,16 @@ async def list_contention_escalations(
     whose value is its own sentinel, so a vocabulary containing `all` builds
     byte-identical params for two different states and the grid never refetches.
 
+    `owner_user_id` NARROWS THE QUEUE TO ONE PERSON'S, and is likewise SQL and
+    likewise omitted rather than spelled: it is what makes the page usable for
+    the reader it was built for, who otherwise pages through everyone else's
+    contentions looking for their own username. It is a FILTER, NOT A GATE — the
+    whole worklist stays readable, and who may ANSWER a row is settled on the
+    decision route. Any user id may be passed (an unknown or cross-tenant one
+    simply matches nothing), because the escalation query is tenant-scoped and a
+    filter that 404'd on an id would answer a question about another tenant's
+    users.
+
     ONE CLOCK for the whole request — the same `now` decides the filter and every
     row's rendered state, so a page cannot select a row as open and then render
     it expired.
@@ -133,7 +150,8 @@ async def list_contention_escalations(
     tenant_id = current_user.active_tenant_id
     now = datetime.now(timezone.utc)
     rows, total = await contention_service.list_escalations(
-        db, tenant_id, now=now, page=page, sort=sort, state=state
+        db, tenant_id, now=now, page=page, sort=sort, state=state,
+        owner_user_id=owner_user_id,
     )
     set_total_count(response, total)
     views = await contention_service.escalation_views(db, rows, tenant_id, now)

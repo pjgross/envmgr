@@ -199,7 +199,7 @@ and an escalation outlives its bookings.
 | --- | --- |
 | `POST /bookings/{id}/contentions/{other_id}/escalate` | create; returns the existing escalation if one is live |
 | `PUT /contention-escalations/{id}/decision` | record which booking yields, plus notes |
-| `GET /contention-escalations` | the worklist — `pagination()` + `sorting()`, filtered by state and owner |
+| `GET /contention-escalations` | the worklist — `pagination()` + `sorting()`, filtered by `state` and `owner_user_id`, both in SQL. Both are FILTERS, not permissions: any tenant member may read the whole queue, and omitting either is how you ask for all of it (there is deliberately no `all` value on the wire). |
 
 `priority_rank` is added to the project update path.
 

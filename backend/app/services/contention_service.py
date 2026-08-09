@@ -769,9 +769,23 @@ async def list_escalations(
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
     state: Optional[str] = None,
+    owner_user_id: Optional[int] = None,
 ) -> tuple[list[ContentionEscalation], int]:
     """The worklist: every escalation this tenant can see, plus the unwindowed
     total.
+
+    FILTERED BY STATE **AND OWNER**, both in SQL. The page exists so a named
+    owner can see what they must decide, and with sixty escalations across a
+    tenant that is unreadable without the second filter: the decider pages
+    through everyone's queue hunting their own username in the *To decide*
+    column. Filtering after the page was fetched would window the unfiltered set
+    first and leave `X-Total-Count` describing it, which is the only evidence
+    from outside that either filter ran in the query at all.
+
+    `owner_user_id` is a FILTER, NOT A PERMISSION. Any tenant member may read
+    the whole worklist — a clash you are party to being put to someone is a fact
+    you are entitled to see — and who may ANSWER one is settled on the decision
+    route. Narrowing this to "yours only" would hide exactly that.
 
     AN ESCALATION OUTLIVES ITS BOOKINGS, so nothing here joins them or filters
     on their state — a contention that has gone away keeps its record, and
@@ -790,6 +804,8 @@ async def list_escalations(
     )
     if state is not None:
         query = query.where(state_predicate(state, now))
+    if owner_user_id is not None:
+        query = query.where(ContentionEscalation.owner_user_id == owner_user_id)
     # The tiebreaker is chained AFTER apply_sort, never instead of it: none of
     # the sortable columns is unique (two escalations may share a deadline, and
     # `decided_at` is null on every open one), and LIMIT/OFFSET over a partial

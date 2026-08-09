@@ -840,6 +840,116 @@ async def test_the_state_filter_narrows_the_page_in_sql_not_after_it(
 
 
 @pytest.mark.asyncio
+async def test_filtering_the_worklist_to_one_owner_narrows_it_in_sql(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """THE FILTER THE PAGE WAS BUILT FOR — a named owner's own queue.
+
+    The worklist's stated purpose is "what a named owner opens to see what they
+    must decide", and with sixty escalations in a tenant that is unreachable
+    without this: the decider pages through everyone else's rows hunting their
+    own username in the *To decide* column.
+
+    `limit=1` over the filtered set proves it ran IN SQL: filtered after the
+    page, the row returned could be anyone's and `X-Total-Count` would describe
+    the unfiltered set. The total is asserted on every read here for that
+    reason, and the rows' own `owner_user_id` is asserted too, so a filter that
+    silently matched nothing (or everything) cannot pass.
+    """
+    mine = await _user(db_session, test_tenant, "the-decider")
+    theirs = await _user(db_session, test_tenant, "somebody-else")
+    a, b = await _pair(db_session, test_tenant, test_user.id, slot=1)
+    c, d = await _pair(db_session, test_tenant, test_user.id, slot=2)
+    e, f = await _pair(db_session, test_tenant, test_user.id, slot=3)
+    ours = [
+        (await _escalate(client, auth_headers, a.id, b.id, owner_user_id=mine.id)),
+        (await _escalate(client, auth_headers, c.id, d.id, owner_user_id=mine.id)),
+    ]
+    not_ours = await _escalate(
+        client, auth_headers, e.id, f.id, owner_user_id=theirs.id
+    )
+    for resp in [*ours, not_ours]:
+        assert resp.status_code == 201, resp.text
+
+    everyones = await client.get(
+        "/api/v1/contention-escalations", headers=auth_headers
+    )
+    assert _total(everyones) == 3
+
+    filtered = await client.get(
+        f"/api/v1/contention-escalations?owner_user_id={mine.id}", headers=auth_headers
+    )
+
+    assert filtered.status_code == 200, filtered.text
+    assert _ids(filtered) == {r.json()["id"] for r in ours}
+    assert _total(filtered) == 2
+    assert {row["owner_user_id"] for row in filtered.json()} == {mine.id}
+    assert not_ours.json()["id"] not in _ids(filtered)
+
+    windowed = await client.get(
+        f"/api/v1/contention-escalations?owner_user_id={mine.id}&limit=1",
+        headers=auth_headers,
+    )
+    assert len(windowed.json()) == 1
+    assert _ids(windowed) < {r.json()["id"] for r in ours}
+    assert _total(windowed) == 2, (
+        "a Python-side filter would window the unfiltered set and report its total"
+    )
+
+    # AND IT COMPOSES WITH THE STATE FILTER, which is the combination a decider
+    # actually asks for: my queue, still open.
+    both = await client.get(
+        f"/api/v1/contention-escalations?owner_user_id={mine.id}&state={STATE_OPEN}",
+        headers=auth_headers,
+    )
+    assert _ids(both) == {r.json()["id"] for r in ours}
+    assert _total(both) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_owner_filter_never_reaches_outside_our_tenant(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
+    second_tenant_factory,
+):
+    """A FILTER, NOT A LOOKUP. Any user id may be passed, because the escalation
+    query is tenant-scoped: another tenant's owner matches nothing here rather
+    than answering a question about their users.
+
+    Asserted from both directions — their escalation must not appear when we ask
+    for their owner, and ours must not appear either, so a dropped predicate
+    cannot pass by returning the whole (tenant-scoped) set.
+    """
+    other_tenant, other_admin = await second_tenant_factory()
+    await ensure_booking_type(db_session, other_tenant.id)
+    theirs_a, theirs_b = await _pair(db_session, other_tenant, other_admin.id, slot=2)
+    theirs = await contention_service.create_escalation(
+        db_session,
+        booking_id=theirs_a.id,
+        other_booking_id=theirs_b.id,
+        owner_user_id=other_admin.id,
+        respond_by=FUTURE,
+        current_user=other_admin,
+        tenant_id=other_tenant.id,
+    )
+    await db_session.flush()
+    a, b = await _pair(db_session, test_tenant, test_user.id, slot=1)
+    ours = await _escalate(
+        client, auth_headers, a.id, b.id, owner_user_id=test_user.id
+    )
+    assert ours.status_code == 201, ours.text
+
+    resp = await client.get(
+        f"/api/v1/contention-escalations?owner_user_id={other_admin.id}",
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+    assert _total(resp) == 0
+    assert theirs.id is not None
+
+
+@pytest.mark.asyncio
 async def test_the_worklist_is_bounded(
     client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
 ):

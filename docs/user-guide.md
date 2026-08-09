@@ -333,7 +333,15 @@ instead.
 Every escalation, and its answer, is listed at **Environment Management → Contention Escalations**
 (`/contentions`). Any tenant member can read the page; the *Decide* button appears only for the
 named owner and for Admins. Each row shows both sides by project and environment, who must decide,
-who raised it, the deadline, and one of three states:
+who raised it, the deadline, and one of three states.
+
+Two sets of chips narrow the list: **State**, and **To decide** — *Anyone* or *Mine*. *Mine* shows
+only the contentions you have been named to decide, which is what makes the page usable once a
+tenant has more than a handful. Both narrow the query itself, so the count beside the pages
+describes what you filtered to, and both are filters rather than permissions: the whole list stays
+readable, and whether you can *answer* a row is a separate question.
+
+The three states are:
 
 - **Open** — not yet answered, deadline still ahead. **The deadline day itself counts as open all
   day**: an escalation due today is in the *Open* queue until midnight, not the *Expired* one.

@@ -3,6 +3,13 @@
  * decide, and what everyone else opens to see that a clash they are party to
  * has been put to someone.
  *
+ * SO IT FILTERS BY STATE **AND BY OWNER**, both on the wire. Everyone's queue
+ * is not "what I must decide": with sixty escalations in a tenant the named
+ * owner would page through everybody else's rows hunting their own username
+ * down the *To decide* column, which is the one journey this page exists for.
+ * Neither filter is a permission — the whole worklist stays readable, and who
+ * may ANSWER a row is the Decide control's question.
+ *
  * A4 ADVISES; IT NEVER ACTS. Recording a decision writes four columns on the
  * escalation and touches neither booking — not its status, not its dates, not
  * its lifecycle. Acting on the decision stays with the owning team, through the
@@ -91,6 +98,38 @@ function stateParam(value: string | number | undefined): { state?: EscalationSta
     : {};
 }
 
+type OwnerFilter = 'anyone' | 'me';
+
+const OWNER_FILTERS: { label: string; value: OwnerFilter }[] = [
+  { label: 'Anyone', value: 'anyone' },
+  { label: 'Mine', value: 'me' },
+];
+
+/**
+ * THE FILTER THIS PAGE WAS BUILT FOR. Its stated purpose is what a NAMED OWNER
+ * opens to see what they must decide, and with sixty escalations across a
+ * tenant that is unreachable without narrowing: the decider pages through
+ * everyone else's rows hunting their own username in the *To decide* column.
+ *
+ * A FILTER, NOT A PERMISSION. The whole worklist stays readable — a clash you
+ * are party to being put to somebody is a fact you are entitled to see — and
+ * who may ANSWER a row is the Decide control's question, not this one.
+ *
+ * Narrowed to `owner_user_id` ON THE WIRE, never by filtering the page in the
+ * browser: `rows` is one windowed page, so a browser-side narrowing would
+ * filter the page and leave the total describing the set.
+ *
+ * "Everyone's" is spelled `anyone`, never `all`, for the same reason `stateParam`
+ * spells it `any`: `all` is `buildParams`' own "no selection" sentinel, so both
+ * states would build byte-identical params and the grid would never refetch.
+ */
+function ownerParam(
+  value: string | number | undefined,
+  userId: number | undefined
+): { owner_user_id?: number } {
+  return value === 'me' && userId !== undefined ? { owner_user_id: userId } : {};
+}
+
 /** One side of a contention, as a human reads it. */
 function sideLabel(environmentName: string | null, projectName: string | null): string {
   const project = projectName ?? 'no linked project';
@@ -172,7 +211,7 @@ export default function EscalationWorklist() {
 
   const grid = useServerGrid({
     endpoint: 'contention-escalations',
-    filterKeys: ['escalation_state'],
+    filterKeys: ['escalation_state', 'escalation_owner'],
     onFetch: (params) => {
       const myGeneration = ++generation.current;
       setLoading(true);
@@ -183,6 +222,7 @@ export default function EscalationWorklist() {
           sort_by: params.sort_by,
           sort_dir: params.sort_dir,
           ...stateParam(params.escalation_state),
+          ...ownerParam(params.escalation_owner, user?.id),
         })
         .then(({ rows: r, total: t }) => {
           if (myGeneration !== generation.current) return;
@@ -207,6 +247,7 @@ export default function EscalationWorklist() {
   // Read back off the URL on every mount, not held in component state, so a
   // reload or a shared link reproduces the same queue.
   const stateFilter = grid.filters.escalation_state ?? 'any';
+  const ownerFilter = grid.filters.escalation_owner ?? 'anyone';
 
   /**
    * The named owner, or an Admin — mirroring `assert_may_decide`.
@@ -414,7 +455,10 @@ export default function EscalationWorklist() {
         with the team that owns the booking.
       </Alert>
 
-      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
+          State
+        </Typography>
         {STATE_FILTERS.map((f) => (
           <Chip
             key={f.value}
@@ -424,6 +468,28 @@ export default function EscalationWorklist() {
             color={stateFilter === f.value ? 'primary' : 'default'}
             variant={stateFilter === f.value ? 'filled' : 'outlined'}
             onClick={() => grid.setFilter('escalation_state', f.value)}
+          />
+        ))}
+      </Box>
+
+      {/* WHOSE QUEUE. The page's stated purpose is what a named owner opens to
+          see what they must decide, and everyone's queue is not that — with
+          sixty escalations in a tenant the decider hunts their own username
+          down the *To decide* column. Narrowed on the wire, never in the
+          browser: `rows` is one windowed page. */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
+          To decide
+        </Typography>
+        {OWNER_FILTERS.map((f) => (
+          <Chip
+            key={f.value}
+            label={f.label}
+            clickable
+            component="button"
+            color={ownerFilter === f.value ? 'primary' : 'default'}
+            variant={ownerFilter === f.value ? 'filled' : 'outlined'}
+            onClick={() => grid.setFilter('escalation_owner', f.value)}
           />
         ))}
       </Box>

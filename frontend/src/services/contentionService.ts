@@ -33,8 +33,13 @@ export const contentionService = {
   // selection" sentinel (see contentions.py's docstring). Do not invent one
   // here: a vocabulary containing 'all' builds byte-identical params for two
   // different filter states and the grid never refetches.
+  // `owner_user_id` narrows the queue to one person's — a FILTER, not a gate.
+  // The whole worklist stays readable to any tenant member; who may ANSWER a
+  // row is settled on the decision route. Omitted means everyone's, the same
+  // sentinel rule as `state`.
   list: (params?: {
     state?: EscalationState;
+    owner_user_id?: number;
     limit?: number;
     offset?: number;
     sort_by?: string;
