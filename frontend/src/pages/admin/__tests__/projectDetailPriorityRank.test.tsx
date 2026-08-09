@@ -190,6 +190,12 @@ describe('the priority rank field', () => {
     expect(await screen.findByText(/whole number/i)).toBeInTheDocument();
     // Nothing was sent at all — emphatically not `{ priority_rank: null }`.
     expect(projectService.updateProject).not.toHaveBeenCalled();
+    // The rejected draft must not leave the control the admin needs to fix
+    // their mistake disabled. `setSavingRank(true)` is only reachable after
+    // this validation returns, so a refusal here must never flip it — but
+    // nothing pinned that ordering, and reverting it leaves every other rank
+    // test green while Save stays disabled until the page is reloaded.
+    expect(screen.getByRole('button', { name: /Save rank/i })).toBeEnabled();
   });
 
   it("shows the server's reason when a rank is refused", async () => {

@@ -426,6 +426,16 @@ describe('a side that is an A2 group booking', () => {
     expect(
       within(dialog).getByRole('radio', { name: /Mortgage Replatform/ })
     ).not.toHaveAccessibleName(/Q3 Regression Suite/);
+
+    // An accessible name is satisfied equally by an aria-label with the real
+    // text aria-hidden beside it — so the accessible-name checks above cannot
+    // by themselves tell "visible caption" apart from "invisible attribute".
+    // The whole point of this note is that a SIGHTED reader deciding between
+    // the two radios can see it, so pin that the words are actually on the
+    // page, not merely in the accessibility tree.
+    expect(
+      within(dialog).getByText(/every environment in Q3 Regression Suite/i)
+    ).toBeVisible();
   });
 
   it('says nothing about groups when neither booking is in one', async () => {
