@@ -38,3 +38,25 @@ class EnvironmentNamingPolicyUpdate(BaseModel):
     name_pattern_example: Optional[str] = Field(default=None, max_length=200)
     required_attributes: list[str] = []
     grace_days: int = Field(default=14, ge=0, le=365)
+
+
+class EnvironmentNamingPolicyPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # An omitted key (or null) means "keep what is saved", so `{}` previews the
+    # policy currently in force. There is deliberately no way to preview
+    # REMOVING a pattern: that would need a sentinel distinct from both, and the
+    # honest answer to that question is the attributes-only policy an admin can
+    # already save and preview directly.
+    name_pattern: Optional[str] = Field(default=None, max_length=500)
+    required_attributes: Optional[list[str]] = None
+
+
+class EnvironmentNamingPolicyPreview(BaseModel):
+    total_environments: int
+    in_gap: int
+    quarantined_now: int
+    # Capped at the service's _PREVIEW_SAMPLE_LIMIT. The COUNTS above are exact
+    # — a UI that renders the sample as if it were the whole set is lying, and
+    # must say "showing the first N".
+    sample_names: list[str]

@@ -17,6 +17,8 @@ from app.api.v1.schemas.custom_field import (
     CustomFieldDefinitionResponse,
 )
 from app.api.v1.schemas.environment_naming_policy import (
+    EnvironmentNamingPolicyPreview,
+    EnvironmentNamingPolicyPreviewRequest,
     EnvironmentNamingPolicyRead,
     EnvironmentNamingPolicyUpdate,
 )
@@ -89,6 +91,42 @@ async def put_environment_naming_policy(
         name_pattern_example=data.name_pattern_example,
         required_attributes=data.required_attributes,
         grace_days=data.grace_days,
+    )
+
+
+@router.post(
+    "/environment-naming-policy/preview",
+    response_model=EnvironmentNamingPolicyPreview,
+)
+async def preview_environment_naming_policy(
+    data: EnvironmentNamingPolicyPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    """What a policy would do, before it does it.
+
+    ADMIN-ONLY, unlike the policy GET above which any tenant member may read: a
+    preview runs a caller-supplied regex over the whole estate, so it stays with
+    the people who may set the policy in the first place.
+
+    A POST because it carries a body, not because it changes anything — it
+    writes nothing. Unbounded by design, like the other rollup endpoints: it
+    counts the whole estate, which is the question being asked. Listed as such
+    in docs/pagination.md.
+    """
+    total, in_gap, quarantined, sample = (
+        await environment_compliance_service.preview_policy(
+            db,
+            current_user.active_tenant_id,
+            name_pattern=data.name_pattern,
+            required_attributes=data.required_attributes,
+        )
+    )
+    return EnvironmentNamingPolicyPreview(
+        total_environments=total,
+        in_gap=in_gap,
+        quarantined_now=quarantined,
+        sample_names=sample,
     )
 
 

@@ -844,27 +844,48 @@ def gaps_for_environments(
     """
     if policy is None or not policy.is_enabled:
         return {env.id: [] for env in envs}
+    return {
+        env.id: _gap_messages(env, policy, env.name_compliant) for env in envs
+    }
 
-    out: dict[int, list[str]] = {}
-    for env in envs:
-        messages: list[str] = []
-        if env.name_compliant is False:
-            example = policy.name_pattern_example
-            hint = f" (for example: '{example}')" if example else ""
-            messages.append(
-                f"The name does not match this tenant's naming convention{hint}"
-            )
-        for attr in policy.required_attributes or []:
-            if attr in _ATTRIBUTE_LABELS:
-                if _is_attribute_missing(env, attr):
-                    messages.append(_ATTRIBUTE_LABELS[attr])
-            elif attr.startswith(CUSTOM_FIELD_PREFIX):
-                key = attr[len(CUSTOM_FIELD_PREFIX) :]
-                value = (env.custom_fields or {}).get(key)
-                if value is None or str(value).strip() == "":
-                    messages.append(f"no {key.replace('_', ' ')}")
-        out[env.id] = messages
-    return out
+
+def _gap_messages(
+    env: Environment, policy: EnvironmentNamingPolicy, name_verdict: Optional[bool]
+) -> list[str]:
+    """Why this environment is in gap, worded for a reader. Empty means it is not.
+
+    THE VERDICT IS A PARAMETER, and that is the whole point. Two callers need
+    this rule over different verdicts: `gaps_for_environments` passes the STORED
+    one (the saved policy's answer), and `preview_policy` passes a freshly
+    computed one for a candidate pattern that may never be saved.
+
+    The plan had the preview re-implement all of this, making a fourth
+    evaluation of one rule and proposing a test to catch them drifting. One
+    implementation with two callers cannot drift, which is better than a guard
+    against drifting. The SQL clause remains a genuinely separate evaluation —
+    no regex is portable across both engines, which is why the verdict is stored
+    at all — and `test_the_sql_clause_and_the_python_mirror_agree_row_for_row`
+    guards that pair.
+
+    `is False`, never falsy: None means no pattern applies and is not a gap.
+    """
+    messages: list[str] = []
+    if name_verdict is False:
+        example = policy.name_pattern_example
+        hint = f" (for example: '{example}')" if example else ""
+        messages.append(
+            f"The name does not match this tenant's naming convention{hint}"
+        )
+    for attr in policy.required_attributes or []:
+        if attr in _ATTRIBUTE_LABELS:
+            if _is_attribute_missing(env, attr):
+                messages.append(_ATTRIBUTE_LABELS[attr])
+        elif attr.startswith(CUSTOM_FIELD_PREFIX):
+            key = attr[len(CUSTOM_FIELD_PREFIX) :]
+            value = (env.custom_fields or {}).get(key)
+            if value is None or str(value).strip() == "":
+                messages.append(f"no {key.replace('_', ' ')}")
+    return messages
 
 
 def _is_attribute_missing(env: Environment, attr: str) -> bool:
@@ -877,3 +898,108 @@ def _is_attribute_missing(env: Environment, attr: str) -> bool:
     if attr == "operations_group":
         return env.operations_group_id is None
     return False
+
+
+# ---------------------------------------------------------------------------
+# The preview: what a policy would do, before it does it
+# ---------------------------------------------------------------------------
+
+# Enough names for an admin to recognise the shape of what they are about to
+# flag, without turning a preview into an unpaginated list endpoint. The COUNTS
+# are exact; only the sample is capped, and the UI must say so.
+_PREVIEW_SAMPLE_LIMIT = 20
+
+
+async def preview_policy(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    name_pattern: Optional[str],
+    required_attributes: Optional[list[str]],
+) -> tuple[int, int, int, list[str]]:
+    """Answer "who does this hit?" for a policy that may not be saved yet.
+
+    The candidate pattern is evaluated HERE, in Python, against the tenant's
+    live names — never in the browser. A JavaScript regex engine would be a
+    second opinion on a rule this design deliberately gives one owner, and the
+    two disagree on real patterns.
+
+    THE STORED VERDICT IS NEVER CONSULTED. `environment.name_compliant` is the
+    SAVED policy's answer; reading it would make every preview echo the rule
+    already in force, which is the one thing a preview must not do. The gap
+    decision goes through `_gap_messages` — the same function that words the
+    list's messages — with the candidate's verdict passed in.
+
+    An override of None means "keep what is saved", so `{}` previews the policy
+    in force. That makes an explicit `name_pattern: null` indistinguishable from
+    an omitted one, and therefore no way to preview REMOVING a pattern; the
+    honest answer to that question is the attributes-only policy the admin can
+    already save, and inventing a sentinel for it would be worse.
+
+    Writes nothing, holds no transaction open beyond the read, and is bounded
+    by one tenant's estate — the same shape as `recompute_tenant`.
+    """
+    stored = await load_policy(db, tenant_id)
+    pattern = (
+        name_pattern
+        if name_pattern is not None
+        else (stored.name_pattern if stored else None)
+    )
+    attributes = (
+        required_attributes
+        if required_attributes is not None
+        else (list(stored.required_attributes or []) if stored else [])
+    )
+    # Validated exactly as the save path validates, so an admin cannot discover
+    # at save time that the pattern they previewed is refused — and so a
+    # catastrophic pattern cannot be run over the whole estate by way of a
+    # preview, which would otherwise be the cheapest way to reach the matcher
+    # N times.
+    await validate_pattern_async(pattern, None)
+    await _assert_attributes_known(db, tenant_id, attributes)
+
+    candidate = EnvironmentNamingPolicy(
+        tenant_id=tenant_id,
+        is_enabled=True,
+        name_pattern=pattern,
+        name_pattern_example=stored.name_pattern_example if stored else None,
+        required_attributes=attributes,
+        grace_days=stored.grace_days if stored else 14,
+        effective_from=(
+            _utc(stored.effective_from) if stored else datetime.now(timezone.utc)
+        ),
+    )
+
+    envs = (
+        (
+            await db.execute(
+                select(Environment).where(
+                    Environment.tenant_id == tenant_id,
+                    Environment.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    now = datetime.now(timezone.utc)
+    cutoff = expiry_boundary(now) - timedelta(days=candidate.grace_days)
+    # Both grace clocks, exactly as `quarantine_clause` applies them: the
+    # policy's age gates everything, then each environment's own age.
+    grace_elapsed = candidate.effective_from <= cutoff
+
+    in_gap, quarantined, sample = 0, 0, []
+    for env in envs:
+        # The candidate's verdict, computed now. `evaluate_name` would read the
+        # candidate's own pattern too, but going through `name_matches` keeps
+        # the None-means-unevaluable branch explicit at the one place that
+        # matters here.
+        verdict = name_matches(pattern, env.name) if pattern else None
+        if _gap_messages(env, candidate, verdict):
+            in_gap += 1
+            if len(sample) < _PREVIEW_SAMPLE_LIMIT:
+                sample.append(env.name)
+            if grace_elapsed and _utc(env.created_at) <= cutoff:
+                quarantined += 1
+    return len(envs), in_gap, quarantined, sample

@@ -145,6 +145,17 @@ async def test_a_null_verdict_counts_as_compliant_under_a_live_policy(
     # thing that could put it in gap is a mis-read NULL verdict.
     assert await _names(client, auth_headers, compliance_gap="true") == []
 
+    # And the same rule through the OTHER evaluation. Asserting only the filter
+    # left `_gap_messages` free to read the verdict as falsy rather than
+    # `is False` — measured — which prints "the name does not match this
+    # tenant's naming convention" on every row of an attributes-only policy
+    # while the filter calls them all compliant. That is precisely the SQL/
+    # mirror disagreement the agreement test exists for, and its fixture cannot
+    # reach it: a policy WITH a pattern has no NULL verdicts to mis-read.
+    row = (await client.get(ENVS_URL, headers=auth_headers)).json()[0]
+    assert row["name_compliant"] is None, "precondition: no pattern was applied"
+    assert row["compliance_gaps"] == [], row["compliance_gaps"]
+
 
 @pytest.mark.asyncio
 async def test_nothing_is_quarantined_while_the_policy_is_younger_than_grace(
@@ -357,4 +368,21 @@ async def test_the_sql_clause_and_the_python_mirror_agree_row_for_row(
     assert sql_in_gap == mirror_in_gap, (
         "the SQL clause and the message mirror disagree about which "
         "environments are in gap"
+    )
+
+    # And the preview, asked the same question about the policy already in
+    # force. Since Task 7 the preview CALLS `_gap_messages` rather than
+    # re-implementing it, so this cannot drift the way the plan feared — what
+    # it still catches is the preview's own plumbing: which pattern it resolves
+    # for an omitted override, how it computes the candidate verdict, and which
+    # environments it counts at all.
+    _, in_gap, _, _ = await svc.preview_policy(
+        db_session,
+        test_tenant.id,
+        name_pattern=policy.name_pattern,
+        required_attributes=list(policy.required_attributes),
+    )
+    assert in_gap == len(sql_in_gap), (
+        "the preview disagrees with the SQL clause about how many environments "
+        "the policy in force puts in gap"
     )
