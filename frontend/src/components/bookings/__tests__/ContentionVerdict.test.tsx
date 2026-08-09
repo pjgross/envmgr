@@ -311,6 +311,32 @@ describe('escalating', () => {
     vi.useRealTimers();
   });
 
+  it('counts those three days from the READER\'s day, not from UTC\'s', async () => {
+    // THE DEFAULT IS SEEDED WITH AN INSTANT AND COUNTED IN UTC, so the two have
+    // to be reconciled at the call site. Under TZ=UTC they are identical, which
+    // is why this test sets a real one: at 08:00 on Wednesday in Auckland it is
+    // still Tuesday in UTC, and counting from Tuesday hands the named owner a
+    // deadline one working day earlier than the field's own helper text
+    // promises. The test above cannot see this — every clock it uses is a UTC
+    // midday.
+    vi.stubEnv('TZ', 'Pacific/Auckland');
+    try {
+      const user = userEvent.setup();
+      // Wednesday 12 August, 08:00 in Auckland — Tuesday 11th, 20:00Z.
+      vi.setSystemTime(new Date('2026-08-11T20:00:00Z'));
+      renderVerdict();
+
+      await user.click(await screen.findByRole('button', { name: /Escalate/i }));
+
+      // Wednesday + Thu, Fri, Mon. Counted from the UTC instant it would read
+      // 2026-08-14.
+      expect(await screen.findByLabelText(/Respond by/i)).toHaveValue('2026-08-17');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('posts the owner and the deadline the escalator chose, and tells its parent', async () => {
     const user = userEvent.setup();
     vi.mocked(contentionService.escalate).mockResolvedValue(escalation());

@@ -41,6 +41,28 @@ export function toDateInputValue(iso: string | null | undefined): string {
  * calendar in this product, and inventing one per tenant to compute a DEFAULT
  * the escalator can freely overwrite would be a table nobody asked for.
  */
+/**
+ * The reader's own calendar day, as UTC midnight — the honest start for UTC
+ * date arithmetic that begins at "today".
+ *
+ * `new Date()` is an INSTANT, and every date helper here counts in UTC, so
+ * feeding one straight to `addWorkingDays` silently asks "what day is it in
+ * UTC?" rather than "what day is it where the user is". At 09:00 in Auckland
+ * (UTC+12) the UTC date is still yesterday, so a three-working-day default was
+ * computed from the wrong start and the owner was handed one fewer working day
+ * than the helper promises — invisible to tests that all pass UTC midnights.
+ *
+ * Deliberately NOT a conversion of the instant: it reads the LOCAL calendar
+ * fields and rebuilds them as UTC midnight, which is exactly what a
+ * `<input type="date">` shows and what `toIsoDatetime` then sends back as
+ * `T00:00:00Z`. One notion of "the day" from the picker to the wire.
+ */
+export function localDayAsUtc(instant: Date): Date {
+  return new Date(
+    Date.UTC(instant.getFullYear(), instant.getMonth(), instant.getDate())
+  );
+}
+
 export function addWorkingDays(from: Date, days: number): Date {
   const out = new Date(from.getTime());
   let remaining = days;

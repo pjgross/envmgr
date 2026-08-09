@@ -431,6 +431,76 @@ def test_escalation_state_normalises_a_naive_respond_by():
     ) == STATE_EXPIRED
 
 
+def test_the_deadline_day_itself_reads_open_and_only_the_next_day_is_expired():
+    """THE BOUNDARY, on the exact hours it falls between.
+
+    A DEADLINE IS A DAY, NOT AN INSTANT. `respond_by` is written by a
+    `<input type="date">` through `toIsoDatetime`, so it always lands on
+    `T00:00:00Z` — and comparing it against `now` at instant precision made an
+    escalation read `expired` from one minute past midnight ON THE DAY IT WAS
+    DUE. The owner opened the worklist at 09:00, saw "decide by 10/08/2026" and
+    an **Expired** chip, and had been given none of the day they were promised.
+
+    The previous tests bracketed this at ±7 days, so nothing pinned which side
+    of midnight the flip belongs on. The three assertions below are the day
+    before, the deadline day (at four times of day, including the two minutes
+    either side of its own midnight), and the day after.
+    """
+    deadline = datetime(2026, 2, 10, tzinfo=timezone.utc)
+    row = _FabricatedRow(deadline)
+
+    # The day BEFORE — open, at every hour of it.
+    assert contention_service.escalation_state(
+        row, deadline - timedelta(days=1)
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        row, deadline - timedelta(minutes=1)
+    ) == STATE_OPEN
+
+    # THE DEADLINE DAY ITSELF — open all of it. This is the case that shipped
+    # broken, and 09:00 is the hour the failure was reported at.
+    assert contention_service.escalation_state(row, deadline) == STATE_OPEN
+    assert contention_service.escalation_state(
+        row, deadline + timedelta(minutes=1)
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        row, deadline + timedelta(hours=9)
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        row, deadline + timedelta(hours=23, minutes=59)
+    ) == STATE_OPEN
+
+    # The day AFTER — expired from its first instant, with nothing having run.
+    assert contention_service.escalation_state(
+        row, deadline + timedelta(days=1)
+    ) == STATE_EXPIRED
+    assert contention_service.escalation_state(
+        row, deadline + timedelta(days=1, hours=9)
+    ) == STATE_EXPIRED
+
+
+def test_a_deadline_carrying_a_time_of_day_still_runs_to_the_end_of_its_day():
+    """The API accepts a full datetime, and `respond_by` need not be midnight.
+
+    A calendar-day rule has to mean the same thing for a deadline written at
+    15:00 as for one written at 00:00 — otherwise an API caller supplying a time
+    gets a different rule from the UI, which is how the client-side alternative
+    (send `T23:59:59Z`) was rejected. The whole of the deadline's own day is
+    still open, and the flip is still midnight.
+    """
+    row = _FabricatedRow(datetime(2026, 2, 10, 15, 0, tzinfo=timezone.utc))
+
+    assert contention_service.escalation_state(
+        row, datetime(2026, 2, 10, 1, 0, tzinfo=timezone.utc)
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        row, datetime(2026, 2, 10, 23, 59, tzinfo=timezone.utc)
+    ) == STATE_OPEN
+    assert contention_service.escalation_state(
+        row, datetime(2026, 2, 11, 0, 0, tzinfo=timezone.utc)
+    ) == STATE_EXPIRED
+
+
 def test_escalation_state_normalises_a_naive_now():
     """The CALLER'S side. `now` comes from whoever is rendering the row, and
     `datetime.utcnow()` — naive — is the historically easy mistake in this
@@ -445,6 +515,58 @@ def test_escalation_state_normalises_a_naive_now():
     assert contention_service.escalation_state(
         _FabricatedRow(PAST), naive_now
     ) == STATE_EXPIRED
+
+
+@pytest.mark.asyncio
+async def test_the_state_filter_puts_the_deadline_day_in_open_not_expired(
+    db_session, test_tenant, test_user
+):
+    """THE SQL SIDE OF THE SAME BOUNDARY, on a real engine.
+
+    `escalation_state` and `state_predicate` are two mechanisms answering one
+    question, so one test cannot guard both — and the filter half is the half
+    that hurts: with the boundary wrong, `?state=open` EXCLUDED every contention
+    due today, so the rows closest to their deadline appeared in neither queue
+    the decider would think to look in.
+
+    Runs on both engines because that is where the comparison actually happens:
+    the boundary is a plain instant precisely so this needs no dialect date
+    function, and SQLite and PostgreSQL store `DateTime(timezone=True)`
+    differently.
+
+    Each assertion checks the ROW'S OWN COMPUTED STATE too, so the filter and
+    the rendering cannot silently disagree.
+    """
+    deadline = datetime(2026, 2, 10, tzinfo=timezone.utc)
+    a, b = await _conflicting_pair(db_session, test_tenant.id, test_user.id)
+    escalation = await _escalate(
+        db_session, test_tenant, test_user, a, b, respond_by=deadline
+    )
+    await db_session.flush()
+
+    async def _ids(state, now):
+        rows, total = await contention_service.list_escalations(
+            db_session, test_tenant.id, now=now, state=state
+        )
+        assert total == len(rows)
+        return {row.id for row in rows}
+
+    # 09:00 ON THE DEADLINE DAY — the hour the defect was reported at.
+    on_the_day = deadline + timedelta(hours=9)
+    assert await _ids(STATE_OPEN, on_the_day) == {escalation.id}
+    assert await _ids(STATE_EXPIRED, on_the_day) == set()
+    assert contention_service.escalation_state(escalation, on_the_day) == STATE_OPEN
+
+    # The last minute of it is still open.
+    last_minute = deadline + timedelta(hours=23, minutes=59)
+    assert await _ids(STATE_OPEN, last_minute) == {escalation.id}
+    assert contention_service.escalation_state(escalation, last_minute) == STATE_OPEN
+
+    # The day after — expired in the filter and on the row, nothing having run.
+    next_day = deadline + timedelta(days=1)
+    assert await _ids(STATE_EXPIRED, next_day) == {escalation.id}
+    assert await _ids(STATE_OPEN, next_day) == set()
+    assert contention_service.escalation_state(escalation, next_day) == STATE_EXPIRED
 
 
 # ---------------------------------------------------------------------------

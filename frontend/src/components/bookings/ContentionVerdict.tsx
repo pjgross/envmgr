@@ -38,7 +38,7 @@ import {
 import api from '../../services/api';
 import { contentionService } from '../../services/contentionService';
 import { formatApiError } from '../../services/apiError';
-import { addWorkingDays, toIsoDatetime } from '../../utils/dates';
+import { addWorkingDays, localDayAsUtc, toIsoDatetime } from '../../utils/dates';
 import type { EnvBookingSummary } from '../../types/bookingRequest';
 import type { Contention, EscalationState } from '../../types/contention';
 
@@ -78,9 +78,16 @@ const STATE_CHIP: Record<EscalationState, { label: string; color: 'info' | 'succ
 
 const DEFAULT_RESPONSE_WORKING_DAYS = 3;
 
-/** "YYYY-MM-DD", `days` working days from now — what a `<input type="date">` wants. */
+/** "YYYY-MM-DD", `days` working days from today — what a `<input type="date">` wants.
+ *
+ * SEEDED FROM THE READER'S OWN DAY, not from the raw instant. `addWorkingDays`
+ * counts in UTC, so handing it `new Date()` asks "what day is it in UTC?" — and
+ * at 09:00 in Auckland that is still yesterday, which quietly costs the named
+ * owner one of the three working days the helper text promises them. `localDayAsUtc`
+ * makes the start the same day the date picker below is about to display.
+ */
 function defaultRespondBy(): string {
-  return addWorkingDays(new Date(), DEFAULT_RESPONSE_WORKING_DAYS)
+  return addWorkingDays(localDayAsUtc(new Date()), DEFAULT_RESPONSE_WORKING_DAYS)
     .toISOString()
     .slice(0, 10);
 }

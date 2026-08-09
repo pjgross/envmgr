@@ -124,12 +124,20 @@ people escalating at once record one escalation instead of a 500.
 ### State is computed, not stored
 
 - **answered** — a decision is recorded
-- **expired** — `respond_by` has passed and no decision was recorded
+- **expired** — `respond_by`'s **calendar day** has passed and no decision was recorded
 - **open** — otherwise
 
 No stored flag to drift, and **no background job**: "expired" is a fact about `respond_by` and
 `decided_at`, not a state something must write. This mirrors
 `agreement_gap_service.has_unacknowledged_agreement_gap`.
+
+**A DEADLINE IS A DAY, NOT AN INSTANT.** `respond_by` comes from a `<input type="date">` and is
+therefore always stored at `T00:00:00Z`, so both `escalation_state` and `state_predicate` compare
+it against `contention_service.expiry_boundary(now)` — the start of the current UTC day — and an
+escalation due today reads **open** until midnight. Compared at instant precision it read
+*expired* from one minute past midnight on its own deadline day, and `?state=open` therefore
+excluded every contention due today: the queue hid the rows closest to their deadline. Same rule,
+and the same reason, as `expiryDayDelta`/`isExpiryOverdue` on the frontend.
 
 `respond_by` is set when escalating; the UI defaults it to **three working days ahead** and the
 escalator may change it. It is required — an escalation with no deadline cannot expire, which

@@ -10,8 +10,8 @@
  * yields "YYYY-MM-DD", the app writes deadlines at `T00:00:00Z`, and reading
  * the weekday in local time would shift the skip by a day either side of UTC.
  */
-import { describe, expect, it } from 'vitest';
-import { addWorkingDays } from '../dates';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { addWorkingDays, localDayAsUtc } from '../dates';
 
 const utc = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -55,5 +55,69 @@ describe('addWorkingDays', () => {
     const start = utc('2026-08-05');
     addWorkingDays(start, 3);
     expect(iso(start)).toBe('2026-08-05');
+  });
+});
+
+/**
+ * THE START OF THE COUNT, which every test above supplies as a UTC midnight and
+ * the real caller supplies as `new Date()` — an instant.
+ *
+ * These run under a real non-UTC timezone rather than a UTC one, because that
+ * is the only condition in which the bug exists at all: with `TZ=UTC` the local
+ * and UTC calendar dates are identical and the wrong reading passes.
+ */
+describe('localDayAsUtc', () => {
+  // `vi.stubEnv` rather than assigning `process.env.TZ`: this is a browser-ish
+  // test environment with no node types, and `vi.unstubAllEnvs` restores the
+  // original whatever the test did. Node re-reads TZ on the next `Date`, which
+  // is what makes a mid-run change take effect at all.
+  const withTz = (tz: string, fn: () => void) => {
+    vi.stubEnv('TZ', tz);
+    try {
+      fn();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it('reads the day the READER is in, not the day UTC is in', () => {
+    // 20:00Z on the 11th is already 08:00 on the 12th in Auckland (UTC+12).
+    withTz('Pacific/Auckland', () => {
+      expect(iso(localDayAsUtc(new Date('2026-08-11T20:00:00Z')))).toBe('2026-08-12');
+    });
+    // …and 20:00Z on the 11th is still the 11th in Los Angeles (UTC-7).
+    withTz('America/Los_Angeles', () => {
+      expect(iso(localDayAsUtc(new Date('2026-08-11T20:00:00Z')))).toBe('2026-08-11');
+    });
+  });
+
+  it('lands on UTC midnight, which is what the deadline is written as', () => {
+    withTz('Pacific/Auckland', () => {
+      const day = localDayAsUtc(new Date('2026-08-11T20:00:00Z'));
+      expect(day.toISOString()).toBe('2026-08-12T00:00:00.000Z');
+    });
+  });
+
+  it('gives the escalation default the three working days it promises', () => {
+    // The end-to-end shape of the defect: a user in Auckland opening the
+    // Escalate dialog on Wednesday morning had the count started from Tuesday
+    // (UTC), and was offered a deadline one working day earlier than the
+    // helper text says.
+    withTz('Pacific/Auckland', () => {
+      vi.useFakeTimers();
+      // Wednesday 12 August, 08:00 local — Tuesday 11th, 20:00Z.
+      vi.setSystemTime(new Date('2026-08-11T20:00:00Z'));
+
+      const fromTheInstant = iso(addWorkingDays(new Date(), 3));
+      const fromTheReadersDay = iso(addWorkingDays(localDayAsUtc(new Date()), 3));
+
+      expect(fromTheReadersDay).toBe('2026-08-17'); // Thu, Fri, Mon
+      expect(fromTheInstant).toBe('2026-08-14'); // the day the bug offered
+    });
   });
 });

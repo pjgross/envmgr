@@ -772,6 +772,53 @@ async def test_filtering_by_state_returns_the_right_rows_and_the_total_agrees(
 
 
 @pytest.mark.asyncio
+async def test_a_contention_due_today_is_in_the_open_queue_all_day(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """AGAINST THE SERVER'S OWN CLOCK, on the worst day to get this wrong.
+
+    The UI writes `respond_by` from a `<input type="date">`, so a deadline is
+    always stored at `T00:00:00Z`. Compared against `now` at instant precision,
+    an escalation read `expired` from one minute past midnight ON ITS DEADLINE
+    DAY — and `?state=open`, the filter a decider actually clicks, therefore
+    EXCLUDED every contention due today.
+
+    The two tests either side of this one build `expired` from a deadline seven
+    days gone and `open` from one seven days out, so neither can see the
+    boundary. This one uses today's own midnight and the real server clock,
+    which is the only form that reproduces what a user does.
+    """
+    today = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    a, b = await _pair(db_session, test_tenant, test_user.id)
+    created = await _escalate(
+        client, auth_headers, a.id, b.id, owner_user_id=test_user.id,
+        respond_by=today,
+    )
+    assert created.status_code == 201, created.text
+    # The row the escalate response itself renders says `open` too — the state
+    # is computed once, so a filter and a render that disagreed would be two
+    # answers to one question.
+    assert created.json()["state"] == STATE_OPEN
+
+    open_queue = await client.get(
+        f"/api/v1/contention-escalations?state={STATE_OPEN}", headers=auth_headers
+    )
+    expired_queue = await client.get(
+        f"/api/v1/contention-escalations?state={STATE_EXPIRED}", headers=auth_headers
+    )
+
+    assert _ids(open_queue) == {created.json()["id"]}, (
+        "a contention due TODAY belongs in the Open queue — the day it is due "
+        "is the worst possible day to hide it"
+    )
+    assert _total(open_queue) == 1
+    assert _ids(expired_queue) == set()
+    assert _total(expired_queue) == 0
+
+
+@pytest.mark.asyncio
 async def test_the_state_filter_narrows_the_page_in_sql_not_after_it(
     client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
 ):

@@ -254,6 +254,41 @@ def _utc(value: Optional[datetime]) -> Optional[datetime]:
     return value.replace(tzinfo=timezone.utc)
 
 
+def expiry_boundary(now: datetime) -> datetime:
+    """The instant a deadline becomes late: the START OF THE UTC DAY `now` is in.
+
+    A DEADLINE IS A DAY, NOT AN INSTANT, and this is the one place that decides
+    so. `respond_by` is written by a `<input type="date">` through
+    `toIsoDatetime`, which yields `"YYYY-MM-DDT00:00:00Z"` — so comparing it
+    against `now` at instant precision made an escalation read `expired` from
+    one minute past midnight on the very day it was due. The owner opening the
+    worklist at 09:00 saw "decide by 10/08/2026" beside an **Expired** chip,
+    having been given none of the day the product promised them; and because
+    `state_predicate` compares the same way, `?state=open` EXCLUDED every
+    contention due today — the queue hiding exactly the rows closest to their
+    deadline.
+
+    CALENDAR DAYS, COMPARED CONSISTENTLY — the rule this repo already paid for
+    once. `expiryDayDelta`/`isExpiryOverdue` (frontend/src/utils/dates.ts) exist
+    because `formatExpiry` reported an environment "overdue by 1 day" throughout
+    the day it actually expired, for the same reason: a floored instant delta
+    against a value stored at midnight. See CLAUDE.md's pitfall on day
+    arithmetic.
+
+    Both `escalation_state` and `state_predicate` call this, so the computed
+    state and its SQL filter cannot drift apart — the "two mechanisms enforcing
+    one outcome" shape that has repeatedly cost this branch. Portable: it
+    returns a plain instant, so the predicate needs no dialect date functions.
+
+    Normalised through `astimezone(timezone.utc)`, not `replace(...)` alone: a
+    caller holding an aware clock in another offset would otherwise get midnight
+    in THAT offset, which is a different day.
+    """
+    return _utc(now).astimezone(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
 def escalation_state(escalation: ContentionEscalation, now: datetime) -> str:
     """COMPUTED, never stored — which is why A4 needs no scheduler.
 
@@ -262,6 +297,11 @@ def escalation_state(escalation: ContentionEscalation, now: datetime) -> str:
     second escalation of a contention that already has an answer. The branch
     ORDER is the rule, and `test_answering_late_is_still_answered` is what pins
     it.
+
+    THE DEADLINE DAY ITSELF IS STILL `open`. The comparison is against
+    `expiry_boundary(now)` — the start of today — not against `now`, so an
+    escalation due today reads open all day and turns expired at midnight. See
+    that function for the defect this fixed and the repo precedent it follows.
 
     BOTH SIDES OF THE COMPARISON ARE NORMALISED, not just the stored one. `now`
     comes from the caller, and a caller that reaches for `datetime.utcnow()` —
@@ -273,7 +313,7 @@ def escalation_state(escalation: ContentionEscalation, now: datetime) -> str:
     """
     if escalation.decided_at is not None:
         return STATE_ANSWERED
-    if _utc(escalation.respond_by) < _utc(now):
+    if _utc(escalation.respond_by) < expiry_boundary(now):
         return STATE_EXPIRED
     return STATE_OPEN
 
@@ -697,18 +737,26 @@ def state_predicate(state: str, now: datetime):
     filter and the page's rendered states are computed from one instant. Taken
     twice, a row whose deadline falls between the two reads would be selected as
     open and rendered as expired.
+
+    THE DEADLINE DAY IS COMPARED THROUGH `expiry_boundary`, THE SAME FUNCTION
+    `escalation_state` USES, and that shared call is the point: a deadline is a
+    DAY, and a filter that decided "late" at instant precision while the row
+    rendered its state from a calendar day would put an `Open` chip inside the
+    Expired queue. `?state=open` used to exclude every contention due today for
+    exactly that reason.
     """
+    boundary = expiry_boundary(now)
     if state == STATE_ANSWERED:
         return ContentionEscalation.decided_at.is_not(None)
     if state == STATE_EXPIRED:
         return and_(
             ContentionEscalation.decided_at.is_(None),
-            ContentionEscalation.respond_by < now,
+            ContentionEscalation.respond_by < boundary,
         )
     if state == STATE_OPEN:
         return and_(
             ContentionEscalation.decided_at.is_(None),
-            ContentionEscalation.respond_by >= now,
+            ContentionEscalation.respond_by >= boundary,
         )
     raise ValueError(f"unknown escalation state {state!r}")
 

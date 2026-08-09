@@ -335,12 +335,13 @@ Every escalation, and its answer, is listed at **Environment Management → Cont
 named owner and for Admins. Each row shows both sides by project and environment, who must decide,
 who raised it, the deadline, and one of three states:
 
-- **Open** — not yet answered, deadline still ahead.
+- **Open** — not yet answered, deadline still ahead. **The deadline day itself counts as open all
+  day**: an escalation due today is in the *Open* queue until midnight, not the *Expired* one.
 - **Answered** — a decision has been recorded. Answering after the deadline still counts as
   answered; the decision arrived, and that is the fact worth keeping.
-- **Expired** — the deadline passed with no answer. It is a missed deadline, not a failure, and
-  nothing was blocked by it. The state is worked out when the page loads, so no job has to run for
-  it to appear.
+- **Expired** — the deadline day has passed with no answer. It is a missed deadline, not a failure,
+  and nothing was blocked by it. The state is worked out when the page loads, so no job has to run
+  for it to appear.
 
 Recording a decision means picking which booking should give way and, optionally, writing why. Both
 are recorded against your name and the time. A later decision overwrites the earlier one entirely —
