@@ -58,9 +58,13 @@ async def list_conflicts(
     unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
         db, [c.booking.id for c in others], current_user.active_tenant_id
     )
-    # A4's verdict and its escalation, BATCHED OVER THE PAGE — two calls beside
+    # A4's verdict and its escalation, BATCHED OVER THE PAGE — three calls beside
     # the three above, never one pair at a time. Three sub-projects have now
     # added a field to this endpoint and every per-row form has had to be undone.
+    # NOT the whole story for this endpoint: `conflict_service.get_ack` in the
+    # loop below is still one query per row. That is pre-existing, not A4's, and
+    # is the only un-batched lookup left here — do not read the rule above as a
+    # statement that the endpoint as a whole is batched.
     #
     # The pairs are keyed AS GIVEN, `(subject, other)`, which is the contract
     # both batch functions state: `escalations_for_pairs` normalises internally,
@@ -74,7 +78,11 @@ async def list_conflicts(
         db, pairs, current_user.active_tenant_id
     )
     # The liveness and the names an EscalationRead needs, batched the same way.
-    escalation_views = await contention_service.escalation_views(
+    # `views`, not `escalation_views` — a local of the service function's own
+    # name makes `views.get(...)` below read as a call into the service, and a
+    # later edit dropping the `contention_service.` prefix would fail
+    # confusingly. Matches `contentions.py`.
+    views = await contention_service.escalation_views(
         db, escalations.values(), current_user.active_tenant_id, now
     )
     items: list[ConflictItem] = []
@@ -99,7 +107,7 @@ async def list_conflicts(
             ),
             contention=ContentionRead.from_verdict(
                 verdicts[(booking_id, c.booking.id)],
-                escalation_views.get(escalation.id) if escalation else None,
+                views.get(escalation.id) if escalation else None,
             ),
             ack=ConflictAckRead.model_validate(ack) if ack else None,
         ))

@@ -362,6 +362,9 @@ async def test_escalating_as_neither_owner_delegate_nor_admin_is_403(
     resp = await _escalate(client, headers, a.id, b.id, owner_user_id=test_user.id)
 
     assert resp.status_code == 403, resp.text
+    # WHICH 403: a status alone would also be satisfied by some unrelated gate
+    # refusing this caller before the escalate gate was ever consulted.
+    assert "escalate this contention" in resp.json()["detail"]
     listed = await client.get("/api/v1/contention-escalations", headers=auth_headers)
     assert listed.json() == [], "a refused escalation must record nothing"
     assert stranger.id != test_user.id
@@ -436,6 +439,8 @@ async def test_escalating_another_tenants_bookings_is_404_not_403(
     )
 
     assert resp.status_code == 404, resp.text
+    # …and WHICH 404: an unrouted URL says "Not Found".
+    assert resp.json()["detail"] == "Booking not found"
 
 
 @pytest.mark.asyncio
@@ -451,6 +456,17 @@ async def test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403(
     exist. Every other cross-tenant test here is made as an Admin, and an Admin
     is answered 404 by the write path whatever this gate does; only a
     non-privileged caller can tell the two apart.
+
+    THE DETAIL IS ASSERTED, NOT JUST THE STATUS. An unrouted URL answers 404
+    too, and this test cannot make a successful call through the route first
+    (its whole point is a caller with no authority over any pair). Measured, not
+    inferred: with the escalate POST's path renamed, 23 of this file's tests
+    fail and the status-only form of this one PASSES — and it is the ONLY test
+    that fails when `_assert_bookings_visible` is removed from
+    `assert_may_escalate`, so its vacuity would leave that guard unguarded the
+    day the route moves. `_assert_bookings_visible` raises "Booking not found";
+    FastAPI's unrouted 404 says "Not Found", so the assertion below also pins
+    WHICH 404 was raised.
     """
     other_tenant, other_admin = await second_tenant_factory()
     await ensure_booking_type(db_session, other_tenant.id)
@@ -464,6 +480,10 @@ async def test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403(
     )
 
     assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "Booking not found", (
+        "a bare 404 assertion is satisfied by an unrouted URL — this pins the "
+        "404 the visibility check raises"
+    )
 
 
 @pytest.mark.asyncio
@@ -574,6 +594,8 @@ async def test_anybody_else_may_not_record_the_decision(
     )
 
     assert resp.status_code == 403, resp.text
+    # WHICH 403 — see the sibling escalate test for why the status alone is weak.
+    assert "decide this contention" in resp.json()["detail"]
     assert stranger.id != owner.id
     listed = await client.get("/api/v1/contention-escalations", headers=auth_headers)
     assert listed.json()[0]["state"] == STATE_OPEN
@@ -623,6 +645,8 @@ async def test_deciding_another_tenants_escalation_is_404_not_403(
     )
 
     assert resp.status_code == 404, resp.text
+    # …and WHICH 404: an unrouted URL says "Not Found".
+    assert resp.json()["detail"] == "Escalation not found"
     db_session.expire(theirs)
     untouched = await contention_service.get_escalation(
         db_session, theirs_a.id, theirs_b.id, other_tenant.id
@@ -799,6 +823,79 @@ async def test_the_worklist_refuses_a_sort_field_outside_its_whitelist(
 
 
 @pytest.mark.asyncio
+async def test_the_worklist_actually_orders_by_the_field_it_was_asked_for(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """RENDERED ROW ORDER, over data whose id order is neither sorted order.
+
+    The 422 above proves only that `sort_by` is VALIDATED. Measured, not
+    inferred: replacing `apply_sort(query, sort)` with `apply_sort(query, None)`
+    in `list_escalations` — accept the parameter, refuse garbage, then ignore it
+    — left all 27 of this file's other tests green. The worklist grid would
+    render a sorted header over rows in `id` order and nothing would object.
+    This is docs/pagination.md's rule in its own words: assert the order the user
+    sees, never the SQL that was emitted.
+
+    The three below are created so that `id` order matches NEITHER `respond_by`
+    ascending NOR descending, so a query that dropped the sort and fell through
+    to the `id` tiebreaker fails both assertions rather than half of them.
+    """
+    a, b = await _pair(db_session, test_tenant, test_user.id, slot=1)
+    c, d = await _pair(db_session, test_tenant, test_user.id, slot=2)
+    e, f = await _pair(db_session, test_tenant, test_user.id, slot=3)
+
+    # Created FIRST, due LAST.
+    latest = await _escalate(
+        client, auth_headers, a.id, b.id, owner_user_id=test_user.id,
+        respond_by=FUTURE + timedelta(days=20),
+    )
+    soonest = await _escalate(
+        client, auth_headers, c.id, d.id, owner_user_id=test_user.id,
+        respond_by=FUTURE + timedelta(days=5),
+    )
+    middling = await _escalate(
+        client, auth_headers, e.id, f.id, owner_user_id=test_user.id,
+        respond_by=FUTURE + timedelta(days=10),
+    )
+    for resp in (latest, soonest, middling):
+        assert resp.status_code == 201, resp.text
+    creation_order = [r.json()["id"] for r in (latest, soonest, middling)]
+    assert creation_order == sorted(creation_order), (
+        "the premise of this test is that id order differs from respond_by order"
+    )
+
+    async def _order(query: str) -> list[int]:
+        resp = await client.get(
+            f"/api/v1/contention-escalations?{query}", headers=auth_headers
+        )
+        assert resp.status_code == 200, resp.text
+        return [row["id"] for row in resp.json()]
+
+    assert await _order("sort_by=respond_by&sort_dir=asc") == [
+        soonest.json()["id"], middling.json()["id"], latest.json()["id"],
+    ]
+    # `sort_dir=desc` is asserted too: an implementation that ordered by the
+    # right column and ignored the direction would pass the ascending case alone.
+    assert await _order("sort_by=respond_by&sort_dir=desc") == [
+        latest.json()["id"], middling.json()["id"], soonest.json()["id"],
+    ]
+
+    # `decided_at` is null on every open row, which is the NULL pinning
+    # `apply_sort` does explicitly — SQLite sorts NULL first on ASC and
+    # PostgreSQL last, so an unpinned ORDER BY here returns a different page per
+    # engine. Answered rows first, the two open ones after in id order.
+    answered = await client.put(
+        f"/api/v1/contention-escalations/{middling.json()['id']}/decision",
+        json={"yields_booking_id": f.id},
+        headers=auth_headers,
+    )
+    assert answered.status_code == 200, answered.text
+    assert await _order("sort_by=decided_at&sort_dir=asc") == [
+        middling.json()["id"], latest.json()["id"], soonest.json()["id"],
+    ]
+
+
+@pytest.mark.asyncio
 async def test_another_tenants_escalations_never_appear_in_our_worklist(
     client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user,
     second_tenant_factory,
@@ -942,26 +1039,40 @@ async def test_a_contention_changes_no_booking_behaviour(
     """A4 ADVISES; IT NEVER ACTS.
 
     Detecting a contention, escalating it, and recording a decision that names
-    a booking must leave both bookings byte-identical — same status, same
-    dates, same lifecycle. This is A4's counterpart to A1's
-    `test_an_agreement_changes_no_booking_behaviour`, written for the same
-    reason: to catch a LATER sub-project quietly making this act. If it fails,
-    A4 has started acting.
+    a booking must leave both bookings byte-identical — EVERY COLUMN, not a
+    chosen few (see `_stored` for why the chosen few were not enough). This is
+    A4's counterpart to A1's `test_an_agreement_changes_no_booking_behaviour`,
+    written for the same reason: to catch a LATER sub-project quietly making
+    this act. If it fails, A4 has started acting.
     """
     a, b = await _pair(db_session, test_tenant, test_user.id)
     a_id, b_id = a.id, b.id
 
     async def _stored():
-        """Read the two rows BACK FROM THE DATABASE, not off the ORM objects —
-        a transition applied through the service would leave the in-memory
-        objects as the test remembers them on some paths."""
+        """THE WHOLE ROW, read BACK FROM THE DATABASE.
+
+        Not off the ORM objects — a transition applied through the service would
+        leave the in-memory objects as the test remembers them on some paths.
+
+        And not a hand-picked tuple of columns, which is what this guard used to
+        snapshot: `(status, start_date, end_date, updated_at)`. Three of those
+        four are real, but `updated_at` contributes NOTHING and must not be
+        trusted as the catch-all it looks like. `Base.updated_at` is
+        `onupdate=func.now()`, and this test never commits, so on PostgreSQL
+        `now()` is transaction-start time and cannot change within the flow,
+        while on SQLite `CURRENT_TIMESTAMP` has one-second resolution over a
+        sub-second test. A mutant in which `record_decision` also SOFT-DELETES
+        the yielding booking — A4 acting in the most destructive way available,
+        and this codebase's standard idiom for removing a row — passed the
+        four-column form on BOTH engines.
+
+        `dict(row._mapping)` closes the whole class rather than guessing which
+        column a later sub-project will reach for.
+        """
         rows = (await db_session.execute(
             Booking.__table__.select().where(Booking.id.in_([a_id, b_id]))
         )).all()
-        return {
-            row.id: (row.status, row.start_date, row.end_date, row.updated_at)
-            for row in rows
-        }
+        return {row.id: dict(row._mapping) for row in rows}
 
     before = await _stored()
 

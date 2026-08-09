@@ -889,12 +889,18 @@ async def assert_may_escalate(
     part in.
 
     VISIBILITY IS SETTLED BEFORE THE 403 IS EVER RAISED, and that is what makes
-    a cross-tenant pair 404 rather than 403 — the refusal below reads
-    `BookingRequest` WITHOUT a tenant filter (the ids come from `Booking`, which
-    was just checked), so without the check above, a bystander naming two of
-    another tenant's bookings would be told "you are not the owner", which
-    confirms they exist. `test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403`
-    fails with the line removed.
+    a cross-tenant pair 404 rather than 403: without the check above, a
+    bystander naming two of another tenant's bookings falls through the loop
+    below and is refused with "you are not the owner of these" — a 403 where the
+    contract says 404. `test_a_bystander_escalating_another_tenants_bookings_gets_404_not_403`
+    fails with the line removed, and asserts the 404's DETAIL so it cannot be
+    satisfied by an unrouted URL.
+
+    The query below now carries its own `tenant_id` as well. That is defence in
+    depth, not the mechanism: it changes no answer while this call site runs the
+    visibility check first, and it exists so a future second caller cannot
+    inherit a cross-tenant `BookingRequest` read. The check above remains
+    load-bearing for the STATUS CODE, which the tenant filter does not fix.
 
     Its position relative to the Admin BYPASS is, measuredly, immaterial: an
     Admin who skipped it still hits `create_escalation`'s own check and still
@@ -914,7 +920,18 @@ async def assert_may_escalate(
     requests = (await db.execute(
         select(BookingRequest)
         .join(Booking, Booking.booking_request_id == BookingRequest.id)
-        .where(Booking.id.in_({booking_id, other_booking_id}))
+        .where(
+            Booking.id.in_({booking_id, other_booking_id}),
+            # DEFENCE IN DEPTH, and free: the ids were just proved to be this
+            # tenant's, so this changes no answer today. It is here because
+            # `assert_may_escalate` is module-level and public — a second caller
+            # that reached it without the visibility check above would otherwise
+            # inherit a cross-tenant `BookingRequest` read, and the repo's rule
+            # is that EVERY query on a tenant-scoped table carries `tenant_id`.
+            # `conflict_service._authorize_ack` has the same shape and the same
+            # exception; this removes ours rather than propagating it.
+            BookingRequest.tenant_id == tenant_id,
+        )
     )).scalars().all()
     for request in requests:
         if current_user.id == request.booked_by:

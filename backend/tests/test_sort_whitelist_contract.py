@@ -47,6 +47,20 @@ WHITELISTS = {
     # valid API contract, but UserGroups.tsx renders a client-side DataGrid
     # (no sortingMode="server"), so nothing on the frontend sorts this
     # endpoint server-side. Add it back the day a grid actually does.
+    #
+    # "contention-escalations" is absent for the same reason and only for now.
+    # `GET /contention-escalations` already takes sorting(ESCALATION_SORTS,
+    # default="respond_by") and its order is asserted by
+    # test_the_worklist_actually_orders_by_the_field_it_was_asked_for, but A4
+    # Task 6 has not built the worklist grid yet, so no frontend sorts it
+    # server-side and there is no sortWhitelists.json entry to match — one added
+    # now would fail test_contract_has_exactly_the_expected_endpoints and would
+    # describe a grid that does not exist. REGISTER IT THE DAY THAT GRID LANDS,
+    # as ("respond_by", "asc"), via
+    #     from app.services.contention_service import ESCALATION_SORTS
+    # (a whitelist living in a service, exactly like REQUEST_SORTS above), and
+    # add the matching JSON entry — or the grid offers columns the server 422s,
+    # which is the precise failure this file exists to prevent.
 }
 
 
