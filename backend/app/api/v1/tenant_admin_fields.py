@@ -1,14 +1,24 @@
 # backend/app/api/v1/tenant_admin_fields.py
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.core.security import require_tenant_admin
-from app.services import custom_field_service, raid_config_service
+from app.core.security import get_current_user, require_tenant_admin
+from app.services import (
+    custom_field_service,
+    environment_compliance_service,
+    raid_config_service,
+)
 from app.api.v1.schemas.custom_field import (
     CustomFieldDefinitionCreate,
     CustomFieldDefinitionUpdate,
     CustomFieldDefinitionResponse,
+)
+from app.api.v1.schemas.environment_naming_policy import (
+    EnvironmentNamingPolicyRead,
+    EnvironmentNamingPolicyUpdate,
 )
 from app.api.v1.schemas.raid import RaidConfigRead, RaidConfigUpdate
 
@@ -35,6 +45,50 @@ async def update_raid_config(
         probability_scale=data.probability_scale,
         impact_scale=data.impact_scale,
         rag_bands=data.rag_bands,
+    )
+
+
+@router.get("/environment-naming-policy", response_model=EnvironmentNamingPolicyRead)
+async def get_environment_naming_policy(
+    db: AsyncSession = Depends(get_db),
+    # Reads are open to any tenant member; only writes are Admin. The reason an
+    # environment is flagged has to be legible to whoever must fix it — B3a's
+    # rule, deliberately unlike /tenant/users, which really is admin-gated.
+    # Note this is the one route in this router that is NOT admin-gated.
+    current_user=Depends(get_current_user),
+):
+    policy = await environment_compliance_service.load_policy(
+        db, current_user.active_tenant_id
+    )
+    if policy is None:
+        # A tenant that has never saved one reads as "no rule in force" rather
+        # than 404 — the UI has a form to render either way, and a 404 would
+        # make "not configured" indistinguishable from a broken route.
+        return EnvironmentNamingPolicyRead(
+            is_enabled=False,
+            name_pattern=None,
+            name_pattern_example=None,
+            required_attributes=[],
+            grace_days=14,
+            effective_from=datetime.now(timezone.utc),
+        )
+    return policy
+
+
+@router.put("/environment-naming-policy", response_model=EnvironmentNamingPolicyRead)
+async def put_environment_naming_policy(
+    data: EnvironmentNamingPolicyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await environment_compliance_service.upsert_policy(
+        db,
+        current_user.active_tenant_id,
+        is_enabled=data.is_enabled,
+        name_pattern=data.name_pattern,
+        name_pattern_example=data.name_pattern_example,
+        required_attributes=data.required_attributes,
+        grace_days=data.grace_days,
     )
 
 

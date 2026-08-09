@@ -55,16 +55,23 @@ and it is a real gap in the *import*, not merely a theoretical one, left open
 deliberately here rather than widened into this task.
 """
 import logging
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Optional
 
 import regex
 from fastapi import HTTPException, status
-from sqlalchemy import String, func, or_
+from sqlalchemy import String, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.api.v1.schemas.environment_naming_policy import (
+    CUSTOM_FIELD_PREFIX,
+    FIXED_ATTRIBUTES,
+)
 from app.db.models.environment import Environment
 from app.db.models.environment_naming_policy import EnvironmentNamingPolicy
+from app.services.custom_field_service import list_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -525,3 +532,150 @@ async def validate_pattern_async(
     for subject in _PROBE_SUBJECTS.values():
         if name_matches(pattern, subject) is None:
             _refuse_as_too_slow()
+
+
+# ---------------------------------------------------------------------------
+# The policy itself: loading it, saving it, and re-judging the estate
+# ---------------------------------------------------------------------------
+
+
+async def load_policy(
+    db: AsyncSession, tenant_id: int
+) -> Optional[EnvironmentNamingPolicy]:
+    """The tenant's policy row, or None if it has never saved one.
+
+    There is no `deleted_at` on this table and no DELETE path — `is_enabled` is
+    the off switch, so None means "never configured", never "removed".
+    """
+    return (
+        await db.execute(
+            select(EnvironmentNamingPolicy).where(
+                EnvironmentNamingPolicy.tenant_id == tenant_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _assert_attributes_known(
+    db: AsyncSession, tenant_id: int, attributes: list[str]
+) -> None:
+    """Every entry is either one of the three fixed attributes or a `cf:` key
+    this tenant actually defines.
+
+    A typo'd key would otherwise mark the whole estate non-compliant against a
+    field that does not exist, with nothing on any screen to explain why — the
+    attribute check has no equivalent of the naming pattern's worked example.
+    """
+    defined = {d.field_key for d in await list_definitions(db, tenant_id, "environment")}
+    for attr in attributes:
+        if attr in FIXED_ATTRIBUTES:
+            continue
+        if attr.startswith(CUSTOM_FIELD_PREFIX):
+            key = attr[len(CUSTOM_FIELD_PREFIX) :]
+            if key in defined:
+                continue
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"'{key}' is not a custom field defined for environments in "
+                "this tenant.",
+            )
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"'{attr}' is not an attribute a naming policy can require. "
+            f"Use one of {sorted(FIXED_ATTRIBUTES)}, or 'cf:<field_key>'. "
+            "Tier is always required by the schema, so it cannot be listed here.",
+        )
+
+
+async def upsert_policy(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    is_enabled: bool,
+    name_pattern: Optional[str],
+    name_pattern_example: Optional[str],
+    required_attributes: list[str],
+    grace_days: int,
+) -> EnvironmentNamingPolicy:
+    """Save the tenant's one policy row and re-judge every environment against it.
+
+    VALIDATION RUNS BEFORE ANYTHING IS MUTATED, both halves of it, so a refused
+    save leaves no partially-applied rule behind. The pattern goes through
+    Task 3's `validate_pattern_async` rather than being re-decided here — one
+    module owns every regex decision, and an endpoint that made its own would
+    be the second opinion the whole design exists to avoid.
+
+    The recompute is what makes the verdict trustworthy. `name_compliant` is
+    stored, so without it every environment would keep the verdict of a policy
+    that no longer exists — and the disable path matters as much as the enable
+    path: turning a policy off must return the estate to "no rule applies", not
+    freeze the last judgement it made.
+    """
+    await validate_pattern_async(name_pattern, name_pattern_example)
+    await _assert_attributes_known(db, tenant_id, required_attributes)
+
+    policy = await load_policy(db, tenant_id)
+    if policy is None:
+        policy = EnvironmentNamingPolicy(tenant_id=tenant_id)
+        db.add(policy)
+        rule_changed = bool(name_pattern) or bool(required_attributes)
+    else:
+        rule_changed = policy.name_pattern != name_pattern or list(
+            policy.required_attributes or []
+        ) != list(required_attributes)
+
+    policy.is_enabled = is_enabled
+    policy.name_pattern = name_pattern
+    policy.name_pattern_example = name_pattern_example
+    policy.required_attributes = list(required_attributes)
+    policy.grace_days = grace_days
+    if rule_changed:
+        # Bumped in EITHER direction: "stricter" is not a decidable property of
+        # a regex change, and granting fresh grace for a relaxation is harmless.
+        # Deliberately NOT bumped by grace_days, is_enabled or the example —
+        # none of those changes what is being asked of an environment, and
+        # bumping on them would hand a fresh grace period to the whole estate
+        # every time an admin corrected a typo in the example.
+        policy.effective_from = datetime.now(timezone.utc)
+
+    await db.flush()
+    await recompute_tenant(db, tenant_id, policy)
+    await db.refresh(policy)
+    return policy
+
+
+async def recompute_tenant(
+    db: AsyncSession, tenant_id: int, policy: Optional[EnvironmentNamingPolicy]
+) -> int:
+    """Re-evaluate every live environment's stored name verdict. Returns the count.
+
+    Bounded by one tenant's estate and one flush, and it runs inline on the
+    policy save because that is the only moment the answer can change for every
+    row at once. There is no scheduler and nothing to invalidate.
+
+    It calls `evaluate_name` per row rather than matching in SQL because no
+    regex is portable across SQLite and PostgreSQL — that is the whole reason
+    this verdict is stored rather than computed on read. The per-match timeout
+    is what keeps a pathological pattern from turning this loop into a hang;
+    see the module docstring on what that does and does not bound.
+
+    Passing `policy=None`, or a policy that is disabled or has no pattern,
+    returns every verdict to NULL — "no rule applies", which counts as
+    compliant everywhere it is read.
+    """
+    envs = (
+        (
+            await db.execute(
+                select(Environment).where(
+                    Environment.tenant_id == tenant_id,
+                    Environment.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for env in envs:
+        env.name_compliant = evaluate_name(policy, env.name)
+    await db.flush()
+    return len(envs)
