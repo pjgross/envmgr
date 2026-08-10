@@ -36,6 +36,7 @@ from sqlalchemy.orm import aliased
 from app.core.day_boundaries import expiry_boundary
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.core.upsert import insert_or_reread
+from app.core.protection_levels import PROTECTION_HARD
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.contention_escalation import ContentionEscalation
@@ -50,6 +51,20 @@ OUTCOME_RANKED = "ranked"
 OUTCOME_NO_PROJECT = "no_project"
 OUTCOME_UNRANKED = "unranked"
 OUTCOME_EQUAL_RANK = "equal_rank"
+
+# B4's tie-break. THE FIRST OUTCOME WITH A WINNER THAT RANK DID NOT CHOOSE.
+#
+# A4's spec declined a fifth outcome for "project not resolvable" on the
+# grounds that a malformed link "is not a different KIND of answer". This one
+# IS: rank could not separate the pair, and something else did. It is
+# deliberately not folded into OUTCOME_RANKED, whose reason claims a
+# higher-priority project won — which here is false and would be read as one.
+OUTCOME_PROTECTED = "protected"
+
+# Appended to whichever no-winner reason applied, so the RANK FACT SURVIVES.
+# A bare "the protected booking holds" throws away the only thing that tells
+# an admin whether to go and set a rank.
+PROTECTED_SUFFIX = "; the protected booking holds"
 
 # The two `no_project` reasons. ONE OUTCOME, TWO REASONS — deliberately not a
 # fifth outcome, because "the link cannot be resolved" is not a different KIND
@@ -76,10 +91,11 @@ class ContentionVerdict(NamedTuple):
 
 async def _ranks_for(
     db: AsyncSession, booking_ids: set[int], tenant_id: int
-) -> dict[int, tuple[Optional[int], Optional[int], Optional[int]]]:
-    """booking id -> (requested_project_id, resolved_project_id, priority_rank).
+) -> dict[int, tuple[Optional[int], Optional[int], Optional[int], Optional[str]]]:
+    """booking id -> (requested_project_id, resolved_project_id, priority_rank,
+    protection_level).
 
-    THREE VALUES, NOT TWO, AND THE FIRST TWO ARE NOT THE SAME QUESTION.
+    FOUR VALUES, NOT TWO, AND THE FIRST TWO ARE NOT THE SAME QUESTION.
     `requested` is what the REQUEST names (`BookingRequest.project_id`, raw and
     unfiltered); `resolved` is what this tenant can actually SEE (`Project.id`
     through the filtered LEFT join). They differ exactly when a request names a
@@ -125,9 +141,19 @@ async def _ranks_for(
     simply absent from the result, and `verdicts_for_pairs` reads that absence
     as project-less rather than raising. This feeds a warning, not a permission
     decision.
+
+    B4 ADDS `protection_level` FROM THIS SAME SELECT, no new join and no
+    second query — it is already a plain column on `BookingRequest`, the row
+    this query already joins to reach `project_id`.
     """
     rows = (await db.execute(
-        select(Booking.id, BookingRequest.project_id, Project.id, Project.priority_rank)
+        select(
+            Booking.id,
+            BookingRequest.project_id,
+            Project.id,
+            Project.priority_rank,
+            BookingRequest.protection_level,
+        )
         .join(BookingRequest, BookingRequest.id == Booking.booking_request_id)
         .join(
             Project,
@@ -138,21 +164,46 @@ async def _ranks_for(
         )
         .where(Booking.id.in_(booking_ids), Booking.tenant_id == tenant_id)
     )).all()
-    return {bid: (requested, pid, rank) for bid, requested, pid, rank in rows}
+    return {
+        bid: (requested, pid, rank, level)
+        for bid, requested, pid, rank, level in rows
+    }
+
+
+def _protection_breaks_tie(
+    a_id: int, a_level: Optional[str], b_id: int, b_level: Optional[str], reason: str
+) -> Optional[ContentionVerdict]:
+    """The hard side wins, or None if protection has nothing to say.
+
+    BOTH LEVELS MUST BE KNOWN. A booking we cannot see (absent from
+    `_ranks_for` — another tenant's, or stale) carries None, and must not be
+    declared the loser on the strength of a level nobody read.
+    """
+    if a_level is None or b_level is None or a_level == b_level:
+        return None
+    winner = a_id if a_level == PROTECTION_HARD else b_id
+    return ContentionVerdict(OUTCOME_PROTECTED, winner, reason + PROTECTED_SUFFIX)
 
 
 def _decide(
-    a_id: int, a: tuple[Optional[int], Optional[int], Optional[int]],
-    b_id: int, b: tuple[Optional[int], Optional[int], Optional[int]],
+    a_id: int, a: tuple[Optional[int], Optional[int], Optional[int], Optional[str]],
+    b_id: int, b: tuple[Optional[int], Optional[int], Optional[int], Optional[str]],
 ) -> ContentionVerdict:
     """The whole decision, in branch order — and the order is load-bearing.
 
     A booking with no project has no rank either, so `no_project` must be asked
     FIRST or every project-less pair would report as `unranked` and invite
     someone to fix it by ranking a project that is not there.
+
+    B4: PROTECTION IS CONSULTED ONLY IN THE THREE NO-WINNER BRANCHES, never in
+    `ranked` — rank stays strictly primary, and a SOFT booking on a better rank
+    still beats a HARD one. Each branch stays as its own explicit `if`,
+    matching the ruling on this file: the order is load-bearing and each
+    outcome carries its own reason, so this is not folded into a table or a
+    loop over outcomes.
     """
-    a_requested, a_project, a_rank = a
-    b_requested, b_project, b_rank = b
+    a_requested, a_project, a_rank, a_level = a
+    b_requested, b_project, b_rank, b_level = b
     if a_project is None or b_project is None:
         # ONE OUTCOME, TWO REASONS. A request that NAMES a project we cannot
         # resolve is a different thing to tell a user from one that names none:
@@ -164,20 +215,23 @@ def _decide(
         unresolvable = (a_requested is not None and a_project is None) or (
             b_requested is not None and b_project is None
         )
-        return ContentionVerdict(
-            OUTCOME_NO_PROJECT, None,
-            REASON_PROJECT_UNRESOLVABLE if unresolvable else REASON_NO_PROJECT,
+        reason = REASON_PROJECT_UNRESOLVABLE if unresolvable else REASON_NO_PROJECT
+        return (
+            _protection_breaks_tie(a_id, a_level, b_id, b_level, reason)
+            or ContentionVerdict(OUTCOME_NO_PROJECT, None, reason)
         )
     if a_rank is None or b_rank is None:
         # A RANKED PROJECT DOES NOT BEAT AN UNRANKED ONE. See the module note.
-        return ContentionVerdict(
-            OUTCOME_UNRANKED, None,
-            "at least one project has no priority rank",
+        reason = "at least one project has no priority rank"
+        return (
+            _protection_breaks_tie(a_id, a_level, b_id, b_level, reason)
+            or ContentionVerdict(OUTCOME_UNRANKED, None, reason)
         )
     if a_rank == b_rank:
-        return ContentionVerdict(
-            OUTCOME_EQUAL_RANK, None,
-            "both projects have the same priority rank",
+        reason = "both projects have the same priority rank"
+        return (
+            _protection_breaks_tie(a_id, a_level, b_id, b_level, reason)
+            or ContentionVerdict(OUTCOME_EQUAL_RANK, None, reason)
         )
     winner = a_id if a_rank < b_rank else b_id  # LOWER WINS
     return ContentionVerdict(OUTCOME_RANKED, winner, "the higher-priority project wins")
@@ -195,7 +249,10 @@ async def verdicts_for_pairs(
     # A booking id that resolved to nothing requested nothing either, as far as
     # this tenant can tell — so it takes the plain `no_project` reason, not the
     # "archived or another tenant's" one, which is a claim about a project.
-    missing = (None, None, None)
+    #
+    # Four Nones, and the LAST one matters: an unknown protection level must
+    # never lose. See _protection_breaks_tie.
+    missing = (None, None, None, None)
     return {
         (a, b): _decide(a, ranks.get(a, missing), b, ranks.get(b, missing))
         for a, b in pairs

@@ -605,7 +605,12 @@ async def test_the_rank_lookup_reports_a_project_less_booking_rather_than_droppi
     found = await contention_service._ranks_for(
         db_session, {no_project.id}, test_tenant.id
     )
-    assert found == {no_project.id: (None, None, None)}
+    assert set(found) == {no_project.id}
+    # RANK FIELDS ONLY (elements 0-2: requested/resolved project, rank).
+    # Element 3 is B4's protection level, which this test deliberately does
+    # not constrain — its subject is presence-not-dropped and project/rank
+    # absence, not what B4 stored there.
+    assert found[no_project.id][:3] == (None, None, None)
 
 
 @pytest.mark.asyncio
@@ -637,10 +642,13 @@ async def test_the_rank_lookup_keeps_the_requested_project_id_apart_from_the_res
     found = await contention_service._ranks_for(
         db_session, {on_archived.id, without.id}, test_tenant.id
     )
+    # RANK FIELDS ONLY (elements 0-2). Element 3 is B4's protection level,
+    # which this test deliberately does not constrain — its subject is
+    # precisely that elements 0 and 1 differ.
     # The request still names it; the tenant-and-liveness-filtered join does not.
-    assert found[on_archived.id] == (archived.id, None, None)
+    assert found[on_archived.id][:3] == (archived.id, None, None)
     # Nothing named, nothing resolved — and that is a different pair of values.
-    assert found[without.id] == (None, None, None)
+    assert found[without.id][:3] == (None, None, None)
 
 
 @pytest.mark.asyncio
