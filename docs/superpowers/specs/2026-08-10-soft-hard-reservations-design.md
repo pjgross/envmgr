@@ -176,10 +176,16 @@ The request **inherits** its booking type's `default_protection_level`. Both cre
 `BookingRequest` and already carries `exclusive_use_requested=data.exclusive_use` — the same line
 gains the level).
 
-A caller who is neither `Role.ADMIN` nor `Role.RELEASE_MANAGER` **may not send
-`protection_level` at all**; supplying one is a 422. The schema declares `extra="forbid"`, which
-is the house rule after A4's `ProjectCreate` silently discarded `priority_rank` and only a browser
-pass caught it.
+A caller who is neither `Role.ADMIN` nor `Role.RELEASE_MANAGER` may not **choose** a level: sending
+one that differs from the booking type's default is a **403**. Sending one that *equals* it is
+accepted — the same unchanged-value carve-out as the update path below, and load-bearing rather
+than tidy, because `BookingForm` shows non-admins their inherited level read-only and submits the
+whole form including it.
+
+The schema also declares `extra="forbid"`, which is the house rule after A4's `ProjectCreate`
+silently discarded `priority_rank` and only a browser pass caught it. That is a **different**
+guard from the role check: `extra="forbid"` 422s an *unknown* key, the role check 403s a *known*
+key the caller may not set.
 
 ### On update
 
@@ -276,9 +282,12 @@ write schemas declare `extra="forbid"`.
 4. **`ContentionVerdict`** — renders `OUTCOME_PROTECTED` with its composed reason. The same
    component already serves the Conflicts panel and the `/contentions` worklist, so both get it
    from one change.
-5. **Calendar / Gantt** — protected bookings take a **border or hatch, never a colour**. Colour is
-   already the booking type's channel (`booking_type.color`), and overloading it makes two
-   vocabularies fight for one visual dimension.
+5. **Calendar / Gantt** — protected bookings take a **border or hatch, never a colour**. Both
+   `BookingCalendar` and `BookingScheduleGantt` already spend colour on `STATUS_COLORS` (and
+   `booking_type.color` is the calendar's other colour vocabulary), so overloading it makes two
+   vocabularies fight for one visual dimension. A border alone is also not accessible, so the
+   marker is paired with text — "Protected (hard) reservation" in the tooltip — which is what the
+   jsdom tests can assert on, since neither component's geometry renders there.
 6. **`BookingTypesPanel`** — the two new defaults beside the existing lifecycle template. The
    panel already reads `result.payload` via `formatApiError`, so its error path needs no change.
 
