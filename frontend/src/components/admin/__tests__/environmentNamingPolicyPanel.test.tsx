@@ -201,6 +201,39 @@ describe('EnvironmentNamingPolicyPanel', () => {
     spy.mockRestore();
   });
 
+  it('distinguishes a custom field whose label collides with a fixed attribute', async () => {
+    // Found by opening the page. The dev tenant has a custom field keyed
+    // `owner` and LABELLED "Owner", so the picker showed two options both
+    // reading "Owner" — indistinguishable in the list, identical as chips once
+    // selected. The jsdom fixture used "Cost centre", which could not collide,
+    // so no test could have caught it. Same collision class the grid columns
+    // solved by namespacing `cf_`, in a picker rather than a column id.
+    vi.mocked(customFieldService.listDefinitions).mockResolvedValue([
+      { ...COST_CENTRE_FIELD, field_key: 'owner', label: 'Owner' },
+    ]);
+    renderPanel();
+    await screen.findByDisplayValue('payments-uat-01');
+    await userEvent.click(screen.getByRole('combobox', { name: /required attributes/i }));
+
+    const owners = await screen.findAllByRole('option', { name: /owner/i });
+    expect(owners).toHaveLength(2);
+    expect(new Set(owners.map((o) => o.textContent))).toHaveLength(2);
+    expect(screen.getByRole('option', { name: 'Owner (custom field)' })).toBeInTheDocument();
+  });
+
+  it('claims no effective date for a policy that is not in force', async () => {
+    // The endpoint answers a never-saved policy with a DISABLED DEFAULT whose
+    // effective_from is now, rather than 404ing — so an ungated caption
+    // announced "In force since <today>" on a tenant that had never saved one.
+    vi.mocked(environmentNamingPolicyService.get).mockResolvedValue({
+      ...POLICY,
+      is_enabled: false,
+    });
+    renderPanel();
+    await screen.findByDisplayValue('payments-uat-01');
+    expect(screen.queryByText(/in force since/i)).not.toBeInTheDocument();
+  });
+
   it('offers each environment custom field as a requirable attribute', async () => {
     renderPanel();
     await screen.findByDisplayValue('payments-uat-01');

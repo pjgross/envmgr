@@ -69,7 +69,16 @@ export default function EnvironmentNamingPolicyPanel() {
   const attributeOptions = useMemo(
     () => [
       ...FIXED_ATTRIBUTES,
-      ...(envFields ?? []).map((f) => ({ value: `cf:${f.field_key}`, label: f.label })),
+      // Suffixed, never the bare label. A tenant custom field may be LABELLED
+      // exactly like one of the fixed attributes — the dev estate has one keyed
+      // `owner`, labelled "Owner" — and two options reading "Owner" are
+      // indistinguishable in the list and identical once selected as chips.
+      // Same collision class the grid columns solved by namespacing `cf_`,
+      // showing up in a picker instead of a column id.
+      ...(envFields ?? []).map((f) => ({
+        value: `cf:${f.field_key}`,
+        label: `${f.label} (custom field)`,
+      })),
     ],
     [envFields]
   );
@@ -237,7 +246,12 @@ export default function EnvironmentNamingPolicyPanel() {
           deployed to and reported on.
         </Typography>
 
-        {policy && (
+        {/* Gated on is_enabled, not on `policy` being present: a tenant that has
+            never saved one reads as a DISABLED DEFAULT with `effective_from` set
+            to now (the endpoint answers that rather than 404ing), so an ungated
+            caption announced "In force since <today>" for a policy that was not
+            in force and had never been saved. */}
+        {policy?.is_enabled && (
           <Typography variant="caption" color="text.secondary">
             In force since {new Date(policy.effective_from).toLocaleDateString()}. This date
             resets whenever the pattern or the attribute list changes, granting fresh grace.
