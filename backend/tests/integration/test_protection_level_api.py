@@ -16,6 +16,7 @@ from app.core.protection_levels import (
     PROTECTION_SOFT,
 )
 from app.core.security import Role, get_password_hash
+from app.db.models.booking import Booking
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.booking_request import BookingRequest
 from app.db.models.environment import Environment
@@ -391,3 +392,124 @@ async def test_the_legacy_single_environment_path_inherits_too(
     )
     assert r.status_code in (200, 201), r.text
     assert r.json()["booking"]["protection_level"] == PROTECTION_HARD
+
+
+# ── Task 3: the role gate on the UPDATE path ─────────────────────────────────
+#
+# `update_standard_fields` keys on the submitted key set — an omitted key
+# means "leave alone" — so `current` for the role check is the STORED value,
+# not a booking type's inherited default the way create_request uses it.
+
+
+@pytest_asyncio.fixture(scope="function")
+async def soft_request(
+    db_session, test_tenant, developer_headers, api_booking_type, environment
+) -> BookingRequest:
+    """A BookingRequest at PROTECTION_SOFT, owned by the developer_headers
+    user, with one Booking child.
+
+    Depends on `developer_headers` rather than creating its own user so the
+    "b4-developer" row `_login_as` creates is guaranteed to exist by the time
+    this fixture runs; it then looks that user up by the fixed username to
+    get an id for `booked_by`. `api_booking_type` and `environment` are both
+    scoped to `test_tenant`, matching this fixture and the `client`-driven
+    tests that consume it.
+    """
+    owner = (await db_session.execute(
+        select(User).where(
+            User.tenant_id == test_tenant.id, User.username == "b4-developer"
+        )
+    )).scalar_one()
+    now = datetime.now(timezone.utc)
+    req = BookingRequest(
+        tenant_id=test_tenant.id,
+        project_name="Soft request",
+        booking_type_id=api_booking_type.id,
+        start_date=now,
+        end_date=now + timedelta(days=1),
+        protection_level=PROTECTION_SOFT,
+        booked_by=owner.id,
+    )
+    db_session.add(req)
+    await db_session.flush()
+    child = Booking(
+        tenant_id=test_tenant.id,
+        booking_request_id=req.id,
+        environment_id=environment.id,
+        start_date=now,
+        end_date=now + timedelta(days=1),
+    )
+    db_session.add(child)
+    await db_session.flush()
+    await db_session.refresh(req)
+    return req
+
+
+@pytest.mark.asyncio
+async def test_an_admin_may_change_the_level_after_the_fact(
+    client, auth_headers, soft_request
+):
+    r = await client.patch(
+        f"/api/v1/booking-requests/{soft_request.id}/standard-fields",
+        headers=auth_headers,
+        json={"protection_level": PROTECTION_HARD},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["protection_level"] == PROTECTION_HARD
+
+
+@pytest.mark.asyncio
+async def test_a_developer_may_not_change_the_level(
+    client, developer_headers, soft_request
+):
+    r = await client.patch(
+        f"/api/v1/booking-requests/{soft_request.id}/standard-fields",
+        headers=developer_headers,
+        json={"protection_level": PROTECTION_HARD},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_a_full_form_save_resending_an_unchanged_level_is_accepted(
+    client, developer_headers, db_session, soft_request
+):
+    """The carve-out on the UPDATE path.
+
+    An Admin marks someone's booking hard. The original booker then saves the
+    edit form, which resends every standard field including the level they
+    cannot change. That save must succeed — otherwise an admin action makes a
+    booking permanently unsavable by its own owner.
+    """
+    soft_request.protection_level = PROTECTION_HARD
+    await db_session.flush()
+
+    r = await client.patch(
+        f"/api/v1/booking-requests/{soft_request.id}/standard-fields",
+        headers=developer_headers,
+        json={
+            "project_name": "Renamed by the booker",
+            "protection_level": PROTECTION_HARD,
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["project_name"] == "Renamed by the booker"
+    assert r.json()["protection_level"] == PROTECTION_HARD
+
+
+@pytest.mark.asyncio
+async def test_omitting_the_level_leaves_it_alone(
+    client, developer_headers, db_session, soft_request
+):
+    """`update_standard_fields` keys on the submitted key set — an omitted key
+    means "leave alone", so only an explicit value can change anything."""
+    soft_request.protection_level = PROTECTION_HARD
+    await db_session.flush()
+
+    r = await client.patch(
+        f"/api/v1/booking-requests/{soft_request.id}/standard-fields",
+        headers=developer_headers,
+        json={"project_name": "Still fine"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["protection_level"] == PROTECTION_HARD

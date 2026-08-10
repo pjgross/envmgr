@@ -85,6 +85,11 @@ class BookingRequestUpdate(BaseModel):
     context_tag: Optional[str] = None
     exclusive_use_requested: Optional[bool] = None
     delegate_user_ids: Optional[list[int]] = None
+    # None means "leave alone" — update_standard_fields keys on the submitted
+    # key set, not on this default. A caller who is not an Admin or Release
+    # Manager may resend the stored value unchanged but may not choose a
+    # different one — see booking_request_service.assert_may_set_protection.
+    protection_level: Optional[Literal["soft", "hard"]] = None
 
 
 class BookingRequestCustomFieldsUpdate(BaseModel):

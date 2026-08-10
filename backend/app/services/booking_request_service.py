@@ -421,6 +421,7 @@ STANDARD_REQUEST_FIELDS = {
     "context_tag",
     "exclusive_use_requested",
     "delegate_user_ids",
+    "protection_level",
 }
 
 
@@ -456,6 +457,17 @@ async def update_standard_fields(
     # follow the same check used in booking_service.update_standard_fields today.
     # For now we allow the request owner to edit any standard field; sharpen in Task 16 once
     # the API wires permission checks.
+
+    if "protection_level" in values:
+        # `current` is the STORED value, unlike create_request's inherited
+        # default — a full-form save resending the existing (possibly
+        # admin-changed) level must be accepted, or an admin action makes a
+        # booking permanently unsavable by its own owner.
+        assert_may_set_protection(
+            current_user,
+            submitted=values["protection_level"],
+            current=req.protection_level,
+        )
 
     for k, v in values.items():
         if k == "context_tag" and v is not None:
