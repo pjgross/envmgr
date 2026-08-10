@@ -84,6 +84,60 @@ async def test_a_new_booking_type_defaults_to_soft(db_session, tenant, lifecycle
 
 
 @pytest.mark.asyncio
+async def test_a_booking_types_defaults_round_trip(client, auth_headers, api_lifecycle_template):
+    """A4's ProjectCreate silently DISCARDED priority_rank because the schema
+    had neither the field nor extra="forbid", and only a browser pass caught
+    it. Read every field back through the API, not off the model."""
+    r = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={
+            "name": "Release cycle",
+            "lifecycle_template_id": api_lifecycle_template.id,
+            "default_protection_level": PROTECTION_HARD,
+            "default_duration_minutes": 20160,
+        },
+    )
+    assert r.status_code in (200, 201), r.text
+    created = r.json()
+    assert created["default_protection_level"] == PROTECTION_HARD
+    assert created["default_duration_minutes"] == 20160
+
+    listed = (await client.get("/api/v1/tenant/booking-types", headers=auth_headers)).json()
+    mine = [t for t in listed if t["id"] == created["id"]][0]
+    assert mine["default_protection_level"] == PROTECTION_HARD
+    assert mine["default_duration_minutes"] == 20160
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_key_on_a_booking_type_is_refused(client, auth_headers, api_lifecycle_template):
+    r = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={
+            "name": "Typo'd",
+            "lifecycle_template_id": api_lifecycle_template.id,
+            "default_protection": PROTECTION_HARD,
+        },
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_duration_must_be_positive(client, auth_headers, api_lifecycle_template):
+    r = await client.post(
+        "/api/v1/tenant/booking-types",
+        headers=auth_headers,
+        json={
+            "name": "Nonsense",
+            "lifecycle_template_id": api_lifecycle_template.id,
+            "default_duration_minutes": 0,
+        },
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_a_new_request_defaults_to_soft(db_session, tenant, booking_type, user):
     now = datetime.now(timezone.utc)
     req = BookingRequest(
@@ -115,6 +169,32 @@ async def test_a_new_request_defaults_to_soft(db_session, tenant, booking_type, 
 # booking_type_id" or 400 the environment lookup — it would not exercise the
 # role gate at all. `booking_type` above is deliberately left alone for that
 # reason; `api_booking_type` is its test_tenant-scoped counterpart.
+
+
+@pytest_asyncio.fixture(scope="function")
+async def api_lifecycle_template(db_session, test_tenant) -> LifecycleTemplate:
+    """A lifecycle template in test_tenant, for Task 6 tests that create a
+    booking type through the API. The module-level `lifecycle_template`
+    fixture above is scoped to `tenant` (see the comment above
+    `api_booking_type`) and 404s "Lifecycle template not found" when handed
+    to `client`/`auth_headers`, which log into `test_tenant` instead."""
+    tpl = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="booking",
+        name="api-protection-level-test-lifecycle",
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                {"key": "submitted", "label": "Submitted", "is_initial": False, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    await db_session.refresh(tpl)
+    return tpl
 
 
 @pytest_asyncio.fixture(scope="function")

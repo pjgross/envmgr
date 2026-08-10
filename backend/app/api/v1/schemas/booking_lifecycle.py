@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, field_validator, ConfigDict
+from typing import Literal, Optional
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 # ── JSONB definition sub-schemas ────────────────────────────────────────────
@@ -264,19 +264,40 @@ class LifecycleTemplateResponse(BaseModel):
 
 
 class BookingTypeCreate(BaseModel):
+    # extra="forbid" so a misspelled key (e.g. `default_protection`) is a 422
+    # rather than silently dropped — the class of bug A4's `ProjectCreate`
+    # shipped with (priority_rank discarded, 201 returned as though it worked).
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     description: Optional[str] = None
     lifecycle_template_id: int
     color: Optional[str] = None
     is_active: bool = True
+    # B4 — how hard a request inheriting this type defaults to
+    # (app/core/protection_levels.py).
+    default_protection_level: Literal["soft", "hard"] = "soft"
+    # None means "this type has no duration preset" — a legitimate state, not
+    # a missing value. `gt=0`: a zero-minute preset fills the booking form
+    # with a zero-length booking, and a zero-length interval conflicts with
+    # nothing at all (overlap is `start < end AND end > start`).
+    default_duration_minutes: Optional[int] = Field(default=None, gt=0)
 
 
 class BookingTypeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     description: Optional[str] = None
     lifecycle_template_id: Optional[int] = None
     color: Optional[str] = None
     is_active: Optional[bool] = None
+    default_protection_level: Optional[Literal["soft", "hard"]] = None
+    # NOTE: like every other field on this schema, `update_type` applies this
+    # with `if data.X is not None`, so sending an explicit null cannot clear
+    # an existing preset — only setting a new positive value replaces one.
+    # There is no way through this endpoint to remove a preset once set.
+    default_duration_minutes: Optional[int] = Field(default=None, gt=0)
 
 
 class BookingTypeResponse(BaseModel):
@@ -287,6 +308,8 @@ class BookingTypeResponse(BaseModel):
     lifecycle_template_id: int
     color: Optional[str]
     is_active: bool
+    default_protection_level: str
+    default_duration_minutes: Optional[int]
     created_at: datetime
     updated_at: datetime
 

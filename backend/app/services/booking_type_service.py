@@ -19,6 +19,8 @@ async def create_type(
         lifecycle_template_id=data.lifecycle_template_id,
         color=data.color,
         is_active=data.is_active,
+        default_protection_level=data.default_protection_level,
+        default_duration_minutes=data.default_duration_minutes,
     )
     db.add(bt)
     await db.flush()
@@ -72,6 +74,13 @@ async def update_type(
         bt.color = data.color
     if data.is_active is not None:
         bt.is_active = data.is_active
+    if data.default_protection_level is not None:
+        bt.default_protection_level = data.default_protection_level
+    # `is not None` like every other field here: a duration preset, once
+    # set, cannot be cleared through this endpoint — only replaced with a
+    # new positive value. Explicit null is a no-op, not a clear.
+    if data.default_duration_minutes is not None:
+        bt.default_duration_minutes = data.default_duration_minutes
     await db.flush()
     await db.refresh(bt)
     return bt
