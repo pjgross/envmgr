@@ -20,6 +20,14 @@ export const environmentService = {
     owner_user_id?: number;
     expiring_within_days?: number;
     governance_gap?: boolean;
+    /**
+     * Fails the tenant's naming/tagging policy. Overlaps `governance_gap` by
+     * design — that one is B1's fixed pair (owner + operating team), this one is
+     * whatever the tenant's own policy asks for.
+     */
+    compliance_gap?: boolean;
+    /** In gap with the grace period fully elapsed. Advisory: it blocks nothing. */
+    quarantined?: boolean;
     search?: string;
     limit?: number;
     offset?: number;

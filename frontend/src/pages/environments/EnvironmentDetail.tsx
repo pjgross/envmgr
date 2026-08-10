@@ -78,6 +78,7 @@ import type {
 import type { VersionCreate, VersionUpdate, VersionResponse } from '../../types/version';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
+import { useNamingPolicy, namingPolicyHelperText } from '../../hooks/useNamingPolicy';
 import { formatExpiry, isExpiryOverdue } from '../../utils/dates';
 import api from '../../services/api';
 
@@ -150,6 +151,10 @@ export default function EnvironmentDetail() {
   // which may not be loaded on an environment page at all. See
   // useAllEnvironmentTiers' JSDoc.
   const { tiers } = useAllEnvironmentTiers();
+
+  // For the name field's helper text below. Display only — the pattern is never
+  // evaluated in the browser.
+  const { policy: namingPolicy } = useNamingPolicy();
 
   // Never a paged environment slice — `fetchUserGroups({})` reads the whole
   // tenant collection, same reasoning as the tier list above.
@@ -700,6 +705,10 @@ export default function EnvironmentDetail() {
                   required
                   value={envForm.name}
                   onChange={(e) => setEnvForm({ ...envForm, name: e.target.value })}
+                  // Only a CHANGED name is refused, so re-saving this form with
+                  // a legacy non-conforming name still works — the helper text
+                  // is guidance for an edit, not a warning about the row.
+                  helperText={namingPolicyHelperText(namingPolicy)}
                 />
                 <TextField
                   label="Description"
@@ -891,6 +900,30 @@ export default function EnvironmentDetail() {
                     >
                       Expires: {formatExpiry(currentEnvironment?.expires_at ?? null)}
                     </Typography>
+                    {(currentEnvironment?.compliance_gaps ?? []).length > 0 && (
+                      <Alert
+                        data-testid="compliance-banner"
+                        severity={currentEnvironment?.quarantined ? 'error' : 'warning'}
+                      >
+                        <Typography variant="subtitle2">
+                          {currentEnvironment?.quarantined
+                            ? 'Quarantined by the naming & tagging policy'
+                            : 'This environment does not meet the naming & tagging policy'}
+                        </Typography>
+                        <Box component="ul" sx={{ pl: 2, my: 0.5 }}>
+                          {(currentEnvironment?.compliance_gaps ?? []).map((gap) => (
+                            <li key={gap}>
+                              <Typography variant="body2">{gap}</Typography>
+                            </li>
+                          ))}
+                        </Box>
+                        <Typography variant="body2">
+                          {currentEnvironment?.quarantined
+                            ? 'Quarantine is a label, not a lock: this environment can still be booked, deployed to and reported on. Fix the points above to clear it.'
+                            : 'Nothing is restricted. Fix the points above before the grace period elapses and it will not be quarantined.'}
+                        </Typography>
+                      </Alert>
+                    )}
                   </Box>
                 </Box>
                 <Divider sx={{ my: 1 }} />

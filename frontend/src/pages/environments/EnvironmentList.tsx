@@ -52,6 +52,7 @@ import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
+import { useNamingPolicy, namingPolicyHelperText } from '../../hooks/useNamingPolicy';
 import { formatExpiry, isExpiryOverdue } from '../../utils/dates';
 import api from '../../services/api';
 
@@ -230,6 +231,39 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
       params.row.reserved_now ? <Chip label="Reserved" size="small" color="info" /> : '—',
   },
   {
+    field: 'compliance',
+    headerName: 'Compliance',
+    width: 150,
+    // Computed from name_compliant + created_at + the tenant's policy, so there
+    // is no single column to order by — docs/pagination.md's unsortable set.
+    // The field id is `compliance`, which no custom-field column can collide
+    // with: those are namespaced `cf_` (see buildCustomFieldColumns).
+    sortable: false,
+    renderCell: (params) => {
+      // Quarantine outranks the gap chip rather than sitting beside it: every
+      // quarantined environment is in gap by definition, so two chips would
+      // always appear together and the second would carry no information.
+      if (params.row.quarantined) {
+        return (
+          <Tooltip title={(params.row.compliance_gaps ?? []).join('; ')}>
+            <Chip label="Quarantined" size="small" color="error" />
+          </Tooltip>
+        );
+      }
+      // `name_compliant === null` means no pattern applies and counts as
+      // compliant, so it is the gap LIST that decides this cell — never the
+      // verdict on its own.
+      if ((params.row.compliance_gaps ?? []).length > 0) {
+        return (
+          <Tooltip title={(params.row.compliance_gaps ?? []).join('; ')}>
+            <Chip label="Policy gap" size="small" color="warning" />
+          </Tooltip>
+        );
+      }
+      return '—';
+    },
+  },
+  {
     field: 'status',
     headerName: 'Status',
     flex: 0.8,
@@ -318,6 +352,10 @@ export default function EnvironmentList() {
   // on the visible page.
   const { tiers } = useAllEnvironmentTiers();
 
+  // For the name field's helper text in the create/edit dialog. Readable by any
+  // tenant member, unlike the admin panel that writes it.
+  const { policy: namingPolicy } = useNamingPolicy();
+
   // GET /tenant/users/lite is bounded, but at its own larger contract
   // (default 1000, max 5000) rather than the shared 500/1000 — a truncated
   // picker loses users rather than shortening a page. A tenant past 1000
@@ -338,6 +376,8 @@ export default function EnvironmentList() {
       'status',
       'tier_id',
       'governance_gap',
+      'compliance_gap',
+      'quarantined',
       'owner_user_id',
       'expiring_within_days',
       'operations_group_id',
@@ -631,6 +671,32 @@ export default function EnvironmentList() {
             grid.setFilter('governance_gap', grid.filters.governance_gap === 'true' ? '' : 'true')
           }
         />
+        <Chip
+          // The tenant's own naming/tagging policy, as opposed to
+          // `governance_gap`, which is B1's fixed pair (owner + operating
+          // team). Overlapping by design; see docs/admin-guide.md.
+          label="Policy gap"
+          clickable
+          color={grid.filters.compliance_gap === 'true' ? 'warning' : 'default'}
+          variant={grid.filters.compliance_gap === 'true' ? 'filled' : 'outlined'}
+          onClick={() =>
+            // '' is the no-selection value — NOT 'all', which buildParams
+            // treats as its own sentinel, and not an empty `?compliance_gap=`,
+            // which the endpoint answers with a 422.
+            grid.setFilter('compliance_gap', grid.filters.compliance_gap === 'true' ? '' : 'true')
+          }
+        />
+        <Chip
+          // Advisory: a quarantined environment can still be booked, deployed
+          // to and reported on. This chip finds them; it does not fence them.
+          label="Quarantined"
+          clickable
+          color={grid.filters.quarantined === 'true' ? 'error' : 'default'}
+          variant={grid.filters.quarantined === 'true' ? 'filled' : 'outlined'}
+          onClick={() =>
+            grid.setFilter('quarantined', grid.filters.quarantined === 'true' ? '' : 'true')
+          }
+        />
       </Box>
 
       {error && (
@@ -685,6 +751,10 @@ export default function EnvironmentList() {
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             fullWidth
+            // Display only — the pattern is never evaluated here. The server
+            // owns that decision, and it refuses a CHANGED name that fails,
+            // quoting this same example back.
+            helperText={namingPolicyHelperText(namingPolicy)}
           />
           <TextField
             label="Description"
