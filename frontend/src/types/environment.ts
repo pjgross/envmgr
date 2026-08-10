@@ -29,8 +29,46 @@ export interface EnvironmentResponse {
   sla_notes: string | null;
   known_limitations: string | null;
   decommission_notes: string | null;
+  /**
+   * B2. NULL means "no pattern applies" — it counts as COMPLIANT, never as
+   * unknown and never as failing. No policy row, a disabled policy, or a
+   * policy with no `name_pattern` all read as null.
+   */
+  name_compliant?: boolean | null;
+  /** Derived on read from the stored verdict, `created_at` and the policy. Advisory: it blocks nothing. */
+  quarantined?: boolean;
+  compliance_gaps?: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface EnvironmentNamingPolicy {
+  is_enabled: boolean;
+  name_pattern: string | null;
+  name_pattern_example: string | null;
+  required_attributes: string[];
+  grace_days: number;
+  effective_from: string;
+}
+
+/**
+ * What PUT accepts, which is NOT what GET returns: `effective_from` is the
+ * server's to set (it bumps whenever the pattern or the attribute list changes,
+ * in either direction), and `EnvironmentNamingPolicyUpdate` declares
+ * `extra="forbid"` — so echoing the whole read model back is a 422, not a
+ * harmless extra key.
+ */
+export type EnvironmentNamingPolicyUpdate = Omit<EnvironmentNamingPolicy, 'effective_from'>;
+
+export interface EnvironmentNamingPolicyPreview {
+  total_environments: number;
+  in_gap: number;
+  quarantined_now: number;
+  /**
+   * Capped server-side at 20. The COUNTS above are exact; this is a sample, and
+   * anything rendering it must say so rather than imply it is the whole set.
+   */
+  sample_names: string[];
 }
 
 export interface SystemSummary {

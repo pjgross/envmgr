@@ -1,6 +1,6 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1, B3a, B3b, A1, A2, A3 and A4 shipped (B3 complete, **programme A complete**) | Roadmap: [../plan.md](../plan.md)
+> Status: 🟡 **In progress** — sub-projects B1, B2, B3a, B3b, A1, A2, A3 and A4 shipped (B3 complete, **programme A complete**) | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
@@ -77,7 +77,13 @@ A1 gates A3 and A4.
 
 - [x] **B1** Governance fields — tier, Reserved, named owner, expiry.
       [Spec](../superpowers/specs/2026-08-04-environment-governance-fields-design.md)
-- [ ] **B2** Naming & tagging conventions + untagged quarantine after a grace period
+- [x] **B2** Naming & tagging conventions + untagged quarantine after a grace period.
+      A per-tenant policy over the name and over attributes that already exist, judged on
+      every environment, with quarantine derived on read. It **advises and never blocks a
+      booking**; the single refusal in the whole sub-project is a 422 on a *changed* name
+      that fails the pattern. "Terminate untagged resources" is a **deviation on record**,
+      not an omission — see below.
+      [Spec](../superpowers/specs/2026-08-09-environment-naming-tagging-design.md)
 - **B3** Environment Request Form + auto-generated Welcome Pack, split in two:
   - [x] **B3a** A generic `UserGroup` with membership, `environment.operations_group_id`,
         and the admin + environment UI for both. No request form, no routing, no Welcome
@@ -94,7 +100,8 @@ A1 gates A3 and A4.
 - [ ] **B5** Decommissioning workflow + idle auto-detection (ghost environments)
 - [ ] **B6** Forward contention as a calendar leading indicator
 
-B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
+B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3. B2 consumed B1's governance
+fields *and* B3a's operations group as its attribute vocabulary, so it was gated on both.
 
 ## What A1 established
 
@@ -489,6 +496,116 @@ B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3.
 - `{draft, rejected, closed}` — "not a live claim on an environment" — now lives
   once, in `app/core/booking_states.py`. `conflict_service.TERMINAL_STATES` is
   deliberately different and must not be merged into it.
+
+## What B2 established
+
+- **B2 ADVISES; IT NEVER BLOCKS A BOOKING.** A quarantined environment is booked,
+  transitioned, deployed to and reported on exactly as before. The guard is
+  `tests/test_b2_advises_never_blocks.py` — a quarantined environment can still be booked,
+  its booking can still transition, and it is still editable and still active — with
+  `describe('B2 advises; it never blocks')` in `environmentCompliance.test.tsx` on the UI
+  half, comparing every action on a quarantined row against the same action on a clean one.
+  **If any fails, B2 has started acting.** Descended from A1's
+  `test_an_agreement_changes_no_booking_behaviour` and A4's
+  `test_a_contention_changes_no_booking_behaviour`; this is the third sub-project in a row
+  whose central promise is a named test rather than an absence in the diff.
+- **THE NAME PATTERN IS THE ONLY THING THAT EVER REFUSES.** Missing attributes never refuse
+  and quarantine never refuses; the pattern refuses a name being *introduced or changed*, at
+  **three** gates:
+  - `POST /environments` — a non-conforming new name is a 422.
+  - A **rename** via `PATCH` — but a full-form save that re-sends an existing bad name is
+    **accepted**, so no legacy environment is ever unsavable. Same shape as B1's rule that a
+    null expiry must never block a patch.
+  - **Submitting** a `new_environment` request whose `proposed_name` fails. Caught there
+    because the requester can still edit the name; caught at fulfilment it would be too late,
+    and not caught at all it would mint a permanently non-compliant environment through a path
+    with no refusal in it.
+
+  Two paths deliberately **cannot** 422 on the rule: request **fulfilment** (blocking an
+  already-approved request strands it with no way forward) and the **spreadsheet import** (an
+  `HTTPException` there escapes the per-row handler and kills the entire upload — the
+  impersonation-import failure class again). And an **access** request is never judged against
+  its target environment's existing name: that would block access to exactly the legacy
+  environments people most need access to.
+- **THE NAME VERDICT IS STORED; EVERYTHING ELSE IS COMPUTED — and this is the one place the
+  design breaks a house rule.** Every filter must run in SQL
+  ([pagination.md](../pagination.md)), but **no regex is portable across both engines**:
+  PostgreSQL has `~`, SQLite has no `REGEXP` without a callback. Dialect regex in SQL would
+  put three regex engines behind one rule, and a name refused at save would report compliant
+  in the list — A2's "two mechanisms enforcing one outcome, so one test cannot guard both",
+  which A2 produced three times. So `environment.name_compliant` is stored, Python is the
+  only regex engine, and the filter is an indexable column comparison. **The attribute half
+  needs none of it** and stays computed in SQL, including `cf:<key>` — a dialect-portable
+  JSON predicate, proven on both engines as task one precisely because it was the only part
+  with no precedent in the codebase.
+- **The invalidation surface is four write paths, exhaustively:**
+  `environment_service.create_environment_record`, `environment_service.update_environment`,
+  `environment_request_service`'s fulfilment, and `upsert_policy` → `recompute_tenant`.
+  Nothing else sets `environment.name`. The policy save recomputes the whole tenant inline —
+  no scheduler, nothing queued — and **the disable path matters as much as the enable path**:
+  turning a policy off must return the estate to "no rule applies", not freeze the last
+  judgement it made.
+- **`name_compliant IS NULL` means "no pattern applies" and counts as COMPLIANT.** Never
+  unknown, never failing. Every clause and every cell must treat it that way, and the grid
+  cell therefore keys on the **gap list**, never on the verdict: a row can be in gap for a
+  missing owner with `name_compliant` true, so a cell reading the verdict alone would both
+  miss real gaps and flag the entire estate of a tenant with no policy. (The `idle`-field
+  lesson B1 recorded, in a third variant: a field reading "not compliant" when it means
+  "never checked".)
+- **`?governance_gap=` was deliberately NOT touched.** Two chips with overlapping meanings is
+  the accepted cost: *Governance gap* is B1's fixed pair (owner **or** operations group, per
+  B3a), *Policy gap* is whatever this tenant's policy asks for. Folding the fixed pair into
+  the configurable policy would make an existing, documented filter's meaning depend on
+  tenant configuration, and a tenant with no policy would lose it altogether.
+- **`tier` is deliberately absent from the attribute vocabulary.** `environment.tier_id` is
+  already `nullable=False`, so a policy requiring tier would be a check that can never fail —
+  a permanently-green row that reads as governance. §2.12 lists tier as a mandatory tag; B1
+  made it structurally mandatory instead, which is stronger. The `required_attributes`
+  validator rejects it by name rather than silently accepting it.
+- **A DEADLINE IS A DAY.** Grace is compared through A4's `expiry_boundary` (the start of the
+  current UTC day), not at instant precision — at instant precision an environment created at
+  15:00 loses most of its last grace day and the filter hides the rows closest to their
+  deadline. Same class as A4's escalation reading `expired` one minute past midnight, and as
+  `formatExpiry`'s "overdue by 1 day". Note `effective_from` is normalised through `_utc`
+  first: SQLite returns a naive datetime where PostgreSQL returns an aware one, and comparing
+  the two raises `TypeError` — an engine-dependent 500 on **every** environment list,
+  invisible on the PostgreSQL leg.
+- **There is no `non_compliant_since` and no `QUARANTINED` status.** Grace runs from
+  `max(policy.effective_from, environment.created_at)`, so an environment that breaks
+  compliance *later* — its owner is deactivated — is quarantined at once with no fresh grace.
+  Accepted, and documented in the admin guide: the alternative is a second stored derived
+  value whose invalidation reaches far outside any environment write (deleting a user,
+  editing a custom-field definition). And an environment that is quarantined is still
+  **active** — B1's `reserved_now` call, for the same reason.
+- **`effective_from` bumps in EITHER direction** when the pattern or the attribute list
+  changes, because "stricter" is not a decidable property of a regex change and fresh grace
+  for a relaxation is harmless. It is deliberately **not** bumped by `grace_days`,
+  `is_enabled` or the example — none of those changes what is being asked, and bumping on
+  them would hand the whole estate a fresh grace period every time an admin fixed a typo.
+- **The ReDoS residual risk is stated rather than solved.** A tenant admin writes a regex that
+  runs in a shared multi-tenant process. `re` has no per-match timeout; PyPI `regex` does and
+  is a syntax superset, so **every** match is bounded by `MATCH_TIMEOUT_SECONDS` — the
+  save-time check, every environment write, and every row of a tenant-wide recompute. Two
+  earlier designs bounded only the policy save and left the write path and the sweep
+  unbounded. Compilation is bounded separately (`MAX_PATTERN_LENGTH`, `MAX_REPEAT_WEIGHT`) —
+  no timeout covers compilation — and the subject by `MAX_NAME_LENGTH`, checked in
+  `name_matches` itself because `excel_import_service` reaches
+  `create_environment_record` directly with a spreadsheet cell and no Pydantic cap applies.
+  **What is NOT bounded, plainly:** a slow-but-finishing pattern is admitted and its cost is
+  paid on every write, and the budget is per *match*, so recomputing N environments against a
+  pathological pattern costs up to `N × MATCH_TIMEOUT_SECONDS`. It finishes; it is not fast.
+  The save-time probe is a **courtesy**, not the safety boundary.
+- **Deviation on record:** §2.12 says "quarantine/**terminate** untagged resources". B2
+  quarantines and terminates nothing. EnvManager is a register: it holds no credentials to
+  destroy a resource with, and no way to know whether the row in front of it still
+  corresponds to anything running. Terminating on the strength of a possibly-stale register
+  row is the worst available outcome.
+- **One evaluator, one call site.** `environment_compliance_service.name_matches` is the only
+  place a tenant pattern is ever evaluated — no dialect regex, no SQLite callback, and no
+  JavaScript `RegExp`, which is why the admin panel's preview goes through the server.
+  `environmentNamingPolicyPanel.test.tsx` guards the browser half by recording which regex
+  sources were evaluated and asserting the tenant's pattern is not among them (asserting
+  `RegExp.prototype.test` was never called at all fails on MUI's own internals).
 
 ## What B3a established
 

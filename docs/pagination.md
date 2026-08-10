@@ -204,6 +204,20 @@ file that does not ship with the repository, so they're recorded here instead �
    whitelisting it because the name appears in the endpoint's signature would 422 on the first
    header click.
 
+   **A fourteenth joined with Phase 7 sub-project B2: `compliance` on the environments grid.** One
+   column rendering two derived states — *Quarantined* and *Policy gap* — and neither is backed by
+   a column. Quarantine is computed on read from three inputs (the stored `name_compliant`
+   verdict, the environment's `created_at`, and the tenant policy's `effective_from` +
+   `grace_days`), and the gap list is worded per row after the page is fetched, so `sortable:
+   false` is structural rather than a gap a later pass closes. Note the trap the thirteenth
+   already names, in a sharper form: **`name_compliant` genuinely *is* a real, sortable column**,
+   and `?compliance_gap=` and `?quarantined=` genuinely *are* query parameters — so this is the
+   most inviting candidate yet for a mistaken whitelist entry. Sorting by `name_compliant` would
+   order by the *name verdict alone*, which is not what the column shows: a row can be in gap for
+   a missing owner with `name_compliant` true, and `name_compliant IS NULL` means "no pattern
+   applies" and counts as **compliant**, so a three-valued sort would file the compliant rows of a
+   tenant with no policy alongside the failures.
+
 3. **`default_dir` is endpoint-wide, not per-field — C3 must always send `sort_dir` explicitly.**
    `sorting()` takes one `default_dir` for the whole endpoint, used only when the client sends no
    `sort_dir` at all. Four endpoints set it to `"desc"` (see the table above), so
@@ -1255,6 +1269,43 @@ group in *Bounded in practice by tenant configuration or by the entity's own str
 neither needs the primitive. Noted here only because the reproducible grep's count moves on this
 branch partly on their account — see the delta paragraph in *Not yet bounded* below.
 
+## What Phase 7 B2 adds
+
+**Two filters on an already-bounded endpoint, one deliberately unbounded endpoint, and no new
+sortable column.**
+
+`GET /environments` gained `?compliance_gap=` and `?quarantined=`. Both are applied **in SQL,
+before the window**, for the reason this whole document exists: the endpoint is
+`pagination()`-bound, so filtering in Python after the query would window the page before
+filtering it and leave `X-Total-Count` describing the wrong set. `X-Total-Count` therefore
+describes the filtered set, as with every other filter on this endpoint.
+
+That was not free, and it is the one place B2 bends a rule this document states. **No regex is
+portable across both engines** — PostgreSQL has `~`, SQLite has no `REGEXP` without a registered
+callback — so a name-pattern filter could not be written in SQL directly. The three options were
+dialect regex in SQL (three regex engines behind one rule, and unindexable), filtering in Python
+after the query (what this document forbids), or **storing the verdict**. B2 stores it, on
+`environment.name_compliant`, which makes Python's `re` the only regex engine in the system and the
+filter an ordinary indexable column comparison. The **attribute** half needs none of that: a
+missing owner, expiry or operations group is a plain SQL predicate and stays computed, including
+the `cf:<key>` case, which is a dialect-portable JSON predicate proven on both engines before
+anything else in the sub-project was built.
+
+**"No selection" is an omitted key.** An empty `?compliance_gap=` is a **422**, not an ignored
+param, so nothing may send one, and the frontend's no-selection value is `''` — which `buildParams`
+drops. There is deliberately no `all` in either vocabulary: `buildParams`' own sentinel is `'all'`,
+so a vocabulary containing it builds byte-identical params for two different states and the grid
+never refetches. That is the `ScopeWindowsTable` hazard for the third time (A3's `?agreement_gap=`
+spells it `any`, A4's `?state=` likewise).
+
+`POST /tenant/environment-naming-policy/preview` is **deliberately unbounded**, joining
+`rollup/systems` and `rollup/members` in the permanently-unbounded-by-design set. It counts the
+whole estate against a proposed policy, which is the question being asked — a windowed answer to
+"how many environments would this rule flag" is not a smaller answer, it is a wrong one. Its
+`sample_names` is capped (20) while its **counts are exact**, so the UI says "showing the first N"
+rather than implying the sample is the whole set. It is a POST because it carries a body, not
+because it writes: it writes nothing.
+
 ## Not yet bounded
 
 This section originally covered the endpoints examined during the first sweep, then gained four
@@ -1477,7 +1528,10 @@ One line per restructure technique for the five that were cleared:
 **Permanently unbounded — aggregations.** These are computed aggregate views, not row lists,
 and three of them do not return arrays at all. A partial rollup is a wrong rollup, so paginating
 them is not meaningful: `rollup/systems`, `rollup/members`, `rollup/timeline`, `rollup/raid`,
-`report`.
+`report`. **B2's `POST /tenant/environment-naming-policy/preview` joins this group** — it answers
+"how many environments would this policy flag", so a windowed answer is not a smaller answer but a
+wrong one. Its counts are exact; only its `sample_names` is capped (20), and the UI says so rather
+than implying the sample is the whole set.
 
 `rollup/scope` is the exception and *is* bounded (see the table above): it is a genuine row list
 with every filter in SQL.

@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { environmentService } from '../services/environmentService';
+import { formatApiError } from '../services/apiError';
 // HandoverSection (components/environments) dispatches this thunk, which
 // lives in environmentRequestSlice.ts alongside the rest of the B3b request
 // workflow. Listening for its `.fulfilled` here — rather than adding a
@@ -67,15 +68,35 @@ export const fetchEnvironment = createAsyncThunk('environment/fetchEnvironment',
   environmentService.getEnvironment(id)
 );
 
+// Both mutating thunks `rejectWithValue(formatApiError(err))` rather than
+// letting RTK's default serializer handle the rejection. Without it,
+// miniSerializeError produces a PLAIN OBJECT ({name, message, stack, code}), so
+// both consumers — which do `err instanceof Error ? err.message : String(err)`
+// after `.unwrap()` — rendered the literal string "[object Object]" as the
+// error. That is worse than the wrong-message form of this bug documented in
+// CLAUDE.md: the user is told nothing at all. B2's naming-policy 422 is the
+// first refusal on this form a user actually has to READ (it quotes the pattern
+// and a working example), which is how this surfaced.
 export const createEnvironment = createAsyncThunk(
   'environment/createEnvironment',
-  (data: EnvironmentCreate) => environmentService.createEnvironment(data)
+  async (data: EnvironmentCreate, { rejectWithValue }) => {
+    try {
+      return await environmentService.createEnvironment(data);
+    } catch (err) {
+      return rejectWithValue(formatApiError(err, 'Failed to create environment'));
+    }
+  }
 );
 
 export const updateEnvironment = createAsyncThunk(
   'environment/updateEnvironment',
-  ({ id, data }: { id: number; data: EnvironmentUpdate }) =>
-    environmentService.updateEnvironment(id, data)
+  async ({ id, data }: { id: number; data: EnvironmentUpdate }, { rejectWithValue }) => {
+    try {
+      return await environmentService.updateEnvironment(id, data);
+    } catch (err) {
+      return rejectWithValue(formatApiError(err, 'Failed to update environment'));
+    }
+  }
 );
 
 export const deleteEnvironment = createAsyncThunk(
@@ -183,7 +204,8 @@ const environmentSlice = createSlice({
       })
       .addCase(createEnvironment.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message ?? 'Failed to create environment';
+        state.error =
+          (action.payload as string) ?? action.error.message ?? 'Failed to create environment';
       })
       // updateEnvironment
       .addCase(updateEnvironment.pending, (state) => {
@@ -203,7 +225,8 @@ const environmentSlice = createSlice({
       })
       .addCase(updateEnvironment.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message ?? 'Failed to update environment';
+        state.error =
+          (action.payload as string) ?? action.error.message ?? 'Failed to update environment';
       })
       // deleteEnvironment
       .addCase(deleteEnvironment.pending, (state) => {

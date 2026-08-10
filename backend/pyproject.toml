@@ -41,6 +41,13 @@ dependencies = [
     # .tfstate, which is normally not committed — a repository scanner needs
     # the source form.
     "python-hcl2==7.3.1",
+    # `regex` (PyPI `regex`, the mrab-regex engine) for its per-match `timeout=`,
+    # which `re` has no equivalent of. The environment naming pattern is
+    # tenant-admin-supplied and runs in the shared server process, so every match
+    # against it has to be bounded — see docs/dependency-audit.md and
+    # app/services/environment_compliance_service.py. Already in the tree as a
+    # python-hcl2 transitive; this promotes it to a direct dependency.
+    "regex==2026.7.19",
 ]
 
 [dependency-groups]

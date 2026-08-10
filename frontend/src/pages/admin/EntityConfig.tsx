@@ -7,6 +7,7 @@ import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPa
 import ComponentTypesPanel from '../../components/admin/ComponentTypesPanel';
 import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPanel';
 import EnvironmentTiersPanel from '../../components/admin/EnvironmentTiersPanel';
+import EnvironmentNamingPolicyPanel from '../../components/admin/EnvironmentNamingPolicyPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -55,6 +56,11 @@ const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];
 // Entities that have a tier vocabulary.
 const TIERS_SUPPORTED: EntityType[] = ['environment'];
 
+// Entities that have a naming & tagging policy (B2). Its own tab rather than a
+// section under "Tiers": a naming rule is not a tier vocabulary, and an admin
+// looking for it would not think to open Tiers.
+const NAMING_POLICY_SUPPORTED: EntityType[] = ['environment'];
+
 export default function EntityConfig() {
   const { entityType } = useParams<{ entityType: string }>();
   const [tab, setTab] = useState(0);
@@ -82,7 +88,9 @@ export default function EntityConfig() {
   const hasLifecycle = LIFECYCLE_SUPPORTED.includes(et);
   const hasEventTypes = EVENT_TYPES_SUPPORTED.includes(et);
   const hasTiers = TIERS_SUPPORTED.includes(et);
+  const hasNamingPolicy = NAMING_POLICY_SUPPORTED.includes(et);
   const tiersTabIndex = 1 + (hasLifecycle ? 1 : 0) + (hasEventTypes ? 1 : 0);
+  const namingPolicyTabIndex = tiersTabIndex + (hasTiers ? 1 : 0);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -99,6 +107,7 @@ export default function EntityConfig() {
           {hasLifecycle && <Tab label="Lifecycle" />}
           {hasEventTypes && <Tab label="Event Types" />}
           {hasTiers && <Tab label="Tiers" />}
+          {hasNamingPolicy && <Tab label="Naming Policy" />}
         </Tabs>
       </Box>
 
@@ -121,6 +130,8 @@ export default function EntityConfig() {
       )}
 
       {hasTiers && tab === tiersTabIndex && <EnvironmentTiersPanel />}
+
+      {hasNamingPolicy && tab === namingPolicyTabIndex && <EnvironmentNamingPolicyPanel />}
     </Box>
   );
 }

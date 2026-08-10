@@ -1852,6 +1852,67 @@ In `backend/app/api/v1/environments.py`, add to `list_environments`' signature, 
 
 and pass both through to the service. Do **not** add either to `ENVIRONMENT_SORTS`: `quarantined` is computed, and while `name_compliant` is a real column, leave it out until a grid column actually asks to sort on it.
 
+- [ ] **Step 6b: Guard the duplication — the three-way agreement test**
+
+`_is_attribute_missing` is a Python mirror of `_ATTRIBUTE_CLAUSES`, and Task 7's preview will be a third evaluation of the same rule. The spec cites A3's rule against exactly this ("A1 shipped a count and a list, written three tasks apart, that disagreed two ways"), and the owner's ruling is: **keep all three, and guard them with a test that fails the moment they disagree.**
+
+Append to `backend/tests/services/test_environment_compliance_filters.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_the_sql_clause_and_the_python_mirror_agree_row_for_row(
+    client, auth_headers, db_session, test_tenant
+):
+    """Three evaluations of one rule — the SQL filter, the message-wording
+    mirror, and (from Task 7) the preview — must never disagree. A1 shipped a
+    count and a list, written three tasks apart, that disagreed two ways.
+    """
+    from sqlalchemy import select
+    from app.db.models.environment import Environment
+    from app.services import environment_compliance_service as svc
+
+    # A matrix: conforming/not × owner present/absent × expiry present/absent.
+    await post_environment(client, auth_headers, "payments-uat-01")
+    await post_environment(client, auth_headers, "payments-dev-02", expires_at=None)
+    await post_environment(client, auth_headers, "Legacy Box")
+    await post_environment(client, auth_headers, "Another Old One", expires_at=None)
+
+    await client.put(
+        POLICY_URL,
+        json=_body(required_attributes=["expiry"]),
+        headers=auth_headers,
+    )
+
+    policy = await svc.load_policy(db_session, test_tenant.id)
+    envs = (
+        await db_session.execute(
+            select(Environment).where(Environment.tenant_id == test_tenant.id)
+        )
+    ).scalars().all()
+
+    # What SQL says.
+    sql_in_gap = set(
+        (
+            await db_session.execute(
+                select(Environment.id).where(
+                    Environment.tenant_id == test_tenant.id,
+                    svc.noncompliance_clause(policy),
+                )
+            )
+        ).scalars().all()
+    )
+    # What the message builder says.
+    gaps = svc.gaps_for_environments(envs, policy)
+    mirror_in_gap = {env_id for env_id, msgs in gaps.items() if msgs}
+
+    assert sql_in_gap == mirror_in_gap, (
+        "the SQL clause and the message mirror disagree about which "
+        "environments are in gap"
+    )
+```
+
+When Task 7 lands, extend this test with the preview's count over the same fixture — `preview_policy` with overrides equal to the saved policy must report `in_gap == len(sql_in_gap)`. Task 7's brief repeats this instruction.
+
 - [ ] **Step 7: Run on both engines**
 
 ```bash
@@ -1962,6 +2023,10 @@ Expected: PASS. This test is a **regression guard**, not a TDD driver: nothing i
 Temporarily add a refusal to `booking_service.create_request` — e.g. raise `HTTPException(422)` when the environment's `name_compliant is False` — and re-run the test. It **must fail**. Then revert the mutation.
 
 A1's equivalent test was proved this way for exactly this reason: a guard that would pass even if the thing it guards were broken guards nothing. Record in the commit message that the check was done.
+
+- [ ] **Step 3b: Extend the three-way agreement test with the preview**
+
+Task 6 Step 6b left this to you. In `backend/tests/services/test_environment_compliance_filters.py`, extend `test_the_sql_clause_and_the_python_mirror_agree_row_for_row` so the preview is the third voice: call `preview_policy` with overrides equal to the saved policy over the same fixture, and assert `in_gap == len(sql_in_gap)`. Three evaluations of one rule, one test that fails when any pair drifts.
 
 - [ ] **Step 4: Write the preview test**
 

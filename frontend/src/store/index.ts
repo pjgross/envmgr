@@ -30,6 +30,7 @@ import userGroupReducer from './userGroupSlice';
 import environmentRequestReducer from './environmentRequestSlice';
 import projectReducer from './projectSlice';
 import environmentGroupReducer from './environmentGroupSlice';
+import environmentNamingPolicyReducer from './environmentNamingPolicySlice';
 
 export const store = configureStore({
   reducer: {
@@ -64,6 +65,7 @@ export const store = configureStore({
     environmentRequest: environmentRequestReducer,
     project: projectReducer,
     environmentGroup: environmentGroupReducer,
+    environmentNamingPolicy: environmentNamingPolicyReducer,
   },
 });
 

@@ -68,6 +68,24 @@ vi.mock('../../../services/api', () => ({
   default: { get: vi.fn().mockResolvedValue({ data: [] }) },
 }));
 
+// B2's naming policy, read for the name field's helper text in the create/edit
+// dialog. Mocked at the service rather than left to the `api` mock above: it
+// goes through the same module, so an unmocked policy fetch races the owner
+// picker for `api.get`'s mockResolvedValueOnce and whichever lands first wins —
+// which is exactly how it failed, in one of the four tests that use it.
+vi.mock('../../../services/environmentNamingPolicyService', () => ({
+  environmentNamingPolicyService: {
+    get: vi.fn().mockResolvedValue({
+      is_enabled: false,
+      name_pattern: null,
+      name_pattern_example: null,
+      required_attributes: [],
+      grace_days: 14,
+      effective_from: '2026-08-09T00:00:00Z',
+    }),
+  },
+}));
+
 // The real DataGrid virtualizes columns by container width, and jsdom always
 // reports zero width — only the first few columns' *headers* mount, and none
 // of their cells, which would hide this page's actions column (Edit/Delete)
@@ -452,6 +470,10 @@ describe('EnvironmentList server-side grid', () => {
         'owner',
         'expires_at',
         'reserved_now',
+        // B2's Compliance column. Named `compliance`, not after a field a
+        // tenant might key a custom field on — and namespacing makes a
+        // collision impossible either way.
+        'compliance',
         'status',
         'operations_group_name',
         'created_at',

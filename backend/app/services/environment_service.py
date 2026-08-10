@@ -30,7 +30,7 @@ from app.api.v1.schemas.environment import (
 )
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
-from app.services import user_group_service
+from app.services import environment_compliance_service, user_group_service
 
 
 @dataclass
@@ -44,6 +44,13 @@ class EnvironmentView:
     owner_username: Optional[str]
     operations_group_name: Optional[str]
     reserved_now: bool
+    # B2. Both are DERIVED, never stored: `quarantined` from the stored name
+    # verdict plus created_at and the policy, `compliance_gaps` from the same
+    # inputs worded for a reader. Required-positional rather than defaulted, so
+    # a construction site that forgets them is a TypeError — a defaulted field
+    # renders "compliant" on a page that never computed the answer.
+    quarantined: bool
+    compliance_gaps: list[str]
 
 
 def _reserved_now_clause():
@@ -119,6 +126,8 @@ async def list_environments(
     operations_group_id: Optional[int] = None,
     expiring_within_days: Optional[int] = None,
     governance_gap: Optional[bool] = None,
+    compliance_gap: Optional[bool] = None,
+    quarantined: Optional[bool] = None,
     sort: Optional[Sort] = None,
 ) -> tuple[list[EnvironmentView], int]:
     """Environments for a tenant, plus the unwindowed total.
@@ -162,8 +171,26 @@ async def list_environments(
         )
     if search:
         query = query.where(Environment.name.ilike(f"%{search}%"))
+    # B2's two filters run in SQL, before the window, like every other filter
+    # here. ONE policy load and ONE clock for the whole request: the same
+    # scalars decide the filter and the rendered flag, so a row that survives
+    # `?quarantined=true` cannot render as un-quarantined.
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
+    now = datetime.now(timezone.utc)
+    if compliance_gap is not None:
+        clause = environment_compliance_service.noncompliance_clause(policy)
+        query = query.where(clause if compliance_gap else ~clause)
+    if quarantined is not None:
+        clause = environment_compliance_service.quarantine_clause(policy, now)
+        query = query.where(clause if quarantined else ~clause)
     query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
     rows, total = await fetch_page_rows(db, query, page)
+
+    envs = [row[0] for row in rows]
+    gaps = environment_compliance_service.gaps_for_environments(envs, policy)
+    quarantined_now = await environment_compliance_service.quarantined_ids(
+        db, tenant_id, policy, now, [e.id for e in envs]
+    )
     return (
         [
             EnvironmentView(
@@ -173,6 +200,8 @@ async def list_environments(
                 owner_username=owner_username,
                 operations_group_name=operations_group_name,
                 reserved_now=bool(reserved_now),
+                quarantined=env.id in quarantined_now,
+                compliance_gaps=gaps[env.id],
             )
             for env, tier_name, tier_color, owner_username, operations_group_name, reserved_now in rows
         ],
@@ -199,6 +228,13 @@ async def get_environment_view(
             status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found"
         )
     env, tier_name, tier_color, owner_username, operations_group_name, reserved_now = row
+    # The detail page must agree with the grid, so it derives B2's two fields
+    # from the same functions rather than a second reading of the rule.
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
+    now = datetime.now(timezone.utc)
+    quarantined_now = await environment_compliance_service.quarantined_ids(
+        db, tenant_id, policy, now, [env.id]
+    )
     return EnvironmentView(
         environment=env,
         tier_name=tier_name,
@@ -206,6 +242,10 @@ async def get_environment_view(
         owner_username=owner_username,
         operations_group_name=operations_group_name,
         reserved_now=bool(reserved_now),
+        quarantined=env.id in quarantined_now,
+        compliance_gaps=environment_compliance_service.gaps_for_environments(
+            [env], policy
+        )[env.id],
     )
 
 
@@ -338,6 +378,19 @@ async def assert_name_available(
 async def create_environment(
     db: AsyncSession, data: EnvironmentCreate, tenant_id: int
 ) -> Environment:
+    """The API create path — and the only create path that REFUSES a
+    non-conforming name.
+
+    The refusal lives here rather than in `create_environment_record` because
+    the spreadsheet import calls that function directly, per row, inside an
+    `except (ValueError, ValidationError)`. An HTTPException raised from there
+    escapes that handler and aborts the ENTIRE upload — a failure this codebase
+    has already shipped once — so one non-conforming row would throw away every
+    other row in the file. The record path still stores the verdict; it simply
+    does not refuse. See test_environment_compliance_write_paths.py.
+    """
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
+    environment_compliance_service.assert_name_allowed(policy, data.name, None)
     return await create_environment_record(
         db,
         tenant_id,
@@ -378,6 +431,10 @@ async def create_environment_record(
     await _validate_client_foreign_keys(
         db, tenant_id, tier_id, owner_user_id, operations_group_id
     )
+    # B2: RECORD the verdict, never refuse it. `create_environment` above owns
+    # the refusal for the interactive path; the spreadsheet import reaches this
+    # function directly and must not lose a whole upload to one bad row.
+    policy = await environment_compliance_service.load_policy(db, tenant_id)
     env = Environment(
         name=name,
         description=description,
@@ -388,6 +445,7 @@ async def create_environment_record(
         status=env_status,
         tenant_id=tenant_id,
         custom_fields=custom_fields,
+        name_compliant=environment_compliance_service.evaluate_name(policy, name),
     )
     db.add(env)
     await db.flush()
@@ -422,7 +480,16 @@ async def update_environment(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="An environment with this name already exists in this tenant",
             )
+        # Only a CHANGED name is judged: this branch is already guarded by
+        # `data.name != env.name`, so a full-form save re-sending the stored
+        # name never reaches here and activating a policy cannot freeze the
+        # estate's next save.
+        policy = await environment_compliance_service.load_policy(db, tenant_id)
+        environment_compliance_service.assert_name_allowed(policy, data.name, env.name)
         env.name = data.name
+        env.name_compliant = environment_compliance_service.evaluate_name(
+            policy, data.name
+        )
 
     # An environment must be compliant AFTER the patch. A compliant one can be
     # patched freely; a legacy one cannot be patched at all until the patch
