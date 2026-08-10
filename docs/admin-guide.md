@@ -617,6 +617,75 @@ An *Environment Group* is a named set of environments that gets booked, and tran
 
 **Sorting and filtering.** The grid is client-side (loads the tenant's groups once, sorts and filters in the browser) — the same convention as `tenant/groups` and `/projects`, appropriate at the scale a tenant's own group list actually reaches. **Name** and **Created** are the only server-backed sortable columns if this grid is ever converted to a server-paged one; **Environments** (the member count) can never be, because it is computed from live membership rather than stored on the group row.
 
+### Naming and tagging policy
+
+A *naming and tagging policy* declares what an environment's **name** must look like and which
+**attributes** every environment must carry. It lives at *Administration → Entity Config →
+Environments → Naming Policy*, one policy per tenant.
+
+**What it does and does not do.** Exactly one thing is refused: saving a **changed** name that does
+not match the pattern is rejected with a 422 quoting your worked example. Everything else —
+missing attributes, names that were already non-conforming before the policy existed, quarantine
+itself — is **reporting**. A quarantined environment can still be booked, transitioned, deployed
+to and reported on. Nothing anywhere terminates or locks a resource: EnvManager is a register, not
+a cloud control plane, so "quarantine" here means a label and a filter.
+
+**The fields.**
+
+- **Policy enabled** — the off switch. Disabling it stops every judgement without losing the
+  pattern.
+- **Name pattern** — a regular expression the *whole* name must match. Leave it blank for
+  "attributes only, no naming rule". It is evaluated on the server, by one evaluator; the admin
+  form never runs it in your browser, because two regex engines disagree on real patterns and a
+  name refused at save would then report compliant on the list.
+- **Example name** — a worked example, shown in the UI **and quoted in the 422**. A save is
+  refused if your own pattern rejects your own example, since otherwise the error message teaches
+  a name that will also be refused.
+- **Required attributes** — any of *Owner*, *Expiry date*, *Operations group*, plus one entry per
+  environment custom field. Note **Tier is deliberately absent**: an environment's tier is already
+  structurally mandatory, so requiring it would be a check that can never fail.
+- **Grace period (days)** — how long an environment may fail the policy before it reads as
+  *quarantined*. Counted from whichever is later: the policy's effective date, or the
+  environment's creation date.
+
+**Preview before you enable.** The *Preview* button answers "what would this rule do" for the
+pattern and attributes **currently in the form**, not the ones last saved: how many of your
+environments would be in gap, how many would read as quarantined immediately, and a sample of
+names. Use it before switching a policy on.
+
+> **Expect most of your estate to be flagged on day one.** A policy is judged against
+> environments that already exist, and nothing is backfilled or grandfathered. Enabling a pattern
+> that your older environments were never named for will put most of them in gap immediately —
+> that is correct, and it is what the grace period is for. Preview first so the number is not a
+> surprise, and set a grace period long enough for the work the list implies.
+
+**Two things that look like one thing.** The Environments list now carries two similar-sounding
+chips, and they mean different things:
+
+- **Governance gap** — B1's fixed pair: no owner **or** no operations group. Not configurable.
+- **Policy gap** — fails *your* policy: the name pattern, or any attribute you listed.
+
+They overlap by design. A policy that requires *Owner* will flag rows the *Governance gap* chip
+also flags. Neither is derived from the other, and turning one off does not affect the other.
+
+**Listing an attribute reports; marking a custom field required refuses.** These are two different
+mechanisms and it is worth being deliberate about which you want. Listing `cf:cost_centre` here
+means "report environments that lack it". Marking that field **required** in *Custom Fields* means
+"refuse a save without it". Use the first to measure an estate you do not control yet, the second
+once you do.
+
+**When the effective date resets.** Changing the pattern or the attribute list bumps the policy's
+effective date, which restarts the grace period for every environment. Changing the grace period,
+the example, or the enabled switch does **not** — those do not change what is being asked. Note
+the reset happens when a requirement is *relaxed* as well as tightened: whether a regex change is
+stricter is not a decidable question, and granting fresh grace for a relaxation is harmless.
+
+**One consequence to be aware of.** Grace runs from the policy date or the environment's creation,
+whichever is later — there is no per-environment "failing since" record. So an environment that
+*starts* failing later (its owner is deactivated, say) is quarantined at once, with no fresh grace.
+The alternative would need a second stored value invalidated by things far outside any
+environment edit, such as deleting a user.
+
 ## 7. Modelling infrastructure (hosts)
 
 ### Concept

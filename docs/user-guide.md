@@ -182,6 +182,34 @@ Columns in source order:
 
 Search filters by *Name*; status chips are AND-combined with the search. Sort and column visibility work as on the System Catalog. Click a row to open `/environments/:id`.
 
+### "Policy gap" and "Quarantined"
+
+Your tenant may define a *naming and tagging policy* — a rule about what environment names look
+like and which details every environment must carry (an owner, an expiry date, an operations group,
+or one of your tenant's custom fields). Where a policy is in force, the Environments list carries a
+*Compliance* column and two matching filter chips:
+
+- **Policy gap** — this environment does not meet the policy. Hover the chip to see exactly which
+  points are missing.
+- **Quarantined** — it has been failing the policy for longer than the grace period your admin set.
+
+**Quarantine changes nothing you can do.** A quarantined environment can still be booked, changed,
+deployed to, and reported on, exactly as before. There is no lock, nothing is disabled, and no
+booking is ever refused because of it. It is a flag for whoever needs to tidy the register — and if
+that is you, the environment's *Overview* tab lists each point to fix.
+
+To clear it, fix what the chip names: set an owner, set an expiry, assign an operations group, fill
+in the custom field, or rename the environment to match the pattern. The flag clears as soon as the
+missing detail is recorded — there is nothing else to do and nothing to acknowledge.
+
+One thing that will look odd if you rename: only a **changed** name is checked against the pattern.
+Saving an environment whose name already broke the rule is accepted as long as you leave the name
+alone, so an existing environment never becomes unsavable. Editing the name means the new one has
+to match, and the form shows the pattern and an example beneath the field.
+
+*Governance gap* is a **different** chip, and older: it means no owner or no operations group,
+regardless of any policy. The two overlap, so a row can carry both.
+
 ### Inside an environment
 
 The environment detail page is also tab-based. Tabs in source order:
