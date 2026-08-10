@@ -646,7 +646,11 @@ a cloud control plane, so "quarantine" here means a label and a filter.
   structurally mandatory, so requiring it would be a check that can never fail.
 - **Grace period (days)** — how long an environment may fail the policy before it reads as
   *quarantined*. Counted from whichever is later: the policy's effective date, or the
-  environment's creation date.
+  environment's creation date. **Both clocks round in the environment's favour**, to whole UTC
+  days: an environment created at 15:00 keeps the rest of that day, and so does a policy saved
+  at 15:00. So **a grace period of 0 does not quarantine anything the day you set it** — it
+  bites at the next UTC midnight. That is deliberate, and it is the same day-granular rule the
+  contention deadlines use; setting 0 and seeing nothing change is not a bug.
 
 **Preview before you enable.** The *Preview* button answers "what would this rule do" for the
 pattern and attributes **currently in the form**, not the ones last saved: how many of your

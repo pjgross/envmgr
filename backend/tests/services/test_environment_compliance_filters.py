@@ -316,6 +316,59 @@ async def test_another_tenants_environments_are_never_quarantined_by_our_policy(
 
 
 @pytest.mark.asyncio
+async def test_the_grace_cutoff_is_a_DAY_boundary_at_any_hour_of_the_run(
+    client, auth_headers, db_session, test_tenant
+):
+    """Written because mutating `expiry_boundary(now)` to a bare `now` SURVIVED
+    the whole suite — twice over.
+
+    `test_a_deadline_is_a_day` above backdates `created_at` to 15:00, so it only
+    discriminates when the suite happens to run after 15:00 UTC: before then the
+    instant-precision cutoff (`now - grace`) still falls *before* 15:00 and the
+    mutant agrees with the correct answer. Run it at 11:36 and it is green with
+    the rule removed. A guard whose verdict depends on the wall clock is not a
+    guard.
+
+    So this one injects `now` instead of trusting it: an environment created
+    EARLIER THE SAME DAY, with zero grace. The day-granular cutoff is the start
+    of `now`'s day, which is *before* the row was created, so it is NOT
+    quarantined — an environment keeps the rest of the day it was created,
+    exactly as it keeps the rest of the day a policy takes effect (which is why
+    a 0-day grace changes nothing until the next UTC midnight; see the admin
+    guide). Under `now - grace` the cutoff would be midday and the row would be
+    quarantined hours early.
+    """
+    await post_environment(client, auth_headers, "Legacy Box")
+    await client.put(POLICY_URL, json=_body(grace_days=0), headers=auth_headers)
+
+    env = (
+        await db_session.execute(
+            select(Environment).where(Environment.name == "Legacy Box")
+        )
+    ).scalar_one()
+    policy = await svc.load_policy(db_session, test_tenant.id)
+
+    # A fixed clock: nothing here reads the real time of day.
+    now = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+    env.created_at = datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc)
+    policy.effective_from = datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)
+    await db_session.flush()
+
+    assert (
+        await svc.quarantined_ids(db_session, test_tenant.id, policy, now, [env.id])
+        == set()
+    ), "an environment created earlier the same day was quarantined before its day was out"
+
+    # And the boundary bites the moment the day turns — the same clause, one day
+    # later, with nothing else changed. Without this half the assertion above
+    # would also pass if quarantine never fired at all.
+    tomorrow = datetime(2026, 6, 16, 0, 0, tzinfo=timezone.utc)
+    assert await svc.quarantined_ids(
+        db_session, test_tenant.id, policy, tomorrow, [env.id]
+    ) == {env.id}, "quarantine never bit, so the assertion above proved nothing"
+
+
+@pytest.mark.asyncio
 async def test_the_sql_clause_and_the_python_mirror_agree_row_for_row(
     client, auth_headers, db_session, test_tenant
 ):
