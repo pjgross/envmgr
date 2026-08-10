@@ -84,6 +84,7 @@ def _to_response(
     resp.booked_by_username = req.booker.username if getattr(req, "booker", None) else None
     resp.booking_type_id = req.booking_type_id
     resp.exclusive_use = req.exclusive_use_requested
+    resp.protection_level = req.protection_level
     resp.notes = req.notes
     resp.context_tag = req.context_tag
     resp.custom_fields = req.custom_fields

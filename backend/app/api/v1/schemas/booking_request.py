@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -38,9 +38,18 @@ class EnvBookingSummary(BaseModel):
     # a hand-picked environment; set for one that arrived via a group.
     environment_group_id: Optional[int] = None
     environment_group_name: Optional[str] = None
+    # B4 — how hard the PARENT REQUEST's claim is (app/core/protection_levels.py).
+    # Lives on BookingRequest, not Booking, so every child in one request shares
+    # one value. REQUIRED, NOT DEFAULTED, for the reason `agreement_gap` above
+    # states: this type is constructed by keyword at six sites across two
+    # routers, and a default would let a missed one render a booking as soft
+    # while GET /bookings reports the same booking as hard.
+    protection_level: str
 
 
 class BookingRequestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     project_name: str
     # The project this booking belongs to. Distinct from `project_name`, which
     # is free text the UI now labels "Purpose" — see the spec.
@@ -56,6 +65,10 @@ class BookingRequestCreate(BaseModel):
     notes: Optional[str] = None
     context_tag: str = "none"
     exclusive_use_requested: bool = False
+    # None means "inherit the booking type's default". A caller who is not an
+    # Admin or Release Manager may send the inherited value but may not choose
+    # a different one — see booking_request_service.assert_may_set_protection.
+    protection_level: Optional[Literal["soft", "hard"]] = None
     custom_fields: Optional[dict[str, Any]] = None
     delegate_user_ids: Optional[list[int]] = None
 
@@ -98,6 +111,7 @@ class BookingRequestResponse(BaseModel):
     notes: Optional[str]
     context_tag: str
     exclusive_use_requested: bool
+    protection_level: str
     custom_fields: Optional[dict[str, Any]]
     booked_by: int
     delegate_user_ids: Optional[list[int]]

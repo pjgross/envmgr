@@ -18,8 +18,9 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.api.v1.schemas.booking import BookingCreate
 from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
+from app.core.protection_levels import PROTECTION_SOFT
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
-from app.services import agreement_gap_service, lifecycle_service
+from app.services import agreement_gap_service, booking_request_service, lifecycle_service
 from app.services.lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
@@ -144,6 +145,23 @@ async def create_booking(
 
     await validate_custom_fields(db, current_user.active_tenant_id, "booking", data.custom_fields, visible_cf_keys)
 
+    # B4 — inherit the booking type's default protection level, gated the
+    # identical way create_request is: booking_request_service.
+    # assert_may_set_protection is the single definition of this rule, reused
+    # verbatim rather than a second copy that could drift.
+    inherited_protection = (
+        booking_type.default_protection_level
+        if booking_type is not None
+        else PROTECTION_SOFT
+    )
+    submitted_protection = data.protection_level
+    booking_request_service.assert_may_set_protection(
+        current_user, submitted=submitted_protection, current=inherited_protection
+    )
+    protection_level = (
+        submitted_protection if submitted_protection is not None else inherited_protection
+    )
+
     # Determine context_tag
     if data.context_tag is not None and data.context_tag != ContextTag.NONE:
         ctx = data.context_tag
@@ -165,6 +183,7 @@ async def create_booking(
         notes=data.notes,
         context_tag=ctx,
         exclusive_use_requested=data.exclusive_use,
+        protection_level=protection_level,
         custom_fields=data.custom_fields,
         booked_by=current_user.id,
     )
