@@ -138,10 +138,18 @@ async def environment(db_session, test_tenant) -> Environment:
     return await ensure_environment(db_session, test_tenant.id)
 
 
-async def _login_as(client, db_session, test_tenant, username: str, role: str) -> dict:
+async def _login_as(
+    client, db_session, test_tenant, username: str, role: str,
+    is_master_admin: bool = False,
+) -> dict:
     """Bearer headers for a fresh user of `role` in test_tenant.
 
-    Follows the pattern in test_environment_groups_authz.py.
+    Follows the pattern in test_environment_groups_authz.py. `is_master_admin`
+    is a separate flag from `role`, deliberately: `_may_set_protection`
+    ORs a role check with `is_master_admin`, and a fixture that always paired
+    `is_master_admin=True` with `role=Admin` could never isolate that second
+    clause (a mutation deleting it would leave every such test green via the
+    role check alone).
     """
     user = User(
         tenant_id=test_tenant.id,
@@ -150,6 +158,7 @@ async def _login_as(client, db_session, test_tenant, username: str, role: str) -
         password_hash=get_password_hash("password123"),
         role=role,
         is_active=True,
+        is_master_admin=is_master_admin,
     )
     db_session.add(user)
     await db_session.commit()
@@ -172,6 +181,32 @@ async def developer_headers(client, db_session, test_tenant) -> dict:
     may send the inherited protection level unchanged but may not choose a
     different one."""
     return await _login_as(client, db_session, test_tenant, "b4-developer", Role.DEVELOPER)
+
+
+@pytest_asyncio.fixture(scope="function")
+async def release_manager_headers(client, db_session, test_tenant) -> dict:
+    """Bearer headers for a Role.RELEASE_MANAGER user in test_tenant — the
+    other role (besides Admin) that `_may_set_protection` names explicitly."""
+    return await _login_as(
+        client, db_session, test_tenant, "b4-release-manager", Role.RELEASE_MANAGER
+    )
+
+
+@pytest_asyncio.fixture(scope="function")
+async def master_admin_non_privileged_role_headers(client, db_session, test_tenant) -> dict:
+    """Bearer headers for a master admin whose own ROLE is Viewer — neither
+    Admin nor Release Manager.
+
+    Isolates the `or bool(user.is_master_admin)` clause of
+    `_may_set_protection`: this user can only pass via that clause, so the
+    fixture — and the test using it — is worthless if it instead gave the
+    user `role=Role.ADMIN` alongside `is_master_admin=True`, which would
+    satisfy the role check on its own and hide a deleted master-admin clause.
+    """
+    return await _login_as(
+        client, db_session, test_tenant, "b4-master-admin", Role.VIEWER,
+        is_master_admin=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -201,6 +236,59 @@ async def test_an_admin_may_override_the_inherited_level(
     r = await client.post(
         "/api/v1/booking-requests",
         headers=auth_headers,  # the shared fixture user is an Admin
+        json={
+            "project_name": "Perf run",
+            "booking_type_id": api_booking_type.id,
+            "start_date": "2026-09-01T09:00:00Z",
+            "end_date": "2026-09-05T17:00:00Z",
+            "environment_ids": [environment.id],
+            "protection_level": PROTECTION_HARD,
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["request"]["protection_level"] == PROTECTION_HARD
+
+
+@pytest.mark.asyncio
+async def test_a_release_manager_may_override_the_inherited_level(
+    client, release_manager_headers, api_booking_type, environment
+):
+    """`_may_set_protection` names Release Manager explicitly, alongside
+    Admin — this is the branch fix-round-1 added coverage for. Mirrors
+    test_an_admin_may_override_the_inherited_level above but for the other
+    named role."""
+    r = await client.post(
+        "/api/v1/booking-requests",
+        headers=release_manager_headers,
+        json={
+            "project_name": "Perf run",
+            "booking_type_id": api_booking_type.id,
+            "start_date": "2026-09-01T09:00:00Z",
+            "end_date": "2026-09-05T17:00:00Z",
+            "environment_ids": [environment.id],
+            "protection_level": PROTECTION_HARD,
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["request"]["protection_level"] == PROTECTION_HARD
+
+
+@pytest.mark.asyncio
+async def test_a_master_admin_may_override_the_inherited_level(
+    client, master_admin_non_privileged_role_headers, api_booking_type, environment
+):
+    """Isolates `or bool(user.is_master_admin)` in `_may_set_protection`: the
+    caller's own role is Viewer, so this can only pass via the master-admin
+    clause — it fails if that clause is deleted (verified by mutation; see
+    the fix-round-1 section of the task report).
+
+    Matters beyond a coverage number: contention_service._is_admin's
+    docstring records that the two places which forgot master admins showed
+    one a control that 403'd on click.
+    """
+    r = await client.post(
+        "/api/v1/booking-requests",
+        headers=master_admin_non_privileged_role_headers,
         json={
             "project_name": "Perf run",
             "booking_type_id": api_booking_type.id,
