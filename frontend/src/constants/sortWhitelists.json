@@ -5,7 +5,7 @@
     "default_dir": "desc"
   },
   "bookings": {
-    "sortable": ["start_date", "end_date", "status"],
+    "sortable": ["start_date", "end_date", "status", "protection_level"],
     "default": "start_date",
     "default_dir": "asc"
   },

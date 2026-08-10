@@ -21,6 +21,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.booking_request import BookingRequest
 from app.db.models.environment import Environment
 from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.project import Project
 from app.db.models.user import User
 from tests.factories import ensure_booking_type, ensure_environment
 
@@ -552,3 +553,156 @@ async def test_an_admin_sending_an_explicit_null_level_is_also_a_422(
         json={"protection_level": None},
     )
     assert r.status_code == 422, r.text
+
+
+# ── Task 5: the list filter and the sort ─────────────────────────────────────
+#
+# `auth_headers` (tests/conftest.py) logs in as `test_user`, an Admin in
+# `test_tenant` — the same tenant `api_booking_type` and `environment` above
+# are scoped to. Bookings are inserted directly, exactly as `soft_request`
+# above does: this filter/sort test only cares about protection_level, not
+# booking validity, and going through the create API would run its overlap
+# checks against 28 bookings sharing one environment for no reason.
+
+
+async def _make_bookings(
+    db_session, test_tenant, test_user, api_booking_type, environment, count, level,
+) -> list[Booking]:
+    now = datetime.now(timezone.utc)
+    bookings: list[Booking] = []
+    for i in range(count):
+        req = BookingRequest(
+            tenant_id=test_tenant.id,
+            project_name=f"{level} booking {i}",
+            booking_type_id=api_booking_type.id,
+            start_date=now + timedelta(days=i),
+            end_date=now + timedelta(days=i, hours=1),
+            protection_level=level,
+            booked_by=test_user.id,
+        )
+        db_session.add(req)
+        await db_session.flush()
+        booking = Booking(
+            tenant_id=test_tenant.id,
+            booking_request_id=req.id,
+            environment_id=environment.id,
+            start_date=req.start_date,
+            end_date=req.end_date,
+        )
+        db_session.add(booking)
+        bookings.append(booking)
+    await db_session.flush()
+    return bookings
+
+
+@pytest_asyncio.fixture(scope="function")
+async def soft_bookings_25(
+    db_session, test_tenant, test_user, api_booking_type, environment
+) -> list[Booking]:
+    """25 bookings whose request is PROTECTION_SOFT, in test_tenant."""
+    return await _make_bookings(
+        db_session, test_tenant, test_user, api_booking_type, environment,
+        25, PROTECTION_SOFT,
+    )
+
+
+@pytest_asyncio.fixture(scope="function")
+async def hard_bookings_3(
+    db_session, test_tenant, test_user, api_booking_type, environment
+) -> list[Booking]:
+    """3 bookings whose request is PROTECTION_HARD, in test_tenant."""
+    return await _make_bookings(
+        db_session, test_tenant, test_user, api_booking_type, environment,
+        3, PROTECTION_HARD,
+    )
+
+
+@pytest_asyncio.fixture(scope="function")
+async def project(db_session, test_tenant) -> Project:
+    """A minimal tenant-scoped project — only for the filter-combination test
+    below, to prove `?protection=` and `?project_id=` share one join rather
+    than each opening its own."""
+    p = Project(tenant_id=test_tenant.id, name="B4 filter combo project")
+    db_session.add(p)
+    await db_session.flush()
+    await db_session.refresh(p)
+    return p
+
+
+@pytest.mark.asyncio
+async def test_the_protection_filter_runs_in_sql_before_the_window(
+    client, auth_headers, soft_bookings_25, hard_bookings_3
+):
+    """X-Total-Count must describe the FILTERED set, not the page and not the
+    unfiltered total — otherwise the grid's footer lies and its paging is
+    windowing the wrong result set."""
+    r = await client.get(
+        "/api/v1/bookings/?protection=hard&limit=2", headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["X-Total-Count"] == "3"
+    assert len(r.json()) == 2
+    assert all(b["protection_level"] == PROTECTION_HARD for b in r.json())
+
+
+@pytest.mark.asyncio
+async def test_omitting_the_filter_returns_both(
+    client, auth_headers, soft_bookings_25, hard_bookings_3
+):
+    r = await client.get("/api/v1/bookings/?limit=100", headers=auth_headers)
+    assert r.headers["X-Total-Count"] == "28"
+
+
+@pytest.mark.asyncio
+async def test_an_empty_protection_param_is_a_422_not_an_ignored_one(
+    client, auth_headers
+):
+    """Nothing may ever emit `?protection=`. The UI spells no-selection as an
+    OMITTED KEY (`any` in the URL, mapped to undefined), never `all` —
+    buildParams' own sentinel — and never ''."""
+    r = await client.get("/api/v1/bookings/?protection=", headers=auth_headers)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_protection_value_is_a_422(client, auth_headers):
+    r = await client.get("/api/v1/bookings/?protection=granite", headers=auth_headers)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_sorting_by_protection_orders_rendered_rows(
+    client, auth_headers, soft_bookings_25, hard_bookings_3
+):
+    """Assert RENDERED ROW ORDER, never the emitted SQL token — the pagination
+    pilot pinned the token and stayed green while the order users saw was
+    wrong."""
+    r = await client.get(
+        "/api/v1/bookings/?sort_by=protection_level&sort_dir=asc&limit=100",
+        headers=auth_headers,
+    )
+    levels = [b["protection_level"] for b in r.json()]
+    assert levels == sorted(levels)
+    assert levels[0] == PROTECTION_HARD  # 'hard' < 'soft'
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_sort_by_is_a_422_not_a_silent_fallback(
+    client, auth_headers
+):
+    r = await client.get("/api/v1/bookings/?sort_by=protection", headers=auth_headers)
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_protection_and_project_filters_combine(
+    client, auth_headers, hard_bookings_3, project
+):
+    """Both list filters hang off ONE join (A3's rule). If a future change adds
+    a second join for `protection`, this still passes but SQLAlchemy emits a
+    duplicate-join warning — check the run's output, not just this assertion."""
+    r = await client.get(
+        f"/api/v1/bookings/?protection=hard&project_id={project.id}&limit=100",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text

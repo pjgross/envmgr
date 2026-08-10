@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from app.db.base import get_db
 from app.core.security import get_current_user
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.db.models.booking import Booking
+from app.db.models.booking_request import BookingRequest
 from app.services import (
     agreement_gap_service, booking_service, booking_request_service,
     conflict_service, environment_group_service, project_service,
@@ -34,6 +35,11 @@ BOOKING_SORTS = {
     "start_date": Booking.start_date,
     "end_date": Booking.end_date,
     "status": Booking.status,
+    # B4. SORTABLE, unlike `agreement_gap`: this is a stored column on the
+    # joined booking_request, not a value resolved after the page is fetched.
+    # It is therefore not a member of docs/pagination.md's permanently-
+    # unsortable set.
+    "protection_level": BookingRequest.protection_level,
 }
 
 
@@ -180,6 +186,14 @@ async def list_bookings(
             "deliberately not a third value such as 'all'."
         ),
     ),
+    protection: Optional[Literal["soft", "hard"]] = Query(
+        None,
+        description=(
+            "Only bookings whose request declares this protection level. "
+            "OMIT the key for no filter — an empty value is a 422, not an "
+            "ignored param."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
@@ -194,6 +208,7 @@ async def list_bookings(
         booking_status=booking_status,
         project_id=project_id,
         agreement_gap=agreement_gap,
+        protection=protection,
         page=page,
         sort=sort,
     )

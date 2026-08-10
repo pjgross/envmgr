@@ -296,6 +296,7 @@ async def list_bookings(
     booking_status: Optional[str] = None,
     project_id: Optional[int] = None,
     agreement_gap: Optional[bool] = None,
+    protection: Optional[str] = None,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
 ) -> tuple[list[Booking], int]:
@@ -316,7 +317,21 @@ async def list_bookings(
         query = query.where(Booking.start_date < end, Booking.end_date > start)
     if booking_status is not None:
         query = query.where(Booking.status == booking_status)
-    if project_id is not None or agreement_gap is not None:
+    # Sorting by protection_level needs the same join as the three filters
+    # below, even with none of them present — BOOKING_SORTS whitelists
+    # BookingRequest.protection_level (app/api/v1/bookings.py), and a bare
+    # `?sort_by=protection_level` reaches apply_sort() with no filter set at
+    # all. Without this, that request 500s ("no such column:
+    # booking_request.protection_level") rather than 422ing or sorting —
+    # found by test_sorting_by_protection_orders_rendered_rows, which sorts
+    # with no protection= alongside it.
+    sorting_needs_request_join = sort is not None and sort.column is BookingRequest.protection_level
+    if (
+        project_id is not None
+        or agreement_gap is not None
+        or protection is not None
+        or sorting_needs_request_join
+    ):
         # In SQL, on the parent request — the endpoint is bounded (fetch_page
         # below), so a Python-side filter would window the page before filtering
         # and quietly return the wrong rows, and X-Total-Count would describe
@@ -325,10 +340,12 @@ async def list_bookings(
         # booking_request per booking) so it can't fan out duplicates the way a
         # one-to-many join would.
         #
-        # ONE join for both filters. `agreement_gap_service.gap_clause`
-        # correlates against BOTH Booking and BookingRequest, so a consumer that
-        # forgot this join would get a cartesian product rather than an error —
-        # and joining twice for the two filters together would do the same.
+        # ONE join for all three filters plus the sort above. `agreement_gap_
+        # service.gap_clause` correlates against BOTH Booking and
+        # BookingRequest, so a consumer that forgot this join would get a
+        # cartesian product rather than an error — and joining twice (or more)
+        # for these together would do the same, or trip a SQLAlchemy
+        # duplicate-join warning.
         #
         # DELIBERATELY NOT TENANT-QUALIFIED, matching
         # `agreement_gap_service.gaps_for_bookings`, whose own join carries the
@@ -347,6 +364,11 @@ async def list_bookings(
         # project-less bookings invisible to both.
         gap = agreement_gap_service.gap_clause(tenant_id)
         query = query.where(gap if agreement_gap else ~gap)
+    if protection is not None:
+        # B4 ADVISES: this narrows a list, it refuses nothing. On the same
+        # BookingRequest join as project_id/agreement_gap above — not a second
+        # join.
+        query = query.where(BookingRequest.protection_level == protection)
     query = apply_sort(query, sort).order_by(Booking.start_date.asc(), Booking.id)
     return await fetch_page(db, query, page)
 
