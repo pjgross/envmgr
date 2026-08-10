@@ -459,6 +459,27 @@ async def update_standard_fields(
     # the API wires permission checks.
 
     if "protection_level" in values:
+        if values["protection_level"] is None:
+            # An explicit JSON `null` is distinct from an OMITTED key — the
+            # endpoint's exclude_unset filter lets a `null` through into
+            # `values`, and assert_may_set_protection's `submitted is None`
+            # branch means "not mentioned", not "clear it". protection_level
+            # has no "no level" state (the column is NOT NULL, no server
+            # default fallback here), so `null` is a malformed VALUE, not an
+            # authorization question — reject it as a 422 before the role
+            # gate runs at all, for every caller including an Admin. Without
+            # this, `submitted=None` short-circuits assert_may_set_protection
+            # and the request reaches the assignment loop, where it 500s on
+            # the DB's NOT NULL constraint — a crash standing in for a role
+            # check, not a genuine block. This mirrors no other field here:
+            # every other STANDARD_REQUEST_FIELDS entry has the same
+            # None-passes-through shape (e.g. exclusive_use_requested), but
+            # none of them has a role gate whose bypass this would expose, so
+            # they are deliberately left alone.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "protection_level cannot be null",
+            )
         # `current` is the STORED value, unlike create_request's inherited
         # default — a full-form save resending the existing (possibly
         # admin-changed) level must be accepted, or an admin action makes a

@@ -513,3 +513,42 @@ async def test_omitting_the_level_leaves_it_alone(
     )
     assert r.status_code == 200, r.text
     assert r.json()["protection_level"] == PROTECTION_HARD
+
+
+# ── Fix round 1: an explicit `null` must not skip the role gate ─────────────
+#
+# `BookingRequestUpdate.protection_level` is `Optional[...] = None`, so a
+# client can send a literal JSON `null`, not just omit the key. The
+# endpoint's `exclude_unset` filter (booking_requests.py:348) lets that
+# `null` into `values`, and `assert_may_set_protection`'s `submitted is None`
+# branch means "not mentioned" — so without a guard, `null` sailed straight
+# past the role check and 500'd on the column's NOT NULL constraint. `null`
+# is a malformed VALUE for this field (there is no "no level" state), not an
+# authorization question, so it is refused with a 422 for EVERY caller,
+# admin included — the role does not rescue a bad value.
+
+
+@pytest.mark.asyncio
+async def test_a_developer_sending_an_explicit_null_level_is_a_422(
+    client, developer_headers, soft_request
+):
+    r = await client.patch(
+        f"/api/v1/booking-requests/{soft_request.id}/standard-fields",
+        headers=developer_headers,
+        json={"protection_level": None},
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_an_admin_sending_an_explicit_null_level_is_also_a_422(
+    client, auth_headers, soft_request
+):
+    """The role does not rescue a bad value — `null` fails for an Admin too,
+    since assert_may_set_protection is never reached for a malformed value."""
+    r = await client.patch(
+        f"/api/v1/booking-requests/{soft_request.id}/standard-fields",
+        headers=auth_headers,
+        json={"protection_level": None},
+    )
+    assert r.status_code == 422, r.text
