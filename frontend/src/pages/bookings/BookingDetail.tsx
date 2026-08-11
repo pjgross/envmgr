@@ -19,6 +19,7 @@ import {
   Paper,
   Select,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -43,6 +44,7 @@ import AgreementGapPanel from '../../components/bookings/AgreementGapPanel';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog';
 import { formatApiError } from '../../services/apiError';
+import { PROTECTION_LABELS } from '../../constants/protection';
 
 // --- Status colour map -------------------------------------------------------
 
@@ -230,8 +232,11 @@ export default function BookingDetail() {
     try {
       await bookingRequestService.addEnvironment(bookingRequest.id, {
         environment_id: addEnvId as number,
-        start_date: addEnvStart || undefined,
-        end_date: addEnvEnd || undefined,
+        // A `datetime-local` value carries no zone, so sending it raw hands the
+        // API a naive local wall-clock time it can only read as UTC. Converted
+        // here the way EditStandardFieldsDialog converts its own two fields.
+        start_date: addEnvStart ? new Date(addEnvStart).toISOString() : undefined,
+        end_date: addEnvEnd ? new Date(addEnvEnd).toISOString() : undefined,
       });
       const req = await bookingRequestService.get(bookingRequest.id);
       setBookingRequest(req);
@@ -300,6 +305,22 @@ export default function BookingDetail() {
   const existingEnvIds = new Set((bookingRequest?.bookings ?? []).map((b) => b.environment_id));
   const availableEnvs = environments.filter((e) => !existingEnvIds.has(e.id));
 
+  // B4 — the parent request's protection level, rendered beside the status
+  // because the two are read together and confused constantly. It GATES
+  // NOTHING here: no control below is disabled or hidden on its account.
+  // Absent means the response did not say, so nothing is rendered rather than
+  // a "Preemptible" nobody claimed.
+  const protectionChip = booking.protection_level ? (
+    <Tooltip title="A protected booking holds its place when priority cannot separate two claims. It does not stop anyone booking over it.">
+      <Chip
+        label={PROTECTION_LABELS[booking.protection_level]}
+        size="small"
+        variant="outlined"
+        color={booking.protection_level === 'hard' ? 'secondary' : 'default'}
+      />
+    </Tooltip>
+  ) : null;
+
   // --- Main render ---
 
   return (
@@ -318,6 +339,7 @@ export default function BookingDetail() {
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="h6">{booking.request.project_name}</Typography>
+            {protectionChip}
             <ConflictIndicator hasUnacknowledged={booking.has_unacknowledged_conflicts} />
             <Box sx={{ flexGrow: 1 }} />
             {bookingRequest != null && (
@@ -340,6 +362,7 @@ export default function BookingDetail() {
             color={STATE_COLOURS[booking.status] ?? 'default'}
             size="small"
           />
+          {protectionChip}
         </Box>
       )}
 
@@ -716,7 +739,10 @@ export default function BookingDetail() {
           </FormControl>
           <TextField
             label="Start Date (optional)"
-            type="date"
+            // datetime-local, not date: a date-only value adds the environment
+            // for 00:00–00:00, a zero-length window that overlaps nothing —
+            // the same defect EditStandardFieldsDialog carried.
+            type="datetime-local"
             size="small"
             InputLabelProps={{ shrink: true }}
             value={addEnvStart}
@@ -724,7 +750,7 @@ export default function BookingDetail() {
           />
           <TextField
             label="End Date (optional)"
-            type="date"
+            type="datetime-local"
             size="small"
             InputLabelProps={{ shrink: true }}
             value={addEnvEnd}

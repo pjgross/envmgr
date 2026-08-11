@@ -17,6 +17,7 @@ import {
 import type { BookingResponse } from '../../types/booking';
 import { formatApiError } from '../../services/apiError';
 import { useAllProjects } from '../../hooks/useAllProjects';
+import { toDateTimeLocal } from '../../utils/datetime';
 
 type BookingType = { id: number; name: string };
 
@@ -42,8 +43,13 @@ export default function EditStandardFieldsDialog({
   const [values, setValues] = useState<Record<string, unknown>>(() => ({
     project_name: booking.project_name,
     project_id: booking.project_id,
-    start_date: booking.start_date.slice(0, 10),
-    end_date: booking.end_date.slice(0, 10),
+    // `toDateTimeLocal`, never a string slice: slicing to 10 characters threw
+    // the time of day away, and saving then sent midnight for both bounds — a
+    // zero-length booking, which overlaps nothing at all (`start < end AND
+    // end > start`). Slicing to 16 would keep the time but keep it in UTC,
+    // showing 09:00Z as 09:00 to a user whose clock says 10:00.
+    start_date: toDateTimeLocal(booking.start_date),
+    end_date: toDateTimeLocal(booking.end_date),
     booking_type: booking.booking_type_id,
     notes: booking.notes ?? '',
     exclusive_use: booking.exclusive_use,
@@ -159,7 +165,7 @@ export default function EditStandardFieldsDialog({
         </FormControl>
         <TextField
           label="Start Date"
-          type="date"
+          type="datetime-local"
           fullWidth
           size="small"
           InputLabelProps={{ shrink: true }}
@@ -169,7 +175,7 @@ export default function EditStandardFieldsDialog({
         />
         <TextField
           label="End Date"
-          type="date"
+          type="datetime-local"
           fullWidth
           size="small"
           InputLabelProps={{ shrink: true }}
