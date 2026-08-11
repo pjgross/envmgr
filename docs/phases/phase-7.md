@@ -668,7 +668,12 @@ fields *and* B3a's operations group as its attribute vocabulary, so it was gated
   by habit, routine the moment B4 shipped half-day presets. Both fields (and the two on
   BookingDetail's add-environment dialog) are now `datetime-local`, formatted through one
   shared `toDateTimeLocal` helper — in LOCAL time, since a UTC slice shows 09:00Z as 09:00 to a
-  reader whose clock says 10:00.
+  reader whose clock says 10:00. **The read path had the same blind spot and only the browser pass
+  found it**: the detail page, the Environments panel, the Conflicts panel and the received-feedback
+  list all rendered `toLocaleDateString()`, so a 09:00–13:00 booking read as
+  "01/09/2026 → 01/09/2026" — indistinguishable from an all-day booking. `formatBookingDateTime`
+  now appends the time only when there is one, leaving the whole pre-B4 estate looking exactly as
+  it did.
 - **`protection_level` IS SORTABLE AND THE FILTER IS `?protection=`** — different names on
   purpose: the column is `protection_level`, the query parameter is `protection`, and FastAPI
   drops an unknown param silently, so the wrong spelling would filter nothing while looking
