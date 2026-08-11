@@ -25,6 +25,24 @@ import {
   selectBookingTemplates,
 } from '../../store/bookingLifecycleSlice';
 import type { BookingTypeRecord } from '../../types/bookingLifecycle';
+import {
+  PROTECTION_LABELS,
+  PROTECTION_LEVELS,
+  type ProtectionLevel,
+} from '../../constants/protection';
+
+/**
+ * A blank duration field is "no preset", never zero minutes — `Number('')` is
+ * 0, and the API 422s on `gt=0`. Anything unparseable collapses to null for
+ * the same reason: sending NaN would serialise as `null` anyway on create, and
+ * as a validation error on update.
+ */
+function durationToPayload(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 export default function BookingTypesPanel() {
   const dispatch = useDispatch<AppDispatch>();
@@ -35,6 +53,8 @@ export default function BookingTypesPanel() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newTemplateId, setNewTemplateId] = useState<number | ''>('');
+  const [newProtection, setNewProtection] = useState<ProtectionLevel>('soft');
+  const [newDuration, setNewDuration] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Edit dialog
@@ -43,6 +63,8 @@ export default function BookingTypesPanel() {
   const [editName, setEditName] = useState('');
   const [editTemplateId, setEditTemplateId] = useState<number | ''>('');
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editProtection, setEditProtection] = useState<ProtectionLevel>('soft');
+  const [editDuration, setEditDuration] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
 
   // Delete confirm dialog
@@ -65,6 +87,8 @@ export default function BookingTypesPanel() {
         is_active: true,
         description: null,
         color: null,
+        default_protection_level: newProtection,
+        default_duration_minutes: durationToPayload(newDuration),
       })
     );
     if (createBookingType.rejected.match(result)) {
@@ -75,6 +99,8 @@ export default function BookingTypesPanel() {
     setCreateOpen(false);
     setNewName('');
     setNewTemplateId('');
+    setNewProtection('soft');
+    setNewDuration('');
   };
 
   const handleEditOpen = (row: BookingTypeRecord) => {
@@ -82,6 +108,12 @@ export default function BookingTypesPanel() {
     setEditName(row.name);
     setEditTemplateId(row.lifecycle_template_id);
     setEditIsActive(row.is_active);
+    setEditProtection(row.default_protection_level ?? 'soft');
+    setEditDuration(
+      row.default_duration_minutes === null || row.default_duration_minutes === undefined
+        ? ''
+        : String(row.default_duration_minutes)
+    );
     setEditError(null);
     setEditOpen(true);
   };
@@ -96,6 +128,13 @@ export default function BookingTypesPanel() {
           name: editName,
           lifecycle_template_id: Number(editTemplateId),
           is_active: editIsActive,
+          default_protection_level: editProtection,
+          // NOTE: `BookingTypeUpdate` applies every field with
+          // `if data.X is not None`, so a null here means "leave alone", not
+          // "clear". Blanking this field therefore keeps the existing preset —
+          // there is no way through this endpoint to remove one. The helper
+          // text below says so rather than letting the user infer it.
+          default_duration_minutes: durationToPayload(editDuration),
         },
       })
     );
@@ -134,6 +173,15 @@ export default function BookingTypesPanel() {
         const tmpl = templates.find((t) => t.id === params.value);
         return tmpl?.name ?? String(params.value);
       },
+    },
+    {
+      field: 'default_protection_level',
+      headerName: 'Protection',
+      width: 130,
+      // A label, not a state: this is the level a NEW request of this type
+      // inherits. It gates nothing here and nothing anywhere else (B4 advises).
+      renderCell: (params) =>
+        PROTECTION_LABELS[params.value as ProtectionLevel] ?? String(params.value ?? ''),
     },
     {
       field: 'is_active',
@@ -211,6 +259,26 @@ export default function BookingTypesPanel() {
               </MenuItem>
             ))}
           </TextField>
+          <TextField
+            select
+            label="Protection"
+            value={newProtection}
+            onChange={(e) => setNewProtection(e.target.value as ProtectionLevel)}
+            helperText="The level a booking of this type inherits. Advisory — it refuses nothing."
+          >
+            {PROTECTION_LEVELS.map((level) => (
+              <MenuItem key={level} value={level}>
+                {PROTECTION_LABELS[level]}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Default duration (minutes)"
+            type="number"
+            value={newDuration}
+            onChange={(e) => setNewDuration(e.target.value)}
+            helperText="Leave blank for no preset. The booking form uses it to fill in the end date."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -253,6 +321,26 @@ export default function BookingTypesPanel() {
             <MenuItem value="active">Active</MenuItem>
             <MenuItem value="inactive">Inactive</MenuItem>
           </TextField>
+          <TextField
+            select
+            label="Protection"
+            value={editProtection}
+            onChange={(e) => setEditProtection(e.target.value as ProtectionLevel)}
+            helperText="Applies to bookings made from now on; existing bookings keep their own level."
+          >
+            {PROTECTION_LEVELS.map((level) => (
+              <MenuItem key={level} value={level}>
+                {PROTECTION_LABELS[level]}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Default duration (minutes)"
+            type="number"
+            value={editDuration}
+            onChange={(e) => setEditDuration(e.target.value)}
+            helperText="Blanking this leaves the existing preset in place — the API cannot clear one."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditOpen(false)}>Cancel</Button>

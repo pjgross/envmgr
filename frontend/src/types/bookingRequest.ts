@@ -1,3 +1,5 @@
+import type { ProtectionLevel } from '../constants/protection';
+
 export type EnvBookingSummary = {
   id: number;
   environment_id: number;
@@ -24,6 +26,11 @@ export type EnvBookingSummary = {
   // environment group, null for a hand-picked environment.
   environment_group_id: number | null;
   environment_group_name: string | null;
+  // B4 — how hard the PARENT REQUEST's claim is. Required, not optional, for
+  // the same reason as the two fields above: the backend types it required at
+  // six construction sites precisely so a missed one cannot render a booking
+  // as soft while GET /bookings reports it as hard.
+  protection_level: ProtectionLevel;
 };
 
 export type BookingRequestResponse = {
@@ -41,6 +48,7 @@ export type BookingRequestResponse = {
   notes: string | null;
   context_tag: string;
   exclusive_use_requested: boolean;
+  protection_level: ProtectionLevel;
   custom_fields: Record<string, unknown> | null;
   booked_by: number;
   delegate_user_ids: number[] | null;
@@ -63,6 +71,11 @@ export type BookingRequestCreatePayload = {
   notes?: string | null;
   context_tag?: string;
   exclusive_use_requested?: boolean;
+  // Omitted (or null) means "inherit the booking type's default". A caller who
+  // is neither Admin nor Release Manager may send the inherited value but not
+  // choose a different one — the server answers 403, and the form must not
+  // pre-empt that by disabling anything (B4 advises).
+  protection_level?: ProtectionLevel | null;
   custom_fields?: Record<string, unknown> | null;
   delegate_user_ids?: number[] | null;
 };
