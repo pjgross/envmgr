@@ -71,6 +71,7 @@ function otherBooking(overrides: Partial<EnvBookingSummary> = {}): EnvBookingSum
     start_date: '2026-09-01T09:00:00Z',
     end_date: '2026-09-03T17:00:00Z',
     status: 'approved',
+    protection_level: 'soft',
     has_unacknowledged_conflicts: false,
     agreement_gap: null,
     has_unacknowledged_agreement_gap: false,
@@ -244,6 +245,82 @@ describe('the verdict line', () => {
     const panel = await screen.findByTestId('contention-panel');
     expect(panel.textContent).not.toContain(`#${SUBJECT_ID}`);
     expect(panel.textContent).not.toMatch(/Booking #/);
+  });
+});
+
+describe('B4 — the protected outcome', () => {
+  // The server composes this one: rank could not separate the pair, and
+  // protection broke the tie, so the reason carries BOTH halves.
+  const PROTECTED_REASON =
+    'both projects have the same priority rank; the protected booking holds';
+
+  it("renders the server's composed reason verbatim", async () => {
+    // The component RENDERS that string — it does not compose one. Composing
+    // here is the B2 regex mistake in a different costume: two evaluators of
+    // one rule that disagree on real inputs. In particular the "same priority
+    // rank" half is knowledge this component does not have.
+    renderVerdict({
+      contention: contention({
+        outcome: 'protected',
+        winner_booking_id: SUBJECT_ID,
+        reason: PROTECTED_REASON,
+      }),
+    });
+
+    const line = await screen.findByTestId('contention-verdict');
+    expect(line).toHaveTextContent(PROTECTED_REASON);
+    // And not the `ranked` sentence, which would drop the tie-break's reason.
+    expect(line.textContent).not.toMatch(/outranks/i);
+  });
+
+  it('names the winner for a protected outcome', async () => {
+    // `protected` is the FIRST outcome other than `ranked` that has a winner,
+    // and the reason alone never says WHICH side holds — the sides line lists
+    // both projects without distinguishing them. So the panel must name the
+    // winner, in its own line, beside the server's unedited reason.
+    //
+    // Deliberately NOT by reusing the `ranked` line: "X outranks Y" is false
+    // here — the ranks are equal, which is precisely why protection had to
+    // break the tie.
+    renderVerdict({
+      contention: contention({
+        outcome: 'protected',
+        winner_booking_id: OTHER_ID,
+        reason: PROTECTED_REASON,
+      }),
+    });
+
+    const winner = await screen.findByTestId('contention-winner');
+    expect(winner.textContent).toMatch(/Payments Rebuild\b.*holds/i);
+    expect(winner.textContent).toMatch(/Mortgage Replatform\b.*gives way/i);
+    expect(winner.textContent).not.toMatch(/outranks/i);
+  });
+
+  it('still names nobody for the three no-winner outcomes', async () => {
+    // The winner line must not leak into the outcomes that genuinely have no
+    // winner: `winner_booking_id` is null there, so nothing may be named as
+    // giving way.
+    renderVerdict({
+      contention: contention({
+        outcome: 'equal_rank',
+        winner_booking_id: null,
+        reason: 'both projects have the same priority rank',
+      }),
+    });
+
+    const line = await screen.findByTestId('contention-verdict');
+    expect(line).toHaveTextContent('both projects have the same priority rank');
+    expect(line.textContent).not.toMatch(/outranks|holds/i);
+    expect(screen.queryByTestId('contention-winner')).toBeNull();
+  });
+
+  it('leaves the ranked outcome composing its own line, with no winner line beside it', async () => {
+    // Two ways of saying the same thing on one panel is the duplication this
+    // component's docstring warns about; `ranked` already names both sides.
+    renderVerdict();
+
+    await screen.findByTestId('contention-verdict');
+    expect(screen.queryByTestId('contention-winner')).toBeNull();
   });
 });
 

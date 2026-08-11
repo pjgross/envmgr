@@ -2,9 +2,19 @@
 // backend/app/api/v1/schemas/contention.py — read that docstring before
 // changing a field here, it explains why each nullable is nullable.
 
-// Three of the four outcomes carry no winner, each with its own `reason`. Not
+// Three of the five outcomes carry no winner, each with its own `reason`. Not
 // a fabricated ordering — see `contention_service`'s module docstring.
-export type ContentionOutcome = 'ranked' | 'no_project' | 'unranked' | 'equal_rank';
+//
+// `protected` is B4's addition: rank could not separate the pair and exactly
+// one side is a hard reservation, so protection breaks the tie. Its `reason`
+// carries BOTH halves ("…same priority rank; the protected booking holds"),
+// which is why nothing in the browser composes it.
+export type ContentionOutcome =
+  | 'ranked'
+  | 'protected'
+  | 'no_project'
+  | 'unranked'
+  | 'equal_rank';
 
 // Computed server-side from two columns and a clock, never stored — the
 // browser must not re-derive it from `respond_by` alone (see `bookings_live`
