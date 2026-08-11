@@ -104,7 +104,7 @@ already matched, so it is unaffected.
 | Endpoint | Sortable fields | Default | New filters |
 |---|---|---|---|
 | `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | — |
-| `GET /bookings/` | `start_date`, `end_date`, `status` | `start_date` asc | `agreement_gap` **✦** |
+| `GET /bookings/` | `start_date`, `end_date`, `status`, `protection_level` **✧** | `start_date` asc | `agreement_gap` **✦**, `protection` **✧** |
 | `GET /environments/` | `name`, `tier`, `status`, `owner`, `expires_at`, `created_at` | `name` asc | `search` |
 | `GET /change-requests` | `title`, `change_type`, `status`, `scheduled_start` | `scheduled_start` desc | — |
 | `GET /systems/` | `name` | `name` asc | `search` |
@@ -137,6 +137,19 @@ its own sentinel (see *A filter whose value collides with the sentinel*, under t
 one no-selection state and two meaningful ones, so no two meaningful states collapse onto the
 dropped sentinel and the grid always refetches. `any` is used because it is the right spelling,
 not because `all` was observed to break here.
+
+**✧** `protection_level` and `protection` arrived with Phase 7 sub-project B4, and unlike
+`agreement_gap` above the sort key is real: `BookingRequest.protection_level` is a stored column
+the database can order by, so it is **deliberately not** a member of the permanently-unsortable
+set that `agreement_gap` heads (those are computed after the page is fetched, which is the whole
+difference). Two names for one thing, on purpose — the **column** is `protection_level`, the
+**query parameter** is `protection`, and FastAPI drops an unknown param silently, so
+`?protection_level=hard` filters nothing at all while looking entirely correct. Sorting by it
+forces the `BookingRequest` join even with no protection filter set; without that a bare
+`?sort_by=protection_level` 500s (`no such column: booking_request.protection_level`) instead of
+sorting. Its no-selection state is an **omitted key**, spelled `any` client-side for the
+`buildParams` sentinel reason above; an empty `?protection=` is a 422 from
+`Optional[Literal["soft","hard"]]`.
 
 **§** `GET /environment-requests` is not part of C1's original nine — it shipped later, with
 sub-project B3b — but it joins the same two-sided contract (`REQUEST_SORTS` ↔
