@@ -45,6 +45,7 @@ import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDialog';
 import { formatApiError } from '../../services/apiError';
 import { PROTECTION_LABELS } from '../../constants/protection';
+import { formatBookingDateTime } from '../../utils/datetime';
 
 // --- Status colour map -------------------------------------------------------
 
@@ -506,13 +507,13 @@ export default function BookingDetail() {
             Start Date
           </Typography>
           <Typography variant="body2">
-            {new Date(booking.start_date).toLocaleDateString()}
+            {formatBookingDateTime(booking.start_date)}
           </Typography>
 
           <Typography variant="body2" color="text.secondary">
             End Date
           </Typography>
-          <Typography variant="body2">{new Date(booking.end_date).toLocaleDateString()}</Typography>
+          <Typography variant="body2">{formatBookingDateTime(booking.end_date)}</Typography>
 
           {!bookingRequest && (
             <>
