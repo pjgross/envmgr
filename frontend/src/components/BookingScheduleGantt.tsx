@@ -10,6 +10,7 @@ import {
 import { bookingService } from '../services/bookingService';
 import { packLanes, laneCount } from './bookingLanes';
 import type { BookingResponse } from '../types/booking';
+import { PROTECTED_MARKER } from '../constants/protection';
 
 interface EnvRow {
   id: number;
@@ -301,6 +302,9 @@ export default function BookingScheduleGantt({
                   {/* Booking bars — one lane per overlapping group */}
                   {bars.map(({ booking: b, lane, left, width }) => {
                     const color = STATUS_COLORS[b.status] ?? '#bdbdbd';
+                    // B4 — an absent level means the response did not say, so
+                    // only an explicit `hard` is marked.
+                    const isProtected = b.protection_level === 'hard';
                     return (
                       <Tooltip
                         key={b.id}
@@ -313,11 +317,24 @@ export default function BookingScheduleGantt({
                               {new Date(b.start_date).toLocaleString()} →{' '}
                               {new Date(b.end_date).toLocaleString()}
                             </Typography>
+                            {isProtected && (
+                              <Typography variant="caption" component="div">
+                                {PROTECTED_MARKER}
+                              </Typography>
+                            )}
                           </Box>
                         }
                         arrow
                       >
                         <Box
+                          // The words, not just the outline: a Tooltip renders
+                          // its title on hover only, so a tooltip-only marker
+                          // reaches neither a screen reader nor a keyboard user.
+                          aria-label={
+                            isProtected
+                              ? `${b.project_name} — ${PROTECTED_MARKER}`
+                              : b.project_name
+                          }
                           sx={{
                             position: 'absolute',
                             top: ROW_V_PAD + lane * (LANE_HEIGHT + LANE_GAP),
@@ -332,6 +349,9 @@ export default function BookingScheduleGantt({
                             overflow: 'hidden',
                             cursor: 'default',
                             color: 'rgba(0,0,0,0.87)',
+                            ...(isProtected
+                              ? { outline: '2px dashed #5e35b1', outlineOffset: '-3px' }
+                              : {}),
                           }}
                         >
                           <Typography
@@ -426,6 +446,20 @@ export default function BookingScheduleGantt({
           />
           <Typography variant="caption" color="text.secondary">
             proposed change
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box
+            sx={{
+              width: 10,
+              height: 10,
+              borderRadius: 0.5,
+              outline: '2px dashed #5e35b1',
+              outlineOffset: '-2px',
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {PROTECTED_MARKER}
           </Typography>
         </Box>
         {hasOutage && (

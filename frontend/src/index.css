@@ -9,3 +9,13 @@
   }
   .enterprise-report button { display: none; }
 }
+
+/* Phase 7 B4 — a hard reservation on the booking calendar. Additive to the
+   status colour the event already carries (FullCalendar keeps
+   backgroundColor), and never the ONLY signal: the event's title carries the
+   words "Protected (hard) reservation" too, since an outline is invisible to a
+   screen reader and to anyone who cannot tell two hues apart. */
+.booking-protected {
+  outline: 2px dashed #5e35b1;
+  outline-offset: -3px;
+}
