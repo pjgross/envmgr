@@ -104,15 +104,23 @@ describe('BookingList — B4 protection filter', () => {
   });
 });
 
+/**
+ * Invoke a column's `renderCell` against a partial row and hand back what it
+ * produced. Same helper, and the same reason, as bookingListServerGrid.test.tsx:
+ * @mui/x-data-grid virtualizes by container width and jsdom reports zero, so no
+ * cell of this page ever reaches the DOM.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function renderColumnCell(col: any, row: Record<string, unknown>): any {
+  return col.renderCell?.({ row } as any) as any;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 describe('BookingList — B4 protection column', () => {
   const byField = Object.fromEntries(bookingColumns.map((c) => [c.field, c]));
 
   it('renders the level by its label, not its wire value', () => {
-    const cell = byField.protection_level.renderCell?.({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      row: { protection_level: 'hard' },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any) as any;
+    const cell = renderColumnCell(byField.protection_level, { protection_level: 'hard' });
     expect(cell.props.label).toBe('Protected');
   });
 
@@ -121,11 +129,7 @@ describe('BookingList — B4 protection column', () => {
     // it to None because a Booking has no such attribute). Rendering
     // "Preemptible" for an absent value would state as fact something the
     // response never said.
-    const cell = byField.protection_level.renderCell?.({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      row: {},
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any) as any;
+    const cell = renderColumnCell(byField.protection_level, {});
     expect(cell).toBeNull();
   });
 
