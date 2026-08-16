@@ -59,7 +59,13 @@ export const bookingLifecycleService = {
     data: Partial<
       Pick<
         BookingTypeRecord,
-        'name' | 'description' | 'lifecycle_template_id' | 'color' | 'is_active'
+        | 'name'
+        | 'description'
+        | 'lifecycle_template_id'
+        | 'color'
+        | 'is_active'
+        | 'default_protection_level'
+        | 'default_duration_minutes'
       >
     >
   ): Promise<BookingTypeRecord> => api.put(`/tenant/booking-types/${id}`, data).then((r) => r.data),

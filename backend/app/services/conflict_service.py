@@ -24,6 +24,10 @@ class ConflictingBooking:
     booking: Booking
     project_name: Optional[str]
     environment_name: Optional[str]
+    # B4 — the OTHER booking's parent request's protection level. Resolved by
+    # the same join as project_name above rather than a second query, and for
+    # the same reason: this dataclass exists so a UI needs no extra round-trip.
+    protection_level: str
 
 
 def conflicts_with(other, *, subject_id, environment_id, start_date, end_date, tenant_id):
@@ -67,7 +71,10 @@ async def list_conflicts(
         return [], 0
 
     stmt = (
-        select(Booking, BookingRequest.project_name, Environment.name)
+        select(
+            Booking, BookingRequest.project_name, Environment.name,
+            BookingRequest.protection_level,
+        )
         .join(BookingRequest, BookingRequest.id == Booking.booking_request_id, isouter=True)
         .join(Environment, Environment.id == Booking.environment_id, isouter=True)
         .where(
@@ -88,8 +95,9 @@ async def list_conflicts(
             booking=b,
             project_name=project_name,
             environment_name=env_name,
+            protection_level=protection_level,
         )
-        for b, project_name, env_name in rows
+        for b, project_name, env_name, protection_level in rows
     ], total
 
 

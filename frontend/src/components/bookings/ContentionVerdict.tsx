@@ -163,6 +163,20 @@ export default function ContentionVerdict({
     ? `${winnerName} outranks ${loserName}`
     : contention.reason;
 
+  // B4's `protected` outcome is the first one other than `ranked` that HAS a
+  // winner, and the server's reason — "…the protected booking holds" — is
+  // written in the third person, so on its own it never says which side that
+  // is. This line names them, and nothing more: the reason above it stays the
+  // server's, unedited.
+  //
+  // NOT by widening `composedVerdict` to reuse the ranked wording: "X outranks
+  // Y" would be false here, since equal (or absent) ranks are exactly why
+  // protection had to break the tie in the first place.
+  const winnerLine =
+    contention.outcome === 'protected' && winnerName && loserName
+      ? `${winnerName} holds; ${loserName} gives way`
+      : null;
+
   // WHICH PROJECTS THE REASON IS ABOUT. Every no-winner reason is written in
   // the third person — "at least one booking is not linked to a project" — so
   // on its own it never says which booking, and the commonest of the five is
@@ -173,7 +187,10 @@ export default function ContentionVerdict({
   // without the name, the reader is told their register is wrong and not which
   // row is wrong. Suppressed when the verdict line already named both, and when
   // neither side has a name to give.
-  const showSides = !composedVerdict && Boolean(contention.booking_project_name || contention.other_project_name);
+  const showSides =
+    !composedVerdict &&
+    !winnerLine &&
+    Boolean(contention.booking_project_name || contention.other_project_name);
   const sideLabel = (name: string | null) => name ?? 'no linked project';
 
   const submit = async () => {
@@ -213,6 +230,17 @@ export default function ContentionVerdict({
           {contention.winner_booking_id === null ? `No winner — ${verdictLine}` : verdictLine}
         </Typography>
       </Box>
+
+      {winnerLine && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          data-testid="contention-winner"
+          sx={{ display: 'block', mt: 0.25 }}
+        >
+          {winnerLine}
+        </Typography>
+      )}
 
       {showSides && (
         <Typography

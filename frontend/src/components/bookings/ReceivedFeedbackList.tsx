@@ -1,6 +1,7 @@
 import { Box, Link, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import type { ReceivedFeedbackItem } from '../../types/conflict';
+import { formatBookingDateTime } from '../../utils/datetime';
 
 type Props = {
   items: ReceivedFeedbackItem[];
@@ -47,8 +48,8 @@ export default function ReceivedFeedbackList({ items }: Props) {
               ? ` · ${it.source_booking.environment_name}`
               : ''}
             {' · '}
-            {new Date(it.source_booking.start_date).toLocaleDateString()} –{' '}
-            {new Date(it.source_booking.end_date).toLocaleDateString()}
+            {formatBookingDateTime(it.source_booking.start_date)} –{' '}
+            {formatBookingDateTime(it.source_booking.end_date)}
             {' · '}status {it.source_booking.status}
           </Typography>
           <Typography variant="body2" sx={{ mt: 0.5 }}>

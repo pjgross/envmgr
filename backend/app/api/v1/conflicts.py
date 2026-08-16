@@ -126,6 +126,7 @@ async def list_conflicts(
                 status=c.booking.status,
                 environment_group_id=c.booking.environment_group_id,
                 environment_group_name=group_names.get(c.booking.environment_group_id),
+                protection_level=c.protection_level,
                 **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
                 **conflict_service.conflict_fields(c.booking.id in unanswered),
             ),
@@ -199,6 +200,11 @@ async def list_received_feedback(
                 status=r.source_booking.status,
                 environment_group_id=r.source_booking.environment_group_id,
                 environment_group_name=group_names.get(r.source_booking.environment_group_id),
+                # r.source_request is a full BookingRequest ORM object already
+                # loaded by list_received_feedback (see project_name above) —
+                # no extra query needed, unlike the batch resolution the other
+                # EnvBookingSummary sites in booking_requests.py need.
+                protection_level=r.source_request.protection_level,
                 **agreement_gap_service.gap_fields(gaps.get(r.source_booking.id)),
                 **conflict_service.conflict_fields(r.source_booking.id in unanswered),
             ),

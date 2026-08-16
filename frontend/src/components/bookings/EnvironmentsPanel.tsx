@@ -18,6 +18,7 @@ import { bookingService } from '../../services/bookingService';
 import type { EnvBookingSummary } from '../../types/bookingRequest';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import TransitionButtons from './TransitionButtons';
+import { formatBookingDateTime } from '../../utils/datetime';
 
 type Props = {
   requestId: number;
@@ -88,8 +89,8 @@ export default function EnvironmentsPanel({
                   {b.environment_name ?? `#${b.environment_id}`}
                 </RouterLink>
               </TableCell>
-              <TableCell>{new Date(b.start_date).toLocaleDateString()}</TableCell>
-              <TableCell>{new Date(b.end_date).toLocaleDateString()}</TableCell>
+              <TableCell>{formatBookingDateTime(b.start_date)}</TableCell>
+              <TableCell>{formatBookingDateTime(b.end_date)}</TableCell>
               <TableCell>
                 <Chip size="small" label={b.status} />
               </TableCell>

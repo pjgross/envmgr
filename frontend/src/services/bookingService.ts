@@ -19,6 +19,14 @@ export const bookingService = {
      * FastAPI's `Optional[bool]` rather than an ignored param.
      */
     agreement_gap?: boolean;
+    /**
+     * B4's protection filter. The query param is `protection`, NOT
+     * `protection_level` (that is the column's name) — FastAPI drops an
+     * unknown param silently, so the wrong spelling filters nothing while
+     * looking right. OMIT for every booking: an empty `?protection=` is a 422
+     * from `Optional[Literal["soft","hard"]]`.
+     */
+    protection?: 'soft' | 'hard';
     limit?: number;
     offset?: number;
     sort_by?: string;

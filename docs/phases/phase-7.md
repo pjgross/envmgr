@@ -96,7 +96,15 @@ A1 gates A3 and A4.
         unenforced, same as B3a shipped it. What it enforces is narrower: an access request
         against a teamless environment cannot be *submitted*.
         [Spec](../superpowers/specs/2026-08-05-environment-request-form-design.md)
-- [ ] **B4** Soft (preemptible) vs hard (protected) reservations + time-slot bookings
+- [x] **B4** Soft (preemptible) vs hard (protected) reservations + time-slot bookings.
+      A `protection_level` on the **booking request**, defaulted from its booking type, which
+      breaks the tie in A4's contention verdict **only where project priority cannot separate
+      the two bookings** — plus a per-booking-type duration preset so "half day" / "sprint" /
+      "release cycle" is one click. It **advises and never blocks**: nothing is refused,
+      cancelled or transitioned on account of a level, and a soft booking may still be made
+      right over a hard one. "Preemptible" is a **deviation on record** — nothing preempts
+      anything; see below.
+      [Spec](../superpowers/specs/2026-08-10-soft-hard-reservations-design.md)
 - [ ] **B5** Decommissioning workflow + idle auto-detection (ghost environments)
 - [ ] **B6** Forward contention as a calendar leading indicator
 
@@ -606,6 +614,81 @@ fields *and* B3a's operations group as its attribute vocabulary, so it was gated
   `environmentNamingPolicyPanel.test.tsx` guards the browser half by recording which regex
   sources were evaluated and asserting the tenant's pattern is not among them (asserting
   `RegExp.prototype.test` was never called at all fails on MUI's own internals).
+
+## What B4 established
+
+- **B4 ADVISES; IT NEVER BLOCKS AND IT NEVER PREEMPTS.** The guard is
+  `tests/test_b4_advises_never_blocks.py`: a soft booking may be made right over a hard one,
+  `check_overlap` answers identically for both levels, a hard booking is still transitionable
+  and still editable, and recording a contention decision still moves nothing. **If any of
+  those fails, B4 has started acting.** Proved non-vacuous rather than assumed — inserting a
+  real 409 into `create_request` when an overlapping booking is hard makes
+  `test_a_soft_booking_may_be_made_over_a_hard_one` fail, and removing it makes it pass again.
+  Fourth sub-project running whose central promise is a named test rather than an absence in
+  the diff, after A1, A4 and B2.
+- **RANK STAYS PRIMARY; PROTECTION ONLY BREAKS A TIE.** `_protection_breaks_tie` is consulted
+  in the three branches where rank could *not* separate the pair (`no_project`, `unranked`,
+  `equal_rank`) and never in the `ranked` branch — a hard booking does **not** beat a
+  higher-ranked soft one. Where it fires, the reason keeps both halves ("…same priority rank;
+  the protected booking holds"), because a bare "the protected booking holds" throws away the
+  only thing that says why rank did not decide it.
+- **AN UNKNOWN LEVEL MUST NEVER LOSE.** The tie-break fires only when exactly one side is
+  known-hard; equal levels, and anything the query could not read, decide nothing. A missing
+  level defaulting to "soft" would silently declare every booking the register knows least
+  about the loser.
+- **THE LEVEL IS ON THE REQUEST, NOT THE BOOKING** — one value shared by every environment in
+  one request. This is what keeps A2's atomic group bookings coherent: group members share one
+  `BookingRequest`, so they share one level by construction, and a group can never be half
+  protected. It also means `BookingResponse.protection_level` is populated explicitly in
+  `_to_response` (a `Booking` has no such attribute, so `model_validate` cannot fill it) and
+  required — not defaulted — on `EnvBookingSummary`, whose six construction sites would
+  otherwise each be free to render a hard booking as soft.
+- **THE UNCHANGED-VALUE CARVE-OUT IS LOAD-BEARING, NOT TIDY.** Only an Admin or Release
+  Manager (or a master admin acting in the tenant) may *change* a level, but anyone may
+  *send* the value that would have been inherited anyway — because the form shows a
+  non-admin their level read-only and submits the whole form including it. A bare role check
+  breaks the primary create journey for every Developer and Test Manager. Same call B2's name
+  rule made: the permission guards a CHANGE, not a MENTION. An explicit `null`, by contrast,
+  is a **422** for everyone including an Admin — a malformed value, not an authorization
+  question.
+- **`OUTCOME_PROTECTED` IS THE FIRST OUTCOME OTHER THAN `ranked` THAT HAS A WINNER**, which
+  every reader of A4's verdict has to absorb: `winner_booking_id != null` no longer implies
+  `outcome == 'ranked'`. `ContentionVerdict` names that winner in its own line
+  (`X holds; Y gives way`) rather than reusing the ranked sentence — "X outranks Y" would be
+  false precisely where protection is doing the work.
+- **DURATION IS APPLIED BY RULE, NOT BY ARITHMETIC.** `addDuration` adds a whole multiple of a
+  day as CALENDAR days and anything else as minutes, so a 14-day sprint from 09:00 lands on
+  09:00 across a spring-forward while a 240-minute half-day from 09:00 lands on 13:00. The
+  preset fills the end date only while the user has not edited it themselves — tracked through
+  react-hook-form's own dirty state, never by comparing the value against the preset.
+- **A ZERO-LENGTH BOOKING OVERLAPS NOTHING, AND THE EDIT PATH WAS MAKING THEM.**
+  `EditStandardFieldsDialog` rendered both bounds as `type="date"` and sliced the ISO string to
+  ten characters, so saving any booking sent `00:00–00:00`: overlap is `start < end AND end >
+  start`, which a zero-length interval satisfies neither of. Rare while bookings were day-scale
+  by habit, routine the moment B4 shipped half-day presets. Both fields (and the two on
+  BookingDetail's add-environment dialog) are now `datetime-local`, formatted through one
+  shared `toDateTimeLocal` helper — in LOCAL time, since a UTC slice shows 09:00Z as 09:00 to a
+  reader whose clock says 10:00. **The read path had the same blind spot and only the browser pass
+  found it**: the detail page, the Environments panel, the Conflicts panel and the received-feedback
+  list all rendered `toLocaleDateString()`, so a 09:00–13:00 booking read as
+  "01/09/2026 → 01/09/2026" — indistinguishable from an all-day booking. `formatBookingDateTime`
+  now appends the time only when there is one, leaving the whole pre-B4 estate looking exactly as
+  it did.
+- **`protection_level` IS SORTABLE AND THE FILTER IS `?protection=`** — different names on
+  purpose: the column is `protection_level`, the query parameter is `protection`, and FastAPI
+  drops an unknown param silently, so the wrong spelling would filter nothing while looking
+  correct. The filter's "no selection" is an OMITTED KEY spelled `any` in the URL, never `all`
+  (`buildParams`' own sentinel) and never `''` (a 422). Fourth sub-project to hit that.
+  Sorting by it needs the `booking_request` join even when no protection filter is set —
+  without that, a bare `?sort_by=protection_level` 500s rather than sorting.
+- **Deviation on record:** §2.12 says "**preemptible** vs protected". Nothing in B4 preempts
+  anything — the soft level means "priority may name this one as the side that gives way",
+  and a human then acts on that advice, or does not. Refusal, refusal-plus-preemption-record,
+  and auto-preemption were all considered and declined; see the spec.
+- **The all-hard degradation is a documented outcome, not a defect.** If every booking type is
+  set to Protected the level stops discriminating and verdicts return to naming no winner,
+  exactly as before B4. There is no quota on protected bookings; the role gate is the whole
+  control.
 
 ## What B3a established
 

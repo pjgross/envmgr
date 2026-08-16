@@ -285,12 +285,29 @@ Tenant Admins can replace this template — see admin guide ch. 8 — so transit
    - **Booking Type** — required; picks the lifecycle template (defaults to *Standard Booking*).
    - **Start Date & Time** / **End Date & Time** — required.
    - **Context Tag** — *None / Deployment / Regression*. Auto-derived later if you link the booking to a release.
-   - **Exclusive use requested** — toggle on if you need the environment to yourself for that window.
+   - **Sharing & protection** — two controls that sound alike and answer different questions; see below.
+     - **Exclusive use requested** — toggle on if you need the environment to yourself for that window. *Nobody else may book this environment for the same window.*
+     - **Protection** — *Preemptible* or *Protected*. *A protected booking holds its place when priority cannot separate two claims. It does not stop anyone booking over it.* It starts at whatever the booking type's default is; only an Admin or Release Manager can change it, and everyone else sees it read-only rather than hidden.
    - **Delegates (optional)** — other tenant users who can manage the booking on your behalf.
    - **Notes** and any **custom fields** the booking type exposes in *draft*.
 3. Click *Create Booking*.
 
 The booking is saved in *draft* — the dialog flags this with an info banner: *"Booking will be saved as Draft. Submit when ready for approval."* Conflict detection runs as you type (debounced); shared overlaps warn but allow creation, exclusive overlaps raise a 409 and force you to pick a new window.
+
+### Exclusive use and protection are different questions
+
+They sit together on the form because they are constantly confused, and neither implies the other:
+
+| | The question it answers | What it does |
+|---|---|---|
+| **Exclusive use requested** | *Can anyone else be in here with me?* | Recorded on the request, and shown to anyone whose booking would overlap yours. |
+| **Protection** | *Can I be pushed out?* | *Protected* names your booking as the one that holds when two bookings clash and project priority cannot separate them. |
+
+**Neither of them stops anyone booking the environment.** Both are advice: a *Protected* booking can be booked straight over, and its status, dates and controls are exactly those of a *Preemptible* one. What protection changes is who gets named the winner on the *Conflicts* panel when the two projects' priority ranks are equal, absent, or unresolvable — the verdict then reads *"…the protected booking holds"* and names the side that gives way. Where the ranks **do** separate the two, rank wins and protection is not consulted at all: a protected booking does not beat a higher-priority project.
+
+If a booking is protected, you will see it as a chip beside the status on its detail page, as a *Protection* column (and filter, and sort) on the bookings list, and as a dashed outline plus the words *"Protected (hard) reservation"* on the calendar and the schedule Gantt.
+
+**Duration presets.** If your admin has given the booking type a default duration, choosing that type fills the **End Date & Time** in for you — a half day, a sprint, a release cycle. It never overwrites an end date you have already typed, and a whole number of days is added as calendar days, so a fortnight booked from 09:00 still ends at 09:00 even across a clock change.
 
 ### Booking a group of environments
 

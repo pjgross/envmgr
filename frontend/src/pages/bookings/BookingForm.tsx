@@ -11,8 +11,9 @@ import {
   MenuItem,
   Switch,
   TextField,
+  Typography,
 } from '@mui/material';
-import { Controller, useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useFormState, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AppDispatch, RootState } from '../../store';
@@ -36,6 +37,13 @@ import FormDialog from '../../components/form/FormDialog';
 import FormTextField from '../../components/form/FormTextField';
 import FormSelect from '../../components/form/FormSelect';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import {
+  PROTECTION_LABELS,
+  PROTECTION_LEVELS,
+  type ProtectionLevel,
+} from '../../constants/protection';
+import { addDuration } from '../../utils/duration';
+import { toDateTimeLocal } from '../../utils/datetime';
 
 interface BookingFormProps {
   open: boolean;
@@ -73,6 +81,11 @@ const baseSchema = z.object({
   notes: z.string(),
   contextTag: z.enum(['none', 'deployment', 'regression']),
   exclusiveUse: z.boolean(),
+  // B4 — inherited from the chosen booking type, changeable only by an Admin
+  // or Release Manager. Always a concrete level, never null: the form submits
+  // it whoever is filling it in, and the server's unchanged-value carve-out is
+  // what lets a Developer send the value they cannot change.
+  protectionLevel: z.enum(PROTECTION_LEVELS),
   delegateUsers: z.array(z.any()),
   customFieldValues: z.record(z.string(), z.unknown()),
 });
@@ -98,6 +111,7 @@ const buildDefaults = (envIds: number[]): BookingFormValues => ({
   notes: '',
   contextTag: 'none',
   exclusiveUse: false,
+  protectionLevel: 'soft',
   delegateUsers: [],
   customFieldValues: {},
 });
@@ -185,6 +199,51 @@ export default function BookingForm({
   const envIdsValue = useWatch({ control, name: 'envIds' });
   const startDateValue = useWatch({ control, name: 'startDate' });
   const endDateValue = useWatch({ control, name: 'endDate' });
+
+  // ── B4: booking-type defaults ─────────────────────────────────────────────
+  const selectedBookingType = useMemo(
+    () => bookingTypes.find((bt) => bt.id === bookingTypeIdValue) ?? null,
+    [bookingTypes, bookingTypeIdValue]
+  );
+
+  // Inherit the type's protection level when the TYPE changes — deliberately
+  // not on every render of this component, and deliberately not keyed on the
+  // dates: an Admin who has chosen `hard` for a soft-defaulting type must keep
+  // that choice while they go on editing the rest of the form.
+  useEffect(() => {
+    if (!selectedBookingType) return;
+    setValue('protectionLevel', selectedBookingType.default_protection_level ?? 'soft', {
+      shouldValidate: false,
+    });
+  }, [selectedBookingType, setValue]);
+
+  // Whether the user has typed an end date themselves. Read from react-hook-
+  // form's own dirty tracking rather than by comparing values: the effect
+  // below writes with `shouldDirty` left false, so "dirty" means "the user did
+  // this", and comparing the value against the preset instead would treat a
+  // user who happens to agree with the preset as never having chosen.
+  const { dirtyFields } = useFormState({ control });
+  const endDateTouched = Boolean(dirtyFields.endDate);
+
+  useEffect(() => {
+    const minutes = selectedBookingType?.default_duration_minutes;
+    if (!minutes || !startDateValue || endDateTouched) return;
+    const start = new Date(startDateValue);
+    if (Number.isNaN(start.getTime())) return;
+    setValue('endDate', toDateTimeLocal(addDuration(start, minutes)), {
+      shouldValidate: false,
+    });
+  }, [selectedBookingType, startDateValue, endDateTouched, setValue]);
+
+  // Mirrors booking_request_service._may_set_protection: Admin, Release
+  // Manager, or a master admin acting in this tenant. A narrower rule here
+  // would hide a control that the server would have accepted; a wider one
+  // offers a control that 403s on submit.
+  const currentUser = useSelector((s: RootState) => s.auth.user);
+  const mayChooseProtection =
+    currentUser?.role === 'Admin' ||
+    currentUser?.role === 'Release Manager' ||
+    currentUser?.is_master_admin === true;
 
   useEffect(() => {
     if (conflictDebounceRef.current) clearTimeout(conflictDebounceRef.current);
@@ -277,6 +336,11 @@ export default function BookingForm({
       end_date: new Date(values.endDate).toISOString(),
       booking_type_id: values.bookingTypeId,
       exclusive_use_requested: values.exclusiveUse,
+      // Sent whoever is submitting, including a user who cannot change it: the
+      // server's carve-out accepts a value equal to the one that would have
+      // been inherited anyway, and omitting it here would leave that carve-out
+      // exercised by nothing the product actually does.
+      protection_level: values.protectionLevel,
       notes: values.notes || undefined,
       context_tag: values.contextTag,
       custom_fields: values.customFieldValues,
@@ -517,19 +581,53 @@ export default function BookingForm({
           <MenuItem value="regression">Regression</MenuItem>
         </FormSelect>
 
-        {/* Exclusive Use */}
-        <Controller
-          control={control}
-          name="exclusiveUse"
-          render={({ field }) => (
-            <FormControlLabel
-              control={
-                <Switch checked={field.value} onChange={(e) => field.onChange(e.target.checked)} />
-              }
-              label="Exclusive use requested"
-            />
-          )}
-        />
+        {/* Sharing & protection — two DIFFERENT questions, grouped because
+            they read as one and are constantly confused. Exclusive use asks
+            "can anyone else be in here with me"; protection asks "can I be
+            pushed out". */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Typography variant="subtitle2">Sharing &amp; protection</Typography>
+          <Controller
+            control={control}
+            name="exclusiveUse"
+            render={({ field }) => (
+              <Box>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={field.value}
+                      onChange={(e) => field.onChange(e.target.checked)}
+                    />
+                  }
+                  label="Exclusive use requested"
+                />
+                <FormHelperText>
+                  Nobody else may book this environment for the same window.
+                </FormHelperText>
+              </Box>
+            )}
+          />
+          {/* Rendered for everyone, disabled for those who may not change it:
+              a user who cannot choose still needs to SEE that their booking is
+              protected. B4 ADVISES — nothing here refuses a submit. */}
+          <FormSelect<BookingFormValues>
+            name="protectionLevel"
+            label="Protection"
+            fullWidth
+            disabled={!mayChooseProtection}
+            helperText={
+              mayChooseProtection
+                ? 'A protected booking holds its place when priority cannot separate two claims. It does not stop anyone booking over it.'
+                : 'Inherited from the booking type. A protected booking holds its place when priority cannot separate two claims. It does not stop anyone booking over it.'
+            }
+          >
+            {PROTECTION_LEVELS.map((level) => (
+              <MenuItem key={level} value={level}>
+                {PROTECTION_LABELS[level as ProtectionLevel]}
+              </MenuItem>
+            ))}
+          </FormSelect>
+        </Box>
 
         {/* Delegate Users */}
         <Controller

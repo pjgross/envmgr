@@ -18,6 +18,7 @@ import type { ConflictItem, ReceivedFeedbackItem } from '../../types/conflict';
 import { formatApiError } from '../../services/apiError';
 import ContentionVerdict from './ContentionVerdict';
 import ReceivedFeedbackList from './ReceivedFeedbackList';
+import { formatBookingDateTime } from '../../utils/datetime';
 
 type Props = {
   bookingId: number;
@@ -160,8 +161,8 @@ export default function ConflictsPanel({
                       ? ` · ${it.other_booking.environment_name}`
                       : ''}
                     {' · '}
-                    {new Date(it.other_booking.start_date).toLocaleDateString()} –{' '}
-                    {new Date(it.other_booking.end_date).toLocaleDateString()}
+                    {formatBookingDateTime(it.other_booking.start_date)} –{' '}
+                    {formatBookingDateTime(it.other_booking.end_date)}
                     {' · '}status {it.other_booking.status}
                   </Typography>
                   {/* A4's verdict, and the ask, NEXT TO THE CONDITION THEY ACT

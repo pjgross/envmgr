@@ -118,6 +118,8 @@ const BOOKING_TYPE: BookingTypeRecord = {
   lifecycle_template_id: 200,
   color: null,
   is_active: true,
+  default_protection_level: 'soft',
+  default_duration_minutes: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 };
@@ -158,6 +160,7 @@ function makeCreateResponse(): BookingRequestCreateResponse {
       notes: null,
       context_tag: 'none',
       exclusive_use_requested: false,
+      protection_level: 'soft',
       custom_fields: null,
       booked_by: 1,
       delegate_user_ids: null,

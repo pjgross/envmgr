@@ -24,7 +24,13 @@ Every task's requirements implicitly include all of these.
 - **Never fabricate a foreign key in a test.** Use `backend/tests/factories.py`. SQLite now enforces FKs (`PRAGMA foreign_keys=ON`).
 - **Backend test command:** `cd backend && PYTHONPATH=. uv run pytest -q`. Single file: `PYTHONPATH=. uv run pytest tests/path/test_x.py -q`.
 - **Frontend test command:** `cd frontend && npx vitest run <path>`.
-- **Dual engine before any task that touches SQL is called done:** `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test PYTHONPATH=. uv run pytest -q`
+- **Test cadence (REVISED 2026-08-10, mid-execution, by the owner).** The original rule — both full engine legs at the end of every task — was measured at **15m47s on SQLite and 35m52s on PostgreSQL**, i.e. ~52 minutes per backend task, against 0.6s for the focused tests. That is the development cadence, not the safety margin, so it changed:
+  - **Every task:** run the focused test files it touches, plus any suite subset plausibly affected (`-k` or a directory). Fast, foreground.
+  - **Full SQLite suite:** at Tasks 5, 7 and 15 only.
+  - **Full PostgreSQL suite:** at Tasks 7 and 15 only — plus Task 1, already done, because it carried the migration.
+  - CI runs both legs on push regardless, so nothing reaches `main` unverified.
+  - The dialect-sensitive work is the migration (Task 1, both legs done), the `?protection=` filter and the sort (Task 5), and the guard (Task 7). Those keep their full runs; the rest do not need them.
+- **Full-suite commands, when a task calls for one:** `cd backend && PYTHONPATH=. uv run pytest -q` and `cd backend && TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test PYTHONPATH=. uv run pytest -q`. **Both exceed the 600s foreground Bash limit.** Launch with `run_in_background`, redirect to a fixed log path under the session tasks directory, and wait with an `until grep -qE "[0-9]+ (passed|failed)" <log>; do sleep 20; done` loop. Output sent only to a pipe is lost when the shell ends — a completed 36-minute run was lost exactly that way.
 - **Commit per task**, conventional commits (`feat(b4):`, `test(b4):`, `docs(b4):`). Do not push; the branch is merged at the end.
 - **Branch:** create `feature/phase7-b4-reservations` off freshly-pulled `main` before Task 1.
 
@@ -568,13 +574,15 @@ In `app/api/v1/bookings.py::_to_response`, set `resp.protection_level = req.prot
 Run: `cd backend && PYTHONPATH=. uv run pytest tests/integration/test_protection_level_api.py -q`
 Expected: PASS, 9 tests.
 
-- [ ] **Step 7: Run the full suite on both engines**
+- [ ] **Step 7: Run the affected subset (no full suite — see the revised cadence)**
 
 ```bash
-cd backend && PYTHONPATH=. uv run pytest -q
-TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test PYTHONPATH=. uv run pytest -q
+cd backend && PYTHONPATH=. uv run pytest tests/integration/test_protection_level_api.py -q
+cd backend && PYTHONPATH=. uv run pytest -q -k "booking or conflict or request"
 ```
-Expected: PASS. Existing tests constructing `EnvBookingSummary` by keyword will fail until they pass the new required field — fix them, do not default it.
+Expected: PASS. Existing tests constructing `EnvBookingSummary` by keyword will fail until they pass the new required field — **fix them, do not default it.** The `-k` subset is chosen to reach every construction site: this task makes a schema field required, so the failures land in whichever files build that type, not in the files you edited.
+
+Task 5 runs the full SQLite suite and Task 7 runs both engines; a regression this task introduces is caught there.
 
 - [ ] **Step 8: Commit**
 
@@ -970,11 +978,13 @@ One at a time, break it, run `pytest tests/services/test_protection_verdict.py -
 
 A rule the code explains at length reads as a rule that is guarded, and usually is not — six of seven mutation survivors on A4 were exactly such sentences.
 
-- [ ] **Step 7: Both engines, then commit**
+- [ ] **Step 7: Run the affected subset, then commit**
+
+`_decide` is pure Python over tuples — no SQL, no dialect exposure — so the focused file plus the contention subset is the right gate here. `_ranks_for`'s widened `select` IS SQL, and Task 5's full SQLite run and Task 7's dual-engine run cover it.
 
 ```bash
-cd backend && PYTHONPATH=. uv run pytest -q
-TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test PYTHONPATH=. uv run pytest -q
+cd backend && PYTHONPATH=. uv run pytest tests/services/test_protection_verdict.py -q
+cd backend && PYTHONPATH=. uv run pytest -q -k "contention or escalation or booking"
 git add backend/app/services/contention_service.py backend/tests/services/test_protection_verdict.py
 git commit -m "feat(b4): protection breaks the tie where rank cannot separate a contention"
 ```
@@ -1127,11 +1137,15 @@ async def test_protection_and_project_filters_combine(
 
 Expected: PASS, and no `sqlalchemy` duplicate-join warning in the output.
 
-- [ ] **Step 6: Both engines, then commit**
+- [ ] **Step 6: Full SQLite suite, then commit**
+
+This task adds a `WHERE` and an `ORDER BY`, so it is one of the three that keeps a full run. **SQLite only** — the PostgreSQL leg is Task 7's, and CI runs both on push.
+
+Launch it in the background with a fixed log path and wait with an `until` loop; it takes ~16 minutes and exceeds the foreground limit.
 
 ```bash
-cd backend && PYTHONPATH=. uv run pytest -q
-TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test PYTHONPATH=. uv run pytest -q
+cd backend && PYTHONPATH=. uv run pytest -q > <tasks-dir>/t5-sqlite.log 2>&1   # run_in_background
+until grep -qE "[0-9]+ (passed|failed)" <tasks-dir>/t5-sqlite.log; do sleep 20; done
 git add backend/app backend/tests
 git commit -m "feat(b4): ?protection= filter in SQL and a sortable protection column"
 ```
@@ -1260,11 +1274,11 @@ Add `Literal` and `Field` / `ConfigDict` imports as needed. Wire both new fields
 Run: `cd backend && PYTHONPATH=. uv run pytest tests/integration/test_protection_level_api.py -q`
 Expected: PASS, 23 tests.
 
-- [ ] **Step 5: Both engines, then commit**
+- [ ] **Step 5: Run the affected subset, then commit**
 
 ```bash
-cd backend && PYTHONPATH=. uv run pytest -q
-TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test PYTHONPATH=. uv run pytest -q
+cd backend && PYTHONPATH=. uv run pytest tests/integration/test_protection_level_api.py -q
+cd backend && PYTHONPATH=. uv run pytest -q -k "booking_type or lifecycle"
 git add backend/app backend/tests
 git commit -m "feat(b4): booking-type protection and duration defaults through the API"
 ```

@@ -94,6 +94,7 @@ function envBooking(overrides: Partial<EnvBookingSummary>): EnvBookingSummary {
     start_date: '2026-08-10T09:00:00Z',
     end_date: '2026-08-11T09:00:00Z',
     status: 'submitted',
+    protection_level: 'soft',
     agreement_gap: null,
     has_unacknowledged_agreement_gap: false,
     environment_group_id: null,

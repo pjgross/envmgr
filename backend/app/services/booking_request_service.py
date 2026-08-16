@@ -8,6 +8,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.events import publish_event
 from app.core.pagination import Page, fetch_page
+from app.core.protection_levels import PROTECTION_SOFT
+from app.core.security import Role
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
 from app.db.models.booking_lifecycle import BookingType
@@ -15,6 +17,66 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
 from app.db.models.user import User
 from app.services import conflict_service, environment_group_service, project_service
+
+
+def _may_set_protection(user: User) -> bool:
+    """Admin, Release Manager, or a master admin acting in this tenant.
+
+    Master admins are included for the reason contention_service._is_admin
+    gives: the two places that forgot showed a master admin a control that
+    403'd on click.
+    """
+    return (
+        user.role in (Role.ADMIN, Role.RELEASE_MANAGER)
+        or bool(user.is_master_admin)
+    )
+
+
+def assert_may_set_protection(
+    user: User, *, submitted: Optional[str], current: str
+) -> None:
+    """Refuse a CHANGE of protection level by someone without the role.
+
+    `current` is the value that would apply if the caller said nothing — the
+    booking type's default on create, the stored value on update.
+
+    THE UNCHANGED-VALUE CARVE-OUT IS LOAD-BEARING, NOT TIDY. The form shows a
+    non-admin their level read-only and submits the whole form including it,
+    so a bare role check breaks the primary create journey for every
+    Developer and Test Manager. It is the same call B2's name rule made: the
+    permission guards a CHANGE, not a MENTION.
+    """
+    if submitted is None or submitted == current:
+        return
+    if _may_set_protection(user):
+        return
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        "Only an Admin or Release Manager may change a booking's protection level",
+    )
+
+
+async def protection_levels_for(
+    db: AsyncSession, booking_request_ids: set[int], tenant_id: int
+) -> dict[int, str]:
+    """Batch id -> protection_level for a set of BookingRequest ids.
+
+    The EnvBookingSummary counterpart to project_service.get_project_names /
+    environment_group_service.get_group_names: a construction site that reads
+    a booking belonging to a DIFFERENT booking_request than the one already in
+    hand (a conflict, a preview, a newly-added environment) has no ORM object
+    to read protection_level off directly and must batch-resolve it here,
+    tenant-scoped like those two.
+    """
+    if not booking_request_ids:
+        return {}
+    rows = (await db.execute(
+        select(BookingRequest.id, BookingRequest.protection_level).where(
+            BookingRequest.id.in_(booking_request_ids),
+            BookingRequest.tenant_id == tenant_id,
+        )
+    )).all()
+    return {rid: level for rid, level in rows}
 
 
 async def _load_initial_state(db: AsyncSession, booking_type_id: int, tenant_id: int) -> str:
@@ -110,6 +172,29 @@ async def create_request(
 
     initial_state = await _load_initial_state(db, data["booking_type_id"], tenant_id)
 
+    # A second read of the same row _load_initial_state already fetched — left
+    # as its own query rather than contorting that helper's signature to hand
+    # back the row too, per the task brief: one extra indexed lookup per
+    # create is not worth bending an existing helper out of shape.
+    booking_type = (await db.execute(
+        select(BookingType).where(
+            BookingType.id == data["booking_type_id"],
+            BookingType.tenant_id == tenant_id,
+        )
+    )).scalar_one_or_none()
+    inherited_protection = (
+        booking_type.default_protection_level
+        if booking_type is not None
+        else PROTECTION_SOFT
+    )
+    submitted_protection = data.get("protection_level")
+    assert_may_set_protection(
+        current_user, submitted=submitted_protection, current=inherited_protection
+    )
+    protection_level = (
+        submitted_protection if submitted_protection is not None else inherited_protection
+    )
+
     project_id = data.get("project_id")
     if project_id is not None:
         # Scoped to the ACTIVE tenant: under master-admin impersonation
@@ -127,6 +212,7 @@ async def create_request(
         notes=data.get("notes"),
         context_tag=ContextTag(data.get("context_tag", "none")),
         exclusive_use_requested=data.get("exclusive_use_requested", False),
+        protection_level=protection_level,
         custom_fields=data.get("custom_fields"),
         booked_by=current_user.id,
         delegate_user_ids=data.get("delegate_user_ids"),
@@ -335,6 +421,7 @@ STANDARD_REQUEST_FIELDS = {
     "context_tag",
     "exclusive_use_requested",
     "delegate_user_ids",
+    "protection_level",
 }
 
 
@@ -370,6 +457,38 @@ async def update_standard_fields(
     # follow the same check used in booking_service.update_standard_fields today.
     # For now we allow the request owner to edit any standard field; sharpen in Task 16 once
     # the API wires permission checks.
+
+    if "protection_level" in values:
+        if values["protection_level"] is None:
+            # An explicit JSON `null` is distinct from an OMITTED key — the
+            # endpoint's exclude_unset filter lets a `null` through into
+            # `values`, and assert_may_set_protection's `submitted is None`
+            # branch means "not mentioned", not "clear it". protection_level
+            # has no "no level" state (the column is NOT NULL, no server
+            # default fallback here), so `null` is a malformed VALUE, not an
+            # authorization question — reject it as a 422 before the role
+            # gate runs at all, for every caller including an Admin. Without
+            # this, `submitted=None` short-circuits assert_may_set_protection
+            # and the request reaches the assignment loop, where it 500s on
+            # the DB's NOT NULL constraint — a crash standing in for a role
+            # check, not a genuine block. This mirrors no other field here:
+            # every other STANDARD_REQUEST_FIELDS entry has the same
+            # None-passes-through shape (e.g. exclusive_use_requested), but
+            # none of them has a role gate whose bypass this would expose, so
+            # they are deliberately left alone.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "protection_level cannot be null",
+            )
+        # `current` is the STORED value, unlike create_request's inherited
+        # default — a full-form save resending the existing (possibly
+        # admin-changed) level must be accepted, or an admin action makes a
+        # booking permanently unsavable by its own owner.
+        assert_may_set_protection(
+            current_user,
+            submitted=values["protection_level"],
+            current=req.protection_level,
+        )
 
     for k, v in values.items():
         if k == "context_tag" and v is not None:

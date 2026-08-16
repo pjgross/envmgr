@@ -1,4 +1,5 @@
 import type { AgreementGapAckRead } from './agreementGap';
+import type { ProtectionLevel } from '../constants/protection';
 
 export type BookingStatus = string; // lifecycle state key e.g. 'draft', 'submitted', 'approved'
 export type ContextTag = 'deployment' | 'regression' | 'none';
@@ -71,6 +72,12 @@ export interface BookingResponse {
   // environment group, null for a hand-picked environment.
   environment_group_id: number | null;
   environment_group_name: string | null;
+  // B4 — how hard the PARENT REQUEST's claim is. Optional here because the
+  // backend types it `Optional[str] = None` on BookingResponse: a Booking has
+  // no such attribute, so `model_validate(booking)` cannot populate it and
+  // `_to_response` sets it explicitly. Treat an absent value as "unknown", not
+  // as soft — rendering nothing is honest, rendering "Preemptible" is a guess.
+  protection_level?: ProtectionLevel | null;
   request?: {
     id: number;
     project_name: string;
@@ -88,6 +95,8 @@ export interface BookingCreate {
   end_date: string;
   booking_type_id: number;
   exclusive_use?: boolean;
+  /** Omitted means "inherit the booking type's default" — see BookingRequestCreatePayload. */
+  protection_level?: ProtectionLevel | null;
   notes?: string;
   recurrence_rule?: string;
   release_id?: number;

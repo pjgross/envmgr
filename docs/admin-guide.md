@@ -777,6 +777,22 @@ A release cannot advance while any gate is pending or has open criteria past `du
 
 Keep the change-kind list short — three to six is plenty. Use kind-scoped custom fields rather than free-text fields for any value you'll later filter or report on. Pre-define gates on release templates so each new release starts with the same readiness checklist, and override only when a release genuinely deviates.
 
+### Booking types: protection levels and duration presets
+
+*Administration → Booking Types* (`/tenant/booking-types`, Admin only) is where each booking type gets its lifecycle template — and, since Phase 7 B4, two more settings that every booking of that type inherits.
+
+**Protection** — *Preemptible* or *Protected*. Every new booking request of this type starts at the type's level; an **Admin or Release Manager** can change it on an individual booking, and nobody else can (they see it, read-only, on the form and submit it unchanged).
+
+> A protected reservation is **advice, not a lock**. Anyone can still book over it. What "protected" changes is who is named the winner when two bookings clash and project priority cannot separate them.
+
+Precedence is worth being precise about, because it is the opposite way round from what most people assume: **project priority rank decides first**. Protection is consulted only in the cases where rank could not decide — the two projects have the same rank, one or both are unranked, or a booking has no resolvable project at all. A protected booking therefore does **not** outrank a higher-priority project's booking. Set ranks in *Administration → Projects* (see *Contention priority* above); protection is the tie-breaker underneath them.
+
+> If every booking type is set to Protected, the level stops discriminating and contention verdicts return to naming no winner — exactly as they did before protection levels existed. There is no quota on protected bookings; the role gate is the whole control.
+
+**Default duration (minutes)** — optional. When set, choosing this booking type on the booking form fills in the end date: `240` for a half day, `20160` for a fortnight-long sprint, and so on. It never overwrites an end date the user has already typed. Whole days are added as *calendar* days, so a 14-day preset from 09:00 lands on 09:00 even across a daylight-saving change. Leave it blank for no preset — and note that once a preset is set, blanking the field again leaves the existing value in place; set a new positive number to change it.
+
+Both settings apply to bookings made **from now on**. Existing bookings keep the level they were created with; changing a type's default never rewrites history.
+
 ### RAID Settings
 
 *RAID Settings* (left nav → **RAID Settings**, Admin only) controls how your tenant scores the **Risks** and **Issues** in every release's RAID log (user guide ch. 8 — RAID log). Each tenant gets a default 5×5 configuration on creation; edit it to match your organisation's risk framework.

@@ -28,7 +28,7 @@ router = APIRouter(prefix="/booking-requests", tags=["booking-requests"])
 
 def _summaries(
     children, group_names: dict[int, str], env_names: dict[int, str],
-    gaps: dict[int, GapWarning], conflicts: set[int],
+    gaps: dict[int, GapWarning], conflicts: set[int], protection_level: str,
 ) -> list[EnvBookingSummary]:
     # Basic projection. `conflicts` is the set of these bookings' ids that have
     # an unanswered conflict, from conflict_service.bookings_with_unacknowledged_conflicts
@@ -57,6 +57,10 @@ def _summaries(
     # same booking as in gap. All four `_gaps_for` call sites therefore have a
     # named test apiece — see "every `_gaps_for` CALL SITE" in
     # tests/integration/test_agreement_gap_filter.py.
+    # `protection_level` is a single value, not a per-child map: it lives on
+    # the PARENT BookingRequest (see the column's own comment for why), so
+    # every child of one request shares it — unlike group_names/env_names/gaps,
+    # which vary per child and are batch-resolved dicts.
     return [
         EnvBookingSummary(
             id=c.id,
@@ -67,6 +71,7 @@ def _summaries(
             status=c.status,
             environment_group_id=c.environment_group_id,
             environment_group_name=group_names.get(c.environment_group_id),
+            protection_level=protection_level,
             **agreement_gap_service.gap_fields(gaps.get(c.id)),
             **conflict_service.conflict_fields(c.id in conflicts),
         )
@@ -104,9 +109,12 @@ def _to_response(
         booking_type_id=req.booking_type_id, start_date=req.start_date, end_date=req.end_date,
         notes=req.notes, context_tag=req.context_tag.value if hasattr(req.context_tag, "value") else req.context_tag,
         exclusive_use_requested=req.exclusive_use_requested, custom_fields=req.custom_fields,
+        protection_level=req.protection_level,
         booked_by=req.booked_by, delegate_user_ids=req.delegate_user_ids,
         rollup_status=_rollup(req.bookings),
-        bookings=_summaries(req.bookings, group_names, env_names, gaps, conflicts),
+        bookings=_summaries(
+            req.bookings, group_names, env_names, gaps, conflicts, req.protection_level
+        ),
     )
 
 
@@ -204,6 +212,7 @@ async def create_booking_request(
                     status=c.booking.status,
                     environment_group_id=c.booking.environment_group_id,
                     environment_group_name=group_names.get(c.booking.environment_group_id),
+                    protection_level=c.protection_level,
                     **agreement_gap_service.gap_fields(gaps.get(c.booking.id)),
                     **conflict_service.conflict_fields(c.booking.id in conflicts),
                 ) for c in v]
@@ -262,6 +271,15 @@ async def preview_conflicts(
         [b.id for v in conflicts.values() for b in v],
         current_user.active_tenant_id,
     )
+    # These Booking rows come straight from booking_request_service.
+    # preview_conflicts with no BookingRequest join, unlike `_summaries`'
+    # single shared value above — batch-resolve, the same pattern as
+    # group_names/env_names/gaps on this endpoint.
+    protection_levels = await booking_request_service.protection_levels_for(
+        db,
+        {b.booking_request_id for v in conflicts.values() for b in v},
+        current_user.active_tenant_id,
+    )
     return PreviewConflictsResponse(
         conflicts={
             k: [EnvBookingSummary(
@@ -270,6 +288,7 @@ async def preview_conflicts(
                     start_date=b.start_date, end_date=b.end_date, status=b.status,
                     environment_group_id=b.environment_group_id,
                     environment_group_name=group_names.get(b.environment_group_id),
+                    protection_level=protection_levels.get(b.booking_request_id),
                     **agreement_gap_service.gap_fields(gaps.get(b.id)),
                     **conflict_service.conflict_fields(b.id in unanswered),
                 ) for b in v]
@@ -380,9 +399,13 @@ async def add_environment_to_request(
     unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
         db, [child.id], current_user.active_tenant_id
     )
+    protection_levels = await booking_request_service.protection_levels_for(
+        db, {child.booking_request_id}, current_user.active_tenant_id
+    )
     return EnvBookingSummary(
         id=child.id, environment_id=child.environment_id,
         start_date=child.start_date, end_date=child.end_date, status=child.status,
+        protection_level=protection_levels.get(child.booking_request_id),
         **agreement_gap_service.gap_fields(gap),
         **conflict_service.conflict_fields(child.id in unanswered),
     )

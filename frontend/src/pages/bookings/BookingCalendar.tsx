@@ -31,6 +31,7 @@ import BookingForm from './BookingForm';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
+import { PROTECTED_MARKER } from '../../constants/protection';
 
 const STATUS_COLORS: Record<string, string> = {
   pending: '#9e9e9e',
@@ -38,19 +39,28 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: '#f44336',
 };
 
-function bookingToEvent(booking: BookingResponse): EventInput {
-  const title =
+// Exported for its own test: FullCalendar's DOM is not a useful assertion
+// target in jsdom, and the mapping IS the behaviour here.
+// eslint-disable-next-line react-refresh/only-export-components
+export function bookingToEvent(booking: BookingResponse): EventInput {
+  const base =
     booking.request?.project_name && booking.environment_name
       ? `${booking.request.project_name} — ${booking.environment_name}`
       : booking.project_name;
+  // Absent means the response did not say — not "soft". Marking it would be a
+  // guess in the direction that matters most.
+  const isProtected = booking.protection_level === 'hard';
 
   return {
     id: booking.id.toString(),
-    title,
+    title: isProtected ? `${base} · ${PROTECTED_MARKER}` : base,
     start: booking.start_date,
     end: booking.end_date,
+    // Status keeps the fill; protection is additive, so the status legend
+    // still means what it says.
     backgroundColor: STATUS_COLORS[booking.status] ?? '#1976d2',
-    borderColor: STATUS_COLORS[booking.status] ?? '#1976d2',
+    borderColor: isProtected ? '#5e35b1' : (STATUS_COLORS[booking.status] ?? '#1976d2'),
+    ...(isProtected ? { classNames: ['booking-protected'] } : {}),
     extendedProps: { booking },
   };
 }

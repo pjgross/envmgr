@@ -36,6 +36,11 @@ import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import AgreementGapIndicator from '../../components/bookings/AgreementGapIndicator';
 import { formatApiError } from '../../services/apiError';
 import BookingForm from './BookingForm';
+import {
+  PROTECTION_FILTER_NONE,
+  PROTECTION_LABELS,
+  PROTECTION_LEVELS,
+} from '../../constants/protection';
 
 // --- Status filter -----------------------------------------------------------
 
@@ -148,10 +153,44 @@ const GAP_FILTER_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'No gap', value: 'false' },
 ];
 
+// --- Protection filter (Phase 7 B4) ------------------------------------------
+
+/**
+ * `?protection=` on `GET /bookings` — the wire name is exactly this (the
+ * COLUMN is `protection_level`; the QUERY PARAM is not), as declared by
+ * `list_bookings` in backend/app/api/v1/bookings.py. FastAPI drops unknown
+ * query params silently, so `?protection_level=` would filter nothing at all
+ * while looking entirely correct.
+ *
+ * Three states, and only two of them travel: `soft`, `hard`, and no selection
+ * — spelled `any` in the URL, never `all` (`buildParams`' own sentinel, which
+ * would make two toggle states build byte-identical params so the grid never
+ * refetched) and never `''` (a **422** from the endpoint's
+ * `Optional[Literal["soft","hard"]]`, not an ignored param). Anything else —
+ * a hand-edited value, a stale link — is no selection too, exactly as
+ * `apiAgreementGap` treats its own vocabulary.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function apiProtection(urlValue: string | number | undefined): 'soft' | 'hard' | undefined {
+  if (urlValue === 'soft') return 'soft';
+  if (urlValue === 'hard') return 'hard';
+  return undefined;
+}
+
+const PROTECTION_FILTER_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: 'All bookings', value: PROTECTION_FILTER_NONE },
+  ...PROTECTION_LEVELS.map((level) => ({ label: PROTECTION_LABELS[level], value: level })),
+];
+
 // --- Columns -------------------------------------------------------------
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
-// "bookings"): start_date, end_date, status. The other columns are joined
+// "bookings"): start_date, end_date, status, protection_level. That last one is
+// the first addition to this list since the page was converted, and it
+// qualifies for the reason none of the others do: it is a real column
+// (`booking_request.protection_level`), whitelisted by BOOKING_SORTS, resolved
+// by a join the list query already makes — not a value computed after the page
+// is fetched. The other columns are joined
 // (project_name, project_name_link, environment_name, booked_by_username), a
 // per-tenant lookup rendered as a chip (booking_type_id), a per-row kebab
 // menu with no backing column (actions), or computed after the page is
@@ -265,6 +304,29 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
     renderCell: ({ row }) => (
       <Chip label={row.status} size="small" color={STATUS_COLORS[row.status]} />
     ),
+  },
+  {
+    // B4's protection level. Sortable — unlike every other non-date column
+    // here — because it IS a single column the database can order by; see the
+    // note above the array.
+    //
+    // Renders NOTHING when the level is absent rather than defaulting to
+    // "Preemptible": `protection_level` is optional on BookingResponse (a
+    // Booking has no such attribute; `_to_response` sets it explicitly), so an
+    // absent value means "this response did not say", and printing the soft
+    // label would state as fact something nobody claimed.
+    field: 'protection_level',
+    headerName: 'Protection',
+    width: 120,
+    renderCell: ({ row }) =>
+      row.protection_level ? (
+        <Chip
+          label={PROTECTION_LABELS[row.protection_level]}
+          size="small"
+          variant="outlined"
+          color={row.protection_level === 'hard' ? 'secondary' : 'default'}
+        />
+      ) : null,
   },
   {
     // A3's usage-agreement warning. Never sortable: `agreement_gap` is a
@@ -382,13 +444,14 @@ export default function BookingList() {
   const grid = useServerGrid({
     endpoint: 'bookings',
     // `booking_status`, not `status` — the wire name differs from the label.
-    filterKeys: ['booking_status', 'project_id', 'agreement_gap'],
+    filterKeys: ['booking_status', 'project_id', 'agreement_gap', 'protection'],
     onFetch: (params) =>
       dispatch(
         fetchBookings({
           ...params,
           project_id: apiProjectId(params.project_id),
           agreement_gap: apiAgreementGap(params.agreement_gap),
+          protection: apiProtection(params.protection),
         })
       ),
     total,
@@ -495,6 +558,9 @@ export default function BookingList() {
   const gapFilter = apiAgreementGap(grid.filters.agreement_gap);
   const gapFilterValue = gapFilter === undefined ? GAP_FILTER_NONE : String(gapFilter);
 
+  // Same one-source rule for B4's protection select.
+  const protectionFilterValue = apiProtection(grid.filters.protection) ?? PROTECTION_FILTER_NONE;
+
   // Transitions for the currently open menu row
   const activeTransitions = menuAnchor ? (transitionCache[menuAnchor.rowId] ?? null) : null;
 
@@ -575,6 +641,23 @@ export default function BookingList() {
           sx={{ minWidth: 170 }}
         >
           {GAP_FILTER_OPTIONS.map((opt) => (
+            <MenuItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </MenuItem>
+          ))}
+        </TextField>
+        {/* B4's protection level (see apiProtection above). Runs in SQL, before
+            the window, so X-Total-Count describes the filtered set — and it
+            narrows the list without refusing anything: B4 advises. */}
+        <TextField
+          select
+          label="Protection"
+          size="small"
+          value={protectionFilterValue}
+          onChange={(e) => grid.setFilter('protection', e.target.value)}
+          sx={{ minWidth: 160 }}
+        >
+          {PROTECTION_FILTER_OPTIONS.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
               {opt.label}
             </MenuItem>

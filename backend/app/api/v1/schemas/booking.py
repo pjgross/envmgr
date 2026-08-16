@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -23,6 +23,7 @@ class BookingRequestSummary(BaseModel):
     notes: Optional[str] = None
     delegate_user_ids: Optional[list[int]] = None
     custom_fields: Optional[dict] = None
+    protection_level: Optional[str] = None
 
 
 class BookingCreate(BaseModel):
@@ -32,6 +33,10 @@ class BookingCreate(BaseModel):
     end_date: datetime
     booking_type_id: int
     exclusive_use: bool = False
+    # None means "inherit the booking type's default". A caller who is not an
+    # Admin or Release Manager may send the inherited value but may not choose
+    # a different one — see booking_request_service.assert_may_set_protection.
+    protection_level: Optional[Literal["soft", "hard"]] = None
     notes: Optional[str] = None
     recurrence_rule: Optional[str] = None  # RRULE string e.g. "FREQ=WEEKLY;COUNT=4"
     release_id: Optional[int] = None
@@ -77,6 +82,11 @@ class BookingResponse(BaseModel):
     updated_at: datetime
     booking_request_id: Optional[int] = None
     request: Optional[BookingRequestSummary] = None
+    # B4 — how hard the parent request's claim is (app/core/protection_levels.py).
+    # Lives on booking_request, not on Booking, so Booking has no such
+    # attribute; `model_validate(booking)` cannot populate this and it must be
+    # set explicitly in `_to_response`, the same way `exclusive_use` is.
+    protection_level: Optional[str] = None
     has_unacknowledged_conflicts: bool = False
     # A3's usage-agreement warning: the message, and whether anyone has accepted
     # it. Computed from `usage_agreement`, never stored — adding the missing

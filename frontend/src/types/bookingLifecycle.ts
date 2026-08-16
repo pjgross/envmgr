@@ -1,3 +1,5 @@
+import type { ProtectionLevel } from '../constants/protection';
+
 export interface LifecycleState {
   key: string;
   label: string;
@@ -50,6 +52,15 @@ export interface BookingTypeRecord {
   lifecycle_template_id: number;
   color: string | null;
   is_active: boolean;
+  /** B4 — the level a request of this type inherits when its creator chooses none. */
+  default_protection_level: ProtectionLevel;
+  /**
+   * B4 — the booking form's duration preset, in minutes. `null` means "this
+   * type has no preset", a legitimate state rather than a missing value. Never
+   * 0: the API rejects a zero-minute preset (`gt=0`), and a zero-length
+   * interval conflicts with nothing at all.
+   */
+  default_duration_minutes: number | null;
   created_at: string;
   updated_at: string;
 }

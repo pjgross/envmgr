@@ -41,6 +41,8 @@ export const fetchBookings = createAsyncThunk(
     project_id?: number;
     /** A3's usage-agreement filter — see bookingService.listBookings. */
     agreement_gap?: boolean;
+    /** B4's protection filter — see bookingService.listBookings. */
+    protection?: 'soft' | 'hard';
     limit?: number;
     offset?: number;
     sort_by?: string;

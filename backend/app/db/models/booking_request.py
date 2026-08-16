@@ -34,6 +34,19 @@ class BookingRequest(Base):
         default=ContextTag.NONE,
     )
     exclusive_use_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # How hard this claim is — see app/core/protection_levels.py. Values are
+    # "soft" | "hard"; String, not a native enum, per the house rule.
+    #
+    # ON THE REQUEST, NOT THE BOOKING, and that is load-bearing. A2's group
+    # bookings share ONE BookingRequest, and A4's argument that "group
+    # reachability is exactly equal to individual reachability" depends on
+    # `_record_values` being byte-identical across members. A per-booking
+    # override would let one member of an atomic group be protected and another
+    # not, which the group transition cannot express. Do not add one without
+    # revisiting that argument.
+    protection_level: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="soft", default="soft"
+    )
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     booked_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     # Stored as JSON array to keep SQLite (test) compatibility; Postgres accepts JSON too.
