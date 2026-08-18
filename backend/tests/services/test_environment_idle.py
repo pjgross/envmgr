@@ -16,7 +16,13 @@ import pytest
 
 from app.db.models.environment import EnvironmentStatus
 from app.services import environment_health_service, environment_service
-from tests.factories import ensure_environment, ensure_environment_tier, ensure_user, make_booking
+from tests.factories import (
+    ensure_deployment,
+    ensure_environment,
+    ensure_environment_tier,
+    ensure_user,
+    make_booking,
+)
 
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
 
@@ -195,3 +201,131 @@ async def test_the_filtered_total_describes_the_filtered_set(db_session, test_te
         db_session, test_tenant.id, idle=True, now=NOW
     )
     assert total == 1
+
+
+# ---------------------------------------------------------------------------
+# The deployment half of "no deployment and no booking" — previously entirely
+# untested. Each test below is written to FAIL if the rule it names is
+# removed; see task-3-report.md for the mutation run that proved it for each.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_recent_deployment_makes_it_active(db_session, test_tenant):
+    await _enable(db_session, test_tenant.id, days=30)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env.created_at = NOW - timedelta(days=200)
+    await db_session.flush()
+    await ensure_deployment(
+        db_session, test_tenant.id, env.id, deployed_at=NOW - timedelta(days=5)
+    )
+    await db_session.flush()
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, idle=True, now=NOW
+    )
+    assert views == []
+
+
+@pytest.mark.asyncio
+async def test_a_deployment_older_than_the_threshold_leaves_it_idle(db_session, test_tenant):
+    await _enable(db_session, test_tenant.id, days=30)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env.created_at = NOW - timedelta(days=200)
+    await db_session.flush()
+    await ensure_deployment(
+        db_session, test_tenant.id, env.id, deployed_at=NOW - timedelta(days=60)
+    )
+    await db_session.flush()
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, idle=True, now=NOW
+    )
+    assert [v.environment.id for v in views] == [env.id]
+
+
+@pytest.mark.asyncio
+async def test_a_soft_deleted_deployment_does_not_count_as_activity(db_session, test_tenant):
+    """Pins `Deployment.deleted_at.is_(None)` in the no-deployment EXISTS.
+
+    Without that filter this deployment — recent, well inside the threshold —
+    would count as activity either way, and the test would pass whether or
+    not the filter is present. With it, a soft-deleted deployment must be
+    invisible, so the environment is still idle."""
+    await _enable(db_session, test_tenant.id, days=30)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env.created_at = NOW - timedelta(days=200)
+    await db_session.flush()
+    deployment = await ensure_deployment(
+        db_session, test_tenant.id, env.id, deployed_at=NOW - timedelta(days=5)
+    )
+    deployment.deleted_at = NOW
+    await db_session.flush()
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, idle=True, now=NOW
+    )
+    assert [v.environment.id for v in views] == [env.id]
+
+
+@pytest.mark.asyncio
+async def test_a_deployment_to_a_different_environment_does_not_make_this_one_active(
+    db_session, test_tenant
+):
+    """Pins the `Deployment.environment_id == Environment.id` correlation."""
+    await _enable(db_session, test_tenant.id, days=30)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env.created_at = NOW - timedelta(days=200)
+    other_env = await ensure_environment(db_session, test_tenant.id, slot=2)
+    other_env.created_at = NOW - timedelta(days=200)
+    await db_session.flush()
+    await ensure_deployment(
+        db_session, test_tenant.id, other_env.id, deployed_at=NOW - timedelta(days=5)
+    )
+    await db_session.flush()
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, idle=True, now=NOW
+    )
+    assert env.id in [v.environment.id for v in views]
+
+
+@pytest.mark.asyncio
+async def test_a_deployment_belonging_to_a_different_tenant_does_not_make_it_active(
+    db_session, test_tenant, second_tenant_factory
+):
+    """Pins the `Deployment.tenant_id == Environment.tenant_id` correlation.
+
+    A deployment row pointed at this environment's id but stamped with
+    another tenant is malformed — real write paths never produce it — but the
+    clause is defence in depth against exactly that, the same call
+    `_reserved_now_clause` already makes for bookings."""
+    await _enable(db_session, test_tenant.id, days=30)
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    env.created_at = NOW - timedelta(days=200)
+    await db_session.flush()
+
+    other_tenant, _other_user = await second_tenant_factory()
+    from app.db.models.deployment import Deployment
+    from tests.factories import ensure_build, ensure_change_request
+
+    build = await ensure_build(db_session, other_tenant.id)
+    change_request = await ensure_change_request(db_session, other_tenant.id)
+    from uuid import uuid4
+
+    stray = Deployment(
+        tenant_id=other_tenant.id,
+        build_id=build.id,
+        environment_id=env.id,
+        change_request_id=change_request.id,
+        event_id=str(uuid4()),
+        deployed_at=NOW - timedelta(days=5),
+        status="success",
+    )
+    db_session.add(stray)
+    await db_session.flush()
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, idle=True, now=NOW
+    )
+    assert [v.environment.id for v in views] == [env.id]

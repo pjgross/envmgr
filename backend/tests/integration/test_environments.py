@@ -4,11 +4,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.db.models.user import Tenant, User
 from app.db.models.environment import Environment, EnvironmentStatus
 from app.core.security import get_password_hash
-from tests.factories import ensure_environment_tier, post_environment
+from tests.factories import ensure_environment_tier, ensure_user, make_booking, post_environment
 
 
 # ---------------------------------------------------------------------------
@@ -491,3 +492,70 @@ async def test_list_environments_search_matches_case_insensitive_contains(
     assert response.status_code == 200
     ids = {e["id"] for e in response.json()}
     assert ids == {prod.id, prod_backup.id}
+
+
+@pytest.mark.asyncio
+async def test_idle_is_correct_over_http_on_the_list_and_the_detail_page(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """B5: `idle` reaches `EnvironmentResponse` via `EnvironmentView` on both
+    GET /environments and GET /environments/{id}. Asserts the VALUE for both
+    an idle and a busy environment, not merely that the key is present — a
+    defaulted field would still show up as a present key, just with the
+    wrong ("not idle") answer at any construction site that forgot it."""
+    from app.services import environment_lifecycle_policy_service as policy_svc
+
+    await policy_svc.upsert_policy(
+        db_session, test_tenant.id,
+        idle_detection_enabled=True,
+        idle_threshold_days=30,
+        decommission_notice_days=5,
+    )
+
+    quiet = (await post_environment(client, auth_headers, "IdleOverHttp")).json()
+    busy = (await post_environment(client, auth_headers, "BusyOverHttp")).json()
+
+    old = datetime.now(timezone.utc) - timedelta(days=200)
+    rows = (
+        await db_session.execute(
+            select(Environment).where(
+                Environment.tenant_id == test_tenant.id,
+                Environment.id.in_([quiet["id"], busy["id"]]),
+            )
+        )
+    ).scalars().all()
+    for row in rows:
+        row.created_at = old
+    await db_session.flush()
+
+    busy_env = next(r for r in rows if r.id == busy["id"])
+    booker = await ensure_user(db_session, test_tenant.id)
+    booking = await make_booking(
+        db_session, test_tenant.id, booked_by=booker.id, environment=busy_env,
+        start=datetime.now(timezone.utc) - timedelta(days=1),
+        end=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    booking.status = "approved"
+    await db_session.flush()
+
+    listed = (await client.get("/api/v1/environments/", headers=auth_headers)).json()
+    listed_quiet = next(e for e in listed if e["id"] == quiet["id"])
+    listed_busy = next(e for e in listed if e["id"] == busy["id"])
+    assert listed_quiet["idle"] is True
+    assert listed_busy["idle"] is False
+
+    filtered = (
+        await client.get("/api/v1/environments/?idle=true", headers=auth_headers)
+    ).json()
+    filtered_ids = [e["id"] for e in filtered]
+    assert quiet["id"] in filtered_ids
+    assert busy["id"] not in filtered_ids
+
+    quiet_detail = (
+        await client.get(f"/api/v1/environments/{quiet['id']}", headers=auth_headers)
+    ).json()
+    busy_detail = (
+        await client.get(f"/api/v1/environments/{busy['id']}", headers=auth_headers)
+    ).json()
+    assert quiet_detail["idle"] is True
+    assert busy_detail["idle"] is False

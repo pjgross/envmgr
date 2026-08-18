@@ -2451,6 +2451,14 @@ async def test_several_terminal_decommissions_do_not_multiply_the_row(
 Add a module-level `_warn(db, tenant_id, env, *, teardown)` helper creating one
 `EnvironmentDecommission` through `ensure_user` for `initiated_by`.
 
+**Expose it on the API too.** `decommission_state` must be added to
+`EnvironmentResponse` in `app/api/v1/schemas/environment.py` and set in
+`from_view` — REQUIRED, not defaulted. Task 3 shipped `idle` on the view and
+the filter but not on the response, leaving it computed, filterable and
+invisible to every consumer; Task 11 renders both fields. Do not repeat it.
+Add an integration test asserting the field comes back over HTTP with the
+right value, not merely that the key is present.
+
 **Do not add `decommission_state` to `ENVIRONMENT_SORTS`** — it is computed
 from a subquery, not a column, and whitelisting it would 500 on a bare
 `?sort_by=decommission_state`.

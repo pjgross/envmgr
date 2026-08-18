@@ -96,6 +96,14 @@ class EnvironmentResponse(BaseModel):
     # sortable: false — docs/pagination.md's unsortable set.
     quarantined: bool = False
     compliance_gaps: list[str] = []
+    # B5. Derived in SQL, never stored — no deployment and no booking for the
+    # tier's or tenant's threshold. REQUIRED, not defaulted, unlike the two
+    # fields above it: a default here would render a confident "not idle" at
+    # any construction site that forgot to compute it. `from_view` is
+    # currently the only construction site, and both of `EnvironmentView`'s
+    # own construction sites (list_environments, get_environment_view) always
+    # populate `idle`, so there is nowhere this can silently go unset.
+    idle: bool
     # The Welcome Pack's content — read-only here; written only via
     # PATCH /environments/{id}/handover.
     access_url: Optional[str] = None
@@ -136,6 +144,7 @@ class EnvironmentResponse(BaseModel):
             name_compliant=env.name_compliant,
             quarantined=view.quarantined,
             compliance_gaps=view.compliance_gaps,
+            idle=view.idle,
             access_url=env.access_url,
             connection_notes=env.connection_notes,
             support_contact=env.support_contact,

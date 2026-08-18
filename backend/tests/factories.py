@@ -18,8 +18,12 @@ of bookings for one environment). Check the prefix before assuming.
 The one exception is `ensure_build`, which predates this convention and always
 creates a row despite its name — its own docstring says so, and it has call
 sites in seven modules, so it keeps the name until something else takes it.
+`ensure_deployment` is a second: a deployment has no per-tenant identity to be
+idempotent about (an environment may be deployed to any number of times), so
+it too always creates a new row — its own docstring says so as well.
 """
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +34,7 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.booking_request import BookingRequest
 from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
+from app.db.models.deployment import Deployment
 from app.db.models.environment import Environment
 from app.db.models.environment_group import EnvironmentGroup
 from app.db.models.environment_request import EnvironmentRequest
@@ -477,3 +482,40 @@ async def ensure_change_request(
     db.add(change_request)
     await db.flush()
     return change_request
+
+
+async def ensure_deployment(
+    db: AsyncSession,
+    tenant_id: int,
+    environment_id: int,
+    *,
+    deployed_at: datetime,
+    status: str = "success",
+) -> Deployment:
+    """A deployment against `environment_id`, for `tenant_id`.
+
+    Named `ensure_*` for call-site consistency with its neighbours, but ALWAYS
+    a new row — like `ensure_build`, which it uses. A deployment has no
+    natural per-tenant identity to be idempotent about: an environment may be
+    deployed to any number of times, and `deployment.event_id` is a fresh
+    UUID on every call, so two calls never collide on
+    `uq_deployment_tenant_event`.
+
+    `build_id` and `change_request_id` are both real, NOT NULL FKs
+    (`ondelete=RESTRICT`) — resolved via `ensure_build`/`ensure_change_request`
+    rather than a fabricated id, per this module's whole reason for existing.
+    """
+    build = await ensure_build(db, tenant_id)
+    change_request = await ensure_change_request(db, tenant_id)
+    deployment = Deployment(
+        tenant_id=tenant_id,
+        build_id=build.id,
+        environment_id=environment_id,
+        change_request_id=change_request.id,
+        event_id=str(uuid4()),
+        deployed_at=deployed_at,
+        status=status,
+    )
+    db.add(deployment)
+    await db.flush()
+    return deployment
