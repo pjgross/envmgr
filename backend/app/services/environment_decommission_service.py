@@ -34,8 +34,10 @@ from app.core.decommission_states import (
     STATE_CANCELLED, STATE_DUE, STATE_EXTENSION_REQUESTED, STATE_TORN_DOWN,
     STATE_WARNED,
 )
-from app.db.models.environment import Environment
-from app.db.models.environment_decommission import EnvironmentDecommission
+from app.db.models.environment import Environment, EnvironmentStatus
+from app.db.models.environment_decommission import (
+    EnvironmentDecommission, EnvironmentDecommissionAttestation,
+)
 from app.db.models.user import User
 from app.db.models.user_group import UserGroupMember
 from app.services import environment_lifecycle_policy_service
@@ -445,6 +447,211 @@ async def decide_extension(
     decommission.extension_granted = granted
     if granted:
         decommission.scheduled_teardown_at = decommission.extension_until
+
+    await db.flush()
+    await db.refresh(decommission)
+    return decommission
+
+
+async def _assert_still_live(
+    db: AsyncSession, decommission: EnvironmentDecommission, now: datetime
+) -> None:
+    """Shared by `sign_attestation` and `tear_down`: both act on a decommission
+    that must still be LIVE, checked through `live_predicate` rather than
+    re-derived, the same way `request_extension` checks it."""
+    still_live = (
+        await db.execute(
+            select(EnvironmentDecommission.id).where(
+                EnvironmentDecommission.id == decommission.id,
+                EnvironmentDecommission.tenant_id == decommission.tenant_id,
+                live_predicate(now),
+            )
+        )
+    ).first()
+    if still_live is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This decommission is no longer live — it has been cancelled or "
+            "already torn down",
+        )
+
+
+async def missing_required_steps(
+    db: AsyncSession, decommission: EnvironmentDecommission
+) -> list[str]:
+    """The active, required, non-deleted steps for this tenant that this
+    decommission has not yet signed.
+
+    ONLY active AND required steps gate: `list_steps(active_only=True)`
+    already drops soft-deleted and inactive rows, and the `is_required`
+    filter below drops optional ones on top. A retired step (made inactive,
+    or soft-deleted) stops gating immediately — that is what stops an
+    admin's checklist tidy-up freezing a workflow mid-flight."""
+    steps = await environment_lifecycle_policy_service.list_steps(
+        db, decommission.tenant_id, active_only=True
+    )
+    required_keys = [step.key for step in steps if step.is_required]
+
+    signed = set(
+        (
+            await db.execute(
+                select(EnvironmentDecommissionAttestation.step_key).where(
+                    EnvironmentDecommissionAttestation.decommission_id == decommission.id,
+                    EnvironmentDecommissionAttestation.tenant_id == decommission.tenant_id,
+                )
+            )
+        ).scalars()
+    )
+    return [key for key in required_keys if key not in signed]
+
+
+async def sign_attestation(
+    db: AsyncSession,
+    decommission: EnvironmentDecommission,
+    user: User,
+    *,
+    step_key: str,
+    reference: Optional[str],
+    notes: Optional[str],
+    now: datetime,
+) -> EnvironmentDecommissionAttestation:
+    """A human confirming one checklist step happened. ORDER OF OPERATIONS:
+
+    resolve the environment (404 across tenants) -> assert_may_run -> 409 if
+    the decommission is no longer LIVE -> 422 if `step_key` is not in the
+    tenant's CURRENT vocabulary (validated against EVERY non-deleted step,
+    active or not — a step that has been retired is still a real step, it
+    has simply stopped gating; see `missing_required_steps`) -> 409 on a
+    duplicate signature, checked explicitly here rather than left to the
+    `uq_decommission_step` unique constraint to surface as an unhandled
+    IntegrityError -> insert.
+    """
+    environment = await get_environment(
+        db, decommission.environment_id, decommission.tenant_id
+    )
+    await assert_may_run(db, environment, user)
+    await _assert_still_live(db, decommission, now)
+
+    steps = await environment_lifecycle_policy_service.list_steps(
+        db, decommission.tenant_id, active_only=False
+    )
+    known_keys = {step.key for step in steps}
+    if step_key not in known_keys:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"{step_key!r} is not a recognised decommission step for this tenant",
+        )
+
+    duplicate = (
+        await db.execute(
+            select(EnvironmentDecommissionAttestation.id).where(
+                EnvironmentDecommissionAttestation.decommission_id == decommission.id,
+                EnvironmentDecommissionAttestation.tenant_id == decommission.tenant_id,
+                EnvironmentDecommissionAttestation.step_key == step_key,
+            )
+        )
+    ).first()
+    if duplicate is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{step_key!r} has already been signed on this decommission",
+        )
+
+    row = EnvironmentDecommissionAttestation(
+        tenant_id=decommission.tenant_id,
+        decommission_id=decommission.id,
+        step_key=step_key,
+        signed_by=user.id,
+        signed_at=now,
+        reference=reference,
+        notes=notes,
+    )
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return row
+
+
+async def tear_down(
+    db: AsyncSession, decommission: EnvironmentDecommission, user: User, *, now: datetime
+) -> EnvironmentDecommission:
+    """THE ONE ACTING STEP in the whole of B5, besides Task 8's booking
+    refusal. ORDER OF OPERATIONS: resolve the environment (404 across
+    tenants) -> assert_may_run -> 409 if the decommission is no longer LIVE
+    -> 422 NAMING every still-missing required step -> set
+    `torn_down_at`/`torn_down_by` AND `environment.status =
+    EnvironmentStatus.DECOMMISSIONED`.
+
+    NOTHING ELSE MOVES. No booking is cancelled, transitioned, shortened or
+    deleted, and no other environment is touched — this function stays
+    exactly this small so that reading it is the proof, and Task 15 ships a
+    guard test asserting it.
+    """
+    environment = await get_environment(
+        db, decommission.environment_id, decommission.tenant_id
+    )
+    await assert_may_run(db, environment, user)
+    await _assert_still_live(db, decommission, now)
+
+    missing = await missing_required_steps(db, decommission)
+    if missing:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Every required step must be signed before teardown. Still "
+            "missing: " + ", ".join(missing),
+        )
+
+    decommission.torn_down_at = now
+    decommission.torn_down_by = user.id
+    environment.status = EnvironmentStatus.DECOMMISSIONED
+
+    await db.flush()
+    await db.refresh(decommission)
+    return decommission
+
+
+async def cancel(
+    db: AsyncSession,
+    decommission: EnvironmentDecommission,
+    user: User,
+    *,
+    reason: str,
+    now: datetime,
+) -> EnvironmentDecommission:
+    """THE ESCAPE HATCH. Gated by `assert_may_run` — the operating team, or
+    Admin/master admin — the same helper every other action here uses; Admin
+    is always a bypass on it, which is what makes cancel "always available
+    to Admin" true without a second, separate check.
+
+    Deliberately NOT restricted to a LIVE row: `decommission_state` puts
+    cancelled ahead of torn down precisely because someone may need to
+    cancel a mistaken teardown after it already happened. The only thing
+    refused here is cancelling an ALREADY-cancelled row.
+
+    TOUCHES NOTHING ELSE. In particular this must never read or write
+    `environment.status` — an environment whose decommission is cancelled
+    was never decommissioned, even if it had already been torn down.
+    """
+    environment = await get_environment(
+        db, decommission.environment_id, decommission.tenant_id
+    )
+    await assert_may_run(db, environment, user)
+
+    if decommission.cancelled_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This decommission has already been cancelled"
+        )
+
+    if reason is None or not reason.strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "A reason is required — a cancellation with no stated reason is "
+            "not an audit record",
+        )
+
+    decommission.cancelled_at = now
+    decommission.cancelled_by = user.id
+    decommission.cancel_reason = reason.strip()
 
     await db.flush()
     await db.refresh(decommission)

@@ -47,6 +47,41 @@ class ExtensionDecision(BaseModel):
     granted: bool
 
 
+class AttestationCreate(BaseModel):
+    """The WRITE model for `POST .../attestations` — a human confirming one
+    checklist step happened. `extra='forbid'` for the same reason as every
+    other write model here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_key: str = Field(min_length=1)
+    # Snapshot id, ticket, runbook link — free text, not parsed.
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class AttestationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    decommission_id: int
+    step_key: str
+    signed_by: int
+    signed_at: datetime
+    reference: Optional[str]
+    notes: Optional[str]
+
+
+class CancelRequest(BaseModel):
+    """The WRITE model for `POST .../cancel` — the escape hatch. A reason is
+    required for the same audit-record reason `DecommissionCreate.reason`
+    is."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1)
+
+
 class DecommissionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,3 +104,24 @@ class DecommissionRead(BaseModel):
 
     # REQUIRED, computed — never model_validate'd. See the module docstring.
     state: str
+
+
+class RemainingBookingSummary(BaseModel):
+    """One booking teardown did NOT touch. SURFACES, never touches — the
+    response names these; nothing about them changes. Deliberately thin: this
+    is a disclosure, not a booking detail view."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    start_date: datetime
+    end_date: datetime
+    status: str
+
+
+class TeardownRead(DecommissionRead):
+    """`POST .../teardown`'s response — `DecommissionRead` plus the bookings
+    still on the calendar for this environment. Reporting them is the point;
+    the guard test in Task 15 proves teardown changed none of their rows."""
+
+    remaining_bookings: list[RemainingBookingSummary]

@@ -12,11 +12,14 @@ import pytest
 import pytest_asyncio
 
 from app.core.security import get_password_hash
-from app.db.models.environment_decommission import EnvironmentDecommission
+from app.db.models.environment import Environment, EnvironmentStatus
+from app.db.models.environment_decommission import (
+    EnvironmentDecommission, EnvironmentDecommissionStep,
+)
 from app.db.models.user import User
 from app.db.models.user_group import UserGroupMember
 from app.services import environment_decommission_service
-from tests.factories import ensure_environment, ensure_user_group
+from tests.factories import ensure_environment, ensure_user_group, make_booking
 
 
 def _iso(*, days: int) -> str:
@@ -388,11 +391,19 @@ async def owner_headers(client, test_tenant, env_with_owner_and_team) -> dict:
 
 @pytest_asyncio.fixture
 async def live_decommission(
-    client, db_session, test_tenant, env_with_owner_and_team, team_headers
+    client, db_session, test_tenant, env_with_owner_and_team, team_headers,
+    decommission_steps_seeded,
 ) -> EnvironmentDecommission:
     """A live decommission on env_with_owner_and_team, created through the
     real initiate route (as the operating team) so it carries every invariant
-    that route enforces, rather than being built by hand."""
+    that route enforces, rather than being built by hand.
+
+    Depends on `decommission_steps_seeded` (added in Task 7): `test_tenant`
+    is a bare row built directly, bypassing `tenant_service.create_tenant` —
+    the only real path that seeds `final_backup`/`teardown` — so every
+    attestation/teardown test needs the tenant's step vocabulary to actually
+    exist, the same reason `environment_request_lifecycle` exists for B3b's
+    tests."""
     r = await client.post(
         f"/api/v1/environments/{env_with_owner_and_team.id}/decommission",
         headers=team_headers, json={"reason": "extension fixture"},
@@ -647,3 +658,253 @@ async def test_a_foreign_tenants_decommission_is_404_not_403(
         headers=owner_headers, json={"granted": True},
     )
     assert d.status_code == 404, d.text
+
+
+# ---------------------------------------------------------------------------
+# Task 6 review — two gaps carried forward, fixed here rather than in a new
+# file since they extend coverage already in this section.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_extension_equal_to_the_current_date_is_refused(
+    client, owner_headers, live_decommission
+):
+    """The STRICT-INEQUALITY BOUNDARY was untested:
+    test_an_extension_must_be_later_than_the_current_date uses a date well
+    inside the "too early" region, so a mutant relaxing `until_utc <=
+    current_teardown` to `<` in `request_extension` passed the whole suite.
+    `until` set to EXACTLY the current `scheduled_teardown_at` must still be
+    a 422 — equal is not later."""
+    equal = live_decommission.scheduled_teardown_at.isoformat()
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "x", "until": equal},
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_only_one_extension_per_decommission_after_a_grant(
+    client, team_headers, owner_headers, live_decommission
+):
+    """test_only_one_extension_per_decommission only exercised the guard
+    after a REFUSAL. The guard keys on `extension_requested_at`, which a
+    grant sets identically to a refusal, so a second request must 409 the
+    same way after a GRANT — untested until now."""
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "first", "until": _iso(days=30)},
+    )
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=team_headers, json={"granted": True},
+    )
+    second = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "again", "until": _iso(days=60)},
+    )
+    assert second.status_code == 409, second.text
+    assert "cancel" in second.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — attestations, gated teardown and cancel. `live_decommission` now
+# depends on `decommission_steps_seeded`, so `final_backup`/`teardown` exist
+# for every test below without each one seeding them by hand.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def booking_after_teardown(
+    db_session, test_tenant, test_user, env_with_owner_and_team, live_decommission
+):
+    """A booking still on the calendar when teardown runs. Depends on
+    `live_decommission` so the booking is created against the SAME
+    environment id the decommission targets (env_with_owner_and_team and
+    env_with_team are the same row — the latter fixture mutates and returns
+    the former). TEARDOWN SURFACES THIS, NEVER TOUCHES IT: the response
+    names it; a mutation proof below and the Task 15 guard test both cover
+    that the row itself is unchanged."""
+    return await make_booking(
+        db_session, test_tenant.id,
+        booked_by=test_user.id, environment=env_with_owner_and_team,
+    )
+
+
+@pytest.mark.asyncio
+async def test_teardown_is_refused_until_every_required_step_is_signed(
+    client, team_headers, live_decommission
+):
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/teardown", headers=team_headers
+    )
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    # NAMING the missing steps — a bare "not allowed" on a checklist is
+    # unactionable.
+    assert "final_backup" in detail and "teardown" in detail
+
+
+@pytest.mark.asyncio
+async def test_signing_every_step_permits_teardown(client, team_headers, live_decommission):
+    for key in ("final_backup", "teardown"):
+        s = await client.post(
+            f"/api/v1/decommissions/{live_decommission.id}/attestations",
+            headers=team_headers,
+            json={"step_key": key, "reference": "SNAP-1", "notes": None},
+        )
+        assert s.status_code == 201
+
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/teardown", headers=team_headers
+    )
+    assert r.status_code == 200
+    assert r.json()["state"] == "torn_down"
+
+
+@pytest.mark.asyncio
+async def test_teardown_decommissions_the_environment(
+    client, team_headers, db_session, live_decommission
+):
+    """THE ONE ACTING STEP. This and the booking refusal are the whole of what
+    B5 changes outside its own records."""
+    for key in ("final_backup", "teardown"):
+        await client.post(
+            f"/api/v1/decommissions/{live_decommission.id}/attestations",
+            headers=team_headers, json={"step_key": key, "reference": "x", "notes": None},
+        )
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/teardown", headers=team_headers
+    )
+
+    env = await db_session.get(Environment, live_decommission.environment_id)
+    await db_session.refresh(env)
+    assert env.status == EnvironmentStatus.DECOMMISSIONED
+
+
+@pytest.mark.asyncio
+async def test_an_optional_step_does_not_gate_teardown(
+    client, team_headers, db_session, test_tenant, live_decommission
+):
+    step = EnvironmentDecommissionStep(
+        tenant_id=test_tenant.id, key="dns", label="DNS removed",
+        display_order=30, is_required=False, is_active=True,
+    )
+    db_session.add(step)
+    await db_session.flush()
+
+    for key in ("final_backup", "teardown"):
+        await client.post(
+            f"/api/v1/decommissions/{live_decommission.id}/attestations",
+            headers=team_headers, json={"step_key": key, "reference": "x", "notes": None},
+        )
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/teardown", headers=team_headers
+    )
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_an_inactive_step_does_not_gate_teardown(
+    client, team_headers, db_session, test_tenant, live_decommission
+):
+    """A retired step stops being required; it does not freeze the workflow.
+    `is_required=True` here on purpose — it is INACTIVITY, not the required
+    flag, that exempts it."""
+    step = EnvironmentDecommissionStep(
+        tenant_id=test_tenant.id, key="legacy_check", label="Legacy check",
+        display_order=40, is_required=True, is_active=False,
+    )
+    db_session.add(step)
+    await db_session.flush()
+
+    for key in ("final_backup", "teardown"):
+        await client.post(
+            f"/api/v1/decommissions/{live_decommission.id}/attestations",
+            headers=team_headers, json={"step_key": key, "reference": "x", "notes": None},
+        )
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/teardown", headers=team_headers
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_step_may_be_signed_only_once(client, team_headers, live_decommission):
+    first = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/attestations",
+        headers=team_headers, json={"step_key": "final_backup", "reference": "a", "notes": None},
+    )
+    assert first.status_code == 201
+    again = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/attestations",
+        headers=team_headers, json={"step_key": "final_backup", "reference": "b", "notes": None},
+    )
+    assert again.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_step_key_is_refused(client, team_headers, live_decommission):
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/attestations",
+        headers=team_headers, json={"step_key": "invented", "reference": None, "notes": None},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_admin_may_always_cancel(client, auth_headers, live_decommission):
+    """THE ESCAPE HATCH. A4 established that an approval workflow without one
+    produces unrecoverable states, and B3b shipped two."""
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/cancel",
+        headers=auth_headers, json={"reason": "Kept after all"},
+    )
+    assert r.status_code == 200
+    assert r.json()["state"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_leaves_the_environment_active(
+    client, auth_headers, db_session, live_decommission
+):
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/cancel",
+        headers=auth_headers, json={"reason": "Kept"},
+    )
+    env = await db_session.get(Environment, live_decommission.environment_id)
+    await db_session.refresh(env)
+    assert env.status == EnvironmentStatus.ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_decommission_frees_the_environment_for_a_new_one(
+    client, auth_headers, team_headers, live_decommission, env_with_team
+):
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/cancel",
+        headers=auth_headers, json={"reason": "Kept"},
+    )
+    again = await client.post(
+        f"/api/v1/environments/{env_with_team.id}/decommission",
+        headers=team_headers, json={"reason": "Actually no"},
+    )
+    assert again.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_teardown_reports_the_bookings_it_did_not_touch(
+    client, team_headers, live_decommission, booking_after_teardown
+):
+    """SURFACES, never touches. The response names them; the rows are unchanged
+    — the guard test in Task 15 proves the second half."""
+    for key in ("final_backup", "teardown"):
+        await client.post(
+            f"/api/v1/decommissions/{live_decommission.id}/attestations",
+            headers=team_headers, json={"step_key": key, "reference": "x", "notes": None},
+        )
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/teardown", headers=team_headers
+    )
+    assert booking_after_teardown.id in [b["id"] for b in r.json()["remaining_bookings"]]

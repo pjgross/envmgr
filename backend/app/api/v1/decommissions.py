@@ -23,12 +23,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.decommission import (
-    DecommissionCreate, DecommissionRead, ExtensionDecision, ExtensionRequest,
+    AttestationCreate, AttestationRead, CancelRequest, DecommissionCreate,
+    DecommissionRead, ExtensionDecision, ExtensionRequest,
+    RemainingBookingSummary, TeardownRead,
 )
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.db.models.environment_decommission import EnvironmentDecommission
-from app.services import environment_decommission_service
+from app.services import booking_service, environment_decommission_service
 
 router = APIRouter(prefix="/environments", tags=["decommissions"])
 extensions_router = APIRouter(prefix="/decommissions", tags=["decommissions"])
@@ -157,5 +159,86 @@ async def decide_decommission_extension(
     )
     row = await environment_decommission_service.decide_extension(
         db, decommission, current_user, granted=data.granted, now=now,
+    )
+    return _to_read(row, now)
+
+
+@extensions_router.post(
+    "/{decommission_id}/attestations",
+    response_model=AttestationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def sign_decommission_attestation(
+    decommission_id: int,
+    data: AttestationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """The operating team confirming one checklist step happened —
+    `assert_may_run`, the same gate as initiate/teardown/cancel."""
+    now = datetime.now(timezone.utc)
+    tenant_id = current_user.active_tenant_id
+    decommission = await environment_decommission_service.get_decommission_by_id(
+        db, decommission_id, tenant_id
+    )
+    row = await environment_decommission_service.sign_attestation(
+        db, decommission, current_user,
+        step_key=data.step_key, reference=data.reference, notes=data.notes,
+        now=now,
+    )
+    return row
+
+
+@extensions_router.post(
+    "/{decommission_id}/teardown",
+    response_model=TeardownRead,
+)
+async def tear_down_decommission(
+    decommission_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """THE ONE ACTING ROUTE. Sets `environment.status = DECOMMISSIONED` and
+    reports — without touching — any bookings still on the calendar for this
+    environment."""
+    now = datetime.now(timezone.utc)
+    tenant_id = current_user.active_tenant_id
+    decommission = await environment_decommission_service.get_decommission_by_id(
+        db, decommission_id, tenant_id
+    )
+    row = await environment_decommission_service.tear_down(
+        db, decommission, current_user, now=now
+    )
+    remaining, _total = await booking_service.list_bookings(
+        db, tenant_id, environment_id=row.environment_id
+    )
+    base = _to_read(row, now)
+    return TeardownRead(
+        **base.model_dump(),
+        remaining_bookings=[
+            RemainingBookingSummary.model_validate(b) for b in remaining
+        ],
+    )
+
+
+@extensions_router.post(
+    "/{decommission_id}/cancel",
+    response_model=DecommissionRead,
+)
+async def cancel_decommission(
+    decommission_id: int,
+    data: CancelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """THE ESCAPE HATCH — always available to Admin. Sets only the three
+    cancel fields; `environment.status` is never touched here."""
+    now = datetime.now(timezone.utc)
+    tenant_id = current_user.active_tenant_id
+    decommission = await environment_decommission_service.get_decommission_by_id(
+        db, decommission_id, tenant_id
+    )
+    row = await environment_decommission_service.cancel(
+        db, decommission, current_user, reason=data.reason, now=now,
     )
     return _to_read(row, now)
