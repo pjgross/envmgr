@@ -18,7 +18,7 @@ Every task's requirements implicitly include all of these.
 - **The state is COMPUTED, never stored.** There is no `state` column on `environment_decommission` and there must never be one. If you add one, you have created something to invalidate and a scheduler to run.
 - **A deadline is a day.** Every comparison of `scheduled_teardown_at`, and the idle cutoff, goes through `expiry_boundary` from `app/core/day_boundaries.py`. **Do not write a second copy of that rule** — read that module's docstring first.
 - **No dialect date arithmetic, ever.** Neither engine's interval syntax is portable. Cutoff instants are computed in **Python** and passed into the query as literals (Task 3 shows the exact pattern). If you type `interval` or `julianday`, you are wrong.
-- **`environment.status` stores the enum MEMBER NAME** — the column holds `ACTIVE`, not `active`. Compare against `EnvironmentStatus.X`, never a string literal. See Task 3, Step 1: there is an existing bug of exactly this kind and you fix it there.
+- **`environment.status` stores the enum MEMBER NAME** — the column holds `ACTIVE`, not `active`. Prefer `EnvironmentStatus.X` over a string literal: it is the house convention and survives a rename of the enum value. NOTE, CORRECTED 2026-08-18: a string literal is NOT broken — SQLAlchemy's `Enum` coerces a value-matching literal to the stored name, and both forms emit identical SQL. This is a consistency rule, not a bug fix.
 - **Enum-ish columns are never native.** `String(30)` per the house rule; `booking.status` is the precedent.
 - **Migrations are hand-written.** `alembic revision -m "..."` then write the DDL yourself. Never `--autogenerate` — `init_db()` calls `create_all`, so autogenerate sees nothing to do.
 - **`alembic downgrade -1` on the dev database will drop someone else's table.** It steps back from the *current* head, not from your revision. Use the scratch database `tests/test_migration_schema_drift.py` builds.
@@ -893,7 +893,7 @@ git commit -m "feat(b5): tenant lifecycle policy and decommission-step vocabular
 - Consumes: `get_policy` (Task 2), `expiry_boundary` (`app/core/day_boundaries.py`)
 - Produces: `async def idle_state(db, tenant_id, now) -> IdleState` (a frozen dataclass carrying `enabled: bool` and `cutoff_expr`); `def idle_clause(state: IdleState, now: datetime)`. `EnvironmentView` gains `idle: bool` (**required-positional**).
 
-- [ ] **Step 1: Fix the pre-existing status-literal bug first, with a test**
+- [ ] **Step 1: Standardise the status comparison (NOT a bug fix — see the correction below)**
 
 `environment.status` stores the enum **member name** (`ACTIVE`), so
 `environment_health_service.py:103`'s `Environment.status != "decommissioned"`
@@ -3036,7 +3036,7 @@ git commit -am "test(b5): the guard — B5 acts only where it says, and no furth
 
 - [ ] **Step 2: `CLAUDE.md`** — a B5 block in the same voice as B4's, plus two new **Common Pitfalls** entries:
   - *Writing dialect date arithmetic for a per-row threshold* — the `CASE`-of-literals pattern and why.
-  - *Comparing `environment.status` against a string literal* — the column holds `ACTIVE`; `environment_health_service` shipped a comparison that never matched.
+  - *Reasoning about what a column comparison emits instead of compiling it* — this branch spent two rounds arguing that `Environment.status != "decommissioned"` was inert because the column holds `ACTIVE`. It is not: SQLAlchemy's `Enum` coerces the literal to the stored name. One `compile(compile_kwargs={"literal_binds": True})` settles such questions instantly. **Do NOT document a status-literal bug — there isn't one.**
 
 - [ ] **Step 3: `docs/admin-guide.md`** — the lifecycle policy, the step vocabulary, the tier override, and **that idle detection is off by default and why**.
 

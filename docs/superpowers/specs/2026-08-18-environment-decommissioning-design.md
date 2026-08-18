@@ -331,25 +331,40 @@ individually. A test covering one path proves nothing about the others.
 create path looks at `environment.status` at all. This is the same question at
 its limit, and B5 closes it with the same rule.
 
-## 7. Pre-existing defect this work must not build on
+## 7. A status-comparison claim, corrected
 
-`environment.status` stores the enum **member name** — the dev database holds
-`ACTIVE` and `INACTIVE`, not `active`/`inactive`. `SAEnum` stores `.name`, and
-`environment_tier.py` already documents this.
+An earlier draft of this spec asserted a pre-existing defect here: that
+`environment_health_service`'s `Environment.status != "decommissioned"`
+compares against a value that never appears in the column, and therefore
+excludes nothing.
 
-So `environment_health_service.py:103`'s
+**That was wrong, and it was checked rather than assumed only after Task 3's
+implementer challenged it.** Half the premise is true and half is not:
+
+- TRUE: the column stores the enum MEMBER NAME. The database holds `ACTIVE`
+  and `DECOMMISSIONED`, not `active` — `SAEnum` stores `.name`, as
+  `environment_tier.py` already documents.
+- FALSE: that a string-literal comparison therefore fails. SQLAlchemy's `Enum`
+  type coerces a value-matching literal to the stored name when it compiles the
+  comparison. Both of these emit byte-identical SQL
+  (`environment.status != 'DECOMMISSIONED'`):
 
 ```python
-Environment.status != "decommissioned",
+Environment.status != "decommissioned"
+Environment.status != EnvironmentStatus.DECOMMISSIONED
 ```
 
-compares against a value that never appears in the column. **The condition is
-always true, and decommissioned environments are not excluded from the health
-overview.** `releases.py:887` gets it right by comparing to the enum member.
+So nothing was broken and no filter was inert. B5 still standardises on the
+enum member — it is the house convention, it survives a rename of the enum
+value, and it reads correctly to someone who knows the column holds names — but
+that is a **consistency change, not a bug fix**, and it must not be documented
+as one. A pitfall entry warning about a defect that does not exist would send
+the next reader hunting for a bug in working code.
 
-B5 filters on status throughout, so this line is fixed as part of this work
-rather than built on top of. Every new status comparison B5 adds goes through
-the enum member, never a string literal.
+The rule that IS worth carrying: **do not reason about what a column comparison
+emits — compile it and look.** One `compile(compile_kwargs={"literal_binds":
+True})` settled this in seconds after two rounds of confident argument in both
+directions.
 
 ## 8. API surface
 
