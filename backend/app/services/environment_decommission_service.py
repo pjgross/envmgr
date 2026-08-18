@@ -23,7 +23,7 @@ most of an environment's last grace day the same way. See
 `app.core.day_boundaries.expiry_boundary` for the full account.
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Sequence
+from typing import Iterable, NamedTuple, Optional, Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
@@ -35,6 +35,7 @@ from app.core.decommission_states import (
     STATE_CANCELLED, STATE_DUE, STATE_EXTENSION_REQUESTED, STATE_TORN_DOWN,
     STATE_WARNED,
 )
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.environment import Environment, EnvironmentStatus
 from app.db.models.environment_decommission import (
     EnvironmentDecommission, EnvironmentDecommissionAttestation,
@@ -741,3 +742,197 @@ async def cancel(
     await db.flush()
     await db.refresh(decommission)
     return decommission
+
+
+# ===========================================================================
+# The worklist: GET /decommissions across every environment in the tenant.
+# Follows contention_service's worklist half — a table, a batch view builder,
+# and no gate of its own beyond tenant scoping (readable by any tenant
+# member; who may ACT on a row is settled on the action routes above).
+# ===========================================================================
+
+
+DECOMMISSION_SORTS = {
+    "scheduled_teardown_at": EnvironmentDecommission.scheduled_teardown_at,
+    "warned_at": EnvironmentDecommission.warned_at,
+    "environment": Environment.name,
+}
+# `state` is deliberately NOT in this whitelist. It is computed from three
+# columns and a clock, not backed by a single column to ORDER BY — whitelisting
+# it would 500 on a bare `?sort_by=state` the moment apply_sort tried to sort
+# by it.
+
+
+def worklist_query(
+    tenant_id: int,
+    *,
+    now: datetime,
+    sort: Optional[Sort] = None,
+    state: Optional[str] = None,
+):
+    """The worklist query, EXPOSED so its ORDER BY can be asserted directly —
+    the same seam `contention_service.worklist_query` and
+    `environment_health_service.history_query` exist for: the tiebreaker
+    cannot always be guarded behaviourally (a fixture's rows may happen to
+    come back in a stable order without it), so this is the documented
+    exception to the don't-assert-emitted-SQL rule.
+
+    `state_predicate` DELIBERATELY DOES NOT FILTER `deleted_at` — that is
+    `live_predicate`'s job, answering "is this decommission still live", a
+    different question from the worklist's "does this row exist at all". This
+    is the thing Task 4's reviewer flagged this task would trip over if the
+    filter were forgotten here, so it is applied explicitly rather than folded
+    into `state_predicate` itself.
+
+    Joined to `Environment` (not merely filtered by `tenant_id` on
+    `EnvironmentDecommission`) so `sort_by=environment` has a column to sort
+    by — `DECOMMISSION_SORTS["environment"]` is `Environment.name`, and
+    `apply_sort` needs that table present in the query's FROM clause.
+    """
+    D = EnvironmentDecommission
+    query = (
+        select(D)
+        .join(Environment, Environment.id == D.environment_id)
+        .where(D.tenant_id == tenant_id, D.deleted_at.is_(None))
+    )
+    if state is not None:
+        query = query.where(state_predicate(state, now))
+    # Chained AFTER apply_sort, never instead of it: none of the three
+    # sortable columns is unique (scheduled_teardown_at ties are ordinary — a
+    # batch of environments decommissioned together shares one date), and
+    # LIMIT/OFFSET over a partial order duplicates and drops rows across pages
+    # once ties exist.
+    return apply_sort(query, sort).order_by(D.id)
+
+
+async def list_decommissions(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    state: Optional[str] = None,
+    page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
+    now: datetime,
+) -> tuple[list[EnvironmentDecommission], int]:
+    """The worklist: every decommission this tenant can see — live and
+    terminal alike, following `contention_service.list_escalations` (an
+    escalation outlives its bookings; a decommission's history is as much the
+    record as its live state, and nothing here filters on liveness).
+
+    `state` is filtered IN SQL, before the window — a Python-side filter would
+    window the unfiltered set first and leave `X-Total-Count` describing it,
+    the only evidence from outside that the filter really ran in the query.
+    `now` decides both this filter and every row's rendered state
+    (`decommission_views` below) — taken ONCE by the caller (the route) and
+    threaded through both, never re-read here.
+    """
+    return await fetch_page(
+        db, worklist_query(tenant_id, now=now, sort=sort, state=state), page
+    )
+
+
+async def _usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
+    """`user id -> username`. Mirrors `contention_service.usernames_for` —
+    same trap, in batch form, in the sibling worklist this codebase now has
+    two of: DELIBERATELY NOT TENANT-QUALIFIED. Under master-admin
+    impersonation `initiated_by` may legitimately sit outside the row's own
+    `tenant_id`, and a `User.tenant_id ==` join here would render that
+    initiator as nobody — the same governance-trail loss A3's ack lost to
+    exactly that join. Not a leak: the caller's authority to see this row was
+    already settled by the tenant-filtered worklist query that produced it,
+    and a username discloses nothing the row's own `initiated_by` column does
+    not already.
+    """
+    ids = {uid for uid in user_ids if uid is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(select(User.id, User.username).where(User.id.in_(ids)))
+    ).all()
+    return {uid: username for uid, username in rows}
+
+
+class _EnvironmentLabel(NamedTuple):
+    name: str
+    owner_user_id: Optional[int]
+
+
+async def _environment_labels(
+    db: AsyncSession, environment_ids: Iterable[int], tenant_id: int
+) -> dict[int, "_EnvironmentLabel"]:
+    """`environment id -> (name, owner_user_id)`, for a whole page in one
+    query. READ-RENDERING, following `environment_service.get_environment_names`
+    — deliberately does NOT filter `deleted_at`: a decommission against an
+    environment that is itself now soft-deleted must still render that
+    environment's name, not fall back to '#N'. Tenant-qualified, matching that
+    function, so a malformed cross-tenant row resolves to nothing rather than
+    leaking another tenant's environment name.
+    """
+    ids = {e for e in environment_ids if e is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                Environment.id, Environment.name, Environment.owner_user_id
+            ).where(Environment.id.in_(ids), Environment.tenant_id == tenant_id)
+        )
+    ).all()
+    return {
+        env_id: _EnvironmentLabel(name, owner_id)
+        for env_id, name, owner_id in rows
+    }
+
+
+class DecommissionView(NamedTuple):
+    """One decommission plus everything a worklist row needs that is not a
+    column: the computed state, and the three names resolved server-side so
+    the browser never has to `.find()` one out of a capped picker collection
+    (docs/pagination.md)."""
+
+    decommission: EnvironmentDecommission
+    state: str
+    environment_name: Optional[str]
+    initiated_by_username: Optional[str]
+    owner_username: Optional[str]
+
+
+async def decommission_views(
+    db: AsyncSession,
+    rows: Iterable[EnvironmentDecommission],
+    tenant_id: int,
+    now: datetime,
+) -> dict[int, DecommissionView]:
+    """`decommission id -> DecommissionView`, for a whole page in a fixed
+    number of queries. BATCH, NEVER PER ROW — the N+1 shape three sub-projects
+    have now had to undo on the contention conflicts endpoint.
+    """
+    rows = list(rows)
+    if not rows:
+        return {}
+    env_labels = await _environment_labels(
+        db, {row.environment_id for row in rows}, tenant_id
+    )
+    usernames = await _usernames_for(
+        db,
+        [row.initiated_by for row in rows]
+        + [label.owner_user_id for label in env_labels.values()],
+    )
+    return {
+        row.id: DecommissionView(
+            decommission=row,
+            state=decommission_state(row, now),
+            environment_name=(
+                env_labels[row.environment_id].name
+                if row.environment_id in env_labels
+                else None
+            ),
+            initiated_by_username=usernames.get(row.initiated_by),
+            owner_username=(
+                usernames.get(env_labels[row.environment_id].owner_user_id)
+                if row.environment_id in env_labels
+                else None
+            ),
+        )
+        for row in rows
+    }

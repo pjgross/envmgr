@@ -7,7 +7,7 @@ that true: a foreign-tenant id simply never matches the query, so the 404 and
 the "doesn't exist" case are indistinguishable to the caller, which is the
 point.
 
-Two routes, not one:
+Three routes on this pair of routers, not two:
 
   - POST .../decommission -- initiate.
   - GET  .../decommission -- the live record, or the most recent terminal
@@ -15,18 +15,23 @@ Two routes, not one:
     has never been decommissioned" would make the panel's ordinary case an
     error path; null is the answer, and the panel renders its initiate
     control from it.
+  - GET  /decommissions -- Task 9's worklist, every decommission this tenant
+    can see, live and terminal alike. Cross-tenant is simply absent from the
+    result here rather than 404 — there is no single id to be cagey about.
 """
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.decommission import (
     AttestationCreate, AttestationRead, CancelRequest, DecommissionCreate,
-    DecommissionRead, ExtensionDecision, ExtensionRequest,
-    RemainingBookingSummary, TeardownRead,
+    DecommissionRead, DecommissionWorklistRow, ExtensionDecision,
+    ExtensionRequest, RemainingBookingSummary, TeardownRead,
 )
+from app.core.decommission_states import DECOMMISSION_STATES
+from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.db.models.environment_decommission import EnvironmentDecommission
@@ -57,6 +62,53 @@ def _to_read(row: EnvironmentDecommission, now: datetime) -> DecommissionRead:
         cancel_reason=row.cancel_reason,
         state=environment_decommission_service.decommission_state(row, now),
     )
+
+
+@extensions_router.get("", response_model=list[DecommissionWorklistRow])
+async def list_decommission_worklist(
+    response: Response,
+    state: Optional[str] = Query(
+        None,
+        pattern="^(" + "|".join(DECOMMISSION_STATES) + ")$",
+        description=(
+            "Filter by computed state. OMIT for everything — there is "
+            "deliberately no 'all' value."
+        ),
+    ),
+    page: Page = Depends(pagination()),
+    sort: Sort = Depends(
+        sorting(
+            environment_decommission_service.DECOMMISSION_SORTS,
+            default="scheduled_teardown_at",
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """The worklist: every decommission this tenant can see — live and
+    terminal alike, following `contentions_router`'s worklist (an escalation
+    outlives its bookings; a decommission's history is as much the record as
+    its live state, and nothing here filters on liveness).
+
+    Readable by any tenant member — there is no gate here beyond tenant
+    scoping. Who may ACT on a row (extend, sign, tear down, cancel) is settled
+    on the routes below, each through `assert_may_run` / `assert_may_defend`.
+
+    ONE CLOCK decides both the `state` filter and every rendered row's
+    state — taken once, here, and threaded through `list_decommissions` and
+    `decommission_views` alike, so a row cannot be selected as `due` and
+    rendered `warned`.
+    """
+    tenant_id = current_user.active_tenant_id
+    now = datetime.now(timezone.utc)
+    rows, total = await environment_decommission_service.list_decommissions(
+        db, tenant_id, state=state, page=page, sort=sort, now=now,
+    )
+    set_total_count(response, total)
+    views = await environment_decommission_service.decommission_views(
+        db, rows, tenant_id, now
+    )
+    return [DecommissionWorklistRow.from_view(views[row.id]) for row in rows]
 
 
 @router.post(

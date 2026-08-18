@@ -106,6 +106,49 @@ class DecommissionRead(BaseModel):
     state: str
 
 
+class DecommissionWorklistRow(DecommissionRead):
+    """One row of `GET /decommissions` — `DecommissionRead` plus the three
+    names a worklist reader has never resolved themselves.
+
+    THE NAMES TRAVEL WITH THE ROW
+    (`environment_decommission_service.decommission_views`), the same call
+    `EscalationRead` makes on A4's worklist: the browser must not look them up
+    in a capped picker collection, where a name past the cap is information
+    LOST, not merely hidden (docs/pagination.md). Built only through
+    `from_view`, which takes a `DecommissionView` and therefore cannot be
+    handed a constant by accident — the same shape `EscalationRead.from_view`
+    and `ProjectResponse.from_view` use.
+    """
+
+    environment_name: Optional[str]
+    initiated_by_username: Optional[str]
+    owner_username: Optional[str]
+
+    @classmethod
+    def from_view(cls, view) -> "DecommissionWorklistRow":
+        row = view.decommission
+        return cls(
+            id=row.id,
+            environment_id=row.environment_id,
+            reason=row.reason,
+            warned_at=row.warned_at,
+            scheduled_teardown_at=row.scheduled_teardown_at,
+            initiated_by=row.initiated_by,
+            extension_requested_at=row.extension_requested_at,
+            extension_reason=row.extension_reason,
+            extension_until=row.extension_until,
+            extension_decided_at=row.extension_decided_at,
+            extension_granted=row.extension_granted,
+            torn_down_at=row.torn_down_at,
+            cancelled_at=row.cancelled_at,
+            cancel_reason=row.cancel_reason,
+            state=view.state,
+            environment_name=view.environment_name,
+            initiated_by_username=view.initiated_by_username,
+            owner_username=view.owner_username,
+        )
+
+
 class RemainingBookingSummary(BaseModel):
     """One booking teardown did NOT touch. SURFACES, never touches — the
     response names these; nothing about them changes. Deliberately thin: this

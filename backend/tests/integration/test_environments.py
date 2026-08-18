@@ -559,3 +559,41 @@ async def test_idle_is_correct_over_http_on_the_list_and_the_detail_page(
     ).json()
     assert quiet_detail["idle"] is True
     assert busy_detail["idle"] is False
+
+
+@pytest.mark.asyncio
+async def test_decommission_state_is_correct_over_http_on_the_list_and_the_detail_page(
+    client: AsyncClient, auth_headers, db_session, test_tenant
+):
+    """B5 Task 9: `decommission_state` reaches `EnvironmentResponse` via
+    `EnvironmentView` on both GET /environments and GET /environments/{id}.
+    Asserts the VALUE, not merely that the key is present — Task 3 shipped
+    `idle` on the view and the filter but not the response, leaving it
+    computed, filterable and invisible to every consumer."""
+    live = (await post_environment(client, auth_headers, "DecomStateOverHttpLive")).json()
+    untouched = (
+        await post_environment(client, auth_headers, "DecomStateOverHttpNone")
+    ).json()
+
+    initiate = await client.post(
+        f"/api/v1/environments/{live['id']}/decommission",
+        headers=auth_headers,
+        json={"reason": "over-HTTP decommission_state check"},
+    )
+    assert initiate.status_code == 201, initiate.text
+    assert initiate.json()["state"] == "warned"
+
+    listed = (await client.get("/api/v1/environments/", headers=auth_headers)).json()
+    listed_live = next(e for e in listed if e["id"] == live["id"])
+    listed_untouched = next(e for e in listed if e["id"] == untouched["id"])
+    assert listed_live["decommission_state"] == "warned"
+    assert listed_untouched["decommission_state"] is None
+
+    live_detail = (
+        await client.get(f"/api/v1/environments/{live['id']}", headers=auth_headers)
+    ).json()
+    untouched_detail = (
+        await client.get(f"/api/v1/environments/{untouched['id']}", headers=auth_headers)
+    ).json()
+    assert live_detail["decommission_state"] == "warned"
+    assert untouched_detail["decommission_state"] is None

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.db.models.environment import EnvironmentStatus
+from app.db.models.environment_decommission import EnvironmentDecommission
 from app.services import environment_health_service, environment_service
 from tests.factories import (
     ensure_deployment,
@@ -329,3 +330,91 @@ async def test_a_deployment_belonging_to_a_different_tenant_does_not_make_it_act
         db_session, test_tenant.id, idle=True, now=NOW
     )
     assert [v.environment.id for v in views] == [env.id]
+
+
+# ---------------------------------------------------------------------------
+# B5 Task 9 — `decommission_state` on `EnvironmentView`. Carries the LIVE
+# decommission's label only; a cancelled or torn-down one, or none at all,
+# leaves the row null (see environment_service._decommission_label).
+# ---------------------------------------------------------------------------
+
+
+async def _warn(db, tenant_id, env, *, teardown):
+    """One `EnvironmentDecommission` row through `ensure_user` for
+    `initiated_by` — live (never cancelled or torn down), scheduled to tear
+    down at `teardown`."""
+    user = await ensure_user(db, tenant_id, username="decom-initiator")
+    row = EnvironmentDecommission(
+        tenant_id=tenant_id,
+        environment_id=env.id,
+        reason="idle-list fixture",
+        initiated_by=user.id,
+        warned_at=NOW,
+        scheduled_teardown_at=teardown,
+    )
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_the_list_carries_the_live_decommission_state(db_session, test_tenant):
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    await _warn(db_session, test_tenant.id, env, teardown=NOW + timedelta(days=4))
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, now=NOW
+    )
+    row = next(v for v in views if v.environment.id == env.id)
+    assert row.decommission_state == "warned"
+
+
+@pytest.mark.asyncio
+async def test_an_environment_with_no_decommission_carries_null(db_session, test_tenant):
+    # Null means "never decommissioned". The grid cell renders NOTHING for it —
+    # never an empty chip, which reads as a state of its own.
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, now=NOW
+    )
+    row = next(v for v in views if v.environment.id == env.id)
+    assert row.decommission_state is None
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_decommission_leaves_the_row_null(db_session, test_tenant):
+    # Only a LIVE decommission labels the row. A cancelled one is history, and a
+    # row still chipped `cancelled` reads as an ongoing situation.
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    row_ = await _warn(db_session, test_tenant.id, env, teardown=NOW + timedelta(days=4))
+    row_.cancelled_at = NOW - timedelta(hours=1)
+    await db_session.flush()
+
+    views, _ = await environment_service.list_environments(
+        db_session, test_tenant.id, now=NOW
+    )
+    assert next(
+        v for v in views if v.environment.id == env.id
+    ).decommission_state is None
+
+
+@pytest.mark.asyncio
+async def test_several_terminal_decommissions_do_not_multiply_the_row(
+    db_session, test_tenant
+):
+    # The join-versus-subquery trap: three cancelled attempts and one live one
+    # must still yield ONE row for this environment.
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    for _ in range(3):
+        dead = await _warn(db_session, test_tenant.id, env, teardown=NOW)
+        dead.cancelled_at = NOW - timedelta(days=1)
+    await _warn(db_session, test_tenant.id, env, teardown=NOW + timedelta(days=4))
+    await db_session.flush()
+
+    views, total = await environment_service.list_environments(
+        db_session, test_tenant.id, now=NOW
+    )
+    assert total == 1
+    assert len([v for v in views if v.environment.id == env.id]) == 1
