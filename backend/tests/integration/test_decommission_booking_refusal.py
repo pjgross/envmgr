@@ -270,6 +270,87 @@ async def test_extending_an_existing_booking_past_teardown_is_refused(
 
 
 # ---------------------------------------------------------------------------
+# Review finding 1 — the PER-ENV override path (booking_service.
+# update_standard_fields, PATCH /bookings/{id}/standard-fields) is a SEPARATE
+# date-write path from the request-level cascade above: it edits one child
+# Booking's dates directly, with no request-level involvement at all. Found
+# by reading the code rather than the brief's own grep (see the task-8
+# report) — this is the test that PROVES the fix rather than merely
+# disclosing it.
+# ---------------------------------------------------------------------------
+
+_PER_ENV_EDIT_DEFINITION = {
+    "states": [
+        {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+    ],
+    "transitions": [],
+    "field_permissions": {
+        "draft": {
+            "standard_fields": {
+                "project_name": {"editable_by": ["Admin"]},
+                "start_date": {"editable_by": ["Admin"]},
+                "end_date": {"editable_by": ["Admin"]},
+                "booking_type": {"editable_by": ["Admin"]},
+            },
+        },
+    },
+}
+
+
+@pytest_asyncio.fixture
+async def per_env_edit_booking_type(client, auth_headers):
+    """A lifecycle template that leaves start_date/end_date editable by Admin
+    in 'draft' — needed because `ensure_booking_type`'s default template
+    carries no field_permissions at all, which would 403 every field on
+    PATCH /bookings/{id}/standard-fields before ever reaching the date
+    check."""
+    tmpl = await client.post(
+        "/api/v1/tenant/lifecycle-templates", headers=auth_headers,
+        json={"name": "B5T8 per-env edit template", "definition": _PER_ENV_EDIT_DEFINITION},
+    )
+    assert tmpl.status_code == 201, tmpl.text
+    bt = await client.post(
+        "/api/v1/tenant/booking-types", headers=auth_headers,
+        json={"name": "B5T8 per-env edit type", "lifecycle_template_id": tmpl.json()["id"]},
+    )
+    assert bt.status_code == 201, bt.text
+    return bt.json()
+
+
+@pytest_asyncio.fixture
+async def existing_legacy_booking(
+    client, auth_headers, env_being_decommissioned, per_env_edit_booking_type
+):
+    """A booking created through the LEGACY POST /bookings/ path against
+    env_being_decommissioned, fitting BEFORE teardown (day1-day2, accepted).
+    Editing IT DIRECTLY (not its parent request) past teardown is what the
+    per-env override test does next."""
+    r = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_being_decommissioned.id,
+        "project_name": "legacy per-env edit fixture",
+        "start_date": _iso(days=1), "end_date": _iso(days=2),
+        "booking_type_id": per_env_edit_booking_type["id"],
+    })
+    assert r.status_code == 201, r.text
+    return r.json()["booking"]
+
+
+@pytest.mark.asyncio
+async def test_the_per_env_override_path_refuses_a_booking_past_teardown(
+    client, auth_headers, existing_legacy_booking, env_being_decommissioned
+):
+    """PATCH /bookings/{id}/standard-fields — booking_service.update_standard_
+    fields — edits one child Booking's dates directly. It must refuse the
+    same way the request-level cascade does, entirely independently."""
+    r = await client.patch(
+        f"/api/v1/bookings/{existing_legacy_booking['id']}/standard-fields",
+        headers=auth_headers, json={"end_date": _iso(days=20)},
+    )
+    assert r.status_code == 409, r.text
+    assert env_being_decommissioned.name in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
 # The design's proof: an extension moves the LINE, not a stored flag
 # ---------------------------------------------------------------------------
 
@@ -337,3 +418,51 @@ async def test_an_environment_with_no_decommission_is_unaffected(
         "start_date": _iso(days=1), "end_date": _iso(days=400),
     })
     assert r.status_code == 201, r.text
+
+
+# ---------------------------------------------------------------------------
+# Review finding 2 — `create_booking`'s recurrence_rule can generate up to
+# 100 occurrences across a 365-day horizon. Checking only the FIRST
+# occurrence's end (the original implementation) left every later one
+# uncheckable — a hole inside a path this task claims to close.
+# `env_being_decommissioned`'s teardown is day 10 throughout this file.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_recurring_bookings_last_occurrence_ending_before_teardown_is_accepted(
+    client, auth_headers, env_being_decommissioned, booking_type,
+):
+    """FREQ=DAILY;COUNT=5 from day1 (1-day duration each) generates
+    occurrences ending day3, day4, day5, day6 — every one of them, including
+    the FURTHEST, well before the day-10 teardown. The ACCEPT half of the
+    furthest-occurrence proof."""
+    r = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_being_decommissioned.id,
+        "project_name": "recurring, ends well before teardown",
+        "start_date": _iso(days=1), "end_date": _iso(days=2),
+        "booking_type_id": booking_type.id,
+        "recurrence_rule": "FREQ=DAILY;COUNT=5",
+    })
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_recurring_bookings_later_occurrence_running_past_teardown_is_refused(
+    client, auth_headers, env_being_decommissioned, booking_type,
+):
+    """FREQ=WEEKLY;COUNT=3 from day1 (1-day duration each) generates
+    occurrences ending day9 (week 2 — still before teardown) and day16
+    (week 3 — past it). The FIRST occurrence ALONE (day1-day2) would be
+    accepted; only checking the furthest one catches this. The REFUSE half
+    of the furthest-occurrence proof — see the mutation proof in the task-8
+    report for why checking only `data.end_date` passes this test wrongly."""
+    r = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env_being_decommissioned.id,
+        "project_name": "recurring, a later occurrence runs past teardown",
+        "start_date": _iso(days=1), "end_date": _iso(days=2),
+        "booking_type_id": booking_type.id,
+        "recurrence_rule": "FREQ=WEEKLY;COUNT=3",
+    })
+    assert r.status_code == 409, r.text
+    assert env_being_decommissioned.name in r.json()["detail"]

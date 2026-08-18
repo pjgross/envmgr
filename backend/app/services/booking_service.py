@@ -102,15 +102,37 @@ async def create_booking(
     and so — via release_booking_service — does the release booking path.
 
     Task 8: THE LEGACY CREATE PATH. `assert_bookable` runs first, before
-    `check_overlap` and before anything is written, against `data.end_date` —
-    the FIRST occurrence's end, matching the SINGLE booking this endpoint's
-    caller sees back. A recurrence_rule's later occurrences are not
-    individually re-checked here; that is a known, documented gap, not an
-    oversight (see the B5 task-8 report).
+    `check_overlap` and before anything is written — and against the WIDEST
+    window this call will actually create, not just the first occurrence.
+    A recurrence_rule can generate up to 100 occurrences across a 365-day
+    horizon (see below); checking only `data.end_date` left every later
+    occurrence uncheckable, so the occurrence set is computed ONCE here,
+    the check runs against the FURTHEST occurrence's end in that ONE
+    batched call, and the actual generation loop further down reuses this
+    exact `occurrences` list rather than recomputing it — the two can never
+    see a different set of dates (review finding 2 on the B5 task-8 report).
     """
+    occurrences: list[datetime] = []
+    if data.recurrence_rule:
+        try:
+            rule = rrulestr(data.recurrence_rule, dtstart=data.start_date, ignoretz=False)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Invalid recurrence rule: {exc}",
+            )
+        horizon = data.start_date + timedelta(days=365)
+        # Generate occurrences AFTER the start_date (parent IS the first
+        # occurrence) — same window and cap the generation loop below used
+        # to compute independently; now computed once and shared.
+        occurrences = list(rule.between(data.start_date, horizon, inc=False))[:100]
+
+    duration = data.end_date - data.start_date
+    furthest_end = max([data.end_date] + [dt + duration for dt in occurrences])
+
     await environment_decommission_service.assert_bookable(
         db, current_user.active_tenant_id, [data.environment_id],
-        data.start_date, data.end_date, now=now,
+        data.start_date, furthest_end, now=now,
     )
 
     overlap = await check_overlap(
@@ -233,22 +255,11 @@ async def create_booking(
     db.add(history)
     await db.flush()
 
-    # Generate recurring occurrences if RRULE provided
-    if data.recurrence_rule:
-        try:
-            rule = rrulestr(data.recurrence_rule, dtstart=data.start_date, ignoretz=False)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid recurrence rule: {exc}",
-            )
-        duration = data.end_date - data.start_date
-        horizon = data.start_date + timedelta(days=365)
-        # Generate occurrences AFTER the start_date (parent IS the first occurrence)
-        occurrences = list(rule.between(data.start_date, horizon, inc=False))
-        # Cap at 100
-        occurrences = occurrences[:100]
-
+    # Generate recurring occurrences if RRULE provided — `occurrences` and
+    # `duration` were already computed once, up top, for the Task 8 date
+    # check; reused verbatim here so the check and the actual writes can
+    # never see a different set of dates.
+    if occurrences:
         for dt in occurrences:
             child = Booking(
                 environment_id=data.environment_id,
