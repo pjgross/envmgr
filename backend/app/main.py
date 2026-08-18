@@ -92,6 +92,7 @@ from app.api.v1 import component_types as component_types_router
 from app.api.v1 import booking_requests as booking_requests_router
 from app.api.v1 import conflicts as conflicts_router
 from app.api.v1 import contentions as contentions_router
+from app.api.v1 import decommissions as decommissions_router
 from app.api.v1 import change_requests as change_requests_router
 from app.api.v1 import infrastructure_components as infrastructure_components_router
 from app.api.v1 import releases as releases_router
@@ -136,6 +137,7 @@ app.include_router(conflicts_router.router, prefix="/api/v1")
 # worklist and the decision are addressed by the escalation's own id.
 app.include_router(contentions_router.router, prefix="/api/v1")
 app.include_router(contentions_router.escalations_router, prefix="/api/v1")
+app.include_router(decommissions_router.router, prefix="/api/v1")
 app.include_router(change_requests_router.router, prefix="/api/v1")
 app.include_router(
     infrastructure_components_router.router,
