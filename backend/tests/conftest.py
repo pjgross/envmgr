@@ -404,7 +404,16 @@ async def test_conflicting_booking(db_session, test_tenant, test_environment, te
 
 @pytest_asyncio.fixture(scope="function")
 async def tenant(db_session) -> Tenant:
-    """Short-name alias for test_tenant; used by Phase 3 model tests."""
+    """NOT an alias for test_tenant — it creates a SEPARATE, DIFFERENT tenant
+    ("Phase3 Org" / "phase3-org"), while test_tenant creates ("Test Org" /
+    "test-org"). A test that combines this fixture with `auth_headers`
+    (which authenticates into test_tenant) is querying across two different
+    tenants and can pass VACUOUSLY — a query correctly scoped to
+    auth_headers' tenant simply never sees rows built against `tenant`, so a
+    missing tenant filter is invisible to it either way. Task 7 of B5 nearly
+    shipped exactly that pairing. Used by Phase 3 model tests, which pair it
+    with the `user` fixture below (built in `tenant`'s own org) and log in
+    through that pairing, never through auth_headers."""
     t = Tenant(name="Phase3 Org", slug="phase3-org")
     db_session.add(t)
     await db_session.commit()

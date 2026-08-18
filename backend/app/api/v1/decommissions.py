@@ -209,9 +209,12 @@ async def tear_down_decommission(
     row = await environment_decommission_service.tear_down(
         db, decommission, current_user, now=now
     )
-    remaining, _total = await booking_service.list_bookings(
-        db, tenant_id, environment_id=row.environment_id
-    )
+    # Task 8 carried-forward fix: was booking_service.list_bookings with no
+    # status filter and no page — every non-deleted booking, drafts included,
+    # unbounded. Scoped to genuinely live bookings (excludes only the
+    # TERMINAL ones — rejected/closed — so a draft still shows) and bounded.
+    # See list_live_bookings' own docstring for why draft stays in.
+    remaining = await booking_service.list_live_bookings(db, tenant_id, row.environment_id)
     base = _to_read(row, now)
     return TeardownRead(
         **base.model_dump(),

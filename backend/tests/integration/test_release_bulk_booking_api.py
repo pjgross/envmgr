@@ -142,6 +142,7 @@ async def test_bulk_skips_exclusive_conflict(authed_client, tenant, user, db_ses
         db_session, release_id=rid, phase_id=None, environment_id=a,
         start=WIN_START, end=WIN_END, booking_type_id=bt, tenant_id=tenant.id,
         user_id=user.id, project_name="pre", exclusive_use=True,
+        now=datetime.now(timezone.utc),
     )
     await db_session.flush()
 
@@ -165,6 +166,7 @@ async def test_bulk_soft_conflict_warns(authed_client, tenant, user, db_session,
         db_session, release_id=rid, phase_id=None, environment_id=a,
         start=WIN_START, end=WIN_END, booking_type_id=bt, tenant_id=tenant.id,
         user_id=user.id, project_name="pre", exclusive_use=False,
+        now=datetime.now(timezone.utc),
     )
     await db_session.flush()
 

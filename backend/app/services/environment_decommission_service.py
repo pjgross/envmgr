@@ -23,10 +23,11 @@ most of an environment's last grace day the same way. See
 `app.core.day_boundaries.expiry_boundary` for the full account.
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.day_boundaries import expiry_boundary
@@ -126,6 +127,81 @@ def live_predicate(now: datetime):
         D.cancelled_at.is_(None),
         D.torn_down_at.is_(None),
     )
+
+
+async def assert_bookable(
+    db: AsyncSession,
+    tenant_id: int,
+    environment_ids: Sequence[int],
+    start: datetime,
+    end: datetime,
+    *,
+    now: datetime,
+) -> None:
+    """Refuse a booking whose window runs past a live decommission's teardown
+    date. THE ONLY OTHER THING B5 CHANGES OUTSIDE ITS OWN RECORDS, besides
+    `tear_down` itself.
+
+    THE RULE IS THE DATE, NOT THE EXISTENCE OF A DECOMMISSION. The environment
+    still exists until teardown and a team may legitimately need it next
+    week — a blanket "has a live decommission" refusal would need a carve-out
+    for exactly that. `scheduled_teardown_at` is read fresh on every call, so
+    granting an extension (which MOVES that column — see `decide_extension`)
+    widens what is bookable with NO second write anywhere in this function:
+    the line simply moves.
+
+    `start` is accepted for symmetry with the booking window this call always
+    represents, but the rule only cares where the window ENDS — a booking
+    that finishes before teardown is accepted regardless of when it starts.
+
+    BATCHED — ONE query for every environment on the request, not one per
+    environment; a group booking may name a dozen.
+
+    Closes the degenerate case too: no create path anywhere looks at
+    `environment.status`, so nothing today refuses a booking against an
+    environment that has already been torn down. Caught in the same query,
+    via the same LEFT JOIN — `Environment.status` needs no decommission row
+    at all to be DECOMMISSIONED (a tenant could reach that status by other
+    means later), so this half does not depend on `live_predicate` matching.
+    """
+    ids = list(dict.fromkeys(environment_ids))
+    if not ids:
+        return
+
+    D = EnvironmentDecommission
+    rows = (
+        await db.execute(
+            select(
+                Environment.id, Environment.name, Environment.status,
+                D.scheduled_teardown_at,
+            )
+            .select_from(Environment)
+            .outerjoin(
+                D,
+                and_(
+                    D.environment_id == Environment.id,
+                    D.tenant_id == tenant_id,
+                    live_predicate(now),
+                ),
+            )
+            .where(Environment.id.in_(ids), Environment.tenant_id == tenant_id)
+        )
+    ).all()
+
+    end_utc = _utc(end)
+    for _env_id, name, env_status, teardown_at in rows:
+        if env_status == EnvironmentStatus.DECOMMISSIONED:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{name} has already been decommissioned and cannot be booked",
+            )
+        if teardown_at is not None and _utc(teardown_at) < end_utc:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{name} is scheduled to be torn down on "
+                f"{_utc(teardown_at).date().isoformat()} — this booking runs "
+                f"past that date",
+            )
 
 
 async def assert_may_run(db: AsyncSession, environment: Environment, user: User) -> None:
@@ -522,9 +598,11 @@ async def sign_attestation(
     tenant's CURRENT vocabulary (validated against EVERY non-deleted step,
     active or not — a step that has been retired is still a real step, it
     has simply stopped gating; see `missing_required_steps`) -> 409 on a
-    duplicate signature, checked explicitly here rather than left to the
-    `uq_decommission_step` unique constraint to surface as an unhandled
-    IntegrityError -> insert.
+    duplicate signature, checked explicitly here first (SELECT-then-INSERT,
+    so this is advisory, not the guarantee) -> insert, with the insert itself
+    wrapped so a `uq_decommission_step` violation that slips through the
+    SELECT — two signatures on the same step racing each other — still comes
+    back as the same clean 409 rather than an unhandled IntegrityError.
     """
     environment = await get_environment(
         db, decommission.environment_id, decommission.tenant_id
@@ -567,7 +645,14 @@ async def sign_attestation(
         notes=notes,
     )
     db.add(row)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{step_key!r} has already been signed on this decommission",
+        )
     await db.refresh(row)
     return row
 

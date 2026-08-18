@@ -1029,8 +1029,8 @@ async def test_the_legacy_single_booking_create_carries_the_gap(
     env = await ensure_environment(db_session, test_tenant.id, slot=13)
     real_create_booking = booking_service.create_booking
 
-    async def create_then_link_a_project(db, data, current_user):
-        booking, warnings = await real_create_booking(db, data, current_user)
+    async def create_then_link_a_project(db, data, current_user, *, now):
+        booking, warnings = await real_create_booking(db, data, current_user, now=now)
         booking.booking_request.project_id = project.id
         await db.flush()
         return booking, warnings

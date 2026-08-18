@@ -1342,6 +1342,7 @@ async def create_release_booking(
         project_name=data.project_name,
         notes=data.notes,
         exclusive_use=data.exclusive_use,
+        now=datetime.now(timezone.utc),
     )
     return {
         "id": booking.id,
@@ -1378,6 +1379,7 @@ async def bulk_book_release_environments(
         project_name=data.project_name,
         notes=data.notes,
         exclusive_use=data.exclusive_use,
+        now=datetime.now(timezone.utc),
     )
 
 

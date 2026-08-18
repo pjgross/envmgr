@@ -28,11 +28,20 @@ async def book_environment_for_phase(
     project_name: Optional[str] = None,
     notes: Optional[str] = None,
     exclusive_use: bool = False,
+    *,
+    now: datetime,
 ) -> Booking:
     """Create a booking linked to a release and test phase.
 
     Delegates to booking_service.create_booking via the minimal interface,
     then calls derive_and_set_context_tag to populate context_tag.
+
+    `now` is required and keyword-only, following this codebase's standing
+    convention — it is threaded straight through to `create_booking`, whose
+    Task 8 `assert_bookable` call is what makes this THE THIRD create path
+    (the release booking path) covered by the teardown refusal without any
+    code of its own: it delegates to `create_booking`, so it inherits the
+    check for free.
     """
     # Verify the release exists and belongs to this tenant
     release = (
@@ -77,7 +86,7 @@ async def book_environment_for_phase(
     )
 
     fake_user = _FakeUser(tenant_id, user_id)
-    booking, _warnings = await create_booking(db, data, fake_user)
+    booking, _warnings = await create_booking(db, data, fake_user, now=now)
 
     # Derive context tag from release_system roles
     await derive_and_set_context_tag(db, booking.id, tenant_id)
@@ -98,6 +107,8 @@ async def bulk_book_environments(
     project_name: Optional[str] = None,
     notes: Optional[str] = None,
     exclusive_use: bool = False,
+    *,
+    now: datetime,
 ) -> dict:
     """Book each environment for a release in one pass. Environments with a
     hard (exclusive) conflict for the window are skipped and reported; the rest
@@ -126,6 +137,7 @@ async def bulk_book_environments(
                 project_name=project_name,
                 notes=notes,
                 exclusive_use=exclusive_use,
+                now=now,
             )
         except HTTPException as e:
             if e.status_code == status.HTTP_409_CONFLICT:

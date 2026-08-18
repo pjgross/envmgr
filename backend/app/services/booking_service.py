@@ -4,7 +4,7 @@ from typing import Optional
 
 from dateutil.rrule import rrulestr
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import not_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,7 +20,10 @@ from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.core.protection_levels import PROTECTION_SOFT
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
-from app.services import agreement_gap_service, booking_request_service, lifecycle_service
+from app.services import (
+    agreement_gap_service, booking_request_service, conflict_service,
+    environment_decommission_service, lifecycle_service,
+)
 from app.services.lifecycle_service import (
     validate_transition,
     get_allowed_transitions,
@@ -88,15 +91,28 @@ async def check_overlap(
 
 
 async def create_booking(
-    db: AsyncSession, data: BookingCreate, current_user
+    db: AsyncSession, data: BookingCreate, current_user, *, now: datetime
 ) -> tuple[Booking, list[int]]:
     """
     Returns (parent_booking, overlap_warnings_list).
     Raises 409 if exclusive conflict exists.
 
     Creates a BookingRequest parent plus a single-env Booking child (and optionally
-    recurring children).  The legacy single-env POST /bookings/ endpoint delegates here.
+    recurring children).  The legacy single-env POST /bookings/ endpoint delegates here,
+    and so — via release_booking_service — does the release booking path.
+
+    Task 8: THE LEGACY CREATE PATH. `assert_bookable` runs first, before
+    `check_overlap` and before anything is written, against `data.end_date` —
+    the FIRST occurrence's end, matching the SINGLE booking this endpoint's
+    caller sees back. A recurrence_rule's later occurrences are not
+    individually re-checked here; that is a known, documented gap, not an
+    oversight (see the B5 task-8 report).
     """
+    await environment_decommission_service.assert_bookable(
+        db, current_user.active_tenant_id, [data.environment_id],
+        data.start_date, data.end_date, now=now,
+    )
+
     overlap = await check_overlap(
         db,
         data.environment_id,
@@ -371,6 +387,40 @@ async def list_bookings(
         query = query.where(BookingRequest.protection_level == protection)
     query = apply_sort(query, sort).order_by(Booking.start_date.asc(), Booking.id)
     return await fetch_page(db, query, page)
+
+
+async def list_live_bookings(
+    db: AsyncSession, tenant_id: int, environment_id: int, *, limit: int = 500,
+) -> list[Booking]:
+    """Bookings genuinely still on the calendar for one environment — every
+    non-deleted booking except the TERMINAL ones
+    (`conflict_service.TERMINAL_STATES`: rejected, closed).
+
+    Backs the decommission teardown route's `remaining_bookings`, which must
+    still surface a DRAFT booking — an uncommitted claim is still a claim
+    worth naming before someone tears the environment down. That is why this
+    excludes only TERMINAL_STATES and NOT the stricter
+    `app.core.booking_states.INACTIVE_BOOKING_STATUSES` (which also drops
+    draft) — that set answers a different question, "is this a genuine
+    RESERVATION for scheduling purposes", not "is there anything left to
+    tell someone about". Do not merge the two.
+
+    Bounded, following this repo's pagination conventions — an unbounded
+    list embedded in a single API response is a standing defect, not a
+    feature, the same class `/tenant/users` was before it was capped.
+    """
+    query = (
+        select(Booking)
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.environment_id == environment_id,
+            Booking.deleted_at.is_(None),
+            not_(Booking.status.in_(conflict_service.TERMINAL_STATES)),
+        )
+        .order_by(Booking.start_date.asc(), Booking.id)
+        .limit(limit)
+    )
+    return list((await db.execute(query)).scalars().all())
 
 
 async def _template_for_booking(db: AsyncSession, booking: Booking) -> LifecycleTemplate:
@@ -794,6 +844,8 @@ async def update_standard_fields(
     booking_id: int,
     values: dict,
     current_user,
+    *,
+    now: datetime,
 ) -> Booking:
     """Update per-env overrides on a booking.
 
@@ -803,6 +855,13 @@ async def update_standard_fields(
 
     Permissions are still enforced via the lifecycle template (fail-closed if
     template is missing).
+
+    Task 8: this is a SEPARATE date-extending edit path from
+    `booking_request_service.update_standard_fields` (the request-level
+    cascade to every child) — a per-env override here can move just this one
+    booking's dates past teardown without touching the parent request at
+    all, so it gets its own `assert_bookable` call, against this booking's
+    own environment_id.
     """
     ALLOWED_ENV_OVERRIDES = {"start_date", "end_date"}
 
@@ -837,6 +896,7 @@ async def update_standard_fields(
                 detail=f"Field '{col_name}' is not editable in state '{booking.status}' for your role",
             )
 
+    coerced: dict = {}
     for col_name, value in values.items():
         if col_name in {"start_date", "end_date"} and isinstance(value, str):
             # Accept ISO-8601 strings (with trailing Z) — coerce to timezone-aware datetime.
@@ -847,6 +907,17 @@ async def update_standard_fields(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid ISO-8601 datetime for {col_name}",
                 )
+        coerced[col_name] = value
+
+    if "start_date" in coerced or "end_date" in coerced:
+        new_start = coerced.get("start_date", booking.start_date)
+        new_end = coerced.get("end_date", booking.end_date)
+        await environment_decommission_service.assert_bookable(
+            db, current_user.active_tenant_id, [booking.environment_id],
+            new_start, new_end, now=now,
+        )
+
+    for col_name, value in coerced.items():
         setattr(booking, col_name, value)
 
     await db.flush()
