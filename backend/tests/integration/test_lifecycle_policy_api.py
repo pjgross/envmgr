@@ -66,7 +66,13 @@ async def test_thresholds_must_be_positive(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_steps_are_seeded_and_listable(client, auth_headers):
+async def test_steps_are_seeded_and_listable(
+    client, auth_headers, decommission_steps_seeded
+):
+    """The fixture reproduces what a real tenant already has — via
+    tenant_service.create_tenant() or migration `envdecommission`'s backfill
+    — so this stays an assertion about the LIST endpoint, not about seeding
+    itself."""
     r = await client.get("/api/v1/tenant/decommission-steps", headers=auth_headers)
     assert r.status_code == 200
     assert {s["key"] for s in r.json()} == {"final_backup", "teardown"}

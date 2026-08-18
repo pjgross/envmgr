@@ -15,9 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.environment_decommission import EnvironmentDecommissionStep
 from app.db.models.environment_lifecycle_policy import EnvironmentLifecyclePolicy
-from app.services.environment_decommission_defaults import (
-    seed_decommission_steps_for_tenant,
-)
 
 
 async def get_policy(db: AsyncSession, tenant_id: int) -> EnvironmentLifecyclePolicy:
@@ -72,14 +69,13 @@ async def upsert_policy(
 async def list_steps(
     db: AsyncSession, tenant_id: int, *, active_only: bool = False
 ) -> list[EnvironmentDecommissionStep]:
-    """Every tenant is meant to carry the standard steps — via
-    tenant_service.create_tenant() for new tenants, and the `envdecommission`
-    migration's backfill for tenants that predate it. Neither path runs for a
-    tenant built directly (as most tests do), so re-seeding here — idempotent,
-    matched on `key` — is what keeps that promise for a caller that only ever
-    reads, not just the two write paths.
+    """Every step currently on record for the tenant. A pure read — it does
+    NOT seed. Every tenant is meant to carry the standard steps via
+    tenant_service.create_tenant() (new tenants) and the `envdecommission`
+    migration's backfill (tenants that predate it); a caller that has neither
+    is a test-setup gap, not something this read path should paper over by
+    writing rows on a GET.
     """
-    await seed_decommission_steps_for_tenant(db, tenant_id)
     query = select(EnvironmentDecommissionStep).where(
         EnvironmentDecommissionStep.tenant_id == tenant_id,
         EnvironmentDecommissionStep.deleted_at.is_(None),

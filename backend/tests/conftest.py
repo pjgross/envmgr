@@ -46,6 +46,9 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.booking import Booking
 from app.db.models.system import System
 from app.core.security import get_password_hash
+from app.services.environment_decommission_defaults import (
+    seed_decommission_steps_for_tenant,
+)
 from app.services.environment_request_defaults import (
     seed_environment_request_defaults_for_tenant,
 )
@@ -482,4 +485,21 @@ async def environment_request_lifecycle(db_session, test_tenant) -> None:
     matching test_booking_type / test_change_requests.py's test_cr_lifecycle.
     """
     await seed_environment_request_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def decommission_steps_seeded(db_session, test_tenant) -> None:
+    """Seeds the standard decommission-step vocabulary for `test_tenant`.
+
+    Same reason as `environment_request_lifecycle` just above: `test_tenant`
+    builds a bare Tenant row directly, bypassing tenant_service.create_tenant
+    — one of the two real paths that seed this (the other being migration
+    `envdecommission`'s backfill, which the test suite never runs either,
+    since schema here is built with create_all, not `alembic upgrade head`).
+    Explicit rather than autouse, same rationale: a test that wants an
+    unseeded tenant (e.g. to exercise a service-level backfill) can simply not
+    request it.
+    """
+    await seed_decommission_steps_for_tenant(db_session, test_tenant.id)
     await db_session.commit()
