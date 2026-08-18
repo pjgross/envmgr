@@ -303,6 +303,33 @@ async def auth_headers(client, test_tenant, test_user) -> dict:
 
 
 @pytest_asyncio.fixture(scope="function")
+async def member_headers(client, db_session, test_tenant) -> dict:
+    """Bearer token headers for a non-Admin (Developer) user in test_tenant —
+    the "any tenant member" half of a reads-open/writes-Admin split, following
+    how auth_headers is built. No equivalent shared fixture existed; several
+    test files define a similarly-shaped local `developer_headers` instead."""
+    user = User(
+        tenant_id=test_tenant.id,
+        username="testmember",
+        email="member@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Developer",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    response = await client.post("/api/v1/auth/login", json={
+        "username": user.username,
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture(scope="function")
 async def test_booking(db_session, test_tenant, test_environment, test_user, test_booking_type):
     """A persisted booking request with a single child booking."""
     now = datetime.now(timezone.utc)
