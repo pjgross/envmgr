@@ -27,6 +27,26 @@ class DecommissionCreate(BaseModel):
     scheduled_teardown_at: Optional[datetime] = None
 
 
+class ExtensionRequest(BaseModel):
+    """The WRITE model for `POST .../extension` — the owner asking for more
+    time. `extra='forbid'` for the same reason as `DecommissionCreate`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1)
+    until: datetime
+
+
+class ExtensionDecision(BaseModel):
+    """The WRITE model for `POST .../extension/decision` — the operating
+    team's answer. No message field: the decision is binary, and a refusal's
+    reasoning belongs in conversation, not a stored column nothing renders."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    granted: bool
+
+
 class DecommissionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

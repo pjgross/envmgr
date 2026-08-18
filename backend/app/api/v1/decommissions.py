@@ -22,13 +22,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.decommission import DecommissionCreate, DecommissionRead
+from app.api.v1.schemas.decommission import (
+    DecommissionCreate, DecommissionRead, ExtensionDecision, ExtensionRequest,
+)
 from app.core.security import get_current_user
 from app.db.base import get_db
 from app.db.models.environment_decommission import EnvironmentDecommission
 from app.services import environment_decommission_service
 
 router = APIRouter(prefix="/environments", tags=["decommissions"])
+extensions_router = APIRouter(prefix="/decommissions", tags=["decommissions"])
 
 
 def _to_read(row: EnvironmentDecommission, now: datetime) -> DecommissionRead:
@@ -107,4 +110,52 @@ async def get_decommission(
         )
     if row is None:
         return None
+    return _to_read(row, now)
+
+
+@extensions_router.post(
+    "/{decommission_id}/extension",
+    response_model=DecommissionRead,
+)
+async def request_decommission_extension(
+    decommission_id: int,
+    data: ExtensionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """The owner asking for more time. `get_decommission_by_id` is
+    tenant-filtered, so a cross-tenant id is 404 before `assert_may_defend`
+    ever runs — a 403 would confirm the record exists."""
+    now = datetime.now(timezone.utc)
+    tenant_id = current_user.active_tenant_id
+    decommission = await environment_decommission_service.get_decommission_by_id(
+        db, decommission_id, tenant_id
+    )
+    row = await environment_decommission_service.request_extension(
+        db, decommission, current_user,
+        reason=data.reason, until=data.until, now=now,
+    )
+    return _to_read(row, now)
+
+
+@extensions_router.post(
+    "/{decommission_id}/extension/decision",
+    response_model=DecommissionRead,
+)
+async def decide_decommission_extension(
+    decommission_id: int,
+    data: ExtensionDecision,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """The operating team's answer — `assert_may_run`, deliberately not the
+    owner-side gate the request route uses."""
+    now = datetime.now(timezone.utc)
+    tenant_id = current_user.active_tenant_id
+    decommission = await environment_decommission_service.get_decommission_by_id(
+        db, decommission_id, tenant_id
+    )
+    row = await environment_decommission_service.decide_extension(
+        db, decommission, current_user, granted=data.granted, now=now,
+    )
     return _to_read(row, now)

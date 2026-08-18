@@ -306,3 +306,146 @@ async def initiate(
     await db.flush()
     await db.refresh(row)
     return row
+
+
+async def get_decommission_by_id(
+    db: AsyncSession, decommission_id: int, tenant_id: int
+) -> EnvironmentDecommission:
+    """Tenant-filtered lookup by the decommission's own id — the extension
+    routes address a decommission directly, not through its environment, so
+    this is the resolve step `initiate` gets for free from `get_environment`.
+    404 across tenants, never 403 — a foreign-tenant id must be
+    indistinguishable from one that never existed."""
+    row = (
+        await db.execute(
+            select(EnvironmentDecommission).where(
+                EnvironmentDecommission.id == decommission_id,
+                EnvironmentDecommission.tenant_id == tenant_id,
+                EnvironmentDecommission.deleted_at.is_(None),
+            )
+        )
+    ).scalars().first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Decommission not found")
+    return row
+
+
+async def request_extension(
+    db: AsyncSession,
+    decommission: EnvironmentDecommission,
+    user: User,
+    *,
+    reason: str,
+    until: datetime,
+    now: datetime,
+) -> EnvironmentDecommission:
+    """The owner asking for more time. `assert_may_defend`: the environment's
+    NAMED OWNER, or an Admin — deliberately NOT the operating team, which is
+    who `decide_extension` gates.
+
+    ORDER OF OPERATIONS: resolve the environment (404 across tenants) ->
+    assert_may_defend -> 409 if the row is not LIVE (checked through
+    `live_predicate`, not re-derived) -> 409 if an extension has already been
+    requested on this row, granted or refused (ONE extension per
+    decommission — spec's cancel-and-re-raise rule) -> 422 if `until` is not
+    strictly later than the current `scheduled_teardown_at` -> set the four
+    request fields.
+
+    `now` is REQUIRED and KEYWORD-ONLY, no default, following Task 5's
+    standing convention: a defaulted `datetime.now()` here would be a second
+    clock disagreeing with the one the route uses to render `state`.
+    """
+    environment = await get_environment(
+        db, decommission.environment_id, decommission.tenant_id
+    )
+    await assert_may_defend(db, environment, user)
+
+    still_live = (
+        await db.execute(
+            select(EnvironmentDecommission.id).where(
+                EnvironmentDecommission.id == decommission.id,
+                EnvironmentDecommission.tenant_id == decommission.tenant_id,
+                live_predicate(now),
+            )
+        )
+    ).first()
+    if still_live is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This decommission is no longer live — it has been cancelled or "
+            "torn down",
+        )
+
+    if decommission.extension_requested_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This decommission already has an extension request on record — "
+            "cancel this decommission and raise a new one instead",
+        )
+
+    until_utc = _utc(until)
+    current_teardown = _utc(decommission.scheduled_teardown_at)
+    if until_utc <= current_teardown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "until must be strictly later than the current "
+            "scheduled_teardown_at, or this would shorten the notice period",
+        )
+
+    decommission.extension_requested_at = now
+    decommission.extension_requested_by = user.id
+    decommission.extension_reason = reason.strip()
+    decommission.extension_until = until
+
+    await db.flush()
+    await db.refresh(decommission)
+    return decommission
+
+
+async def decide_extension(
+    db: AsyncSession,
+    decommission: EnvironmentDecommission,
+    user: User,
+    *,
+    granted: bool,
+    now: datetime,
+) -> EnvironmentDecommission:
+    """The operating team's answer. `assert_may_run`: the operating team, or
+    an Admin — deliberately NOT the owner, who `request_extension` gates.
+    The two helpers are never interchangeable: requesting and deciding gate
+    opposite parties, the same split `assert_may_defend`'s own docstring
+    describes.
+
+    409 if there is no undecided request (`extension_requested_at` unset, or
+    `extension_decided_at` already set — a second decision is refused the
+    same way a second request is).
+
+    GRANTING MOVES THE DATE; REFUSING MOVES NOTHING. On grant,
+    `scheduled_teardown_at` becomes `extension_until` — that is what makes
+    branch 3 of `decommission_state` stop matching and the row fall through
+    to `warned` on the caller's clock. Neither branch clears the request
+    block: it stays as the audit record of what was asked and decided.
+    """
+    environment = await get_environment(
+        db, decommission.environment_id, decommission.tenant_id
+    )
+    await assert_may_run(db, environment, user)
+
+    if (
+        decommission.extension_requested_at is None
+        or decommission.extension_decided_at is not None
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "There is no undecided extension request on this decommission",
+        )
+
+    decommission.extension_decided_at = now
+    decommission.extension_decided_by = user.id
+    decommission.extension_granted = granted
+    if granted:
+        decommission.scheduled_teardown_at = decommission.extension_until
+
+    await db.flush()
+    await db.refresh(decommission)
+    return decommission

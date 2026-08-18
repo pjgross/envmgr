@@ -12,10 +12,17 @@ import pytest
 import pytest_asyncio
 
 from app.core.security import get_password_hash
+from app.db.models.environment_decommission import EnvironmentDecommission
 from app.db.models.user import User
 from app.db.models.user_group import UserGroupMember
 from app.services import environment_decommission_service
 from tests.factories import ensure_environment, ensure_user_group
+
+
+def _iso(*, days: int) -> str:
+    """A timestamp `days` from now, ISO-8601 — the same shape the extension
+    routes accept for `until`."""
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
 
 
 async def _login(client, tenant_slug, username, password="password123"):
@@ -342,3 +349,301 @@ async def test_initiate_takes_one_injected_clock_not_two(
     # clock for the whole request, not one for the write and another for the
     # read.
     assert environment_decommission_service.decommission_state(row, pinned) == "warned"
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — the extension: the owner asking for more time, and the operating
+# team granting or refusing it. `assert_may_defend` (the owner-side gate) has
+# no coverage anywhere until this section — Task 5 wrote it but no route
+# called it.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def env_with_owner_and_team(db_session, test_tenant, env_with_team):
+    """`env_with_team`'s environment, plus a NAMED OWNER who is deliberately
+    NOT a member of the operating team — the pairing every extension test
+    needs, since requesting is gated on the owner and deciding on the team,
+    and a fixture where one person is both would hide the difference."""
+    owner = User(
+        tenant_id=test_tenant.id, username="decom-owner",
+        email="decom-owner@example.com",
+        password_hash=get_password_hash("password123"), role="Developer",
+        is_active=True,
+    )
+    db_session.add(owner)
+    await db_session.flush()
+    env_with_team.owner_user_id = owner.id
+    await db_session.commit()
+    await db_session.refresh(env_with_team)
+    return env_with_team
+
+
+@pytest_asyncio.fixture
+async def owner_headers(client, test_tenant, env_with_owner_and_team) -> dict:
+    """Bearer headers for 'decom-owner', env_with_owner_and_team's named
+    owner — not on the operating team, following assert_may_defend."""
+    return await _login(client, test_tenant.slug, "decom-owner")
+
+
+@pytest_asyncio.fixture
+async def live_decommission(
+    client, db_session, test_tenant, env_with_owner_and_team, team_headers
+) -> EnvironmentDecommission:
+    """A live decommission on env_with_owner_and_team, created through the
+    real initiate route (as the operating team) so it carries every invariant
+    that route enforces, rather than being built by hand."""
+    r = await client.post(
+        f"/api/v1/environments/{env_with_owner_and_team.id}/decommission",
+        headers=team_headers, json={"reason": "extension fixture"},
+    )
+    assert r.status_code == 201, r.text
+    row = await environment_decommission_service.get_most_recent(
+        db_session, test_tenant.id, env_with_owner_and_team.id
+    )
+    return row
+
+
+@pytest_asyncio.fixture
+async def torn_down_decommission(
+    db_session, test_tenant, env_with_owner_and_team, test_user
+) -> EnvironmentDecommission:
+    """A decommission that has already been torn down — built directly, since
+    Task 6 ships no teardown route yet. `test_a_torn_down_decommission_takes_
+    no_extension` exists precisely because `request_extension` must consult
+    `live_predicate`, not just `extension_requested_at`."""
+    now = datetime.now(timezone.utc)
+    row = EnvironmentDecommission(
+        tenant_id=test_tenant.id,
+        environment_id=env_with_owner_and_team.id,
+        reason="torn down fixture",
+        warned_at=now,
+        scheduled_teardown_at=now + timedelta(days=5),
+        initiated_by=test_user.id,
+        torn_down_at=now,
+        torn_down_by=test_user.id,
+    )
+    db_session.add(row)
+    await db_session.commit()
+    await db_session.refresh(row)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_the_owner_may_request_an_extension(client, owner_headers, live_decommission):
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers,
+        json={"reason": "UAT runs to month end", "until": _iso(days=30)},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "extension_requested"
+
+
+@pytest.mark.asyncio
+async def test_granting_moves_the_date_and_keeps_the_record(
+    client, team_headers, owner_headers, live_decommission
+):
+    """Branch 3 stops matching and the row falls through to `warned` on the new
+    clock — the audit trail survives because the block is not cleared."""
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers,
+        json={"reason": "need it", "until": _iso(days=30)},
+    )
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=team_headers, json={"granted": True},
+    )
+    body = r.json()
+    assert r.status_code == 200, r.text
+    assert body["state"] == "warned"
+    assert body["extension_granted"] is True
+    assert body["extension_reason"] == "need it"
+    assert body["scheduled_teardown_at"].startswith(_iso(days=30)[:10])
+
+
+@pytest.mark.asyncio
+async def test_refusing_moves_nothing(client, team_headers, owner_headers, live_decommission):
+    before = live_decommission.scheduled_teardown_at
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "please", "until": _iso(days=30)},
+    )
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=team_headers, json={"granted": False},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["extension_granted"] is False
+    assert r.json()["scheduled_teardown_at"] == before.isoformat().replace("+00:00", "Z")
+
+
+@pytest.mark.asyncio
+async def test_only_one_extension_per_decommission(
+    client, team_headers, owner_headers, live_decommission
+):
+    """A second request is refused, pointing at cancel-and-re-raise."""
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "first", "until": _iso(days=30)},
+    )
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=team_headers, json={"granted": False},
+    )
+    second = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "again", "until": _iso(days=60)},
+    )
+    assert second.status_code == 409, second.text
+    assert "cancel" in second.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_the_team_may_not_request_an_extension_on_the_owners_behalf(
+    client, team_headers, live_decommission
+):
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=team_headers, json={"reason": "x", "until": _iso(days=30)},
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_the_owner_may_not_decide_their_own_request(
+    client, owner_headers, live_decommission
+):
+    await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "x", "until": _iso(days=30)},
+    )
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=owner_headers, json={"granted": True},
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_an_extension_must_be_later_than_the_current_date(
+    client, owner_headers, live_decommission
+):
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "x", "until": _iso(days=1)},
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_torn_down_decommission_takes_no_extension(
+    client, owner_headers, torn_down_decommission
+):
+    r = await client.post(
+        f"/api/v1/decommissions/{torn_down_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "x", "until": _iso(days=30)},
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_non_owner_tenant_member_may_not_request_an_extension(
+    client, db_session, test_tenant, env_with_owner_and_team, live_decommission
+):
+    """The other half of assert_may_defend's coverage: an ordinary tenant
+    member who is neither the owner nor on the operating team is 403 —
+    distinguishing 'not the owner' from 'is the team', which
+    test_the_team_may_not_request_an_extension_on_the_owners_behalf already
+    covers."""
+    stranger = User(
+        tenant_id=test_tenant.id, username="decom-ext-stranger",
+        email="decom-ext-stranger@example.com",
+        password_hash=get_password_hash("password123"), role="Developer",
+        is_active=True,
+    )
+    db_session.add(stranger)
+    await db_session.commit()
+    headers = await _login(client, test_tenant.slug, "decom-ext-stranger")
+
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=headers, json={"reason": "x", "until": _iso(days=30)},
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_an_admin_may_request_and_decide_an_extension(
+    client, auth_headers, live_decommission
+):
+    """Admin is the bypass on BOTH gates — assert_may_defend and
+    assert_may_run agree on that even though they otherwise gate opposite
+    parties."""
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=auth_headers, json={"reason": "admin request", "until": _iso(days=30)},
+    )
+    assert r.status_code == 200, r.text
+
+    d = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=auth_headers, json={"granted": True},
+    )
+    assert d.status_code == 200, d.text
+    assert d.json()["extension_granted"] is True
+
+
+@pytest.mark.asyncio
+async def test_deciding_with_no_open_request_is_409(
+    client, team_headers, env_with_owner_and_team
+):
+    """No request has ever been made against a freshly-initiated
+    decommission — decide_extension must refuse, not silently no-op."""
+    created = await client.post(
+        f"/api/v1/environments/{env_with_owner_and_team.id}/decommission",
+        headers=team_headers, json={"reason": "no request yet"},
+    )
+    assert created.status_code == 201, created.text
+
+    r = await client.post(
+        f"/api/v1/decommissions/{created.json()['id']}/extension/decision",
+        headers=team_headers, json={"granted": True},
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_foreign_tenants_decommission_is_404_not_403(
+    client, owner_headers, db_session, second_tenant_factory
+):
+    """Cross-tenant is 404, never 403, on both extension routes — the same
+    rule every other decommission route follows, per contentions.py."""
+    other_tenant, other_admin = await second_tenant_factory(
+        "Decom Extension Foreign Org", "decom-ext-foreign-org"
+    )
+    other_env = await ensure_environment(db_session, other_tenant.id, slot=301)
+    other_row = EnvironmentDecommission(
+        tenant_id=other_tenant.id,
+        environment_id=other_env.id,
+        reason="foreign",
+        warned_at=datetime.now(timezone.utc),
+        scheduled_teardown_at=datetime.now(timezone.utc) + timedelta(days=5),
+        initiated_by=other_admin.id,
+    )
+    db_session.add(other_row)
+    await db_session.commit()
+    await db_session.refresh(other_row)
+
+    r = await client.post(
+        f"/api/v1/decommissions/{other_row.id}/extension",
+        headers=owner_headers, json={"reason": "x", "until": _iso(days=30)},
+    )
+    assert r.status_code == 404, r.text
+
+    d = await client.post(
+        f"/api/v1/decommissions/{other_row.id}/extension/decision",
+        headers=owner_headers, json={"granted": True},
+    )
+    assert d.status_code == 404, d.text

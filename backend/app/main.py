@@ -138,6 +138,10 @@ app.include_router(conflicts_router.router, prefix="/api/v1")
 app.include_router(contentions_router.router, prefix="/api/v1")
 app.include_router(contentions_router.escalations_router, prefix="/api/v1")
 app.include_router(decommissions_router.router, prefix="/api/v1")
+# Two routers, one module, same reason as contentions above: the initiate/get
+# pair hangs off the environment, while the extension is addressed by the
+# decommission's own id.
+app.include_router(decommissions_router.extensions_router, prefix="/api/v1")
 app.include_router(change_requests_router.router, prefix="/api/v1")
 app.include_router(
     infrastructure_components_router.router,
