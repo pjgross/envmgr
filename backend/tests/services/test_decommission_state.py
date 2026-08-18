@@ -131,6 +131,36 @@ async def decommission_fixtures(db_session, tenant):
         make(
             scheduled_teardown_at=boundary - timedelta(seconds=1)
         ),  # boundary, one second before the day: due
+        make(
+            scheduled_teardown_at=NOW + timedelta(days=30),
+            extension_requested_at=NOW - timedelta(days=2),
+            extension_decided_at=NOW - timedelta(days=1),
+            extension_granted=True,
+        ),  # decided extension, GRANTED: date moved out, reads warned through
+            # SQL too — pins the no_open_extension OR-arm from the true side
+        make(
+            scheduled_teardown_at=NOW - timedelta(days=1),
+            extension_requested_at=NOW - timedelta(days=2),
+            extension_decided_at=NOW - timedelta(hours=1),
+            extension_granted=False,
+        ),  # decided extension, REFUSED: date left in the past, reads due
+            # through SQL too — pins the same OR-arm from the other side, and
+            # that refusing does not move scheduled_teardown_at
+        make(
+            torn_down_at=NOW - timedelta(hours=1),
+            scheduled_teardown_at=NOW + timedelta(days=4),
+        ),  # torn_down, NO extension in play (unlike the torn_down row above,
+            # whose open extension already blocks no_open_extension by itself):
+            # teardown is in the future, so with not_terminal dropped from the
+            # WARNED branch this row's torn_down_at would go unnoticed there —
+            # pins not_terminal's torn_down_at half against WARNED specifically
+        make(
+            cancelled_at=NOW - timedelta(minutes=1),
+            scheduled_teardown_at=NOW - timedelta(days=1),
+        ),  # cancelled, no torn_down and no extension in play: teardown is in
+            # the past, so with not_terminal dropped from the DUE branch this
+            # row's cancelled_at would go unnoticed there — pins not_terminal's
+            # cancelled_at half against DUE specifically
     ]
     db_session.add_all(rows)
     await db_session.flush()
