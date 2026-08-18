@@ -14,6 +14,7 @@ import pytest_asyncio
 from app.core.security import get_password_hash
 from app.db.models.user import User
 from app.db.models.user_group import UserGroupMember
+from app.services import environment_decommission_service
 from tests.factories import ensure_environment, ensure_user_group
 
 
@@ -271,3 +272,73 @@ async def test_get_decommission_on_a_foreign_tenant_environment_is_404(
         headers=team_headers,
     )
     assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_an_empty_group_degrades_to_admin_only(
+    client, auth_headers, db_session, test_tenant
+):
+    """The other half of "degrades to Admin-only": a group that EXISTS but has
+    NO MEMBERS must take the same code path as no group at all (a NULL
+    operations_group_id, covered by test_with_no_operations_group_the_gate_
+    degrades_to_admin_only). A membership check that special-cased the NULL
+    FK but forgot the empty-join case would pass that test and still leave an
+    empty group's environment permanently actionable by nobody but an admin
+    who has to be told to intervene by accident."""
+    group = await ensure_user_group(db_session, test_tenant.id, name="Empty Decom Ops")
+    env = await ensure_environment(db_session, test_tenant.id, slot=103)
+    env.operations_group_id = group.id
+    outsider = User(
+        tenant_id=test_tenant.id, username="decom-empty-group-outsider",
+        email="decom-empty-group-outsider@example.com",
+        password_hash=get_password_hash("password123"), role="Developer",
+        is_active=True,
+    )
+    db_session.add(outsider)
+    await db_session.commit()
+    headers = await _login(client, test_tenant.slug, "decom-empty-group-outsider")
+
+    refused = await client.post(
+        f"/api/v1/environments/{env.id}/decommission",
+        headers=headers, json={"reason": "no"},
+    )
+    assert refused.status_code == 403, refused.text
+
+    allowed = await client.post(
+        f"/api/v1/environments/{env.id}/decommission",
+        headers=auth_headers, json={"reason": "yes"},
+    )
+    assert allowed.status_code == 201, allowed.text
+
+
+@pytest.mark.asyncio
+async def test_initiate_takes_one_injected_clock_not_two(
+    db_session, test_tenant, test_user, env_with_team
+):
+    """ONE CLOCK PER REQUEST. `initiate` must not call `datetime.now()`
+    itself — it must use exactly the `now` its caller hands it, and the
+    stored `warned_at` must equal that instant EXACTLY, not merely be close
+    to it (which a second, independent `datetime.now()` call a millisecond
+    later would also satisfy). Pin a clock nowhere near the real wall clock
+    so an accidental fallback to `datetime.now()` would fail this
+    unmistakably rather than by a flaky microsecond margin.
+    """
+    pinned = datetime(2030, 6, 15, 9, 0, 0, tzinfo=timezone.utc)
+
+    row = await environment_decommission_service.initiate(
+        db_session, test_tenant.id, env_with_team.id, test_user,
+        reason="pin the clock", now=pinned,
+    )
+
+    # SQLite hands back a naive datetime where PostgreSQL hands back an aware
+    # one (the same engine difference `environment_decommission_service._utc`
+    # exists to paper over) — normalise before comparing, not before storing.
+    warned_at = row.warned_at
+    if warned_at.tzinfo is None:
+        warned_at = warned_at.replace(tzinfo=timezone.utc)
+    assert warned_at == pinned
+    # The same instant, fed to the state function the route uses to render
+    # `state`, must agree with what was just stored -- proving there is one
+    # clock for the whole request, not one for the write and another for the
+    # read.
+    assert environment_decommission_service.decommission_state(row, pinned) == "warned"

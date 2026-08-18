@@ -186,13 +186,19 @@ async def assert_may_defend(db: AsyncSession, environment: Environment, user: Us
 
 
 async def get_live(
-    db: AsyncSession, tenant_id: int, environment_id: int
+    db: AsyncSession, tenant_id: int, environment_id: int, now: datetime
 ) -> Optional[EnvironmentDecommission]:
     """The one row matching `live_predicate` for this environment and tenant,
     or None. There can be at most one — enforced by `initiate`'s 409, not by
     a partial unique index (inert on SQLite, the same call B3a's group-name
-    uniqueness made)."""
-    now = datetime.now(timezone.utc)
+    uniqueness made).
+
+    `now` is REQUIRED, not defaulted — this function is reached from a route
+    (directly by GET .../decommission, and indirectly through `initiate`),
+    and a defaulted `datetime.now()` here would be a second clock in the same
+    request, disagreeing with whatever instant the route used to render
+    `state`. Callers take the clock once and pass it down.
+    """
     return (
         await db.execute(
             select(EnvironmentDecommission).where(
@@ -233,6 +239,7 @@ async def initiate(
     *,
     reason: str,
     scheduled_teardown_at: Optional[datetime] = None,
+    now: datetime,
 ) -> EnvironmentDecommission:
     """Start a decommission. ORDER OF OPERATIONS IS THE RULE, exactly:
 
@@ -245,6 +252,13 @@ async def initiate(
     The earlier-date refusal is not cosmetic: Task 8's booking refusal derives
     from this column, so an initiator who could shorten the notice would make
     the five-day warning advisory.
+
+    `now` is REQUIRED and KEYWORD-ONLY, with no default — a defaulted
+    `datetime.now()` here would be a second clock, taken a moment after the
+    route's own `now`, that then disagrees with the `state` the route renders
+    from the response. The caller (the route) takes the clock once and hands
+    the same instant to `initiate` and to the response builder; `warned_at`
+    on the stored row is exactly that instant, not a fresh read of the clock.
     """
     environment = await get_environment(db, environment_id, tenant_id)
 
@@ -257,14 +271,14 @@ async def initiate(
             "not an audit record",
         )
 
-    if await get_live(db, tenant_id, environment_id) is not None:
+    if await get_live(db, tenant_id, environment_id, now) is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "This environment already has a live decommission",
         )
 
     policy = await environment_lifecycle_policy_service.get_policy(db, tenant_id)
-    warned_at = datetime.now(timezone.utc)
+    warned_at = now
     earliest_teardown = warned_at + timedelta(days=policy.decommission_notice_days)
 
     if scheduled_teardown_at is not None:

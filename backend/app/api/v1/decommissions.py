@@ -67,7 +67,10 @@ async def initiate_decommission(
 ):
     # One clock for the whole request: the stored row and its rendered state
     # must come from the same instant, or a row created at 23:59:59 could
-    # render 'due' a moment later purely from re-reading the wall clock.
+    # render 'due' a moment later purely from re-reading the wall clock. This
+    # is the ONLY `datetime.now()` call anywhere in this request's path —
+    # `initiate` and `get_live` both take `now` as a required parameter
+    # precisely so a second clock cannot be reintroduced downstream.
     now = datetime.now(timezone.utc)
     tenant_id = current_user.active_tenant_id
     row = await environment_decommission_service.initiate(
@@ -77,6 +80,7 @@ async def initiate_decommission(
         current_user,
         reason=data.reason,
         scheduled_teardown_at=data.scheduled_teardown_at,
+        now=now,
     )
     return _to_read(row, now)
 
@@ -96,7 +100,7 @@ async def get_decommission(
     # makes a foreign-tenant id behave identically to one that never existed.
     await environment_decommission_service.get_environment(db, environment_id, tenant_id)
 
-    row = await environment_decommission_service.get_live(db, tenant_id, environment_id)
+    row = await environment_decommission_service.get_live(db, tenant_id, environment_id, now)
     if row is None:
         row = await environment_decommission_service.get_most_recent(
             db, tenant_id, environment_id
