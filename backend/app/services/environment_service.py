@@ -30,7 +30,7 @@ from app.api.v1.schemas.environment import (
 )
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
-from app.services import environment_compliance_service, user_group_service
+from app.services import environment_compliance_service, environment_idle_service, user_group_service
 
 
 @dataclass
@@ -51,6 +51,12 @@ class EnvironmentView:
     # renders "compliant" on a page that never computed the answer.
     quarantined: bool
     compliance_gaps: list[str]
+    # B5. Derived in SQL, never stored: no deployment and no booking for the
+    # tier's or tenant's threshold, on an ACTIVE environment older than that
+    # threshold. Required-positional for the same reason as the two fields
+    # above it — a defaulted field would render "not idle" at a construction
+    # site that never computed the answer.
+    idle: bool
 
 
 def _reserved_now_clause():
@@ -128,6 +134,8 @@ async def list_environments(
     governance_gap: Optional[bool] = None,
     compliance_gap: Optional[bool] = None,
     quarantined: Optional[bool] = None,
+    idle: Optional[bool] = None,
+    now: Optional[datetime] = None,
     sort: Optional[Sort] = None,
 ) -> tuple[list[EnvironmentView], int]:
     """Environments for a tenant, plus the unwindowed total.
@@ -135,7 +143,12 @@ async def list_environments(
     Every filter is applied in SQL. A filter applied in Python after the query
     would window the page before the filter and return quietly wrong results —
     see docs/pagination.md.
+
+    `now` is taken ONCE, here, and threaded through both the idle filter and
+    every rendered `idle` value — a row on its threshold boundary must not be
+    selected by one clock and rendered by another.
     """
+    now = now or datetime.now(timezone.utc)
     query = _view_query(tenant_id).where(
         Environment.tenant_id == tenant_id, Environment.deleted_at.is_(None)
     )
@@ -174,15 +187,22 @@ async def list_environments(
     # B2's two filters run in SQL, before the window, like every other filter
     # here. ONE policy load and ONE clock for the whole request: the same
     # scalars decide the filter and the rendered flag, so a row that survives
-    # `?quarantined=true` cannot render as un-quarantined.
+    # `?quarantined=true` cannot render as un-quarantined. `now` is the same
+    # instant B5's idle filter/render use below — one clock for the request.
     policy = await environment_compliance_service.load_policy(db, tenant_id)
-    now = datetime.now(timezone.utc)
     if compliance_gap is not None:
         clause = environment_compliance_service.noncompliance_clause(policy)
         query = query.where(clause if compliance_gap else ~clause)
     if quarantined is not None:
         clause = environment_compliance_service.quarantine_clause(policy, now)
         query = query.where(clause if quarantined else ~clause)
+    # B5. Resolved once; the same clause both filters and is rendered per row,
+    # so `?idle=true` cannot render a row that answers `idle: false`.
+    idle_st = await environment_idle_service.idle_state(db, tenant_id, now)
+    idle_expr = environment_idle_service.idle_clause(idle_st, now)
+    query = query.add_columns(idle_expr.label("idle"))
+    if idle is not None:
+        query = query.where(idle_expr if idle else ~idle_expr)
     query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
     rows, total = await fetch_page_rows(db, query, page)
 
@@ -202,8 +222,9 @@ async def list_environments(
                 reserved_now=bool(reserved_now),
                 quarantined=env.id in quarantined_now,
                 compliance_gaps=gaps[env.id],
+                idle=bool(idle_flag),
             )
-            for env, tier_name, tier_color, owner_username, operations_group_name, reserved_now in rows
+            for env, tier_name, tier_color, owner_username, operations_group_name, reserved_now, idle_flag in rows
         ],
         total,
     )
@@ -214,9 +235,14 @@ async def get_environment_view(
 ) -> EnvironmentView:
     """The enriched shape the API returns. `get_environment` keeps returning the
     ORM entity for internal callers that mutate it."""
+    now = datetime.now(timezone.utc)
+    idle_st = await environment_idle_service.idle_state(db, tenant_id, now)
+    idle_expr = environment_idle_service.idle_clause(idle_st, now)
     row = (
         await db.execute(
-            _view_query(tenant_id).where(
+            _view_query(tenant_id)
+            .add_columns(idle_expr.label("idle"))
+            .where(
                 Environment.id == env_id,
                 Environment.tenant_id == tenant_id,
                 Environment.deleted_at.is_(None),
@@ -227,11 +253,13 @@ async def get_environment_view(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found"
         )
-    env, tier_name, tier_color, owner_username, operations_group_name, reserved_now = row
+    (
+        env, tier_name, tier_color, owner_username, operations_group_name,
+        reserved_now, idle_flag,
+    ) = row
     # The detail page must agree with the grid, so it derives B2's two fields
     # from the same functions rather than a second reading of the rule.
     policy = await environment_compliance_service.load_policy(db, tenant_id)
-    now = datetime.now(timezone.utc)
     quarantined_now = await environment_compliance_service.quarantined_ids(
         db, tenant_id, policy, now, [env.id]
     )
@@ -246,6 +274,7 @@ async def get_environment_view(
         compliance_gaps=environment_compliance_service.gaps_for_environments(
             [env], policy
         )[env.id],
+        idle=bool(idle_flag),
     )
 
 
