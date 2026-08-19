@@ -6,6 +6,7 @@ import type {
   Decommission,
   DecommissionCreate,
   DecommissionState,
+  DecommissionStep,
   DecommissionWorklistRow,
   ExtensionDecision,
   ExtensionRequest,
@@ -41,6 +42,19 @@ export const decommissionService = {
 
   cancel: (decommissionId: number, data: CancelRequest): Promise<Decommission> =>
     api.post(`/decommissions/${decommissionId}/cancel`, data).then((r) => r.data),
+
+  // GET /tenant/decommission-steps — the tenant's checklist vocabulary. A
+  // plain array, not paginated: this is tenant-configured (`environment_tier`
+  // precedent), small by construction, not a growth-bearing list. Defaults to
+  // `active_only=true` because the panel's checklist renders what a
+  // decommission must satisfy TODAY — a retired step stops gating, per
+  // `missing_required_steps`' own docstring.
+  listSteps: (activeOnly = true): Promise<DecommissionStep[]> =>
+    api
+      .get<DecommissionStep[]>('/tenant/decommission-steps', {
+        params: { active_only: activeOnly },
+      })
+      .then((r) => r.data),
 
   // The worklist: every decommission this tenant can see, live and terminal
   // alike (GET /decommissions, extensions_router's own prefix).

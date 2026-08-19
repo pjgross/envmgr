@@ -8,6 +8,7 @@ import type {
   Decommission,
   DecommissionCreate,
   DecommissionState,
+  DecommissionStep,
   DecommissionWorklistRow,
   ExtensionDecision,
   ExtensionRequest,
@@ -34,6 +35,13 @@ interface DecommissionSliceState {
   worklistTotal: number;
   worklistLoading: boolean;
   worklistError: string | null;
+
+  // The tenant's checklist vocabulary — GET /tenant/decommission-steps. Not
+  // paged (see decommissionService.listSteps): a small, tenant-configured
+  // list, not a growth-bearing one. Task 12's panel is the first reader.
+  steps: DecommissionStep[];
+  stepsLoading: boolean;
+  stepsError: string | null;
 }
 
 const initialState: DecommissionSliceState = {
@@ -46,6 +54,10 @@ const initialState: DecommissionSliceState = {
   worklistTotal: 0,
   worklistLoading: false,
   worklistError: null,
+
+  steps: [],
+  stepsLoading: false,
+  stepsError: null,
 };
 
 // Every mutating thunk rejects with `rejectWithValue(formatApiError(...))`
@@ -188,6 +200,22 @@ export const fetchDecommissionWorklist = createAsyncThunk<
   }
 );
 
+// The tenant's checklist vocabulary, for the environment detail panel (Task
+// 12) — `active_only=true`, the same default the checklist itself should
+// render: a retired step stops gating immediately, so an inactive step has
+// no business appearing as something still to sign.
+export const fetchDecommissionSteps = createAsyncThunk<
+  DecommissionStep[],
+  void,
+  { rejectValue: string }
+>('decommission/fetchSteps', async (_, { rejectWithValue }) => {
+  try {
+    return await decommissionService.listSteps(true);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to load the decommission checklist'));
+  }
+});
+
 const decommissionSlice = createSlice({
   name: 'decommission',
   initialState,
@@ -247,6 +275,18 @@ const decommissionSlice = createSlice({
       .addCase(fetchDecommissionWorklist.rejected, (state, action) => {
         state.worklistLoading = false;
         state.worklistError = action.payload ?? 'Failed to load the decommission worklist';
+      })
+      .addCase(fetchDecommissionSteps.pending, (state) => {
+        state.stepsLoading = true;
+        state.stepsError = null;
+      })
+      .addCase(fetchDecommissionSteps.fulfilled, (state, action) => {
+        state.stepsLoading = false;
+        state.steps = action.payload;
+      })
+      .addCase(fetchDecommissionSteps.rejected, (state, action) => {
+        state.stepsLoading = false;
+        state.stepsError = action.payload ?? 'Failed to load the decommission checklist';
       });
   },
 });
