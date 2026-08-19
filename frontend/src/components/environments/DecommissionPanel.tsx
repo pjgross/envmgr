@@ -258,7 +258,6 @@ export default function DecommissionPanel({
   );
   useEffect(() => {
     setSignedSteps(toSignedStepViews(effective?.attestations));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effective?.id, effective?.attestations]);
 
   const [error, setError] = useState<string | null>(null);
