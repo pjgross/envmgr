@@ -997,19 +997,21 @@ export default function EnvironmentDetail() {
           {!editMode && currentEnvironment && <HandoverSection environment={currentEnvironment} />}
 
           {/* B5 — the decommission panel: banner, every control the viewer
-              may use, and the attestation checklist, together (A2's
-              GroupTransitionPanel lesson — a repair control lives next to
-              the state it repairs). Renders only once a decommission exists
-              for this environment; there is no "start a decommission" entry
-              point on this page yet (not exercised by any Task 12 test —
-              initiating one today happens through /decommissions or the API
-              directly). */}
-          {!editMode && currentEnvironment && decommissionCurrent && (
+              may use, the "Start decommission" entry point, and the
+              attestation checklist, together (A2's GroupTransitionPanel
+              lesson — a repair control lives next to the state it repairs).
+              `decommission` is `null` when this environment has never been
+              decommissioned — the panel's own "Start decommission" control
+              lives inside it for exactly that case, so this page always
+              renders it once the environment itself has loaded. */}
+          {!editMode && currentEnvironment && (
             <DecommissionPanel
-              decommission={{
-                ...decommissionCurrent,
-                remaining_bookings: decommissionRemainingBookings,
-              }}
+              decommission={
+                decommissionCurrent && {
+                  ...decommissionCurrent,
+                  remaining_bookings: decommissionRemainingBookings,
+                }
+              }
               steps={decommissionSteps}
               env={{
                 id: currentEnvironment.id,

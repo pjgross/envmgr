@@ -1,12 +1,24 @@
 /**
- * DecommissionPanel — B5 Task 12. The one surface that drives the whole
- * decommission workflow: the banner, every control the viewer may actually
- * use, and the attestation checklist, ALL TOGETHER in one panel.
+ * DecommissionPanel — B5 Task 12 (+ the Task-12 review fix). The one surface
+ * that drives the whole decommission workflow: the banner, every control the
+ * viewer may actually use, the entry point that STARTS one, and the
+ * attestation checklist, ALL TOGETHER in one panel.
  *
  * A2's `GroupTransitionPanel` lesson, restated for B5: a banner that
  * diagnoses a state and offers no way to act on it is where three tasks
  * quietly removed the repair affordance. Controls live next to the state
  * they act on — there is no separate "actions" section here.
+ *
+ * THE PRIMARY JOURNEY MUST BE REACHABLE FROM THE PRODUCT. B3b shipped a
+ * workflow whose primary journey (submitting the request that starts it) was
+ * impossible, caught only by tracing the journey — never by the diff or the
+ * tests. This panel's first review shipped the same shape: `decommission`
+ * was a required, non-null prop, so the panel only ever rendered once one
+ * already existed, and nothing anywhere called `initiateDecommission`. Fixed
+ * here: `decommission` is `| null`, and when it is null (or the most recent
+ * record is no longer LIVE — cancelled or torn down, so a fresh one is
+ * legal) the panel offers "Start decommission" to whoever is entitled to use
+ * it.
  *
  * PERMISSION SPLIT, MIRRORED FROM THE SERVER (see
  * `environment_decommission_service.assert_may_run` /
@@ -22,14 +34,13 @@
  * via `userGroupService.listMembers`, falling back to NOT a member on any
  * error or missing group — a network failure must never widen who can act.
  *
- * ATTESTATION HISTORY — A DISCLOSED GAP. There is no `GET` for previously
- * signed attestations (`POST .../attestations` is write-only; the backend is
- * feature-complete as of Task 9 with no such route). `decommission` may
- * optionally carry a pre-resolved `attestations` list for whoever assembles
- * it; this panel seeds its checklist from that and then grows it locally as
- * THIS viewer signs steps in THIS session. A page reload will not show a
- * step someone else signed, or one signed earlier in a different session,
- * until a future task adds a real list endpoint. Disclosed, not hidden.
+ * ATTESTATION HISTORY. `GET /environments/{id}/decommission` now carries a
+ * real `attestations` field (backend fix landed alongside this one — see
+ * `DecommissionRead.attestations` / `list_attestations`), so the checklist
+ * seeds from the real wire response, not a locally-invented one. It still
+ * grows locally the moment THIS viewer signs a step in THIS session, ahead
+ * of the next fetch, the same optimistic-update shape used everywhere else
+ * in this codebase.
  *
  * ERRORS: every mutating action here reads `result.payload`, never
  * `result.error.message` — RTK's default serializer drops
@@ -58,34 +69,58 @@ import type { AppDispatch } from '../../store';
 import {
   cancelDecommission,
   decideExtension,
+  initiateDecommission,
   requestExtension,
   signAttestation,
   tearDown,
 } from '../../store/decommissionSlice';
 import { userGroupService } from '../../services/userGroupService';
 import type {
+  Attestation,
   Decommission,
   DecommissionState,
   DecommissionStep,
   RemainingBookingSummary,
 } from '../../types/decommission';
 
-/** One checklist entry as the panel renders it — see the file-top comment on
- * why this is not simply `Attestation` (that type carries a numeric
- * `signed_by`, not a name; rule: render entities by name, never `#N`). */
+/**
+ * One checklist entry as the panel RENDERS it — deliberately not the same
+ * shape as the wire `Attestation` (which also carries `id`, `decommission_id`,
+ * the numeric `signed_by`, and `notes`, none of which this panel displays).
+ * `toSignedStepViews` below is the one place that narrows the wire shape
+ * into this one; a step just signed in THIS session is appended directly in
+ * this shape, ahead of the next fetch.
+ *
+ * `signed_by_username` is nullable, never a bare `#N`: the backend resolves
+ * it via a LEFT JOIN (`list_attestations`) that can legitimately find no
+ * matching `User` row, and the render below omits the name rather than
+ * inventing one when that happens.
+ */
 export interface SignedStepView {
   step_key: string;
-  signed_by_username: string;
+  signed_by_username: string | null;
   signed_at: string;
   reference?: string | null;
 }
 
-/** `Decommission` plus the extras a caller MAY already have resolved. Every
- * extra is optional — the plain `GET /environments/{id}/decommission`
- * response satisfies this type with none of them present. */
+function toSignedStepViews(attestations: Attestation[] | undefined): SignedStepView[] {
+  return (attestations ?? []).map((a) => ({
+    step_key: a.step_key,
+    signed_by_username: a.signed_by_username ?? null,
+    signed_at: a.signed_at,
+    reference: a.reference,
+  }));
+}
+
+/** `Decommission` plus the extras a caller MAY already have resolved.
+ * `attestations` (inherited from `Decommission`, real `Attestation[]` on the
+ * wire) travels on the real `GET .../decommission` response now — see
+ * `toSignedStepViews` above for how the panel narrows it to its own display
+ * shape. `remaining_bookings` only arrives via a teardown response, so
+ * `EnvironmentDetail` merges the slice's separately-tracked
+ * `remainingBookings` onto it before handing this down. */
 export interface DecommissionWithChecklist extends Decommission {
   initiated_by_username?: string | null;
-  attestations?: SignedStepView[];
   remaining_bookings?: RemainingBookingSummary[];
 }
 
@@ -104,7 +139,13 @@ export interface DecommissionPanelEnvironment {
 }
 
 interface DecommissionPanelProps {
-  decommission: DecommissionWithChecklist;
+  /** `null` when this environment has never been decommissioned — the
+   * ordinary case `GET .../decommission` answers with, never a 404 (see
+   * decommissions.py's own module docstring). The panel's "Start
+   * decommission" control lives here, not on the parent page, per this
+   * file's own top-of-file rule: controls sit next to the state they act
+   * on. */
+  decommission: DecommissionWithChecklist | null;
   steps: DecommissionStep[];
   env: DecommissionPanelEnvironment;
   currentUser?: DecommissionPanelUser | null;
@@ -187,16 +228,28 @@ export default function DecommissionPanel({
   const canRun = isAdmin || inOperatingTeam;
   const canDefend = isAdmin || isOwner;
 
-  // The checklist. Re-seeded whenever a DIFFERENT decommission (or a fresh
-  // `attestations` array from the caller) arrives — never on every render,
-  // or a step signed locally this session would be wiped by the next
-  // parent re-render carrying the same unchanged prop.
+  // A decommission just started in THIS session, before the parent's own
+  // fetch has caught up. `decommission` (the prop) always wins once the
+  // parent re-supplies a real one — this is a bridge, not a cache. All
+  // hooks below are called unconditionally regardless of whether either is
+  // present, per the rules of hooks; the null/non-null branch happens only
+  // in the JSX at the bottom.
+  const [justInitiated, setJustInitiated] = useState<DecommissionWithChecklist | null>(null);
+  const effective = decommission ?? justInitiated;
+
+  // The checklist. Seeded from the real `attestations` field on `effective`
+  // (see the file-top comment — this now travels on the wire) and re-seeded
+  // whenever a DIFFERENT decommission (or a fresh `attestations` array from
+  // the caller) arrives — never on every render, or a step signed locally
+  // this session would be wiped by the next parent re-render carrying the
+  // same unchanged prop.
   const [signedSteps, setSignedSteps] = useState<SignedStepView[]>(
-    decommission.attestations ?? []
+    toSignedStepViews(effective?.attestations)
   );
   useEffect(() => {
-    setSignedSteps(decommission.attestations ?? []);
-  }, [decommission.id, decommission.attestations]);
+    setSignedSteps(toSignedStepViews(effective?.attestations));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effective?.id, effective?.attestations]);
 
   const [error, setError] = useState<string | null>(null);
   const [referenceDrafts, setReferenceDrafts] = useState<Record<string, string>>({});
@@ -213,25 +266,40 @@ export default function DecommissionPanel({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
 
-  const isLive = !decommission.cancelled_at && !decommission.torn_down_at;
+  const [initiateOpen, setInitiateOpen] = useState(false);
+  const [initiateReason, setInitiateReason] = useState('');
+  const [initiateTeardown, setInitiateTeardown] = useState('');
+  const [initiateSubmitting, setInitiateSubmitting] = useState(false);
+
+  const isLive = effective ? !effective.cancelled_at && !effective.torn_down_at : false;
   const activeSteps = steps.filter((s) => s.is_active);
   const signedKeys = new Set(signedSteps.map((a) => a.step_key));
   const missingRequired = activeSteps.filter((s) => s.is_required && !signedKeys.has(s.key));
 
   const hasOpenExtensionRequest =
-    decommission.extension_requested_at != null && decommission.extension_decided_at == null;
+    !!effective &&
+    effective.extension_requested_at != null &&
+    effective.extension_decided_at == null;
   // ONE extension per decommission (the server's own rule) — once a request
   // exists at all, granted or refused, the control never reappears.
-  const canRequestExtension = canDefend && isLive && decommission.extension_requested_at == null;
+  const canRequestExtension =
+    !!effective && canDefend && isLive && effective.extension_requested_at == null;
 
-  const remainingBookings = decommission.remaining_bookings ?? [];
+  const remainingBookings = effective?.remaining_bookings ?? [];
+
+  // A live decommission already exists (the server 409s a second one) — no
+  // start control while that's true. Once `effective` is null, or the most
+  // recent record is terminal (cancelled/torn down), starting a new one is
+  // legal again.
+  const canStartDecommission = canRun && !isLive;
 
   async function handleSign(stepKey: string) {
+    if (!effective) return;
     setError(null);
     setSigning(stepKey);
     const result = await dispatch(
       signAttestation({
-        decommissionId: decommission.id,
+        decommissionId: effective.id,
         data: { step_key: stepKey, reference: referenceDrafts[stepKey] || null },
       })
     );
@@ -253,9 +321,10 @@ export default function DecommissionPanel({
   }
 
   async function handleTearDown() {
+    if (!effective) return;
     setError(null);
     setTearingDown(true);
-    const result = await dispatch(tearDown(decommission.id));
+    const result = await dispatch(tearDown(effective.id));
     setTearingDown(false);
     if (tearDown.rejected.match(result)) {
       setError(result.payload ?? 'Failed to tear down this environment');
@@ -263,10 +332,11 @@ export default function DecommissionPanel({
   }
 
   async function handleDecideExtension(granted: boolean) {
+    if (!effective) return;
     setError(null);
     setDeciding(true);
     const result = await dispatch(
-      decideExtension({ decommissionId: decommission.id, data: { granted } })
+      decideExtension({ decommissionId: effective.id, data: { granted } })
     );
     setDeciding(false);
     if (decideExtension.rejected.match(result)) {
@@ -275,11 +345,12 @@ export default function DecommissionPanel({
   }
 
   async function handleRequestExtension() {
+    if (!effective) return;
     setError(null);
     setExtensionSubmitting(true);
     const result = await dispatch(
       requestExtension({
-        decommissionId: decommission.id,
+        decommissionId: effective.id,
         data: { reason: extensionReason, until: extensionUntil },
       })
     );
@@ -294,10 +365,11 @@ export default function DecommissionPanel({
   }
 
   async function handleCancel() {
+    if (!effective) return;
     setError(null);
     setCancelSubmitting(true);
     const result = await dispatch(
-      cancelDecommission({ decommissionId: decommission.id, data: { reason: cancelReason } })
+      cancelDecommission({ decommissionId: effective.id, data: { reason: cancelReason } })
     );
     setCancelSubmitting(false);
     if (cancelDecommission.rejected.match(result)) {
@@ -308,189 +380,286 @@ export default function DecommissionPanel({
     setCancelReason('');
   }
 
+  async function handleInitiate() {
+    setError(null);
+    setInitiateSubmitting(true);
+    const result = await dispatch(
+      initiateDecommission({
+        environmentId: env.id,
+        data: {
+          reason: initiateReason,
+          // Optional: the server computes the notice-period default when
+          // omitted, and 422s an earlier one than that default allows — we
+          // do not pre-validate that here (we don't know the tenant's
+          // notice period client-side); the server's own message surfaces
+          // through `result.payload` like every other refusal in this file.
+          ...(initiateTeardown ? { scheduled_teardown_at: initiateTeardown } : {}),
+        },
+      })
+    );
+    setInitiateSubmitting(false);
+    if (initiateDecommission.rejected.match(result)) {
+      setError(result.payload ?? 'Failed to start this decommission');
+      return;
+    }
+    setJustInitiated(result.payload);
+    setInitiateOpen(false);
+    setInitiateReason('');
+    setInitiateTeardown('');
+  }
+
   return (
     <Paper sx={{ p: 3 }} data-testid="decommission-panel">
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="h6">Decommission</Typography>
-        <Chip
-          size="small"
-          label={STATE_LABELS[decommission.state]}
-          color={STATE_COLORS[decommission.state]}
-        />
-      </Box>
-
-      <Typography variant="body2" sx={{ mb: 0.5 }}>
-        {decommission.reason}
+      <Typography variant="h6" sx={{ mb: 1 }}>
+        Decommission
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-        Scheduled teardown: {formatUtcDate(decommission.scheduled_teardown_at)}
-      </Typography>
-      {/* Never a bare `#N` fallback — omitted entirely when the caller has
-          not resolved a name, which is the ordinary case today (see the
-          file-top comment). */}
-      {decommission.initiated_by_username && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-          Initiated by {decommission.initiated_by_username}
-        </Typography>
-      )}
-      {decommission.cancelled_at && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-          Cancelled: {decommission.cancel_reason}
-        </Typography>
-      )}
 
       {error && (
-        <Alert severity="error" sx={{ mt: 1, mb: 2 }} onClose={() => setError(null)}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
 
-      <Divider sx={{ my: 2 }} />
-
-      {/* Extension */}
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Extension
-        </Typography>
-        {hasOpenExtensionRequest && (
-          <Alert severity="info" sx={{ mb: 1 }}>
-            An extension has been requested — {decommission.extension_reason}, until{' '}
-            {decommission.extension_until ? formatUtcDate(decommission.extension_until) : '—'}.
-          </Alert>
-        )}
-        {!hasOpenExtensionRequest &&
-          decommission.extension_decided_at != null && (
+      {canStartDecommission && (
+        <Box sx={{ mb: effective ? 2 : 0 }}>
+          {!effective && (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Extension {decommission.extension_granted ? 'granted' : 'refused'} on{' '}
-              {formatUtcDate(decommission.extension_decided_at)}.
+              This environment has no active decommission.
             </Typography>
           )}
-        <Stack direction="row" spacing={1}>
-          {canRequestExtension && (
-            <Button size="small" variant="outlined" onClick={() => setExtensionOpen(true)}>
-              Request extension
-            </Button>
-          )}
-          {hasOpenExtensionRequest && canRun && (
-            <>
-              <Button
-                size="small"
-                variant="contained"
-                disabled={deciding}
-                onClick={() => handleDecideExtension(true)}
-              >
-                Grant extension
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={deciding}
-                onClick={() => handleDecideExtension(false)}
-              >
-                Refuse extension
-              </Button>
-            </>
-          )}
-        </Stack>
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      {/* Checklist */}
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Checklist
-        </Typography>
-        <Stack spacing={1.5}>
-          {activeSteps.map((step) => {
-            const signedEntry = signedSteps.find((a) => a.step_key === step.key);
-            return (
-              <Box key={step.key}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="body2">{step.label}</Typography>
-                  {step.is_required && <Chip size="small" label="Required" />}
-                </Stack>
-                {signedEntry ? (
-                  <Typography variant="body2" color="text.secondary">
-                    Signed by {signedEntry.signed_by_username} on{' '}
-                    {formatUtcDate(signedEntry.signed_at)}
-                    {signedEntry.reference ? ` · ${signedEntry.reference}` : ''}
-                  </Typography>
-                ) : (
-                  canRun &&
-                  isLive && (
-                    <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                      <TextField
-                        size="small"
-                        label="Reference"
-                        value={referenceDrafts[step.key] ?? ''}
-                        onChange={(e) =>
-                          setReferenceDrafts((prev) => ({ ...prev, [step.key]: e.target.value }))
-                        }
-                      />
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        disabled={signing === step.key}
-                        onClick={() => handleSign(step.key)}
-                      >
-                        Sign
-                      </Button>
-                    </Stack>
-                  )
-                )}
-              </Box>
-            );
-          })}
-        </Stack>
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      {/* Remaining bookings — SURFACES, never touches. B5 acts only where it
-          says: no control here may change a booking. See the file-top
-          comment and tests/test_b5_acts_only_where_it_says.py's UI half. */}
-      {remainingBookings.length > 0 && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Bookings not touched by teardown
-          </Typography>
-          <Stack spacing={0.5}>
-            {remainingBookings.map((b) => (
-              <Typography key={b.id} variant="body2" color="text.secondary">
-                {b.status} booking, {formatUtcDate(b.start_date)} – {formatUtcDate(b.end_date)}
-              </Typography>
-            ))}
-          </Stack>
+          <Button variant="outlined" onClick={() => setInitiateOpen(true)}>
+            Start decommission
+          </Button>
         </Box>
       )}
 
-      {/* Run actions */}
-      {canRun && isLive && (
-        <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-          <Box>
-            <Button
-              variant="contained"
-              color="error"
-              disabled={missingRequired.length > 0 || tearingDown}
-              onClick={handleTearDown}
-            >
-              Tear down
-            </Button>
-            {missingRequired.length > 0 && (
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                Sign every required step before tearing down:{' '}
-                {missingRequired.map((s) => s.key).join(', ')}
+      {effective && (
+        <>
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
+          >
+            <Box />
+            <Chip
+              size="small"
+              label={STATE_LABELS[effective.state]}
+              color={STATE_COLORS[effective.state]}
+            />
+          </Box>
+
+          <Typography variant="body2" sx={{ mb: 0.5 }}>
+            {effective.reason}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+            Scheduled teardown: {formatUtcDate(effective.scheduled_teardown_at)}
+          </Typography>
+          {/* Never a bare `#N` fallback — omitted entirely when the caller
+              has not resolved a name. */}
+          {effective.initiated_by_username && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              Initiated by {effective.initiated_by_username}
+            </Typography>
+          )}
+          {effective.cancelled_at && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              Cancelled: {effective.cancel_reason}
+            </Typography>
+          )}
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Extension */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Extension
+            </Typography>
+            {hasOpenExtensionRequest && (
+              <Alert severity="info" sx={{ mb: 1 }}>
+                An extension has been requested — {effective.extension_reason}, until{' '}
+                {effective.extension_until ? formatUtcDate(effective.extension_until) : '—'}.
+              </Alert>
+            )}
+            {!hasOpenExtensionRequest && effective.extension_decided_at != null && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Extension {effective.extension_granted ? 'granted' : 'refused'} on{' '}
+                {formatUtcDate(effective.extension_decided_at)}.
               </Typography>
             )}
+            <Stack direction="row" spacing={1}>
+              {canRequestExtension && (
+                <Button size="small" variant="outlined" onClick={() => setExtensionOpen(true)}>
+                  Request extension
+                </Button>
+              )}
+              {hasOpenExtensionRequest && canRun && (
+                <>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={deciding}
+                    onClick={() => handleDecideExtension(true)}
+                  >
+                    Grant extension
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={deciding}
+                    onClick={() => handleDecideExtension(false)}
+                  >
+                    Refuse extension
+                  </Button>
+                </>
+              )}
+            </Stack>
           </Box>
-        </Stack>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Checklist */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Checklist
+            </Typography>
+            <Stack spacing={1.5}>
+              {activeSteps.map((step) => {
+                const signedEntry = signedSteps.find((a) => a.step_key === step.key);
+                return (
+                  <Box key={step.key}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="body2">{step.label}</Typography>
+                      {step.is_required && <Chip size="small" label="Required" />}
+                    </Stack>
+                    {signedEntry ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {signedEntry.signed_by_username
+                          ? `Signed by ${signedEntry.signed_by_username} on `
+                          : 'Signed on '}
+                        {formatUtcDate(signedEntry.signed_at)}
+                        {signedEntry.reference ? ` · ${signedEntry.reference}` : ''}
+                      </Typography>
+                    ) : (
+                      canRun &&
+                      isLive && (
+                        <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                          <TextField
+                            size="small"
+                            label="Reference"
+                            value={referenceDrafts[step.key] ?? ''}
+                            onChange={(e) =>
+                              setReferenceDrafts((prev) => ({
+                                ...prev,
+                                [step.key]: e.target.value,
+                              }))
+                            }
+                          />
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            disabled={signing === step.key}
+                            onClick={() => handleSign(step.key)}
+                          >
+                            Sign
+                          </Button>
+                        </Stack>
+                      )
+                    )}
+                  </Box>
+                );
+              })}
+            </Stack>
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Remaining bookings — SURFACES, never touches. B5 acts only
+              where it says: no control here may change a booking. See the
+              file-top comment and tests/test_b5_acts_only_where_it_says.py's
+              UI half. */}
+          {remainingBookings.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Bookings not touched by teardown
+              </Typography>
+              <Stack spacing={0.5}>
+                {remainingBookings.map((b) => (
+                  <Typography key={b.id} variant="body2" color="text.secondary">
+                    {b.status} booking, {formatUtcDate(b.start_date)} – {formatUtcDate(b.end_date)}
+                  </Typography>
+                ))}
+              </Stack>
+            </Box>
+          )}
+
+          {/* Run actions */}
+          {canRun && isLive && (
+            <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+              <Box>
+                <Button
+                  variant="contained"
+                  color="error"
+                  disabled={missingRequired.length > 0 || tearingDown}
+                  onClick={handleTearDown}
+                >
+                  Tear down
+                </Button>
+                {missingRequired.length > 0 && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                    sx={{ mt: 0.5 }}
+                  >
+                    Sign every required step before tearing down:{' '}
+                    {missingRequired.map((s) => s.key).join(', ')}
+                  </Typography>
+                )}
+              </Box>
+            </Stack>
+          )}
+          {canRun && !effective.cancelled_at && (
+            <Button size="small" onClick={() => setCancelOpen(true)}>
+              Cancel decommission
+            </Button>
+          )}
+        </>
       )}
-      {canRun && !decommission.cancelled_at && (
-        <Button size="small" onClick={() => setCancelOpen(true)}>
-          Cancel decommission
-        </Button>
-      )}
+
+      {/* Start-decommission dialog */}
+      <Dialog open={initiateOpen} onClose={() => setInitiateOpen(false)}>
+        <DialogTitle>Start a decommission</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1, minWidth: 320 }}>
+            <TextField
+              label="Reason"
+              value={initiateReason}
+              onChange={(e) => setInitiateReason(e.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+            />
+            <TextField
+              label="Teardown date (optional — defaults to the notice period)"
+              type="date"
+              value={initiateTeardown.slice(0, 10)}
+              onChange={(e) =>
+                setInitiateTeardown(e.target.value ? `${e.target.value}T00:00:00Z` : '')
+              }
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInitiateOpen(false)}>Back</Button>
+          <Button
+            variant="contained"
+            disabled={!initiateReason.trim() || initiateSubmitting}
+            onClick={handleInitiate}
+          >
+            Confirm start
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Extension request dialog */}
       <Dialog open={extensionOpen} onClose={() => setExtensionOpen(false)}>

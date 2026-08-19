@@ -43,6 +43,22 @@ export interface Decommission {
   cancel_reason: string | null;
 
   state: DecommissionState;
+
+  /**
+   * Every attestation signed on this decommission, resolved server-side in
+   * ONE join query (`environment_decommission_service.list_attestations`).
+   * Present on `GET /environments/{id}/decommission` and every action
+   * response; the worklist (`DecommissionWorklistRow`, which extends this
+   * interface) always sends an empty array here rather than resolving it
+   * per row — see that backend schema's own comment.
+   *
+   * OPTIONAL here, deliberately looser than the backend's REQUIRED field —
+   * this field postdates several existing test fixtures across Tasks
+   * 10/11 that build `Decommission`-shaped objects by hand, and widening
+   * every one of them was out of scope for the fix that added this field.
+   * Real responses always include it.
+   */
+  attestations?: Attestation[];
 }
 
 /** Body of `POST /environments/{id}/decommission` — initiating one. */
@@ -100,6 +116,18 @@ export interface Attestation {
   signed_at: string;
   reference: string | null;
   notes: string | null;
+  /**
+   * Resolved server-side (a LEFT JOIN in
+   * `environment_decommission_service.list_attestations`) ONLY when this
+   * came back as part of `Decommission.attestations` below — the bare
+   * `POST .../attestations` response this type also describes validates
+   * straight off the ORM row, which has no such column, so it is `null`
+   * there. Optional/nullable rather than required: a signer whose `User`
+   * row cannot be resolved (the join is deliberately NOT tenant-qualified,
+   * but a row can still vanish) must not turn the whole response into a
+   * validation failure.
+   */
+  signed_by_username?: string | null;
 }
 
 /**

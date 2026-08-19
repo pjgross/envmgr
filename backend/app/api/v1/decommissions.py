@@ -41,10 +41,23 @@ router = APIRouter(prefix="/environments", tags=["decommissions"])
 extensions_router = APIRouter(prefix="/decommissions", tags=["decommissions"])
 
 
-def _to_read(row: EnvironmentDecommission, now: datetime) -> DecommissionRead:
+async def _to_read(
+    db: AsyncSession, row: EnvironmentDecommission, now: datetime
+) -> DecommissionRead:
     """One decommission as a response. `state` is computed here, never
     `model_validate`d, because there is no state column to validate from —
-    see the schema module docstring."""
+    see the schema module docstring.
+
+    `attestations` is resolved here too, via ONE join query
+    (`environment_decommission_service.list_attestations`) — every route
+    that calls this is a SINGLE-decommission read (the live/most-recent
+    record, or the result of one action), never a page of rows, so one extra
+    query per call is the whole cost. The worklist does NOT call this — see
+    `DecommissionWorklistRow.from_view`'s own comment.
+    """
+    attestation_views = await environment_decommission_service.list_attestations(
+        db, row.id, row.tenant_id
+    )
     return DecommissionRead(
         id=row.id,
         environment_id=row.environment_id,
@@ -61,6 +74,19 @@ def _to_read(row: EnvironmentDecommission, now: datetime) -> DecommissionRead:
         cancelled_at=row.cancelled_at,
         cancel_reason=row.cancel_reason,
         state=environment_decommission_service.decommission_state(row, now),
+        attestations=[
+            AttestationRead(
+                id=v.attestation.id,
+                decommission_id=v.attestation.decommission_id,
+                step_key=v.attestation.step_key,
+                signed_by=v.attestation.signed_by,
+                signed_at=v.attestation.signed_at,
+                reference=v.attestation.reference,
+                notes=v.attestation.notes,
+                signed_by_username=v.signed_by_username,
+            )
+            for v in attestation_views
+        ],
     )
 
 
@@ -139,7 +165,7 @@ async def initiate_decommission(
         scheduled_teardown_at=data.scheduled_teardown_at,
         now=now,
     )
-    return _to_read(row, now)
+    return await _to_read(db, row, now)
 
 
 @router.get(
@@ -164,7 +190,7 @@ async def get_decommission(
         )
     if row is None:
         return None
-    return _to_read(row, now)
+    return await _to_read(db, row, now)
 
 
 @extensions_router.post(
@@ -189,7 +215,7 @@ async def request_decommission_extension(
         db, decommission, current_user,
         reason=data.reason, until=data.until, now=now,
     )
-    return _to_read(row, now)
+    return await _to_read(db, row, now)
 
 
 @extensions_router.post(
@@ -212,7 +238,7 @@ async def decide_decommission_extension(
     row = await environment_decommission_service.decide_extension(
         db, decommission, current_user, granted=data.granted, now=now,
     )
-    return _to_read(row, now)
+    return await _to_read(db, row, now)
 
 
 @extensions_router.post(
@@ -267,7 +293,7 @@ async def tear_down_decommission(
     # TERMINAL ones — rejected/closed — so a draft still shows) and bounded.
     # See list_live_bookings' own docstring for why draft stays in.
     remaining = await booking_service.list_live_bookings(db, tenant_id, row.environment_id)
-    base = _to_read(row, now)
+    base = await _to_read(db, row, now)
     return TeardownRead(
         **base.model_dump(),
         remaining_bookings=[
@@ -296,4 +322,4 @@ async def cancel_decommission(
     row = await environment_decommission_service.cancel(
         db, decommission, current_user, reason=data.reason, now=now,
     )
-    return _to_read(row, now)
+    return await _to_read(db, row, now)

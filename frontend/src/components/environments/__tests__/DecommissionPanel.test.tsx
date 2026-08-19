@@ -49,7 +49,24 @@ import { userGroupService } from '../../../services/userGroupService';
 import decommissionReducer from '../../../store/decommissionSlice';
 import DecommissionPanel from '../DecommissionPanel';
 import type { DecommissionWithChecklist, DecommissionPanelEnvironment, DecommissionPanelUser } from '../DecommissionPanel';
-import type { DecommissionStep } from '../../../types/decommission';
+import type { Attestation, DecommissionStep } from '../../../types/decommission';
+
+let nextAttestationId = 1000;
+/** A minimal, valid `Attestation` (the real wire shape — `id`,
+ * `decommission_id`, numeric `signed_by`, `notes` included even though this
+ * panel's own display type, `SignedStepView`, drops all four). */
+function makeAttestation(overrides: Partial<Attestation> & { step_key: string }): Attestation {
+  return {
+    id: nextAttestationId++,
+    decommission_id: 7, // matches WARNED.id below
+    signed_by: 999,
+    notes: null,
+    signed_at: '2026-08-19T10:00:00Z',
+    reference: null,
+    signed_by_username: null,
+    ...overrides,
+  };
+}
 
 const ownedEnv: DecommissionPanelEnvironment = {
   id: 1,
@@ -125,7 +142,7 @@ function makeStore() {
 }
 
 function renderPanel(props: {
-  decommission: DecommissionWithChecklist;
+  decommission: DecommissionWithChecklist | null;
   steps: DecommissionStep[];
   env?: DecommissionPanelEnvironment;
   currentUser?: DecommissionPanelUser | null;
@@ -186,12 +203,12 @@ describe('DecommissionPanel', () => {
     const signed: DecommissionWithChecklist = {
       ...WARNED,
       attestations: [
-        {
+        makeAttestation({
           step_key: 'final_backup',
           signed_by_username: 'ops.bob',
           signed_at: '2026-08-19T10:00:00Z',
           reference: 'SNAP-42',
-        },
+        }),
       ],
     };
 
@@ -201,6 +218,46 @@ describe('DecommissionPanel', () => {
     expect(screen.getByText(/ops\.bob/)).toBeInTheDocument();
     expect(screen.getByText(/SNAP-42/)).toBeInTheDocument();
     expect(screen.getByText('Infrastructure torn down')).toBeInTheDocument();
+  });
+
+  it('renders a previously-signed step as signed on the FIRST render, with no signing action taken', async () => {
+    // FINDING 2 from the task-12 review: `GET /environments/{id}/decommission`
+    // now carries real attestations (a LEFT JOIN in
+    // `list_attestations`, never a per-worklist-row query). Nothing here
+    // dispatches signAttestation — this proves the checklist seeds itself
+    // from the wire response alone, so a reload cannot make an
+    // already-signed step look unsigned (the 409-with-no-explanation this
+    // finding described).
+    vi.mocked(userGroupService.listMembers).mockResolvedValue({
+      rows: [
+        {
+          id: 1,
+          user_id: teamMember.id,
+          username: teamMember.username,
+          group_id: 7,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+    const signed: DecommissionWithChecklist = {
+      ...WARNED,
+      attestations: [
+        makeAttestation({
+          step_key: 'final_backup',
+          signed_by_username: 'ops.bob',
+          signed_at: '2026-08-19T10:00:00Z',
+          reference: 'SNAP-42',
+        }),
+      ],
+    };
+
+    renderPanel({ decommission: signed, steps: STEPS, currentUser: teamMember });
+
+    expect(await screen.findByText(/signed by ops\.bob/i)).toBeInTheDocument();
+    // No re-sign affordance for a step that already has a signature.
+    expect(screen.queryAllByRole('button', { name: /^sign$/i })).toHaveLength(1); // only "teardown"'s
+    expect(api.post).not.toHaveBeenCalled();
   });
 
   it('disables Tear down until every required step is signed, and says why', async () => {
@@ -228,12 +285,14 @@ describe('DecommissionPanel', () => {
     });
     const allSigned: DecommissionWithChecklist = {
       ...WARNED,
-      attestations: STEPS.map((s) => ({
-        step_key: s.key,
-        signed_by_username: 'ops.bob',
-        signed_at: '2026-08-19T10:00:00Z',
-        reference: 'x',
-      })),
+      attestations: STEPS.map((s) =>
+        makeAttestation({
+          step_key: s.key,
+          signed_by_username: 'ops.bob',
+          signed_at: '2026-08-19T10:00:00Z',
+          reference: 'x',
+        })
+      ),
     };
 
     renderPanel({ decommission: allSigned, steps: STEPS, currentUser: teamMember });
@@ -290,6 +349,139 @@ describe('DecommissionPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Sign these first: final_backup, teardown/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('starting a decommission', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(userGroupService.listMembers).mockResolvedValue({ rows: [], total: 0 });
+  });
+
+  // FINDING 1 from the task-12 review: `initiateDecommission` existed in the
+  // slice and nothing called it — the primary journey (starting a
+  // decommission at all) was unreachable from the product, B3b's mistake
+  // repeated. `decommission` is now `| null`; the panel offers its own
+  // "Start decommission" entry point, gated the same way every other run
+  // action is (`assert_may_run` — team or admin).
+
+  it('offers Start decommission when there is none, and initiating renders the panel in the warned state', async () => {
+    vi.mocked(userGroupService.listMembers).mockResolvedValue({
+      rows: [
+        {
+          id: 1,
+          user_id: teamMember.id,
+          username: teamMember.username,
+          group_id: 7,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+    const created: DecommissionWithChecklist = {
+      ...WARNED,
+      id: 99,
+      reason: 'Freeing capacity',
+      attestations: [],
+    };
+    vi.mocked(api.post).mockResolvedValueOnce({
+      data: created,
+      status: 201,
+      statusText: '',
+      headers: {},
+      config: {} as never,
+    });
+
+    renderPanel({ decommission: null, steps: STEPS, currentUser: teamMember });
+
+    const startButton = await screen.findByRole('button', { name: /start decommission/i });
+    await userEvent.click(startButton);
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText(/reason/i), 'Freeing capacity');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: /confirm start/i })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/warned/i)).toBeInTheDocument();
+    });
+    // The entry point is gone once a live decommission exists — a second
+    // POST would 409.
+    expect(screen.queryByRole('button', { name: /start decommission/i })).not.toBeInTheDocument();
+    expect(vi.mocked(api.post).mock.calls[0][0]).toBe('/environments/1/decommission');
+  });
+
+  it('does not offer Start decommission while a live one already exists', async () => {
+    vi.mocked(userGroupService.listMembers).mockResolvedValue({
+      rows: [
+        {
+          id: 1,
+          user_id: teamMember.id,
+          username: teamMember.username,
+          group_id: 7,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+
+    renderPanel({ decommission: WARNED, steps: STEPS, currentUser: teamMember });
+
+    // Give the (irrelevant here) membership fetch a chance to resolve before
+    // asserting a negative.
+    await waitFor(() => expect(userGroupService.listMembers).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /start decommission/i })).not.toBeInTheDocument();
+  });
+
+  it('does not offer Start decommission to a bystander', async () => {
+    renderPanel({ decommission: null, steps: STEPS, currentUser: bystander });
+
+    await waitFor(() => expect(userGroupService.listMembers).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /start decommission/i })).not.toBeInTheDocument();
+  });
+
+  it('surfaces the server error text when starting is refused', async () => {
+    vi.mocked(userGroupService.listMembers).mockResolvedValue({
+      rows: [
+        {
+          id: 1,
+          user_id: teamMember.id,
+          username: teamMember.username,
+          group_id: 7,
+          created_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+    const err = new AxiosError('Request failed with status code 422');
+    err.response = {
+      data: {
+        detail:
+          "scheduled_teardown_at cannot be earlier than the tenant's 5-day notice period",
+      },
+      status: 422,
+      statusText: '',
+      headers: {},
+      config: {} as never,
+    };
+    vi.mocked(api.post).mockRejectedValueOnce(err);
+
+    renderPanel({ decommission: null, steps: STEPS, currentUser: teamMember });
+
+    const startButton = await screen.findByRole('button', { name: /start decommission/i });
+    await userEvent.click(startButton);
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText(/reason/i), 'Too soon');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: /confirm start/i })
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/cannot be earlier than the tenant's 5-day notice period/)
+      ).toBeInTheDocument();
     });
     expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
   });

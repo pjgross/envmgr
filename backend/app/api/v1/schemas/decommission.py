@@ -70,6 +70,17 @@ class AttestationRead(BaseModel):
     signed_at: datetime
     reference: Optional[str]
     notes: Optional[str]
+    # Resolved ONLY when this is built by
+    # `environment_decommission_service.list_attestations` (a JOIN to
+    # `User`), which is what feeds `DecommissionRead.attestations` below. The
+    # bare `POST .../attestations` response still validates straight off the
+    # ORM row via `from_attributes=True`, which has no such column — this
+    # defaults to None there rather than 422ing on a field the row cannot
+    # supply. Deliberately NOT tenant-qualified in that join (see
+    # `_usernames_for`'s own docstring): under master-admin impersonation the
+    # signer may legitimately sit outside the decommission's own tenant, and
+    # a tenant-qualified join would render them as nobody.
+    signed_by_username: Optional[str] = None
 
 
 class CancelRequest(BaseModel):
@@ -104,6 +115,17 @@ class DecommissionRead(BaseModel):
 
     # REQUIRED, computed — never model_validate'd. See the module docstring.
     state: str
+
+    # Populated ONLY on the single-decommission reads — GET
+    # /environments/{id}/decommission and every action response (initiate,
+    # extension request/decision, sign, teardown, cancel), all through
+    # `_to_read`'s own single JOIN query
+    # (`environment_decommission_service.list_attestations`). REQUIRED, not
+    # defaulted, is what forces `DecommissionWorklistRow.from_view` below to
+    # answer explicitly rather than silently inheriting whatever this
+    # defaulted to — see its own comment for why that answer is an empty
+    # list, not a query.
+    attestations: list[AttestationRead]
 
 
 class DecommissionWorklistRow(DecommissionRead):
@@ -146,6 +168,14 @@ class DecommissionWorklistRow(DecommissionRead):
             environment_name=view.environment_name,
             initiated_by_username=view.initiated_by_username,
             owner_username=view.owner_username,
+            # DELIBERATELY EMPTY, NEVER FETCHED — A3's ack precedent: the
+            # attestation detail lives on ONE entity's read
+            # (GET .../decommission), not on every worklist row. Populating
+            # this from `view` would need a per-row query the worklist's own
+            # batch-view builder does not run, turning one page into an
+            # N+1 — see `list_attestations`' own docstring. If a future
+            # change makes this non-empty, it has broken that rule.
+            attestations=[],
         )
 
 

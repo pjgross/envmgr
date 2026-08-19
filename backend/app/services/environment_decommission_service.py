@@ -553,6 +553,51 @@ async def _assert_still_live(
         )
 
 
+class AttestationView(NamedTuple):
+    """One signed attestation plus its signer's name, resolved in the same
+    query — the same "names travel with the row" call `DecommissionView`
+    makes for the worklist."""
+
+    attestation: EnvironmentDecommissionAttestation
+    signed_by_username: Optional[str]
+
+
+async def list_attestations(
+    db: AsyncSession, decommission_id: int, tenant_id: int
+) -> list["AttestationView"]:
+    """Every attestation signed on one decommission, oldest first, each
+    paired with its signer's username. ONE query — a LEFT JOIN to `User`,
+    not a second batch call — because this is read for exactly one
+    decommission at a time (the single-decommission routes in
+    decommissions.py), never for a page of rows.
+
+    THIS MUST STAY OFF THE WORKLIST. `DecommissionWorklistRow.from_view`
+    hardcodes `attestations=[]` rather than calling this, on purpose — one
+    call per row here would be the exact N+1 A3's ack object was kept off
+    every list row to avoid. If a worklist reader ever needs this, it needs
+    its own batched view, not a loop calling this function.
+
+    The `User` join is DELIBERATELY NOT tenant-qualified, mirroring
+    `_usernames_for` immediately below: under master-admin impersonation the
+    signer may legitimately sit outside the decommission's own tenant, and a
+    `User.tenant_id ==` join would render them as nobody rather than the
+    name the row's own `signed_by` column already discloses.
+    """
+    A = EnvironmentDecommissionAttestation
+    rows = (
+        await db.execute(
+            select(A, User.username)
+            .outerjoin(User, User.id == A.signed_by)
+            .where(A.decommission_id == decommission_id, A.tenant_id == tenant_id)
+            .order_by(A.id)
+        )
+    ).all()
+    return [
+        AttestationView(attestation=attestation, signed_by_username=username)
+        for attestation, username in rows
+    ]
+
+
 async def missing_required_steps(
     db: AsyncSession, decommission: EnvironmentDecommission
 ) -> list[str]:

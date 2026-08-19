@@ -845,6 +845,64 @@ async def test_a_step_may_be_signed_only_once(client, team_headers, live_decommi
 
 
 @pytest.mark.asyncio
+async def test_a_signed_attestation_survives_a_reload(
+    client, team_headers, live_decommission
+):
+    """B5 Task 12's fix: `GET /environments/{id}/decommission` must be able
+    to tell the panel what has already been signed, or a reload makes an
+    already-signed step look unsigned and a second sign attempt 409s with no
+    explanation the UI can show. Checks the GET carries `step_key`, the
+    signer's NAME (never a bare id — this repo's "never #N" rule), and the
+    reference — and that the second sign attempt still 409s, same as
+    test_a_step_may_be_signed_only_once above."""
+    signed = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/attestations",
+        headers=team_headers,
+        json={"step_key": "final_backup", "reference": "SNAP-42", "notes": None},
+    )
+    assert signed.status_code == 201, signed.text
+
+    r = await client.get(
+        f"/api/v1/environments/{live_decommission.environment_id}/decommission",
+        headers=team_headers,
+    )
+    assert r.status_code == 200, r.text
+    attestations = r.json()["attestations"]
+    assert len(attestations) == 1
+    entry = attestations[0]
+    assert entry["step_key"] == "final_backup"
+    assert entry["reference"] == "SNAP-42"
+    assert entry["signed_by_username"] == "decom-team-member"
+
+    again = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/attestations",
+        headers=team_headers,
+        json={"step_key": "final_backup", "reference": "b", "notes": None},
+    )
+    assert again.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_the_worklist_never_carries_attestations(
+    client, team_headers, live_decommission
+):
+    """THIS MUST STAY OFF THE WORKLIST — signing a step must not turn every
+    worklist row into a per-row query. `DecommissionWorklistRow.from_view`
+    hardcodes an empty list rather than calling `list_attestations`."""
+    signed = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/attestations",
+        headers=team_headers,
+        json={"step_key": "final_backup", "reference": "SNAP-42", "notes": None},
+    )
+    assert signed.status_code == 201, signed.text
+
+    r = await client.get("/api/v1/decommissions", headers=team_headers)
+    assert r.status_code == 200, r.text
+    row = next(row for row in r.json() if row["id"] == live_decommission.id)
+    assert row["attestations"] == []
+
+
+@pytest.mark.asyncio
 async def test_an_unknown_step_key_is_refused(client, team_headers, live_decommission):
     r = await client.post(
         f"/api/v1/decommissions/{live_decommission.id}/attestations",
