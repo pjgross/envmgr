@@ -266,6 +266,7 @@ export interface BulkBookCreatedItem {
 export interface BulkBookSkippedItem {
   environment_id: number;
   conflicts: number[];
+  reason?: string | null;
 }
 
 export interface BulkBookResultResponse {

@@ -45,6 +45,16 @@ export interface Decommission {
   state: DecommissionState;
 
   /**
+   * B5 fix wave: resolved server-side the same way the worklist resolves it
+   * (`environment_decommission_service.usernames_for` — not tenant-qualified,
+   * so an initiator outside this row's tenant under master-admin
+   * impersonation still resolves to a name). `null` only when the initiating
+   * user no longer exists; optional so a pre-fix-wave fixture/mock that
+   * omits it still type-checks.
+   */
+  initiated_by_username?: string | null;
+
+  /**
    * Every attestation signed on this decommission, resolved server-side in
    * ONE join query (`environment_decommission_service.list_attestations`).
    * Present on `GET /environments/{id}/decommission` and every action

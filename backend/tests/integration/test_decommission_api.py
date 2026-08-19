@@ -274,6 +274,31 @@ async def test_get_decommission_returns_the_live_record(
 
 
 @pytest.mark.asyncio
+async def test_get_decommission_carries_the_initiators_username(
+    client, team_headers, env_with_team
+):
+    """B5 fix wave item 2: DecommissionRead never carried
+    `initiated_by_username`, so DecommissionPanel — which already reads that
+    field — could never show who started a decommission on the
+    single-record read (the worklist always had it). Resolved in `_to_read`
+    via `environment_decommission_service.usernames_for`, the same
+    not-tenant-qualified lookup the worklist uses."""
+    created = await client.post(
+        f"/api/v1/environments/{env_with_team.id}/decommission",
+        headers=team_headers, json={"reason": "check the initiator name"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["initiated_by_username"] == "decom-team-member"
+
+    r = await client.get(
+        f"/api/v1/environments/{env_with_team.id}/decommission",
+        headers=team_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["initiated_by_username"] == "decom-team-member"
+
+
+@pytest.mark.asyncio
 async def test_get_decommission_on_a_foreign_tenant_environment_is_404(
     client, team_headers, foreign_env
 ):
@@ -623,6 +648,43 @@ async def test_deciding_with_no_open_request_is_409(
         headers=team_headers, json={"granted": True},
     )
     assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_deciding_on_a_cancelled_decommission_is_409(
+    client, auth_headers, team_headers, owner_headers, live_decommission
+):
+    """B5 fix wave item 4: `decide_extension` had no liveness gate —
+    `sign_attestation` and `tear_down` both go through `_assert_still_live`,
+    `request_extension` inlines the same check, and `decide_extension` was
+    the one write path that skipped it. Before the fix, a decision made
+    after a cancel would still move `scheduled_teardown_at` on an otherwise-
+    closed record."""
+    requested = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension",
+        headers=owner_headers, json={"reason": "before the cancel", "until": _iso(days=30)},
+    )
+    assert requested.status_code == 200, requested.text
+
+    cancelled = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/cancel",
+        headers=auth_headers, json={"reason": "no longer needed"},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+
+    r = await client.post(
+        f"/api/v1/decommissions/{live_decommission.id}/extension/decision",
+        headers=team_headers, json={"granted": True},
+    )
+    assert r.status_code == 409, r.text
+
+    # And the extension the injected bug would have decided stayed undecided.
+    unchanged = await client.get(
+        f"/api/v1/environments/{live_decommission.environment_id}/decommission",
+        headers=team_headers,
+    )
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["extension_granted"] is None
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,7 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_lifecycle import BookingType
 from app.db.models.booking import Booking, ContextTag
 from app.db.models.booking_request import BookingRequest
+from app.db.models.environment_decommission import EnvironmentDecommission
 from tests.factories import ensure_environment_tier
 
 WIN_START = datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc)
@@ -153,6 +154,45 @@ async def test_bulk_skips_exclusive_conflict(authed_client, tenant, user, db_ses
     assert len(body["skipped"]) == 1
     assert body["skipped"][0]["environment_id"] == a
     assert pre.id in body["skipped"][0]["conflicts"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_skips_environment_with_teardown_inside_window_and_reports_why(
+    authed_client, tenant, user, db_session, release_lifecycle_template
+):
+    """B5 fix wave item 1: the decommission refusal `assert_bookable` raises
+    is a string-detail HTTPException, not the {"message", "conflicts"} shape
+    an exclusive-use overlap raises. `bulk_book_environments` must carry that
+    string through as `reason` rather than discarding it into an empty
+    `conflicts` list — see release_booking_service.bulk_book_environments."""
+    rid = await _make_release(authed_client, release_lifecycle_template)
+    bt = await _booking_type(db_session, tenant.id)
+    a = await _make_env(db_session, tenant.id, "A")
+    b = await _make_env(db_session, tenant.id, "B")
+
+    # Teardown lands inside the requested [WIN_START, WIN_END) window, so the
+    # booking runs past it and assert_bookable refuses environment A only.
+    teardown_at = WIN_START + timedelta(hours=6)
+    db_session.add(EnvironmentDecommission(
+        tenant_id=tenant.id, environment_id=a, reason="going away",
+        warned_at=datetime.now(timezone.utc), scheduled_teardown_at=teardown_at,
+        initiated_by=user.id,
+    ))
+    await db_session.flush()
+
+    resp = await authed_client.post(f"/api/v1/releases/{rid}/bookings/bulk", json=_payload([a, b], bt))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert {x["environment_id"] for x in body["created"]} == {b}
+    assert len(body["skipped"]) == 1
+    skipped = body["skipped"][0]
+    assert skipped["environment_id"] == a
+    # Not the exclusive-conflict shape: no conflicting booking ids.
+    assert skipped["conflicts"] == []
+    # The real refusal reason must survive, not an empty conflicts list
+    # standing in for "exclusive conflict".
+    assert skipped["reason"]
+    assert "torn down" in skipped["reason"]
 
 
 @pytest.mark.asyncio

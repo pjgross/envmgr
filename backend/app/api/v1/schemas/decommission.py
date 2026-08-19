@@ -77,7 +77,7 @@ class AttestationRead(BaseModel):
     # ORM row via `from_attributes=True`, which has no such column — this
     # defaults to None there rather than 422ing on a field the row cannot
     # supply. Deliberately NOT tenant-qualified in that join (see
-    # `_usernames_for`'s own docstring): under master-admin impersonation the
+    # `usernames_for`'s own docstring): under master-admin impersonation the
     # signer may legitimately sit outside the decommission's own tenant, and
     # a tenant-qualified join would render them as nobody.
     signed_by_username: Optional[str] = None
@@ -115,6 +115,19 @@ class DecommissionRead(BaseModel):
 
     # REQUIRED, computed — never model_validate'd. See the module docstring.
     state: str
+
+    # B5 fix wave: the fifth field on this branch built (worklist rows
+    # already carried it) and connected to nothing — `DecommissionPanel`
+    # reads `initiated_by_username` but `EnvironmentDetail` never supplied
+    # it, because this single-decommission read never resolved it. Resolved
+    # in `app.api.v1.decommissions._to_read`, the same response builder that
+    # computes `state`, via `environment_decommission_service.usernames_for`
+    # — a read-rendering lookup that does NOT filter `deleted_at` and whose
+    # `User` join is NOT tenant-qualified, matching the worklist's own
+    # resolution below and for the same reason: under master-admin
+    # impersonation the initiator may legitimately sit outside this row's
+    # tenant.
+    initiated_by_username: Optional[str] = None
 
     # Populated ONLY on the single-decommission reads — GET
     # /environments/{id}/decommission and every action response (initiate,

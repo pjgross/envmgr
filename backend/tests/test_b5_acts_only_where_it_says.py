@@ -44,7 +44,9 @@ from sqlalchemy import select
 from app.db.models.booking import Booking
 from app.db.models.booking_lifecycle import BookingStatusHistory
 from app.db.models.environment import Environment, EnvironmentStatus
-from app.db.models.environment_decommission import EnvironmentDecommission
+from app.db.models.environment_decommission import (
+    EnvironmentDecommission, EnvironmentDecommissionStep,
+)
 from app.services import (
     environment_decommission_service,
     environment_lifecycle_policy_service,
@@ -181,6 +183,22 @@ async def live_decommission(
 
 
 @pytest_asyncio.fixture
+async def decommission_step(db_session, test_tenant) -> EnvironmentDecommissionStep:
+    """One checklist step, for the sign_attestation guard test below —
+    `live_decommission`'s own docstring notes no steps are seeded for
+    test_tenant elsewhere in this file (teardown needs none to proceed), but
+    signing one needs a real step_key to validate against. `is_required`
+    doesn't matter here: this fixture never drives a teardown."""
+    step = EnvironmentDecommissionStep(
+        tenant_id=test_tenant.id, key="b5_guard_step", label="Guard step",
+        is_required=False, is_active=True, display_order=1,
+    )
+    db_session.add(step)
+    await db_session.flush()
+    return step
+
+
+@pytest_asyncio.fixture
 async def populated_estate(db_session, test_tenant, test_user, second_tenant_factory):
     """Two tenants' worth of environments, bookings and deployments — so
     "nothing changed" is a claim about a database WITH DATA IN IT, not one
@@ -263,20 +281,42 @@ async def test_teardown_cancels_no_booking(
 async def test_a_running_booking_still_runs_after_teardown(
     db_session, test_tenant, test_user, live_decommission, running_booking
 ):
-    """The environment is gone from the register; the booking is not."""
-    before = await _snapshot(db_session, [running_booking])
+    """The environment is gone from the register; the booking is not.
+
+    FULL-ROW COMPARE ON THE ENVIRONMENT TOO (fix wave item 3) — the same
+    stronger pattern `test_cancelling_restores_nothing_and_breaks_nothing`
+    already uses, applied here for the first time. The old version of this
+    test asserted only `status` and `deleted_at`, a two-column spot-check
+    that could not have caught teardown quietly touching a THIRD column
+    (owner, expiry, name_compliant, custom_fields, ...). `status` is the one
+    documented change; `updated_at` moves as a side effect of any ORM
+    UPDATE. Anything else changing fails this test."""
+    env = await db_session.get(Environment, live_decommission.environment_id)
+    before_booking = await _snapshot(db_session, [running_booking])
+    before_env = await _snapshot(db_session, [env])
+
     now = datetime.now(timezone.utc)
     await environment_decommission_service.tear_down(
         db_session, live_decommission, test_user, now=now
     )
 
-    env = await db_session.get(Environment, live_decommission.environment_id)
-    await db_session.refresh(env)
-    assert env.status == EnvironmentStatus.DECOMMISSIONED
-    assert env.deleted_at is None  # gone from the ACTIVE register, not deleted
+    after_booking = await _snapshot(db_session, [running_booking])
+    after_env = await _snapshot(db_session, [env])
+    assert before_booking == after_booking
 
-    after = await _snapshot(db_session, [running_booking])
-    assert before == after
+    env_key = (env.__tablename__, env.id)
+    changed = {
+        col for col, value in before_env[env_key].items()
+        if value != after_env[env_key][col]
+    }
+    allowed_changes = {"status", "updated_at"}
+    assert changed <= allowed_changes, (
+        f"teardown touched unexpected environment column(s): "
+        f"{changed - allowed_changes}"
+    )
+    assert after_env[env_key]["status"] == EnvironmentStatus.DECOMMISSIONED
+    # gone from the ACTIVE register, not deleted
+    assert after_env[env_key]["deleted_at"] is None
 
 
 @pytest.mark.asyncio
@@ -307,6 +347,111 @@ async def test_teardown_transitions_no_booking(
         )
     ).scalars().all()
     assert after == []
+
+
+@pytest.mark.asyncio
+async def test_requesting_an_extension_changes_no_booking_no_other_environment_no_deployment(
+    db_session, test_tenant, test_user, live_decommission, bookings_on_env, populated_estate
+):
+    """Fix wave item 3: `request_extension` was never exercised by this
+    guard — one of the three write paths on this file's own promise that
+    went uncalled. `test_user` is Admin, which bypasses `assert_may_defend`
+    the same way it bypasses `assert_may_run` elsewhere in this file."""
+    other_rows = (
+        populated_estate["environments"]
+        + populated_estate["bookings"]
+        + populated_estate["deployments"]
+    )
+    before_bookings = await _snapshot(db_session, bookings_on_env)
+    before_other = await _snapshot(db_session, other_rows)
+
+    now = datetime.now(timezone.utc)
+    await environment_decommission_service.request_extension(
+        db_session, live_decommission, test_user,
+        reason="Guard test — request extension",
+        until=live_decommission.scheduled_teardown_at + timedelta(days=3),
+        now=now,
+    )
+
+    after_bookings = await _snapshot(db_session, bookings_on_env)
+    after_other = await _snapshot(db_session, other_rows)
+    assert before_bookings == after_bookings
+    assert before_other == after_other
+
+
+@pytest.mark.asyncio
+async def test_deciding_an_extension_changes_no_booking_no_other_environment_no_deployment(
+    db_session, test_tenant, test_user, live_decommission, bookings_on_env, populated_estate
+):
+    """Fix wave item 3: `decide_extension` is THE ONLY function in B5 that
+    moves `scheduled_teardown_at` — and was never exercised by this guard.
+    Granting on purpose (not refusing) is what makes the non-vacuity check
+    below meaningful: this proves the date move itself touches nothing else,
+    not merely that a no-op refusal touches nothing."""
+    now = datetime.now(timezone.utc)
+    await environment_decommission_service.request_extension(
+        db_session, live_decommission, test_user,
+        reason="Guard test — request extension",
+        until=live_decommission.scheduled_teardown_at + timedelta(days=3),
+        now=now,
+    )
+
+    other_rows = (
+        populated_estate["environments"]
+        + populated_estate["bookings"]
+        + populated_estate["deployments"]
+    )
+    before_bookings = await _snapshot(db_session, bookings_on_env)
+    before_other = await _snapshot(db_session, other_rows)
+
+    await environment_decommission_service.decide_extension(
+        db_session, live_decommission, test_user, granted=True, now=now,
+    )
+
+    after_bookings = await _snapshot(db_session, bookings_on_env)
+    after_other = await _snapshot(db_session, other_rows)
+    assert before_bookings == after_bookings
+    assert before_other == after_other
+
+    # Non-vacuity: prove the date actually moved, so this test cannot pass
+    # against a decide_extension that silently no-ops instead of one that
+    # acts and stays within bounds.
+    await db_session.refresh(live_decommission)
+    assert live_decommission.extension_granted is True
+    assert live_decommission.scheduled_teardown_at == live_decommission.extension_until
+
+
+@pytest.mark.asyncio
+async def test_signing_an_attestation_changes_no_booking_no_other_environment_no_deployment(
+    db_session, test_tenant, test_user, live_decommission, bookings_on_env,
+    populated_estate, decommission_step,
+):
+    """Fix wave item 3: `sign_attestation` was never exercised by this
+    guard. Signing writes its OWN new row (`environment_decommission_
+    attestation`) — this test's job is only to prove it writes nothing
+    else."""
+    other_rows = (
+        populated_estate["environments"]
+        + populated_estate["bookings"]
+        + populated_estate["deployments"]
+    )
+    before_bookings = await _snapshot(db_session, bookings_on_env)
+    before_other = await _snapshot(db_session, other_rows)
+
+    now = datetime.now(timezone.utc)
+    attestation = await environment_decommission_service.sign_attestation(
+        db_session, live_decommission, test_user,
+        step_key=decommission_step.key, reference=None, notes=None, now=now,
+    )
+
+    after_bookings = await _snapshot(db_session, bookings_on_env)
+    after_other = await _snapshot(db_session, other_rows)
+    assert before_bookings == after_bookings
+    assert before_other == after_other
+
+    # Non-vacuity: the signature itself did happen.
+    assert attestation.step_key == decommission_step.key
+    assert attestation.signed_by == test_user.id
 
 
 @pytest.mark.asyncio

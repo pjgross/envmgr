@@ -141,8 +141,23 @@ async def bulk_book_environments(
             )
         except HTTPException as e:
             if e.status_code == status.HTTP_409_CONFLICT:
-                detail = e.detail if isinstance(e.detail, dict) else {}
-                skipped.append({"environment_id": env_id, "conflicts": detail.get("conflicts", [])})
+                if isinstance(e.detail, dict):
+                    # The exclusive-use overlap shape: {"message", "conflicts"}.
+                    skipped.append({
+                        "environment_id": env_id,
+                        "conflicts": e.detail.get("conflicts", []),
+                        "reason": e.detail.get("message"),
+                    })
+                else:
+                    # B5's decommission refusal (assert_bookable) raises a
+                    # plain string detail — carry it through rather than
+                    # discarding it, or the dialog reports "exclusive
+                    # conflict" for a decommission teardown refusal.
+                    skipped.append({
+                        "environment_id": env_id,
+                        "conflicts": [],
+                        "reason": str(e.detail),
+                    })
                 continue
             raise
         created.append({"environment_id": env_id, "booking_id": booking.id, "warnings": overlap.warnings})

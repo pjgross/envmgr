@@ -178,6 +178,21 @@ describe('DecommissionPanel', () => {
     expect(screen.getByText(/warned/i)).toBeInTheDocument();
   });
 
+  it('shows who initiated the decommission — B5 fix wave: the panel could never show this, because the read never resolved it', async () => {
+    renderPanel({ decommission: WARNED, steps: STEPS });
+
+    expect(screen.getByText(/initiated by ops\.alice/i)).toBeInTheDocument();
+  });
+
+  it('renders nothing for the initiator when the field is absent, rather than crashing', async () => {
+    renderPanel({
+      decommission: { ...WARNED, initiated_by_username: null },
+      steps: STEPS,
+    });
+
+    expect(screen.queryByText(/initiated by/i)).not.toBeInTheDocument();
+  });
+
   it('offers the extension control to the owner and not to a bystander', async () => {
     const { rerender, store } = renderPanel({
       decommission: WARNED,

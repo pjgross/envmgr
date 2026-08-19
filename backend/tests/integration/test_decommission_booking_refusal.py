@@ -409,6 +409,121 @@ async def test_a_decommissioned_environment_takes_no_bookings_at_all(
     assert r.status_code == 409, r.text
 
 
+# ---------------------------------------------------------------------------
+# B5 fix wave item 5 — the already-DECOMMISSIONED half of the rule was
+# tested on only ONE of the five booking write paths (create_request, just
+# above), while the teardown-date half above it is tested on all five. These
+# four cover the remaining paths: add_environment (create in disguise), the
+# legacy create path, and the two date-changing edit paths. The two edit
+# paths need an environment that was ACTIVE when the booking was made (so
+# the create itself succeeds) and only becomes DECOMMISSIONED afterwards —
+# the same degenerate-case shape `decommissioned_env` uses (status flipped
+# directly, no decommission row at all), just applied AFTER a booking
+# already exists rather than before one is attempted.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_add_environment_refuses_an_already_decommissioned_environment(
+    client, auth_headers, existing_request, decommissioned_env,
+):
+    r = await client.post(
+        f"/api/v1/booking-requests/{existing_request.id}/environments",
+        headers=auth_headers,
+        json={"environment_id": decommissioned_env.id},
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_the_legacy_booking_path_refuses_an_already_decommissioned_environment(
+    client, auth_headers, decommissioned_env, booking_type,
+):
+    r = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": decommissioned_env.id,
+        "start_date": _iso(days=1), "end_date": _iso(days=2),
+        "booking_type_id": booking_type.id,
+        "project_name": "legacy path, already decommissioned",
+    })
+    assert r.status_code == 409, r.text
+
+
+@pytest_asyncio.fixture
+async def env_active_then_decommissioned(db_session, test_tenant):
+    """A plain environment — ACTIVE when a booking is made against it below,
+    so that create succeeds — then flipped straight to DECOMMISSIONED, with
+    no decommission row at all (the same degenerate-case shape
+    `decommissioned_env` uses), so a SUBSEQUENT edit hits the already-
+    decommissioned refusal rather than a teardown-date one."""
+    return await ensure_environment(db_session, test_tenant.id, slot=804)
+
+
+@pytest_asyncio.fixture
+async def request_before_decommission(
+    client, auth_headers, env_active_then_decommissioned, booking_type, db_session
+):
+    """A booking request against `env_active_then_decommissioned`, made
+    while it is still ACTIVE — then the environment is flipped to
+    DECOMMISSIONED directly, for the request-level edit test below."""
+    r = await client.post("/api/v1/booking-requests", headers=auth_headers, json={
+        **_request_body(env_active_then_decommissioned.id, booking_type.id),
+        "start_date": _iso(days=1), "end_date": _iso(days=2),
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()["request"]
+    env_active_then_decommissioned.status = EnvironmentStatus.DECOMMISSIONED
+    await db_session.commit()
+    return SimpleNamespace(id=body["id"])
+
+
+@pytest.mark.asyncio
+async def test_extending_an_existing_booking_refuses_an_already_decommissioned_environment(
+    client, auth_headers, request_before_decommission,
+):
+    """The request-level date-changing cascade (booking_request_service.
+    update_standard_fields) — its own already-decommissioned coverage,
+    entirely independent of the teardown-date test above it."""
+    r = await client.patch(
+        f"/api/v1/booking-requests/{request_before_decommission.id}/standard-fields",
+        headers=auth_headers, json={"end_date": _iso(days=3)},
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest_asyncio.fixture
+async def legacy_booking_before_decommission(
+    client, auth_headers, per_env_edit_booking_type, db_session, test_tenant,
+):
+    """A LEGACY booking against a fresh environment, made while it is still
+    ACTIVE, then the environment is flipped to DECOMMISSIONED directly — for
+    the per-env override edit test below."""
+    env = await ensure_environment(db_session, test_tenant.id, slot=805)
+    r = await client.post("/api/v1/bookings/", headers=auth_headers, json={
+        "environment_id": env.id,
+        "project_name": "legacy per-env, later decommissioned",
+        "start_date": _iso(days=1), "end_date": _iso(days=2),
+        "booking_type_id": per_env_edit_booking_type["id"],
+    })
+    assert r.status_code == 201, r.text
+    env.status = EnvironmentStatus.DECOMMISSIONED
+    await db_session.commit()
+    return r.json()["booking"]
+
+
+@pytest.mark.asyncio
+async def test_the_per_env_override_path_refuses_an_already_decommissioned_environment(
+    client, auth_headers, legacy_booking_before_decommission,
+):
+    """PATCH /bookings/{id}/standard-fields — booking_service.
+    update_standard_fields — its own already-decommissioned coverage,
+    entirely independent of the request-level cascade above."""
+    r = await client.patch(
+        f"/api/v1/bookings/{legacy_booking_before_decommission['id']}/standard-fields",
+        headers=auth_headers, json={"end_date": _iso(days=3)},
+    )
+    assert r.status_code == 409, r.text
+
+
 @pytest.mark.asyncio
 async def test_an_environment_with_no_decommission_is_unaffected(
     client, auth_headers, plain_env, booking_type,

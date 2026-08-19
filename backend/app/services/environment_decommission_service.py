@@ -495,6 +495,14 @@ async def decide_extension(
     opposite parties, the same split `assert_may_defend`'s own docstring
     describes.
 
+    409 if the decommission is no longer LIVE (fix wave item 4 — `sign_
+    attestation` and `tear_down` go through `_assert_still_live`, `request_
+    extension` inlines the same check, and this was the one write path that
+    skipped it: a decision made after a cancel or a teardown would still
+    move `scheduled_teardown_at` on an otherwise-closed record. `cancel`
+    itself deliberately skips this same gate — it is the escape hatch and
+    must work on a non-live row — but deciding an extension is not that).
+
     409 if there is no undecided request (`extension_requested_at` unset, or
     `extension_decided_at` already set — a second decision is refused the
     same way a second request is).
@@ -509,6 +517,7 @@ async def decide_extension(
         db, decommission.environment_id, decommission.tenant_id
     )
     await assert_may_run(db, environment, user)
+    await _assert_still_live(db, decommission, now)
 
     if (
         decommission.extension_requested_at is None
@@ -578,7 +587,7 @@ async def list_attestations(
     its own batched view, not a loop calling this function.
 
     The `User` join is DELIBERATELY NOT tenant-qualified, mirroring
-    `_usernames_for` immediately below: under master-admin impersonation the
+    `usernames_for` immediately below: under master-admin impersonation the
     signer may legitimately sit outside the decommission's own tenant, and a
     `User.tenant_id ==` join would render them as nobody rather than the
     name the row's own `signed_by` column already discloses.
@@ -876,7 +885,7 @@ async def list_decommissions(
     )
 
 
-async def _usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
+async def usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int, str]:
     """`user id -> username`. Mirrors `contention_service.usernames_for` —
     same trap, in batch form, in the sibling worklist this codebase now has
     two of: DELIBERATELY NOT TENANT-QUALIFIED. Under master-admin
@@ -887,6 +896,11 @@ async def _usernames_for(db: AsyncSession, user_ids: Iterable[int]) -> dict[int,
     already settled by the tenant-filtered worklist query that produced it,
     and a username discloses nothing the row's own `initiated_by` column does
     not already.
+
+    Public (not `_usernames_for`) since `app.api.v1.decommissions._to_read`
+    calls it too, for the single-decommission read's `initiated_by_username`
+    — the fifth field on this branch built and connected to nothing until the
+    B5 fix wave, see that endpoint's own comment.
     """
     ids = {uid for uid in user_ids if uid is not None}
     if not ids:
@@ -958,7 +972,7 @@ async def decommission_views(
     env_labels = await _environment_labels(
         db, {row.environment_id for row in rows}, tenant_id
     )
-    usernames = await _usernames_for(
+    usernames = await usernames_for(
         db,
         [row.initiated_by for row in rows]
         + [label.owner_user_id for label in env_labels.values()],

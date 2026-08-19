@@ -54,9 +54,19 @@ async def _to_read(
     record, or the result of one action), never a page of rows, so one extra
     query per call is the whole cost. The worklist does NOT call this — see
     `DecommissionWorklistRow.from_view`'s own comment.
+
+    `initiated_by_username` is resolved here too, in the same batch shape
+    the worklist uses (`environment_decommission_service.usernames_for`) —
+    a single-row batch of one, but the SAME helper, so this and the worklist
+    can never disagree about who resolves to what: not tenant-qualified, so
+    an initiator who legitimately sits outside this row's own tenant (under
+    master-admin impersonation) still resolves to a name.
     """
     attestation_views = await environment_decommission_service.list_attestations(
         db, row.id, row.tenant_id
+    )
+    usernames = await environment_decommission_service.usernames_for(
+        db, [row.initiated_by]
     )
     return DecommissionRead(
         id=row.id,
@@ -74,6 +84,7 @@ async def _to_read(
         cancelled_at=row.cancelled_at,
         cancel_reason=row.cancel_reason,
         state=environment_decommission_service.decommission_state(row, now),
+        initiated_by_username=usernames.get(row.initiated_by),
         attestations=[
             AttestationRead(
                 id=v.attestation.id,
