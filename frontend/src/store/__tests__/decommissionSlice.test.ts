@@ -44,6 +44,9 @@ const DECOMMISSION: Decommission = {
   cancelled_at: null,
   cancel_reason: null,
   state: 'due',
+  // Required, not optional — nothing has been signed yet, which is the
+  // honest value, not a placeholder standing in for an omitted field.
+  attestations: [],
 };
 
 describe('decommissionSlice', () => {

@@ -52,13 +52,18 @@ export interface Decommission {
    * interface) always sends an empty array here rather than resolving it
    * per row — see that backend schema's own comment.
    *
-   * OPTIONAL here, deliberately looser than the backend's REQUIRED field —
-   * this field postdates several existing test fixtures across Tasks
-   * 10/11 that build `Decommission`-shaped objects by hand, and widening
-   * every one of them was out of scope for the fix that added this field.
-   * Real responses always include it.
+   * REQUIRED, not defaulted — the same rule `idle`/`decommission_state`
+   * carry on `EnvironmentResponse` (Task 10's own build-breaking fallout,
+   * fixed by repairing fixtures rather than loosening the type). An
+   * OMITTED field fails safe on the one destructive control here (Tear
+   * down stays disabled when `missingRequired` can't be computed) but
+   * fails UNSAFE on display: a step that IS signed would render as
+   * UNSIGNED — exactly the bug this field exists to fix — and an optional
+   * type gives the compiler no way to catch a caller that reintroduces it.
+   * An empty array (`[]`) is the honest value for "nothing signed yet",
+   * never an omission.
    */
-  attestations?: Attestation[];
+  attestations: Attestation[];
 }
 
 /** Body of `POST /environments/{id}/decommission` — initiating one. */

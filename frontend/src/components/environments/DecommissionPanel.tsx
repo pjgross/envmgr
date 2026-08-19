@@ -103,6 +103,16 @@ export interface SignedStepView {
   reference?: string | null;
 }
 
+// `attestations` is REQUIRED on `Decommission` (never optional — see that
+// type's own comment: an omitted field would render a signed step as
+// unsigned, which is exactly the bug Finding 2 fixed). The parameter here is
+// still `| undefined`, and the `?? []` below is still doing real work, for a
+// DIFFERENT reason: this is always called as `toSignedStepViews(effective
+// ?.attestations)`, and `effective` itself (the whole decommission) is
+// legitimately `null` while no decommission exists yet — optional chaining
+// on a null object produces `undefined` regardless of whether the field on
+// the object type is required. Once `effective` is non-null, `.attestations`
+// is always a real (possibly empty) array.
 function toSignedStepViews(attestations: Attestation[] | undefined): SignedStepView[] {
   return (attestations ?? []).map((a) => ({
     step_key: a.step_key,
