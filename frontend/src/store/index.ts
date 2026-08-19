@@ -33,6 +33,7 @@ import environmentGroupReducer from './environmentGroupSlice';
 import environmentNamingPolicyReducer from './environmentNamingPolicySlice';
 import decommissionReducer from './decommissionSlice';
 import environmentLifecyclePolicyReducer from './environmentLifecyclePolicySlice';
+import contentionForecastReducer from './contentionForecastSlice';
 
 export const store = configureStore({
   reducer: {
@@ -70,6 +71,7 @@ export const store = configureStore({
     environmentNamingPolicy: environmentNamingPolicyReducer,
     decommission: decommissionReducer,
     environmentLifecyclePolicy: environmentLifecyclePolicyReducer,
+    contentionForecast: contentionForecastReducer,
   },
 });
 
