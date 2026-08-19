@@ -32,6 +32,7 @@ import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import { ContentionMarker } from '../../components/bookings/ContentionMarker';
+import ContentionHorizon from '../../components/bookings/ContentionHorizon';
 import { PROTECTED_MARKER } from '../../constants/protection';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -203,6 +204,13 @@ export default function BookingCalendar() {
           New Booking
         </Button>
       </Box>
+
+      {/* B6 Task 8 — the leading-indicator headline. Deliberately mounted
+          with no props describing the calendar's visible range: there is
+          nothing here for it to read, which is what keeps its fetch
+          independent of month navigation. See ContentionHorizon's own
+          docstring. */}
+      <ContentionHorizon />
 
       {loading && (
         <Typography color="text.secondary" sx={{ mb: 1 }}>
