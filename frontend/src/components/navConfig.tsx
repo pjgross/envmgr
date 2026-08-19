@@ -26,6 +26,7 @@ import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import GavelIcon from '@mui/icons-material/Gavel';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -81,6 +82,11 @@ export const navGroups: NavItem[] = [
       // are party to has been put to someone. Who may ANSWER one is settled on
       // the row, not by hiding the page.
       { label: 'Contention Escalations', path: '/contentions', icon: <GavelIcon /> },
+      // Same readability rule as Contention Escalations: any tenant member
+      // may see which decommissions need action across the whole estate —
+      // acting on one (extend, sign, tear down, cancel) stays gated on the
+      // environment's own DecommissionPanel.
+      { label: 'Decommissions', path: '/decommissions', icon: <DeleteSweepIcon /> },
     ],
   },
   {

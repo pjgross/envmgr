@@ -27,6 +27,7 @@ const ContentionEscalations = lazy(
   () => import('./pages/contentions/EscalationWorklist')
 );
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const DecommissionWorklist = lazy(() => import('./pages/decommissions/DecommissionWorklist'));
 const DeploymentDetail = lazy(() => import('./pages/deployments/DeploymentDetail'));
 const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
 const DoraDashboard = lazy(() => import('./pages/insights/DoraDashboard'));
@@ -223,6 +224,7 @@ function App() {
             <Route path="/bookings/list" element={<BookingList />} />
             <Route path="/bookings/:id" element={<BookingDetail />} />
             <Route path="/contentions" element={<ContentionEscalations />} />
+            <Route path="/decommissions" element={<DecommissionWorklist />} />
             <Route path="/change-requests" element={<ChangeRequestList />} />
             <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
             <Route path="/releases" element={<ReleaseList />} />

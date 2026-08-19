@@ -273,6 +273,15 @@ const decommissionSlice = createSlice({
         state.worklistTotal = action.payload.total;
       })
       .addCase(fetchDecommissionWorklist.rejected, (state, action) => {
+        // Task 13's page drives this thunk through `useServerGrid`, which
+        // aborts a superseded dispatch rather than merely ignoring its
+        // reply. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard, `worklistLoading` would flip back to `false` (the grid's
+        // spinner flickers off) and `worklistError` would be set to the
+        // fallback message while the real request is still in flight. Same
+        // guard `fetchReleases.rejected` carries for the identical reason.
+        if (action.meta.aborted) return;
         state.worklistLoading = false;
         state.worklistError = action.payload ?? 'Failed to load the decommission worklist';
       })
