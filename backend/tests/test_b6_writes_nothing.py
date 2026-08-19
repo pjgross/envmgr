@@ -24,6 +24,9 @@ import pytest_asyncio
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from sqlalchemy import select
+
+from app.db.models.booking_request import BookingRequest
 from app.db.models.contention_escalation import ContentionEscalation
 from app.services import contention_forecast_service, contention_service
 from tests.factories import ensure_deployment, ensure_environment, make_booking
@@ -133,18 +136,46 @@ async def populated_estate(db_session, test_tenant, test_user, second_tenant_fac
     )
     await db_session.flush()
 
+    # BookingRequest — one per booking, created inside `make_booking` — is
+    # EXACTLY where this codebase stores per-request state instead of on the
+    # booking (protection_level, project_id: see CLAUDE.md's B4 note, "THE
+    # LEVEL LIVES ON THE REQUEST, NOT THE BOOKING"). A B6 write landing here
+    # is the most plausible shape a violation would take, and it would pass
+    # every behavioural test that only snapshots `booking` — so it is
+    # snapshotted explicitly, fetched by id rather than via the `booking_
+    # request` relationship (which is not guaranteed loaded on an object
+    # this session merely constructed and flushed, not queried back).
+    all_bookings = [clash_1, clash_2, solo, other_booking]
+    request_ids = [b.booking_request_id for b in all_bookings]
+    requests = (
+        await db_session.execute(
+            select(BookingRequest).where(BookingRequest.id.in_(request_ids))
+        )
+    ).scalars().all()
+
     return {
         "environments": [env_a, env_b, other_env],
-        "bookings": [clash_1, clash_2, solo, other_booking],
+        "bookings": all_bookings,
+        "booking_requests": list(requests),
         "deployments": [deployment_a, other_deployment],
         "escalations": [escalation],
     }
 
 
 def _all_rows(estate: dict) -> list:
+    """Every table `populated_estate` puts a row in that a B6 write could
+    plausibly reach — SEE THE FULL TABLE INVENTORY in the fixture's own
+    docstring and the task report for the tables deliberately excluded here
+    (tenant, user, environment_tier, booking_type, lifecycle_template,
+    system, subsystem, build, change_request) and why: each is an FK-parent
+    row built by an idempotent `ensure_*` helper during fixture SETUP, and
+    none is ever read, joined or referenced by any of B6's three entry
+    points (`overlapping_pairs`, `contention_states_for_bookings`,
+    `contention_count_in_window`, `escalations_for_pairs`)."""
     return (
         estate["environments"]
         + estate["bookings"]
+        + estate["booking_requests"]
         + estate["deployments"]
         + estate["escalations"]
     )
@@ -155,10 +186,12 @@ def _all_rows(estate: dict) -> list:
 
 @pytest.mark.asyncio
 async def test_reading_contention_changes_no_row(db_session, test_tenant, populated_estate):
-    """Snapshot EVERY column of every booking, environment, escalation and
-    deployment; fold contention over the whole estate; compare the whole
-    mapping. Asserting on one column is how a guard passes while the thing it
-    guards has changed."""
+    """Snapshot EVERY column of every booking, booking_request, environment,
+    escalation and deployment; fold contention over the whole estate;
+    compare the whole mapping. Asserting on one column is how a guard passes
+    while the thing it guards has changed — and `booking_request` is the
+    single most plausible place a stray write would land (see
+    `_all_rows`'s docstring)."""
     all_rows = _all_rows(populated_estate)
     before = await _snapshot(db_session, all_rows)
 
