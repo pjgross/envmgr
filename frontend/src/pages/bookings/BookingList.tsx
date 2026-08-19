@@ -34,6 +34,7 @@ import { bookingService } from '../../services/bookingService';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
 import AgreementGapIndicator from '../../components/bookings/AgreementGapIndicator';
+import { ContentionMarker } from '../../components/bookings/ContentionMarker';
 import { formatApiError } from '../../services/apiError';
 import BookingForm from './BookingForm';
 import {
@@ -361,6 +362,33 @@ export const bookingColumns: GridColDef<BookingResponse>[] = [
     renderCell: ({ row }) => (
       <ConflictIndicator hasUnacknowledged={row.has_unacknowledged_conflicts} />
     ),
+  },
+  {
+    // B6 — the fold of every live overlapping pair this booking is part of
+    // (contention_forecast_service.contention_states_for_bookings), resolved
+    // once per response AFTER the page is fetched — the same shape as
+    // `agreement_gap` and `conflicts` beside it. Never sortable:
+    // `contention_state` is absent from BOOKING_SORTS (backend/app/api/v1/
+    // bookings.py), so a bare `?sort_by=contention_state` is a 422, and this
+    // page has no `?contention=` filter either — `/contentions` is the
+    // filtering surface, and a second filter here would need a second
+    // definition of the fold.
+    //
+    // Renders NOTHING when `contention_state` is null — the common case, not
+    // an edge case — never an empty chip; see ContentionMarker's docstring
+    // for why the marker itself has no branch for that at all.
+    field: 'contention_state',
+    headerName: 'Contention',
+    width: 200,
+    hideable: false,
+    sortable: false,
+    renderHeader: () => <ComputedColumnHeader label="Contention" />,
+    renderCell: ({ row }) =>
+      row.contention_state ? (
+        <span data-testid="contention-marker">
+          <ContentionMarker state={row.contention_state} />
+        </span>
+      ) : null,
   },
   {
     field: 'actions',
