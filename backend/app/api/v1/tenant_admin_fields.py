@@ -9,6 +9,7 @@ from app.core.security import get_current_user, require_tenant_admin
 from app.services import (
     custom_field_service,
     environment_compliance_service,
+    environment_lifecycle_policy_service,
     raid_config_service,
 )
 from app.api.v1.schemas.custom_field import (
@@ -21,6 +22,12 @@ from app.api.v1.schemas.environment_naming_policy import (
     EnvironmentNamingPolicyPreviewRequest,
     EnvironmentNamingPolicyRead,
     EnvironmentNamingPolicyUpdate,
+)
+from app.api.v1.schemas.lifecycle_policy import (
+    DecommissionStepRead,
+    DecommissionStepWrite,
+    EnvironmentLifecyclePolicyRead,
+    EnvironmentLifecyclePolicyUpdate,
 )
 from app.api.v1.schemas.raid import RaidConfigRead, RaidConfigUpdate
 
@@ -127,6 +134,101 @@ async def preview_environment_naming_policy(
         in_gap=in_gap,
         quarantined_now=quarantined,
         sample_names=sample,
+    )
+
+
+@router.get(
+    "/environment-lifecycle-policy", response_model=EnvironmentLifecyclePolicyRead
+)
+async def get_environment_lifecycle_policy(
+    db: AsyncSession = Depends(get_db),
+    # Reads open to any tenant member; only writes are Admin — same split as
+    # the naming policy above and B3a's user groups.
+    current_user=Depends(get_current_user),
+):
+    return await environment_lifecycle_policy_service.get_policy(
+        db, current_user.active_tenant_id
+    )
+
+
+@router.put(
+    "/environment-lifecycle-policy", response_model=EnvironmentLifecyclePolicyRead
+)
+async def put_environment_lifecycle_policy(
+    data: EnvironmentLifecyclePolicyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await environment_lifecycle_policy_service.upsert_policy(
+        db,
+        current_user.active_tenant_id,
+        idle_detection_enabled=data.idle_detection_enabled,
+        idle_threshold_days=data.idle_threshold_days,
+        decommission_notice_days=data.decommission_notice_days,
+    )
+
+
+@router.get("/decommission-steps", response_model=list[DecommissionStepRead])
+async def list_decommission_steps(
+    active_only: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await environment_lifecycle_policy_service.list_steps(
+        db, current_user.active_tenant_id, active_only=active_only
+    )
+
+
+@router.post(
+    "/decommission-steps",
+    response_model=DecommissionStepRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_decommission_step(
+    data: DecommissionStepWrite,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await environment_lifecycle_policy_service.create_step(
+        db,
+        current_user.active_tenant_id,
+        key=data.key,
+        label=data.label,
+        description=data.description,
+        display_order=data.display_order,
+        is_required=data.is_required,
+        is_active=data.is_active,
+    )
+
+
+@router.patch("/decommission-steps/{step_id}", response_model=DecommissionStepRead)
+async def update_decommission_step(
+    step_id: int,
+    data: DecommissionStepWrite,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    return await environment_lifecycle_policy_service.update_step(
+        db,
+        step_id,
+        current_user.active_tenant_id,
+        key=data.key,
+        label=data.label,
+        description=data.description,
+        display_order=data.display_order,
+        is_required=data.is_required,
+        is_active=data.is_active,
+    )
+
+
+@router.delete("/decommission-steps/{step_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_decommission_step(
+    step_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_tenant_admin()),
+):
+    await environment_lifecycle_policy_service.delete_step(
+        db, step_id, current_user.active_tenant_id
     )
 
 

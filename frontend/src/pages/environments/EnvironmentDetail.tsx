@@ -57,10 +57,12 @@ import { verifyEnvironment, clearVerifyResult } from '../../store/dependencySlic
 import { recordVersion, updateVersion } from '../../store/versionSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
 import { fetchUserGroups } from '../../store/userGroupSlice';
+import { fetchDecommission, fetchDecommissionSteps } from '../../store/decommissionSlice';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import ComponentTypeAssignDialog from '../../components/environments/ComponentTypeAssignDialog';
 import HandoverSection from '../../components/environments/HandoverSection';
+import DecommissionPanel from '../../components/environments/DecommissionPanel';
 import EnvironmentProjectsPanel from '../../components/environments/EnvironmentProjectsPanel';
 import EnvironmentGroupsPanel from '../../components/environments/EnvironmentGroupsPanel';
 import EnvironmentTopologyDiagram from './EnvironmentTopologyDiagram';
@@ -130,6 +132,16 @@ export default function EnvironmentDetail() {
   const envCustomFieldDefs = useSelector(
     (state: RootState) => state.customField.definitions['environment'] ?? []
   );
+
+  // B5 — the live/most-recent decommission for this environment, plus the
+  // bookings a completed teardown did not touch, and the tenant's checklist
+  // vocabulary. All three feed DecommissionPanel below.
+  const decommissionCurrent = useSelector((state: RootState) => state.decommission.current);
+  const decommissionRemainingBookings = useSelector(
+    (state: RootState) => state.decommission.remainingBookings
+  );
+  const decommissionSteps = useSelector((state: RootState) => state.decommission.steps);
+  const authUser = useSelector((state: RootState) => state.auth.user);
 
   const [tab, setTab] = useState(0);
 
@@ -208,6 +220,8 @@ export default function EnvironmentDetail() {
     dispatch(fetchEnvironmentSystems(envId));
     dispatch(fetchDefinitions('environment'));
     dispatch(fetchUserGroups({}));
+    dispatch(fetchDecommission(envId));
+    dispatch(fetchDecommissionSteps());
     // Clear any previous verify result when env changes
     dispatch(clearVerifyResult());
   }, [dispatch, envId]);
@@ -981,6 +995,33 @@ export default function EnvironmentDetail() {
               the operating team as well as Admins (Governance above is
               Admin-only). See HandoverSection's own docstring. */}
           {!editMode && currentEnvironment && <HandoverSection environment={currentEnvironment} />}
+
+          {/* B5 — the decommission panel: banner, every control the viewer
+              may use, the "Start decommission" entry point, and the
+              attestation checklist, together (A2's GroupTransitionPanel
+              lesson — a repair control lives next to the state it repairs).
+              `decommission` is `null` when this environment has never been
+              decommissioned — the panel's own "Start decommission" control
+              lives inside it for exactly that case, so this page always
+              renders it once the environment itself has loaded. */}
+          {!editMode && currentEnvironment && (
+            <DecommissionPanel
+              decommission={
+                decommissionCurrent && {
+                  ...decommissionCurrent,
+                  remaining_bookings: decommissionRemainingBookings,
+                }
+              }
+              steps={decommissionSteps}
+              env={{
+                id: currentEnvironment.id,
+                name: currentEnvironment.name,
+                owner_user_id: currentEnvironment.owner_user_id,
+                operations_group_id: currentEnvironment.operations_group_id,
+              }}
+              currentUser={authUser}
+            />
+          )}
 
           {/* Projects using this environment — below Handover, per the task-8
               brief. Reads directly, not gated on editMode: this is A1's

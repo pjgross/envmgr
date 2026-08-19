@@ -109,6 +109,7 @@ async def test_book_for_phase_creates_booking_with_release_and_phase_set(
         booking_type_id=bt.id,
         tenant_id=tenant.id,
         user_id=user.id,
+        now=now,
     )
     assert booking.release_id == release.id
     assert booking.test_phase_id is None
@@ -144,6 +145,7 @@ async def test_derive_context_tag_deployment_role(db_session, tenant, user):
         booking_type_id=bt.id,
         tenant_id=tenant.id,
         user_id=user.id,
+        now=now,
     )
 
     br = (
@@ -182,6 +184,7 @@ async def test_derive_context_tag_regression_role(db_session, tenant, user):
         booking_type_id=bt.id,
         tenant_id=tenant.id,
         user_id=user.id,
+        now=now,
     )
 
     br = (
@@ -220,6 +223,7 @@ async def test_derive_context_tag_no_release_system_match_yields_none(
         booking_type_id=bt.id,
         tenant_id=tenant.id,
         user_id=user.id,
+        now=now,
     )
 
     br = (
@@ -257,6 +261,7 @@ async def test_update_booking_re_derives_context_tag(db_session, tenant, user):
         booking_type_id=bt.id,
         tenant_id=tenant.id,
         user_id=user.id,
+        now=now,
     )
 
     br = (
@@ -305,5 +310,6 @@ async def test_tenant_isolation_cannot_book_other_tenants_release(
             booking_type_id=bt.id,
             tenant_id=tenant_b.id,  # Wrong tenant
             user_id=user.id,
+            now=now,
         )
     assert exc_info.value.status_code == 404

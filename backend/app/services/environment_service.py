@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -18,6 +19,7 @@ from app.db.models.environment import (
     EnvironmentSubSystemHost,
     EnvironmentStatus,
 )
+from app.db.models.environment_decommission import EnvironmentDecommission
 from app.db.models.environment_tier import EnvironmentTier
 from app.db.models.dependency import SystemDependency, ComponentDependency
 from app.db.models.system import SubSystem, System
@@ -30,7 +32,7 @@ from app.api.v1.schemas.environment import (
 )
 from app.core.events import publish_event
 from app.services.custom_field_service import validate_custom_fields
-from app.services import environment_compliance_service, user_group_service
+from app.services import environment_compliance_service, environment_idle_service, user_group_service
 
 
 @dataclass
@@ -51,6 +53,20 @@ class EnvironmentView:
     # renders "compliant" on a page that never computed the answer.
     quarantined: bool
     compliance_gaps: list[str]
+    # B5 Task 3. Derived in SQL, never stored: no deployment and no booking for
+    # the tier's or tenant's threshold, on an ACTIVE environment older than
+    # that threshold. Required-positional for the same reason as the two
+    # fields above it — a defaulted field would render "not idle" at a
+    # construction site that never computed the answer.
+    idle: bool
+    # B5 Task 9. The LIVE decommission's computed state, or None — "never
+    # decommissioned" and "decommission cancelled/torn down" both render as
+    # None here; only a live one labels the row. Required-positional for the
+    # same reason as `idle` and `quarantined` above it: Task 3 shipped `idle`
+    # on this view and its filter but forgot the response field, leaving it
+    # invisible to every consumer — a defaulted Optional here would silently
+    # repeat that at any construction site that forgot to compute it.
+    decommission_state: Optional[str]
 
 
 def _reserved_now_clause():
@@ -76,13 +92,55 @@ def _reserved_now_clause():
     )
 
 
-def _view_query(tenant_id: int):
+def _decommission_field_clause(column, now: datetime):
+    """One column of the environment's LIVE decommission, as a correlated
+    scalar subquery — never a join.
+
+    An environment may have several TERMINAL decommissions (cancelled or torn
+    down attempts) plus at most one LIVE one; a LEFT JOIN over
+    EnvironmentDecommission would multiply the environment's row by however
+    many terminal attempts it has, the same join-vs-subquery trap
+    `_reserved_now_clause` above and `environment_idle_service.idle_clause`
+    are already careful about. Filtered through
+    `environment_decommission_service.live_predicate`, imported lazily —
+    that module imports `get_environment` from this one, so importing it at
+    module scope here would be circular.
+    """
+    from app.services.environment_decommission_service import live_predicate
+
+    D = EnvironmentDecommission
+    return (
+        select(column)
+        .where(
+            D.environment_id == Environment.id,
+            D.tenant_id == Environment.tenant_id,
+            live_predicate(now),
+        )
+        .label(column.key)
+    )
+
+
+def _view_query(tenant_id: int, now: datetime):
     """The one select that carries an environment's display labels with it.
 
     Both joins are tenant-qualified. The write paths already refuse a tier or an
     owner from another tenant, so this is defence in depth — the same call as
     the host filter in get_environment_topology: a malformed row must not
     surface another tenant's name.
+
+    `now` is a PARAMETER, never read fresh in here, so the three decommission
+    columns below and every OTHER per-row derivation in this file's callers
+    (idle, quarantined) come from the caller's one clock — a row on a
+    threshold boundary must not be selected by one instant and rendered by
+    another.
+
+    THREE extra columns carry the environment's LIVE decommission's
+    extension/teardown fields (never `cancelled_at`/`torn_down_at` —
+    `live_predicate` already excludes both, so a live row can only ever
+    render `warned`, `due` or `extension_requested`; see
+    `_decommission_label`). `scheduled_teardown_at IS NULL` on the fetched row
+    is exactly "no live decommission", because that column is NOT NULL on the
+    model — there is no live row that could leave it null.
     """
     return (
         select(
@@ -92,6 +150,15 @@ def _view_query(tenant_id: int):
             User.username,
             UserGroup.name,
             _reserved_now_clause(),
+            _decommission_field_clause(
+                EnvironmentDecommission.extension_requested_at, now
+            ),
+            _decommission_field_clause(
+                EnvironmentDecommission.extension_decided_at, now
+            ),
+            _decommission_field_clause(
+                EnvironmentDecommission.scheduled_teardown_at, now
+            ),
         )
         .join(
             EnvironmentTier,
@@ -114,6 +181,41 @@ def _view_query(tenant_id: int):
     )
 
 
+def _decommission_label(
+    extension_requested_at: Optional[datetime],
+    extension_decided_at: Optional[datetime],
+    scheduled_teardown_at: Optional[datetime],
+    now: datetime,
+) -> Optional[str]:
+    """The environment's LIVE decommission's state, or None when it has none.
+
+    `scheduled_teardown_at is None` IS "no live decommission" — see
+    `_view_query`'s docstring for why that column alone is sufficient.
+
+    Reuses `environment_decommission_service.decommission_state` rather than
+    re-deriving its branch order — one authority for it, the same call
+    `state_predicate` makes in SQL for the worklist. `cancelled_at` and
+    `torn_down_at` are hardcoded None on the stand-in row because
+    `live_predicate` (which produced these three columns) already excludes
+    both: a live row can only ever be `warned`, `due` or
+    `extension_requested`.
+    """
+    if scheduled_teardown_at is None:
+        return None
+    from app.services.environment_decommission_service import decommission_state
+
+    return decommission_state(
+        SimpleNamespace(
+            cancelled_at=None,
+            torn_down_at=None,
+            extension_requested_at=extension_requested_at,
+            extension_decided_at=extension_decided_at,
+            scheduled_teardown_at=scheduled_teardown_at,
+        ),
+        now,
+    )
+
+
 async def list_environments(
     db: AsyncSession,
     tenant_id: int,
@@ -128,6 +230,8 @@ async def list_environments(
     governance_gap: Optional[bool] = None,
     compliance_gap: Optional[bool] = None,
     quarantined: Optional[bool] = None,
+    idle: Optional[bool] = None,
+    now: Optional[datetime] = None,
     sort: Optional[Sort] = None,
 ) -> tuple[list[EnvironmentView], int]:
     """Environments for a tenant, plus the unwindowed total.
@@ -135,8 +239,13 @@ async def list_environments(
     Every filter is applied in SQL. A filter applied in Python after the query
     would window the page before the filter and return quietly wrong results —
     see docs/pagination.md.
+
+    `now` is taken ONCE, here, and threaded through both the idle filter and
+    every rendered `idle` value — a row on its threshold boundary must not be
+    selected by one clock and rendered by another.
     """
-    query = _view_query(tenant_id).where(
+    now = now or datetime.now(timezone.utc)
+    query = _view_query(tenant_id, now).where(
         Environment.tenant_id == tenant_id, Environment.deleted_at.is_(None)
     )
     if status_filter is not None:
@@ -174,15 +283,22 @@ async def list_environments(
     # B2's two filters run in SQL, before the window, like every other filter
     # here. ONE policy load and ONE clock for the whole request: the same
     # scalars decide the filter and the rendered flag, so a row that survives
-    # `?quarantined=true` cannot render as un-quarantined.
+    # `?quarantined=true` cannot render as un-quarantined. `now` is the same
+    # instant B5's idle filter/render use below — one clock for the request.
     policy = await environment_compliance_service.load_policy(db, tenant_id)
-    now = datetime.now(timezone.utc)
     if compliance_gap is not None:
         clause = environment_compliance_service.noncompliance_clause(policy)
         query = query.where(clause if compliance_gap else ~clause)
     if quarantined is not None:
         clause = environment_compliance_service.quarantine_clause(policy, now)
         query = query.where(clause if quarantined else ~clause)
+    # B5. Resolved once; the same clause both filters and is rendered per row,
+    # so `?idle=true` cannot render a row that answers `idle: false`.
+    idle_st = await environment_idle_service.idle_state(db, tenant_id, now)
+    idle_expr = environment_idle_service.idle_clause(idle_st, now)
+    query = query.add_columns(idle_expr.label("idle"))
+    if idle is not None:
+        query = query.where(idle_expr if idle else ~idle_expr)
     query = apply_sort(query, sort).order_by(Environment.name, Environment.id)
     rows, total = await fetch_page_rows(db, query, page)
 
@@ -202,8 +318,16 @@ async def list_environments(
                 reserved_now=bool(reserved_now),
                 quarantined=env.id in quarantined_now,
                 compliance_gaps=gaps[env.id],
+                idle=bool(idle_flag),
+                decommission_state=_decommission_label(
+                    dc_ext_requested_at, dc_ext_decided_at, dc_teardown_at, now
+                ),
             )
-            for env, tier_name, tier_color, owner_username, operations_group_name, reserved_now in rows
+            for (
+                env, tier_name, tier_color, owner_username, operations_group_name,
+                reserved_now, dc_ext_requested_at, dc_ext_decided_at,
+                dc_teardown_at, idle_flag,
+            ) in rows
         ],
         total,
     )
@@ -214,9 +338,14 @@ async def get_environment_view(
 ) -> EnvironmentView:
     """The enriched shape the API returns. `get_environment` keeps returning the
     ORM entity for internal callers that mutate it."""
+    now = datetime.now(timezone.utc)
+    idle_st = await environment_idle_service.idle_state(db, tenant_id, now)
+    idle_expr = environment_idle_service.idle_clause(idle_st, now)
     row = (
         await db.execute(
-            _view_query(tenant_id).where(
+            _view_query(tenant_id, now)
+            .add_columns(idle_expr.label("idle"))
+            .where(
                 Environment.id == env_id,
                 Environment.tenant_id == tenant_id,
                 Environment.deleted_at.is_(None),
@@ -227,11 +356,14 @@ async def get_environment_view(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found"
         )
-    env, tier_name, tier_color, owner_username, operations_group_name, reserved_now = row
+    (
+        env, tier_name, tier_color, owner_username, operations_group_name,
+        reserved_now, dc_ext_requested_at, dc_ext_decided_at, dc_teardown_at,
+        idle_flag,
+    ) = row
     # The detail page must agree with the grid, so it derives B2's two fields
     # from the same functions rather than a second reading of the rule.
     policy = await environment_compliance_service.load_policy(db, tenant_id)
-    now = datetime.now(timezone.utc)
     quarantined_now = await environment_compliance_service.quarantined_ids(
         db, tenant_id, policy, now, [env.id]
     )
@@ -246,6 +378,10 @@ async def get_environment_view(
         compliance_gaps=environment_compliance_service.gaps_for_environments(
             [env], policy
         )[env.id],
+        idle=bool(idle_flag),
+        decommission_state=_decommission_label(
+            dc_ext_requested_at, dc_ext_decided_at, dc_teardown_at, now
+        ),
     )
 
 

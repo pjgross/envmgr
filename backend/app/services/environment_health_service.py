@@ -10,7 +10,7 @@ from app.core.pagination import Page, fetch_page
 from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.db.models.change_request import ChangeRequest, ChangeRequestEnvironment
-from app.db.models.environment import Environment
+from app.db.models.environment import Environment, EnvironmentStatus
 from app.db.models.environment_health import EnvironmentHealthStatus
 
 STALE_AFTER = timedelta(minutes=15)
@@ -100,7 +100,7 @@ async def health_overview(
     query = select(Environment).where(
         Environment.tenant_id == tenant_id,
         Environment.deleted_at.is_(None),
-        Environment.status != "decommissioned",
+        Environment.status != EnvironmentStatus.DECOMMISSIONED,
     ).order_by(Environment.name.asc(), Environment.id)
     envs, total = await fetch_page(db, query, page)
     rows = []

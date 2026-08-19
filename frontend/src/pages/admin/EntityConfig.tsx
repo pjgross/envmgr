@@ -8,6 +8,7 @@ import ComponentTypesPanel from '../../components/admin/ComponentTypesPanel';
 import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPanel';
 import EnvironmentTiersPanel from '../../components/admin/EnvironmentTiersPanel';
 import EnvironmentNamingPolicyPanel from '../../components/admin/EnvironmentNamingPolicyPanel';
+import EnvironmentLifecyclePanel from '../../components/admin/EnvironmentLifecyclePanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -61,6 +62,12 @@ const TIERS_SUPPORTED: EntityType[] = ['environment'];
 // looking for it would not think to open Tiers.
 const NAMING_POLICY_SUPPORTED: EntityType[] = ['environment'];
 
+// Entities that have a lifecycle policy — idle detection + decommission
+// notice period + the checklist vocabulary (B5). Its own tab for the same
+// reason naming policy got one: this isn't a tier vocabulary and isn't a
+// naming rule either.
+const LIFECYCLE_POLICY_SUPPORTED: EntityType[] = ['environment'];
+
 export default function EntityConfig() {
   const { entityType } = useParams<{ entityType: string }>();
   const [tab, setTab] = useState(0);
@@ -89,8 +96,10 @@ export default function EntityConfig() {
   const hasEventTypes = EVENT_TYPES_SUPPORTED.includes(et);
   const hasTiers = TIERS_SUPPORTED.includes(et);
   const hasNamingPolicy = NAMING_POLICY_SUPPORTED.includes(et);
+  const hasLifecyclePolicy = LIFECYCLE_POLICY_SUPPORTED.includes(et);
   const tiersTabIndex = 1 + (hasLifecycle ? 1 : 0) + (hasEventTypes ? 1 : 0);
   const namingPolicyTabIndex = tiersTabIndex + (hasTiers ? 1 : 0);
+  const lifecyclePolicyTabIndex = namingPolicyTabIndex + (hasNamingPolicy ? 1 : 0);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -108,6 +117,7 @@ export default function EntityConfig() {
           {hasEventTypes && <Tab label="Event Types" />}
           {hasTiers && <Tab label="Tiers" />}
           {hasNamingPolicy && <Tab label="Naming Policy" />}
+          {hasLifecyclePolicy && <Tab label="Lifecycle & Decommissioning" />}
         </Tabs>
       </Box>
 
@@ -132,6 +142,8 @@ export default function EntityConfig() {
       {hasTiers && tab === tiersTabIndex && <EnvironmentTiersPanel />}
 
       {hasNamingPolicy && tab === namingPolicyTabIndex && <EnvironmentNamingPolicyPanel />}
+
+      {hasLifecyclePolicy && tab === lifecyclePolicyTabIndex && <EnvironmentLifecyclePanel />}
     </Box>
   );
 }

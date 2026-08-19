@@ -53,5 +53,10 @@
     "sortable": ["respond_by", "created_at", "decided_at"],
     "default": "respond_by",
     "default_dir": "asc"
+  },
+  "decommissions": {
+    "sortable": ["scheduled_teardown_at", "warned_at", "environment"],
+    "default": "scheduled_teardown_at",
+    "default_dir": "asc"
   }
 }

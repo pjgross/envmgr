@@ -68,6 +68,8 @@ const ENV: EnvironmentResponse = {
   owner_username: 'owner',
   expires_at: null,
   reserved_now: false,
+  idle: false,
+  decommission_state: null,
   status: 'active',
   tenant_id: 1,
   custom_fields: null,

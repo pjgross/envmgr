@@ -16,7 +16,10 @@ from app.db.models.booking_lifecycle import BookingType
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.environment import Environment
 from app.db.models.user import User
-from app.services import conflict_service, environment_group_service, project_service
+from app.services import (
+    conflict_service, environment_decommission_service, environment_group_service,
+    project_service,
+)
 
 
 def _may_set_protection(user: User) -> bool:
@@ -104,6 +107,8 @@ async def create_request(
     data: dict[str, Any],
     current_user: User,
     tenant_id: int,
+    *,
+    now: datetime,
 ) -> tuple[BookingRequest, dict[int, list[Booking]]]:
     env_ids: list[int] = data.get("environment_ids") or []
     group_ids: list[int] = data.get("environment_group_ids") or []
@@ -169,6 +174,12 @@ async def create_request(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "One or more environment_ids not found"
         )
+
+    # Task 8: THE MODERN CREATE PATH. One batched check for every environment
+    # on the request (env or expanded-group), before anything is written.
+    await environment_decommission_service.assert_bookable(
+        db, tenant_id, all_env_ids, data["start_date"], data["end_date"], now=now,
+    )
 
     initial_state = await _load_initial_state(db, data["booking_type_id"], tenant_id)
 
@@ -335,7 +346,17 @@ async def add_environment(
     end_date: datetime | None,
     current_user: User,
     tenant_id: int,
+    now: datetime,
 ) -> Booking:
+    """Task 8: A CREATE IN DISGUISE — this is the path a sweep by endpoint
+    name misses, since it hangs off `POST .../environments`, not
+    `POST .../bookings` or `POST .../booking-requests`. Its own
+    `assert_bookable` call, against whichever dates actually apply (the
+    override if given, otherwise the parent request's own dates — the exact
+    fallback `start_date or req.start_date` below computes), is what closes
+    the `exclusive_use_requested` asymmetry's shape here rather than
+    repeating it.
+    """
     req = await _get_request(db, request_id, tenant_id)
 
     env = (await db.execute(
@@ -354,6 +375,11 @@ async def add_environment(
     )).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Environment already in request")
+
+    await environment_decommission_service.assert_bookable(
+        db, tenant_id, [environment_id],
+        start_date or req.start_date, end_date or req.end_date, now=now,
+    )
 
     initial_state = await _load_initial_state(db, req.booking_type_id, tenant_id)
 
@@ -432,7 +458,18 @@ async def update_standard_fields(
     values: dict[str, Any],
     current_user: User,
     tenant_id: int,
+    now: datetime,
 ) -> BookingRequest:
+    """Task 8: THE DATE-EXTENDING EDIT PATH. Moving `end_date` later is the
+    same act as booking past teardown, so a start_date/end_date change here
+    gets its own `assert_bookable` call — over every LIVE child's
+    environment_id, with whichever of start_date/end_date this call is
+    actually changing merged onto the request's current values (a caller
+    may send only one of the pair). Checked BEFORE any field is assigned, so
+    a refusal leaves the request completely untouched, and the same
+    `children` fetch backs both this check and the existing cascade below —
+    one query, not two.
+    """
     req = await _get_request(db, request_id, tenant_id)
     unknown = set(values) - STANDARD_REQUEST_FIELDS
     if unknown:
@@ -490,6 +527,20 @@ async def update_standard_fields(
             current=req.protection_level,
         )
 
+    children = None
+    if "start_date" in values or "end_date" in values:
+        children = (await db.execute(
+            select(Booking).where(
+                Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
+            )
+        )).scalars().all()
+        new_start = values.get("start_date", req.start_date)
+        new_end = values.get("end_date", req.end_date)
+        await environment_decommission_service.assert_bookable(
+            db, tenant_id, [c.environment_id for c in children],
+            new_start, new_end, now=now,
+        )
+
     for k, v in values.items():
         if k == "context_tag" and v is not None:
             setattr(req, k, ContextTag(v))
@@ -497,12 +548,7 @@ async def update_standard_fields(
             setattr(req, k, v)
 
     # Cascade start_date/end_date overrides to child Bookings so per-env dates stay in sync.
-    if "start_date" in values or "end_date" in values:
-        children = (await db.execute(
-            select(Booking).where(
-                Booking.booking_request_id == req.id, Booking.deleted_at.is_(None)
-            )
-        )).scalars().all()
+    if children is not None:
         for child in children:
             if "start_date" in values:
                 child.start_date = values["start_date"]

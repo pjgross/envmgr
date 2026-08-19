@@ -46,6 +46,9 @@ from app.db.models.booking_request import BookingRequest
 from app.db.models.booking import Booking
 from app.db.models.system import System
 from app.core.security import get_password_hash
+from app.services.environment_decommission_defaults import (
+    seed_decommission_steps_for_tenant,
+)
 from app.services.environment_request_defaults import (
     seed_environment_request_defaults_for_tenant,
 )
@@ -303,6 +306,33 @@ async def auth_headers(client, test_tenant, test_user) -> dict:
 
 
 @pytest_asyncio.fixture(scope="function")
+async def member_headers(client, db_session, test_tenant) -> dict:
+    """Bearer token headers for a non-Admin (Developer) user in test_tenant —
+    the "any tenant member" half of a reads-open/writes-Admin split, following
+    how auth_headers is built. No equivalent shared fixture existed; several
+    test files define a similarly-shaped local `developer_headers` instead."""
+    user = User(
+        tenant_id=test_tenant.id,
+        username="testmember",
+        email="member@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Developer",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    response = await client.post("/api/v1/auth/login", json={
+        "username": user.username,
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture(scope="function")
 async def test_booking(db_session, test_tenant, test_environment, test_user, test_booking_type):
     """A persisted booking request with a single child booking."""
     now = datetime.now(timezone.utc)
@@ -374,7 +404,16 @@ async def test_conflicting_booking(db_session, test_tenant, test_environment, te
 
 @pytest_asyncio.fixture(scope="function")
 async def tenant(db_session) -> Tenant:
-    """Short-name alias for test_tenant; used by Phase 3 model tests."""
+    """NOT an alias for test_tenant — it creates a SEPARATE, DIFFERENT tenant
+    ("Phase3 Org" / "phase3-org"), while test_tenant creates ("Test Org" /
+    "test-org"). A test that combines this fixture with `auth_headers`
+    (which authenticates into test_tenant) is querying across two different
+    tenants and can pass VACUOUSLY — a query correctly scoped to
+    auth_headers' tenant simply never sees rows built against `tenant`, so a
+    missing tenant filter is invisible to it either way. Task 7 of B5 nearly
+    shipped exactly that pairing. Used by Phase 3 model tests, which pair it
+    with the `user` fixture below (built in `tenant`'s own org) and log in
+    through that pairing, never through auth_headers."""
     t = Tenant(name="Phase3 Org", slug="phase3-org")
     db_session.add(t)
     await db_session.commit()
@@ -455,4 +494,21 @@ async def environment_request_lifecycle(db_session, test_tenant) -> None:
     matching test_booking_type / test_change_requests.py's test_cr_lifecycle.
     """
     await seed_environment_request_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def decommission_steps_seeded(db_session, test_tenant) -> None:
+    """Seeds the standard decommission-step vocabulary for `test_tenant`.
+
+    Same reason as `environment_request_lifecycle` just above: `test_tenant`
+    builds a bare Tenant row directly, bypassing tenant_service.create_tenant
+    — one of the two real paths that seed this (the other being migration
+    `envdecommission`'s backfill, which the test suite never runs either,
+    since schema here is built with create_all, not `alembic upgrade head`).
+    Explicit rather than autouse, same rationale: a test that wants an
+    unseeded tenant (e.g. to exercise a service-level backfill) can simply not
+    request it.
+    """
+    await seed_decommission_steps_for_tenant(db_session, test_tenant.id)
     await db_session.commit()

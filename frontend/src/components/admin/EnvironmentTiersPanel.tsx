@@ -33,6 +33,13 @@ export default function EnvironmentTiersPanel() {
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#90A4AE');
   const [newOrder, setNewOrder] = useState(100);
+  // '' means "use the tenant default" — BLANK, never pre-filled with the
+  // tenant's idle_threshold_days. Pre-filling it with, say, 30 would turn
+  // every save into an explicit per-tier override nobody asked for, silently
+  // detaching this tier from future tenant-default changes. Kept as a
+  // string (not `number | null`) so the field can hold an in-progress empty
+  // input without coercing to 0 — Number('') is 0, not a usable sentinel.
+  const [newIdleThreshold, setNewIdleThreshold] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [editTarget, setEditTarget] = useState<EnvironmentTierResponse | null>(null);
@@ -40,6 +47,7 @@ export default function EnvironmentTiersPanel() {
   const [editColor, setEditColor] = useState('');
   const [editOrder, setEditOrder] = useState(0);
   const [editActive, setEditActive] = useState(true);
+  const [editIdleThreshold, setEditIdleThreshold] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<EnvironmentTierResponse | null>(null);
@@ -58,6 +66,8 @@ export default function EnvironmentTiersPanel() {
         color: newColor,
         display_order: newOrder,
         is_active: true,
+        // '' -> null: no override at creation unless the admin typed one.
+        idle_threshold_days: newIdleThreshold.trim() ? Number(newIdleThreshold) : null,
       })
     );
     if (createEnvironmentTier.rejected.match(result)) {
@@ -66,6 +76,7 @@ export default function EnvironmentTiersPanel() {
     }
     setCreateOpen(false);
     setNewName('');
+    setNewIdleThreshold('');
   };
 
   const openEdit = (row: EnvironmentTierResponse) => {
@@ -74,6 +85,10 @@ export default function EnvironmentTiersPanel() {
     setEditColor(row.color ?? '#90A4AE');
     setEditOrder(row.display_order);
     setEditActive(row.is_active);
+    // BLANK when null — not the tenant default. See the state comment above.
+    setEditIdleThreshold(
+      row.idle_threshold_days === null ? '' : String(row.idle_threshold_days)
+    );
     setEditError(null);
   };
 
@@ -88,6 +103,13 @@ export default function EnvironmentTiersPanel() {
           color: editColor,
           display_order: editOrder,
           is_active: editActive,
+          // Always sent, blank or not — the backend reads this via
+          // model_fields_set, so OMITTING the key (rather than sending
+          // explicit null) is how you'd accidentally leave a stale override
+          // in place. A blank field must send null to actually clear it.
+          idle_threshold_days: editIdleThreshold.trim()
+            ? Number(editIdleThreshold)
+            : null,
         },
       })
     );
@@ -132,6 +154,15 @@ export default function EnvironmentTiersPanel() {
       headerName: 'Standard tier',
       flex: 1,
       renderCell: (params) => params.row.category ?? '—',
+    },
+    {
+      field: 'idle_threshold_days',
+      headerName: 'Idle override',
+      width: 150,
+      renderCell: (params) =>
+        params.row.idle_threshold_days === null
+          ? 'Uses tenant default'
+          : `${params.row.idle_threshold_days} days`,
     },
     {
       field: 'is_active',
@@ -208,6 +239,14 @@ export default function EnvironmentTiersPanel() {
             onChange={(e) => setNewOrder(Number(e.target.value))}
             helperText="Lower numbers sort first — tiers have a progression, not an alphabet."
           />
+          <TextField
+            label="Idle threshold override (days)"
+            type="number"
+            value={newIdleThreshold}
+            onChange={(e) => setNewIdleThreshold(e.target.value)}
+            inputProps={{ min: 1, max: 3650 }}
+            helperText="Leave blank to use the tenant's default idle threshold (Lifecycle & Decommissioning tab). A Dev sandbox and a DR environment don't go idle at the same rate."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -249,6 +288,14 @@ export default function EnvironmentTiersPanel() {
             <MenuItem value="active">Active</MenuItem>
             <MenuItem value="inactive">Inactive</MenuItem>
           </TextField>
+          <TextField
+            label="Idle threshold override (days)"
+            type="number"
+            value={editIdleThreshold}
+            onChange={(e) => setEditIdleThreshold(e.target.value)}
+            inputProps={{ min: 1, max: 3650 }}
+            helperText="Leave blank to use the tenant's default idle threshold. Clearing this field and saving removes the override — it does not set it to blank forever."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditTarget(null)}>Cancel</Button>

@@ -1,3 +1,5 @@
+import type { DecommissionState } from './decommission';
+
 export type EnvironmentStatus = 'active' | 'inactive' | 'maintenance' | 'decommissioned';
 
 export interface EnvironmentResponse {
@@ -17,6 +19,10 @@ export interface EnvironmentResponse {
   /** Null means "no expiry planned" — a legitimate state, not a missing value. */
   expires_at: string | null;
   reserved_now: boolean;
+  /** B5 — no deployment or booking for the threshold. Advisory only. */
+  idle: boolean;
+  /** B5 — the live decommission's computed state, or null if there is none. */
+  decommission_state: DecommissionState | null;
   status: EnvironmentStatus;
   tenant_id: number;
   custom_fields: Record<string, unknown> | null;

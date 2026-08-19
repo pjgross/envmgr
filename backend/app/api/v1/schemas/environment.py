@@ -96,6 +96,24 @@ class EnvironmentResponse(BaseModel):
     # sortable: false — docs/pagination.md's unsortable set.
     quarantined: bool = False
     compliance_gaps: list[str] = []
+    # B5. Derived in SQL, never stored — no deployment and no booking for the
+    # tier's or tenant's threshold. REQUIRED, not defaulted, unlike the two
+    # fields above it: a default here would render a confident "not idle" at
+    # any construction site that forgot to compute it. `from_view` is
+    # currently the only construction site, and both of `EnvironmentView`'s
+    # own construction sites (list_environments, get_environment_view) always
+    # populate `idle`, so there is nowhere this can silently go unset.
+    idle: bool
+    # B5 Task 9. The environment's LIVE decommission's computed state
+    # (`warned`/`due`/`extension_requested`), or None — "never decommissioned"
+    # and "decommission cancelled/torn down" both render as None; only a live
+    # one labels the row. REQUIRED, no default, for the exact reason `idle` is:
+    # Task 3 shipped `idle` on `EnvironmentView` and its filter but never added
+    # it here, leaving it computed, filterable and invisible to every
+    # consumer. Both of `EnvironmentView`'s own construction sites
+    # (list_environments, get_environment_view) always populate this field, so
+    # `from_view` is the one place it is ever unset — and there it isn't.
+    decommission_state: Optional[str]
     # The Welcome Pack's content — read-only here; written only via
     # PATCH /environments/{id}/handover.
     access_url: Optional[str] = None
@@ -136,6 +154,8 @@ class EnvironmentResponse(BaseModel):
             name_compliant=env.name_compliant,
             quarantined=view.quarantined,
             compliance_gaps=view.compliance_gaps,
+            idle=view.idle,
+            decommission_state=view.decommission_state,
             access_url=env.access_url,
             connection_notes=env.connection_notes,
             support_contact=env.support_contact,

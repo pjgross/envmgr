@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Query, Response, status
@@ -248,7 +248,8 @@ async def create_booking(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    booking, warnings = await booking_service.create_booking(db, data, current_user)
+    now = datetime.now(timezone.utc)
+    booking, warnings = await booking_service.create_booking(db, data, current_user, now=now)
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
@@ -315,7 +316,10 @@ async def update_standard_fields(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    booking = await booking_service.update_standard_fields(db, booking_id, values, current_user)
+    now = datetime.now(timezone.utc)
+    booking = await booking_service.update_standard_fields(
+        db, booking_id, values, current_user, now=now
+    )
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )

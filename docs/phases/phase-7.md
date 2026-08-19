@@ -1,6 +1,6 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1, B2, B3a, B3b, A1, A2, A3 and A4 shipped (B3 complete, **programme A complete**) | Roadmap: [../plan.md](../plan.md)
+> Status: 🟡 **In progress** — sub-projects B1, B2, B3a, B3b, B4, A1, A2, A3, A4 and B5 shipped (B3 complete, **programme A complete**) | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
@@ -105,7 +105,16 @@ A1 gates A3 and A4.
       right over a hard one. "Preemptible" is a **deviation on record** — nothing preempts
       anything; see below.
       [Spec](../superpowers/specs/2026-08-10-soft-hard-reservations-design.md)
-- [ ] **B5** Decommissioning workflow + idle auto-detection (ghost environments)
+- [x] **B5** Decommissioning workflow (warning → extension → signed attestations → teardown) +
+      idle auto-detection (ghost environments). A fixed state machine — deliberately not a
+      lifecycle template, unlike the request and change-request workflows — computed on read from
+      an `environment_decommission` row's stored facts, the same call A4 made for
+      `contention_escalation`. **B5 is the first sub-project in this programme that acts**: at
+      teardown it sets `environment.status = DECOMMISSIONED`, and while a decommission is live it
+      refuses a booking whose window runs past the scheduled teardown date. Idle detection is a
+      derived, filterable flag (deployments and bookings count as activity; health samples
+      deliberately do not) and changes nothing on its own.
+      [Spec](../superpowers/specs/2026-08-18-environment-decommissioning-design.md)
 - [ ] **B6** Forward contention as a calendar leading indicator
 
 B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3. B2 consumed B1's governance
@@ -765,3 +774,118 @@ fields *and* B3a's operations group as its attribute vocabulary, so it was gated
   renders as "Not provided", not a blank section — an empty "How to connect" heading reads
   as "there is nothing to do", the same absent-versus-checked-and-empty confusion the drift
   work already had to fix once.
+
+## What B5 established
+
+- **B5 IS THE FIRST SUB-PROJECT IN THIS PROGRAMME THAT ACTS.** A3 warns, A4 advises, B2 advises,
+  B4 advises — each guarded by a named test asserting an *absence*. A teardown that changed
+  nothing would not be a teardown, so B5 makes a narrower promise instead and pins it the same
+  way: `tests/test_b5_acts_only_where_it_says.py` asserts B5 changes **exactly two things** outside
+  its own records — `environment.status` becomes `DECOMMISSIONED` at teardown, and a booking whose
+  window runs past a live decommission's scheduled teardown date is refused — and nothing else:
+  no booking is cancelled, transitioned, shortened or deleted at any step. Proved non-vacuous the
+  same way B4's guard was: real preemption inserted into the teardown path fails the guard first,
+  removing it passes again.
+- **THE STATE IS COMPUTED, NEVER STORED** — following A4's `contention_escalation` exactly.
+  `environment_decommission` holds facts (`warned_at`, `scheduled_teardown_at`, the extension
+  block, `torn_down_at`, `cancelled_at`); there is no status column, no scheduler and nothing to
+  invalidate. One SQL predicate (`state_predicate`) reproduces the same first-match-wins branch
+  order as the Python function that renders a row's state, so a `?state=` filter on the
+  `/decommissions` worklist and a rendered chip cannot disagree — the "two mechanisms enforcing one
+  outcome" shape this codebase keeps paying for.
+- **A DEADLINE IS A DAY, FOR THE STATE MACHINE.** `decommission_state` and `state_predicate` both
+  compare `scheduled_teardown_at` against `expiry_boundary(now)` — the start of today
+  (`app/core/day_boundaries.py`), the same module A4 and B2 both had to introduce this rule for.
+  At instant precision a decommission would read `due` from one minute past midnight on its own
+  teardown day; day-granular, **the teardown day itself still reads `warned`**, so `?state=warned`
+  does not hide the rows closest to their deadline. **The booking refusal is deliberately not
+  day-granular** — `assert_bookable` compares a booking's exact end instant against
+  `scheduled_teardown_at` directly, because "does this booking's window end before teardown" is
+  an instant question, not a calendar-day one, and rounding it would let a booking run into the
+  teardown day itself.
+- **THE REFUSAL IS A DATE RULE, NOT A "DECOMMISSION EXISTS" RULE.** A booking is refused only if
+  its window runs past `scheduled_teardown_at` while a decommission is live; one that finishes
+  before teardown is accepted, because the environment still exists until then and a team may
+  legitimately need it next week. The consequence: **granting an extension widens what is bookable
+  with no second write** — moving the date is the only action needed, nothing about the booking
+  rule has to know an extension happened. The rule lands on **five** write paths: three creates
+  (`booking_request_service.create_request`, `booking_request_service.add_environment` — a create
+  in disguise that a grep-by-endpoint sweep would miss — and the legacy `booking_service
+  .create_booking`, which `release_booking_service` delegates to) plus **two** date-extending
+  edits (`booking_request_service.update_standard_fields` and `booking_service
+  .update_standard_fields`, the per-environment override reachable at `PATCH
+  /bookings/{id}/standard-fields`) — the second edit path was found only by reading the code, not
+  by grep, and its guard shipped with zero test coverage until a reviewer commented it out and
+  watched 90 tests across four files stay green. The **recurrence path** checks the **furthest**
+  generated occurrence, not the first — a short first booking plus a recurrence rule would
+  otherwise silently create children past teardown, the same asymmetry class as
+  `exclusive_use_requested`'s. B5 also closes the degenerate case sitting under all of this:
+  nothing previously refused a booking on an environment already `decommissioned` at all.
+- **ONE EXTENSION PER DECOMMISSION.** Granting one moves `scheduled_teardown_at` to
+  `extension_until` and **clears nothing** — the extension block stays in place as the audit
+  record of the decision, and the computed state falls through to `warned` on the new date because
+  branch 3 (undecided extension) stops matching, not because anything was wiped. A second request
+  is refused, pointed at cancel-and-re-raise rather than an unbounded reprieve loop.
+- **TEARDOWN IS GATED ON ATTESTATIONS, AND THE 422 NAMES THE MISSING STEPS.** `torn_down_at`
+  cannot be set until every **active and required** `environment_decommission_step` has a signed
+  `environment_decommission_attestation` — a step that is inactive or not required never gates.
+  Teardown is the one acting step: it sets `environment.status = DECOMMISSIONED`, records who and
+  when, and **surfaces** any bookings still on the calendar without touching them. **Cancel** — open
+  to the operations group or an Admin like every action here except requesting an extension, and
+  always reachable by an Admin even where no team is assigned (B3b's degradation rule, carried
+  over) — is the only escape hatch, since there is no edit path on a decommission, the same shape
+  A4 established for a wrong or departed contention owner.
+- **HEALTH SAMPLES ARE DELIBERATELY NOT ACTIVITY FOR IDLE DETECTION.** `environment_health_status`
+  rows are machine-pushed heartbeats saying the infrastructure is alive, not that anyone wants it —
+  counting them would hide precisely the monitored ghosts the feature exists to find. Only a
+  deployment or an overlapping booking counts, and overlap is checked against the whole window, not
+  the start date, so a three-month booking taken four months ago still reads as claimed. The
+  threshold is `COALESCE(tier.idle_threshold_days, policy.idle_threshold_days)` per row; only
+  **active** environments are judged, every other environment answers **false, never null** (a
+  nullable verdict would force a third rendering onto a question nobody is asking); and an
+  environment younger than its own threshold is never idle, the same guard B2 applies to policy
+  age. **Idle detection defaults to OFF per tenant** (`environment_lifecycle_policy
+  .idle_detection_enabled`), so enabling it does not light up an estate nobody asked to have judged.
+- **NO DIALECT DATE ARITHMETIC.** The per-row idle threshold resolves each distinct
+  tier-override cutoff to a plain Python instant once per request and injects it as a literal in
+  a SQL `CASE` keyed on `tier_id`, rather than asking either engine's date functions to subtract a
+  variable number of days per row. The decommission state machine's boundary comparisons take the
+  same "resolve once, compare directly" shape without needing a `CASE` — `expiry_boundary(now)` is
+  one instant compared straight against `scheduled_teardown_at`. Both exist for the same reason
+  `apply_sort`'s case-folding and NULL-pinning already rest on: row-visible behaviour must not
+  depend on which engine happens to be running underneath it.
+- **Deviations on record, per §2.12:** no per-environment logins or traffic exist to detect, so
+  idle detection uses deployments and bookings instead — bookings stand in for "logins" only
+  imperfectly, since a booked-but-unused environment still reads active. Teardown does not return
+  the environment to an "Available" status — there is no such status in this model, and B5
+  destroys nothing; it sets `DECOMMISSIONED` and leaves the calendar to humans. EnvManager holds no
+  cloud credentials and no way to take a backup or tear down a resource, so attestations record
+  that a **human** did — who, when, and a reference — the same call B2 made on "quarantine/
+  terminate". And **Idle ships derived, never as a status value** in the "extended status set"
+  §2.12 describes, the same call B1 made for `reserved_now`: an environment that is idle is still
+  active.
+- **B5 BUILT FIVE THINGS AND CONNECTED THEM TO NOTHING**, and not one was caught by a test.
+  `idle` was computed and filterable but absent from `EnvironmentResponse`; `decommission_state`
+  was heading the same way until the plan was amended mid-flight; `environment_tier.
+  idle_threshold_days` was a model column with no schema field and no service handling, so the
+  per-tier override was unsettable and `COALESCE(tier, tenant)` silently always chose the tenant
+  default; `initiated_by_username` was read by the panel, supplied by nobody, and absent from
+  `DecommissionRead`; and **`initiateDecommission` existed in the slice with no caller anywhere,
+  so a decommission could not be started from the product at all**. Every piece worked in
+  isolation, every suite was green, and the gap is invisible to a unit test by construction —
+  this is B3b's "shipped broken, caught only by tracing the workflow" in five new costumes.
+  **The question that finds them is "what consumes this?", asked of every new field, thunk and
+  column.** Four surfaced by accident; only the reachability one was caught by asking.
+- **A REFUSAL IS ONLY AS GOOD AS THE REASON IT REPORTS.** `release_booking_service`'s bulk-book
+  path caught B5's 409 through a branch expecting a `dict` detail, found a string, and reduced it
+  to `{"conflicts": []}` — after which the dialog told the user "Skipped N with an **exclusive
+  conflict**". The refusal worked perfectly and named the wrong cause, and specifically the one
+  axis this codebase already warns must never be conflated with another. A new refusal must be
+  traced to every consumer that renders a refusal, not merely to the paths that raise it.
+- **A GUARD CAN BE NARROWER THAN THE PROMISE IT GUARDS.** The first cut of
+  `test_b5_acts_only_where_it_says.py` never invoked `request_extension`, `decide_extension` or
+  `sign_attestation` — and `decide_extension` is the **only** function that moves
+  `scheduled_teardown_at`. It also compared the environment on two columns at teardown while
+  comparing full rows on cancel. It passed, it was non-vacuous, and it verified a subset of its
+  own claim. Found only by the whole-branch review reading the guard against every write path
+  rather than against its own test names.

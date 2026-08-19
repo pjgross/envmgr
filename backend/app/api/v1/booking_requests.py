@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -177,6 +178,7 @@ async def create_booking_request(
 ):
     req, detected = await booking_request_service.create_request(
         db, data=data.model_dump(), current_user=current_user, tenant_id=current_user.active_tenant_id,
+        now=datetime.now(timezone.utc),
     )
     await db.refresh(req, attribute_names=["bookings"])
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
@@ -349,6 +351,7 @@ async def update_request_standard_fields(
     req = await booking_request_service.update_standard_fields(
         db, request_id=request_id, values=values,
         current_user=current_user, tenant_id=current_user.active_tenant_id,
+        now=datetime.now(timezone.utc),
     )
     await db.refresh(req, attribute_names=["bookings"])
     names = await project_service.get_project_names(db, {req.project_id}, current_user.active_tenant_id)
@@ -390,6 +393,7 @@ async def add_environment_to_request(
         db, request_id=request_id, environment_id=data.environment_id,
         start_date=data.start_date, end_date=data.end_date,
         current_user=current_user, tenant_id=current_user.active_tenant_id,
+        now=datetime.now(timezone.utc),
     )
     gap = (
         await agreement_gap_service.gap_warnings_for_bookings(

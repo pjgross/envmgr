@@ -35,6 +35,12 @@ class BulkBookCreated(BaseModel):
 class BulkBookSkipped(BaseModel):
     environment_id: int
     conflicts: list[int]
+    reason: Optional[str] = None
+    """The refusal message when the skip was not an exclusive-use conflict
+    (e.g. B5's decommission teardown-date refusal, whose HTTPException detail
+    is a plain string, not the {"message", "conflicts"} shape a booking
+    overlap raises). None for the pre-existing exclusive-conflict skip path,
+    whose entries carry `conflicts` instead."""
 
 
 class BulkBookResult(BaseModel):

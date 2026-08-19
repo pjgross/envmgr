@@ -78,6 +78,14 @@ async def list_environments(
     quarantined: Optional[bool] = Query(
         None, description="In gap, and grace has fully elapsed. Advisory only."
     ),
+    idle: Optional[bool] = Query(
+        None,
+        description=(
+            "No deployment and no booking for the tier's or tenant's threshold. "
+            "Advisory only — nothing is refused or changed on account of it. No "
+            "selection is an OMITTED key; an empty value is a 422."
+        ),
+    ),
     search: Optional[str] = None,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(ENVIRONMENT_SORTS, default="name")),
@@ -97,6 +105,7 @@ async def list_environments(
         governance_gap=governance_gap,
         compliance_gap=compliance_gap,
         quarantined=quarantined,
+        idle=idle,
         sort=sort,
     )
     set_total_count(response, total)

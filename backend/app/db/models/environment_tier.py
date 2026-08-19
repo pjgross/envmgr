@@ -34,6 +34,13 @@ class EnvironmentTier(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # B5 — the per-tier idle threshold. NULL means "use the tenant default".
+    # A Dev sandbox quiet for 30 days is a ghost; a DR or Training environment
+    # quiet for 90 is behaving normally, and one tenant-wide number necessarily
+    # mislabels one of them.
+    idle_threshold_days: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
 
     def __repr__(self) -> str:
         return (

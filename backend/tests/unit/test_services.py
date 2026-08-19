@@ -100,8 +100,9 @@ async def test_create_tenant_calls_db_add_and_commit():
     db.refresh = AsyncMock()
 
     data = TenantCreate(name="ACME", slug="acme")
-    # Patch the default-lifecycle seeds so this unit test stays focused on
-    # the tenant-creation code path.
+    # Patch all seed calls so this unit test stays focused on the tenant-creation
+    # code path. NOTE: every seed function added to create_tenant() must be patched
+    # here or db.add.assert_called_once() will break — this has bitten once already.
     with patch(
         "app.services.change_request_service.seed_default_lifecycles",
         new=AsyncMock(),
@@ -119,6 +120,9 @@ async def test_create_tenant_calls_db_add_and_commit():
         new=AsyncMock(),
     ), patch(
         "app.services.tenant_service.seed_environment_tier_defaults_for_tenant",
+        new=AsyncMock(),
+    ), patch(
+        "app.services.tenant_service.seed_decommission_steps_for_tenant",
         new=AsyncMock(),
     ):
         await create_tenant(db, data)
@@ -148,6 +152,9 @@ async def test_create_tenant_uses_correct_fields():
     db.refresh = AsyncMock(side_effect=capture_refresh)
 
     data = TenantCreate(name="Beta Corp", slug="beta-corp", settings={"key": "value"})
+    # Patch all seed calls so this unit test stays focused on the tenant-creation
+    # code path. NOTE: every seed function added to create_tenant() must be patched
+    # here or db.add.assert_called_once() will break — this has bitten once already.
     with patch(
         "app.services.change_request_service.seed_default_lifecycles",
         new=AsyncMock(),
@@ -165,6 +172,9 @@ async def test_create_tenant_uses_correct_fields():
         new=AsyncMock(),
     ), patch(
         "app.services.tenant_service.seed_environment_tier_defaults_for_tenant",
+        new=AsyncMock(),
+    ), patch(
+        "app.services.tenant_service.seed_decommission_steps_for_tenant",
         new=AsyncMock(),
     ):
         await create_tenant(db, data)

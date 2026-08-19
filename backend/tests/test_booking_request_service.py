@@ -10,6 +10,8 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking import Booking
 from tests.factories import ensure_environment_tier
 
+NOW = datetime.now(timezone.utc)
+
 
 async def _seed_lifecycle_and_type(db_session, tenant):
     tpl = LifecycleTemplate(
@@ -64,6 +66,7 @@ async def test_create_request_with_multiple_envs(db_session, test_tenant, test_u
         },
         current_user=test_user,
         tenant_id=test_tenant.id,
+        now=NOW,
     )
     assert req.id is not None
     assert len(req.bookings) == 2
@@ -96,6 +99,7 @@ async def test_create_request_rejects_duplicate_envs(db_session, test_tenant, te
             },
             current_user=test_user,
             tenant_id=test_tenant.id,
+            now=NOW,
         )
     assert exc.value.status_code == 400
 
@@ -119,6 +123,7 @@ async def test_create_request_reports_detected_conflicts(db_session, test_tenant
         },
         current_user=test_user,
         tenant_id=test_tenant.id,
+        now=NOW,
     )
 
     new_req, detected = await booking_request_service.create_request(
@@ -134,6 +139,7 @@ async def test_create_request_reports_detected_conflicts(db_session, test_tenant
         },
         current_user=test_user,
         tenant_id=test_tenant.id,
+        now=NOW,
     )
     assert new_req.id is not None
     assert env_a.id in {booking.environment_id for booking in new_req.bookings}
@@ -157,7 +163,7 @@ async def test_preview_conflicts_reports_without_creating(db_session, test_tenan
             "environment_ids": [env_a.id], "notes": None, "context_tag": "none",
             "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
         },
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
 
     before = await db_session.execute(select(Booking))
@@ -193,13 +199,13 @@ async def test_add_environment_to_request(db_session, test_tenant, test_user):
             "environment_ids": [env_a.id], "notes": None, "context_tag": "none",
             "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
         },
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
 
     added = await booking_request_service.add_environment(
         db_session, request_id=req.id, environment_id=env_b.id,
         start_date=None, end_date=None,
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
     assert added.environment_id == env_b.id
     assert added.start_date == t0  # inherited
@@ -222,13 +228,13 @@ async def test_add_environment_with_override_dates(db_session, test_tenant, test
             "environment_ids": [env_a.id], "notes": None, "context_tag": "none",
             "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
         },
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
 
     added = await booking_request_service.add_environment(
         db_session, request_id=req.id, environment_id=env_b.id,
         start_date=t_override, end_date=t_override + timedelta(days=1),
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
     assert added.start_date == t_override
 
@@ -248,7 +254,7 @@ async def test_remove_environment_soft_deletes(db_session, test_tenant, test_use
             "environment_ids": [env_a.id, env_b.id], "notes": None, "context_tag": "none",
             "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
         },
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
     child_b = next(b for b in req.bookings if b.environment_id == env_b.id)
 
@@ -275,7 +281,7 @@ async def test_update_standard_fields_cascades_to_children(db_session, test_tena
             "environment_ids": [env_a.id, env_b.id], "notes": None, "context_tag": "none",
             "exclusive_use_requested": False, "custom_fields": None, "delegate_user_ids": None,
         },
-        current_user=test_user, tenant_id=test_tenant.id,
+        current_user=test_user, tenant_id=test_tenant.id, now=NOW,
     )
 
     updated = await booking_request_service.update_standard_fields(
@@ -284,6 +290,7 @@ async def test_update_standard_fields_cascades_to_children(db_session, test_tena
         values={"project_name": "new"},
         current_user=test_user,
         tenant_id=test_tenant.id,
+        now=NOW,
     )
     assert updated.project_name == "new"
     # Children still linked to the same request (no dual-write needed — they read via booking_request)

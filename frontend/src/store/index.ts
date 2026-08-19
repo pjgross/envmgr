@@ -31,6 +31,8 @@ import environmentRequestReducer from './environmentRequestSlice';
 import projectReducer from './projectSlice';
 import environmentGroupReducer from './environmentGroupSlice';
 import environmentNamingPolicyReducer from './environmentNamingPolicySlice';
+import decommissionReducer from './decommissionSlice';
+import environmentLifecyclePolicyReducer from './environmentLifecyclePolicySlice';
 
 export const store = configureStore({
   reducer: {
@@ -66,6 +68,8 @@ export const store = configureStore({
     project: projectReducer,
     environmentGroup: environmentGroupReducer,
     environmentNamingPolicy: environmentNamingPolicyReducer,
+    decommission: decommissionReducer,
+    environmentLifecyclePolicy: environmentLifecyclePolicyReducer,
   },
 });
 

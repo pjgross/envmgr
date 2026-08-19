@@ -21,6 +21,7 @@ from app.api.v1.infrastructure_components import INFRASTRUCTURE_SORTS
 from app.api.v1.releases import RELEASE_SORTS
 from app.api.v1.systems import SYSTEM_SORTS
 from app.services.contention_service import ESCALATION_SORTS
+from app.services.environment_decommission_service import DECOMMISSION_SORTS
 from app.services.environment_request_service import REQUEST_SORTS
 
 CONTRACT = (
@@ -49,6 +50,11 @@ WHITELISTS = {
     # `default_dir`, so the shared "asc" applies, and the grid sorts it
     # server-side.
     "contention-escalations": (ESCALATION_SORTS, "respond_by", "asc"),
+    # B5's worklist: `GET /decommissions` takes
+    # sorting(DECOMMISSION_SORTS, default="scheduled_teardown_at") with no
+    # `default_dir`, so the shared "asc" applies, and
+    # `DecommissionWorklist.tsx` sorts it server-side.
+    "decommissions": (DECOMMISSION_SORTS, "scheduled_teardown_at", "asc"),
     # "tenant-groups" is deliberately absent, the same way "environment-tiers"
     # is: USER_GROUP_SORTS and the endpoint's sorting() stay in place as a
     # valid API contract, but UserGroups.tsx renders a client-side DataGrid

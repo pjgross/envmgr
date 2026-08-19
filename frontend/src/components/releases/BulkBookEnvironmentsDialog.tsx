@@ -15,9 +15,20 @@ import { bookingRequestService } from '../../services/bookingRequestService';
 import { bookingLifecycleService } from '../../services/bookingLifecycleService';
 import { phaseBookingDefaults } from './phaseBookingDefaults';
 import { useSnackbar } from '../../hooks/useSnackbar';
-import type { TestPhaseResponse, BulkBookResultResponse } from '../../types/release';
+import type { TestPhaseResponse, BulkBookResultResponse, BulkBookSkippedItem } from '../../types/release';
 import type { BookingTypeRecord } from '../../types/bookingLifecycle';
 import type { EnvBookingSummary } from '../../types/bookingRequest';
+
+// The refusal reason a skip carries differs by cause: an exclusive-use
+// overlap carries `conflicts` (booking ids) and no `reason`; every other
+// refusal (e.g. B5's decommission teardown-date refusal) carries `reason`
+// and an empty `conflicts`. Render whichever the server actually sent rather
+// than asserting "exclusive conflict" for every skip — see B5 fix wave item 1.
+function skipReasonText(s: BulkBookSkippedItem): string {
+  if (s.reason) return s.reason;
+  if (s.conflicts.length > 0) return 'exclusive conflict';
+  return 'conflict';
+}
 
 interface Props {
   open: boolean;
@@ -192,8 +203,14 @@ export default function BulkBookEnvironmentsDialog({
               Booked {result.created.length} environment(s).
               {result.skipped.length > 0 && (
                 <div>
-                  Skipped {result.skipped.length} with an exclusive conflict:{' '}
-                  {result.skipped.map((s) => envName(s.environment_id)).join(', ')}
+                  Skipped {result.skipped.length}:
+                  <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                    {result.skipped.map((s) => (
+                      <li key={s.environment_id}>
+                        {envName(s.environment_id)} — {skipReasonText(s)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </Alert>
