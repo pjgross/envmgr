@@ -116,6 +116,54 @@ function makeArg(booking: BookingResponse) {
   } as any;
 }
 
+// Full shape of EventContentArg — used by the FIX 1 tests below, which need
+// `view`, `timeText`, `isStart`/`isEnd` and the event's own `start`/`end`/
+// `allDay` to exercise `isDotStyleEvent`'s branching. Defaults describe a
+// single-day, dayGridMonth, non-all-day event — the case FullCalendar itself
+// renders with a dot.
+function makeFullArg(
+  booking: BookingResponse,
+  overrides: Partial<{
+    viewType: string;
+    timeText: string;
+    isStart: boolean;
+    isEnd: boolean;
+    allDay: boolean;
+    start: Date | null;
+    end: Date | null;
+    borderColor: string;
+    backgroundColor: string;
+  }> = {}
+) {
+  const {
+    viewType = 'dayGridMonth',
+    timeText = '',
+    isStart = true,
+    isEnd = true,
+    allDay = false,
+    start = new Date('2026-08-01T09:00:00'),
+    end = new Date('2026-08-01T17:00:00'),
+    borderColor = '#4caf50',
+    backgroundColor = '#4caf50',
+  } = overrides;
+  return {
+    event: {
+      title: booking.project_name,
+      extendedProps: { booking },
+      allDay,
+      start,
+      end,
+    },
+    view: { type: viewType },
+    timeText,
+    isStart,
+    isEnd,
+    borderColor,
+    backgroundColor,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
+
 function renderCalendar() {
   const testStore = configureStore({
     reducer: {
@@ -196,6 +244,92 @@ describe('renderEventContent — the marker function handed to FullCalendar', ()
     const booking = makeBooking({ id: 3, project_name: 'Release 9.1', contention_state: 'owned' });
     const { container } = render(<>{renderEventContent(makeArg(booking))}</>);
     expect(container.textContent).toContain('Release 9.1');
+  });
+});
+
+// FIX 1 (whole-branch review, task-11): B6's `eventContent` REPLACES
+// FullCalendar's own inner-content generator wholesale — not just the title.
+// The first landing rendered only the title + marker, so every event
+// silently lost its start-time label, and dot-style events additionally lost
+// the status-colour dot. These tests assert what disappeared is back;
+// see BookingCalendar.tsx's `isDotStyleEvent` for the two default shapes
+// being mirrored.
+describe('renderEventContent — restores what eventContent replaced (FIX 1)', () => {
+  it('renders the start time FullCalendar supplies, the way its own default generator would', () => {
+    const booking = makeBooking({ id: 20, project_name: 'Release X' });
+    const { container } = render(
+      <>{renderEventContent(makeFullArg(booking, { timeText: '9a' }))}</>
+    );
+    expect(container.querySelector('.fc-event-time')?.textContent).toBe('9a');
+  });
+
+  it('renders no time slot at all when FullCalendar supplies no timeText', () => {
+    // Not an empty element — an event with nothing to say about time (e.g.
+    // an all-day booking) must not render a blank `.fc-event-time`.
+    const booking = makeBooking({ id: 21, project_name: 'Release Y' });
+    const { container } = render(
+      <>{renderEventContent(makeFullArg(booking, { timeText: '' }))}</>
+    );
+    expect(container.querySelector('.fc-event-time')).toBeNull();
+  });
+
+  it('renders the status-colour dot for a dot-style (single-day, dayGridMonth) event', () => {
+    const booking = makeBooking({ id: 22, project_name: 'Release Z' });
+    const { container } = render(
+      <>
+        {renderEventContent(
+          makeFullArg(booking, {
+            viewType: 'dayGridMonth',
+            start: new Date('2026-08-01T09:00:00'),
+            end: new Date('2026-08-01T17:00:00'),
+            borderColor: '#4caf50',
+          })
+        )}
+      </>
+    );
+    const dot = container.querySelector('.fc-daygrid-event-dot') as HTMLElement | null;
+    expect(dot).not.toBeNull();
+    expect(dot?.style.borderColor).toBeTruthy();
+  });
+
+  it('omits the dot for a block-style event (timeGridWeek)', () => {
+    // Matches FullCalendar's own rule: timeGrid events never render the
+    // daygrid dot, regardless of how long the booking is.
+    const booking = makeBooking({ id: 23, project_name: 'Release W' });
+    const { container } = render(
+      <>{renderEventContent(makeFullArg(booking, { viewType: 'timeGridWeek' }))}</>
+    );
+    expect(container.querySelector('.fc-daygrid-event-dot')).toBeNull();
+  });
+
+  it('omits the dot for a multi-day dayGridMonth event', () => {
+    const booking = makeBooking({ id: 24, project_name: 'Release V' });
+    const { container } = render(
+      <>
+        {renderEventContent(
+          makeFullArg(booking, {
+            viewType: 'dayGridMonth',
+            start: new Date('2026-08-01T09:00:00'),
+            end: new Date('2026-08-03T17:00:00'),
+          })
+        )}
+      </>
+    );
+    expect(container.querySelector('.fc-daygrid-event-dot')).toBeNull();
+  });
+
+  it('still renders the marker alongside the restored time and dot', () => {
+    const booking = makeBooking({
+      id: 25,
+      project_name: 'Release U',
+      contention_state: 'unowned',
+    });
+    const { container } = render(
+      <>{renderEventContent(makeFullArg(booking, { timeText: '9a' }))}</>
+    );
+    expect(container.querySelector('.fc-event-time')?.textContent).toBe('9a');
+    expect(container.querySelector('.fc-daygrid-event-dot')).not.toBeNull();
+    expect(screen.getByTestId('contention-marker')).toBeInTheDocument();
   });
 });
 

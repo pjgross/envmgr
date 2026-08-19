@@ -4,10 +4,12 @@ READS ONLY. Nothing in this module writes, and it must never learn how —
 `tests/test_b6_writes_nothing.py` is the guard on that.
 
 The overlap rules are NOT restated here. `conflict_service.conflicts_with` is
-the one definition and already had two consumers before B6; this is the third.
-A second copy is the "two mechanisms enforcing one outcome" shape that has cost
-this codebase repeatedly, and a calendar that disagreed with the Conflicts
-panel about whether a clash exists would be worse than no calendar marker.
+the one definition and already had three consumers before B6 — `list_conflicts`,
+`_unacknowledged_conflict_exists` (both `conflict_service`), and A4's
+`contention_service._pair_conflict_exists`; this is the fourth. A second copy
+is the "two mechanisms enforcing one outcome" shape that has cost this
+codebase repeatedly, and a calendar that disagreed with the Conflicts panel
+about whether a clash exists would be worse than no calendar marker.
 """
 from datetime import datetime
 from typing import Iterable, Optional, Sequence

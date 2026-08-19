@@ -67,33 +67,93 @@ export function bookingToEvent(booking: BookingResponse): EventInput {
   };
 }
 
-// Exported for its own test, for the same reason as `bookingToEvent` above:
-// FullCalendar's own DOM is not a reliable assertion target in jsdom, and
-// unlike the protection marker (plain text folded into `event.title`), B6's
-// `ContentionMarker` is a React component (an icon + a label) that has to be
-// attached through FullCalendar's `eventContent` render prop rather than a
-// string. `eventContent` REPLACES FullCalendar's own title rendering, so the
-// title is rendered here explicitly alongside the marker — an omission would
-// silently blank every event's text.
+// `eventContent` REPLACES FullCalendar's own inner-content generator wholesale
+// — not just the title — for whichever of the two shapes `@fullcalendar/core`
+// and `@fullcalendar/daygrid` would otherwise have used:
+//
+//   - "dot" style (daygrid's `renderInnerContent`, single-day non-all-day
+//     events in a dayGrid view): a coloured `.fc-daygrid-event-dot`, then
+//     `.fc-event-time`, then `.fc-event-title`.
+//   - "block" style (core's `StandardEvent` default, `renderInnerContent$1`:
+//     every timeGrid event, plus multi-day/all-day dayGrid events): just
+//     `.fc-event-time` then `.fc-event-title-container > .fc-event-title`.
+//
+// The first B6 landing reproduced only the title, so every event silently
+// lost its start-time label, and dot-style events additionally lost the
+// status-colour dot (B4's protection border lives there for those events —
+// see `bookingToEvent`'s `borderColor`, unaffected by this function, but the
+// FILL colour has nowhere else to show for a dot event). Restored here by
+// mirroring each default generator's own class names — those classes carry
+// the styling regardless of who renders the DOM node — then appending the
+// contention marker exactly as before.
 //
 // Renders NOTHING when `contention_state` is null — the common case, not an
 // edge case — matching Task 6's list-column contract exactly (never an empty
 // marker); see ContentionMarker's own docstring for why the component has no
 // branch for that at all.
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+// Mirrors `hasListItemDisplay` in @fullcalendar/daygrid/internal.js using
+// only what EventContentArg exposes (no seg/column data reaches a custom
+// `eventContent` callback): a single-day, non-all-day, unsplit event in a
+// dayGrid view gets the dot; everything else — multi-day, all-day, or any
+// timeGrid event — is block style. `arg.view.type.startsWith('dayGrid')`
+// covers `dayGridMonth` (this page's only dayGrid view today) without
+// hardcoding it.
+function isDotStyleEvent(arg: EventContentArg): boolean {
+  if (arg.event.allDay) return false;
+  const viewType = arg.view?.type;
+  if (typeof viewType !== 'string' || !viewType.startsWith('dayGrid')) return false;
+  if (!arg.isStart || !arg.isEnd) return false;
+  const { start, end } = arg.event;
+  if (!start) return false;
+  if (!end) return true;
+  return isSameCalendarDay(start, end);
+}
+
+// Exported for its own test, for the same reason as `bookingToEvent` above:
+// FullCalendar's own DOM is not a reliable assertion target in jsdom, and
+// unlike the protection marker (plain text folded into `event.title`), B6's
+// `ContentionMarker` is a React component (an icon + a label) that has to be
+// attached through FullCalendar's `eventContent` render prop rather than a
+// string.
 // eslint-disable-next-line react-refresh/only-export-components
 export function renderEventContent(arg: EventContentArg) {
   const booking: BookingResponse = arg.event.extendedProps.booking;
+  const marker = booking.contention_state && (
+    <span data-testid="contention-marker">
+      <ContentionMarker state={booking.contention_state} />
+    </span>
+  );
+
+  if (isDotStyleEvent(arg)) {
+    return (
+      <>
+        <div
+          className="fc-daygrid-event-dot"
+          style={{ borderColor: arg.borderColor || arg.backgroundColor }}
+        />
+        {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
+        <div className="fc-event-title">{arg.event.title || ' '}</div>
+        {marker}
+      </>
+    );
+  }
+
   return (
-    <Box sx={{ overflow: 'hidden', width: '100%' }}>
-      <Typography variant="caption" component="div" noWrap>
-        {arg.event.title}
-      </Typography>
-      {booking.contention_state && (
-        <span data-testid="contention-marker">
-          <ContentionMarker state={booking.contention_state} />
-        </span>
-      )}
-    </Box>
+    <div className="fc-event-main-frame">
+      {arg.timeText && <div className="fc-event-time">{arg.timeText}</div>}
+      <div className="fc-event-title-container">
+        <div className="fc-event-title fc-sticky">{arg.event.title || ' '}</div>
+      </div>
+      {marker}
+    </div>
   );
 }
 
