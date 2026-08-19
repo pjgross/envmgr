@@ -234,3 +234,38 @@ async def test_another_tenants_booking_with_the_lower_id_does_not_pair(db_sessio
     pairs = await svc.overlapping_pairs(db_session, tenant.id)
 
     assert pairs == [(min(a.id, b.id), max(a.id, b.id))]
+
+
+@pytest.mark.asyncio
+async def test_a_cross_tenant_booking_with_the_lower_id_does_not_pair(db_session, tenant, test_tenant):
+    """The earlier `test_another_tenants_booking_with_the_lower_id_does_not_pair`
+    could not exercise `b1.tenant_id == tenant_id` because two DIFFERENT
+    tenants' environments can never share an `id` (Environment.id is a single
+    global primary key) — so the join on `environment_id` already made a
+    cross-tenant pair unreachable regardless of that filter.
+
+    This test instead builds the MALFORMED shape that actually exercises it:
+    `make_booking(db, tenant_id, *, environment, ...)` takes `tenant_id` and
+    `environment` as independent arguments, and nothing in the schema or the
+    factory cross-checks that `environment.tenant_id == tenant_id`. So a
+    booking can be built whose `tenant_id` is one tenant while its
+    `environment_id` points at an environment owned by a DIFFERENT tenant —
+    here, a booking recorded under `test_tenant` but pointed at `tenant`'s
+    environment, created FIRST so it lands in the b1 role.
+
+    Without `b1.tenant_id == tenant_id`, that malformed row would pass every
+    other b1-side filter, join (via `environment_id`) to the second, entirely
+    legitimate booking made by `tenant` on its own environment, and be
+    reported as a real contention within `tenant`. The filter is what refuses
+    it.
+    """
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    other_user = await ensure_user(db_session, test_tenant.id)
+
+    malformed = await make_booking(db_session, test_tenant.id, booked_by=other_user.id,
+                                    environment=env, start=NOW, end=NOW + timedelta(days=3))
+    await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                        start=NOW, end=NOW + timedelta(days=3))
+
+    assert await svc.overlapping_pairs(db_session, tenant.id) == []
