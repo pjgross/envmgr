@@ -974,3 +974,22 @@ B6 is gated on A4, which computes the verdicts and owns the escalation record B6
   for. See docs/pagination.md for the column's entry in both sets.
 - Migration: **none.** B6 adds no table, no column, and no schema change of any kind —
   `test_b6_adds_no_migration` pins the Alembic head unchanged from B5's `envdecommission`.
+- **THE ONE PLACE THE OVERLAP RULES ARE STILL RE-DERIVED IS NOT B6'S.**
+  `booking_request_service.preview_conflicts` — the create dialog's "what would
+  clash?" check — builds its own `select(Booking)` rather than calling
+  `conflict_service.conflicts_with`. Compared clause by clause it currently
+  AGREES: same tenant, environment and `deleted_at` filters, and it even
+  imports `conflict_service.TERMINAL_STATES`. It omits only `other.id !=
+  subject_id`, which is correct, because the booking being previewed does not
+  exist yet. So the duplication is the two date comparisons alone, and nothing
+  would catch a divergence if the shared definition's boundary semantics ever
+  changed. Pre-existing, not introduced by B6, and recorded here because B6's
+  verification is what surfaced it — the create dialog and the Conflicts panel
+  answer "do these overlap?" from two places.
+- **B6's VERIFICATION CAUGHT EVERY MUTATION IT WAS GIVEN — twelve of twelve,
+  no survivors.** That is the first clean sweep across A4, B5 and B6, and it
+  came only after three earlier rounds found the subject-side filters unguarded.
+  The browser pass added the check no test makes: every booking showing A4's
+  pre-existing Conflicts warning also shows B6's contention marker, and rows
+  with neither have neither — B6 has not become a second opinion about whether
+  a clash exists.
