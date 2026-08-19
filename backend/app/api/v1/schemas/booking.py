@@ -123,6 +123,15 @@ class BookingResponse(BaseModel):
     # a hand-picked environment; set for one that arrived via a group.
     environment_group_id: Optional[int] = None
     environment_group_name: Optional[str] = None
+    # B6 Task 4 — the folded forward-contention state
+    # (contention_forecast_service.STATE_UNOWNED / STATE_OWNED / STATE_DECIDED),
+    # or None when this booking has no contention. Never a "none" state: an
+    # uncontended booking carries null, and the grid cell (Task 6) must render
+    # nothing for it rather than an empty chip. Computed, not stored —
+    # `model_validate(booking)` cannot populate it, since Booking has no such
+    # attribute; set explicitly in `_to_response`, batch-resolved for the whole
+    # page via `contention_forecast_service.contention_states_for_bookings`.
+    contention_state: Optional[str] = None
 
 
 class BookingCreateResponse(BaseModel):

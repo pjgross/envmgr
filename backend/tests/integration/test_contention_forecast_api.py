@@ -1,4 +1,5 @@
-"""B6 Task 3 — the horizon count on the API surface. READS ONLY.
+"""B6 Task 3/4 — the horizon count and the folded state, on the API surface.
+READS ONLY.
 
 `GET /bookings/contention-horizon?weeks=<int>` answers "N contentions in the
 next <weeks> weeks" — the leading-indicator half of B6, sitting beside the
@@ -23,11 +24,27 @@ SEPARATE clashes (on two different environments, 4 bookings total) so the
 booking count (4) and the contention count (2) genuinely differ. Three
 mutually overlapping bookings would not discriminate: that shape is three
 pairs AND three bookings.
+
+TASK 4 — `contention_state` on `BookingResponse`, folded ONCE PER RESPONSE,
+NEVER ONCE PER ROW. `test_the_list_carries_the_contention_state` asserts the
+VALUE over HTTP (not merely that the key is present — B5 shipped `idle`
+computed, filterable and absent from the response, and only a reviewer
+asking "what consumes this?" caught it).
+`test_the_list_issues_no_query_per_row` is the structural guard: a 1-row page
+and a 5-row page of uncontended bookings must execute the SAME number of SQL
+statements. No existing facility in this suite counts statements across an
+HTTP request — `_spy_on_execute` in test_sorting.py wraps `db_session.execute`
+directly, which is ORM-call-level, not SQL-statement-level, and doesn't cross
+the `client` boundary — so `_count_statements` below adds one via
+`event.listen(engine, "before_cursor_execute", ...)`, listening on the same
+engine `client` and the test body share through `db_session`.
 """
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import event
 
 from tests.factories import ensure_environment, ensure_user, make_booking
 
@@ -187,3 +204,119 @@ async def test_another_tenants_contentions_are_not_counted(
     r = await client.get("/api/v1/bookings/contention-horizon?weeks=6", headers=auth_headers)
     assert r.status_code == 200
     assert r.json()["count"] == 0
+
+
+@contextmanager
+def _count_statements(db_session):
+    """Count SQL statements executed against `db_session`'s engine while the
+    context is open. See the module docstring for why this suite needed a new
+    facility rather than reusing `_spy_on_execute` (test_sorting.py).
+
+    `client` (conftest.py) overrides `get_db` to yield this exact `db_session`,
+    so listening on its bound engine's `before_cursor_execute` counts every
+    statement an HTTP request made through it, ORM-issued or not.
+    """
+    counted = {"n": 0}
+    sync_engine = db_session.bind.sync_engine
+
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        counted["n"] += 1
+
+    event.listen(sync_engine, "before_cursor_execute", _before_cursor_execute)
+    try:
+        yield counted
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _before_cursor_execute)
+
+
+@pytest.mark.asyncio
+async def test_the_list_carries_the_contention_state(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """Over HTTP, asserting the VALUE — not merely that the key is present.
+
+    Two clashing bookings, no escalation recorded against the pair, so
+    Task 2's fold reports `unowned` for both. `BOOKING_SORTS` was
+    deliberately not extended for this field, so no `?sort_by=` is needed —
+    default ordering (start_date asc) is enough to find the row by id.
+    """
+    now = _now()
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    clashing = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now + timedelta(days=1), end=now + timedelta(days=3),
+    )
+    await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now + timedelta(days=2), end=now + timedelta(days=4),
+    )
+
+    r = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert r.status_code == 200
+    rows = r.json()
+    contended = next(row for row in rows if row["id"] == clashing.id)
+    assert contended["contention_state"] == "unowned"
+
+
+@pytest.mark.asyncio
+async def test_an_uncontended_booking_carries_null(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """Null, and the grid cell renders NOTHING for it — never an empty chip.
+
+    `contention_states_for_bookings` deliberately has no "none" state; an
+    absent key is the only way "no contention" is spelled. This is the other
+    half of the `.get(booking.id)` call — prove it returns None, not that it
+    merely omits raising.
+    """
+    now = _now()
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+    lonely = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now + timedelta(days=1), end=now + timedelta(days=3),
+    )
+
+    r = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert r.status_code == 200
+    rows = r.json()
+    row = next(row for row in rows if row["id"] == lonely.id)
+    assert row["contention_state"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_list_issues_no_query_per_row(
+    client: AsyncClient, auth_headers: dict, db_session, test_tenant, test_user
+):
+    """Structural guard: a page of N bookings must not cost N contention
+    lookups. A 1-row page and a 5-row page of (mutually uncontended, so the
+    fold's own query count is flat regardless of N) bookings must execute the
+    SAME number of SQL statements — A3's rule, which measured a 50-row page
+    through a per-booking helper at ~150 queries.
+    """
+    now = _now()
+    env = await ensure_environment(db_session, test_tenant.id, slot=1)
+
+    await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now + timedelta(days=1), end=now + timedelta(days=2),
+    )
+    with _count_statements(db_session) as one_row:
+        r1 = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert r1.status_code == 200
+    assert len(r1.json()) == 1
+
+    for i in range(4):
+        await make_booking(
+            db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+            start=now + timedelta(days=10 + 2 * i), end=now + timedelta(days=11 + 2 * i),
+        )
+    with _count_statements(db_session) as five_rows:
+        r5 = await client.get("/api/v1/bookings/", headers=auth_headers)
+    assert r5.status_code == 200
+    assert len(r5.json()) == 5
+
+    assert one_row["n"] == five_rows["n"], (
+        f"1-row page issued {one_row['n']} statements, 5-row page issued "
+        f"{five_rows['n']} — contention_state is being folded per row, not "
+        "once per response"
+    )

@@ -22,7 +22,7 @@ from app.core.protection_levels import PROTECTION_SOFT
 from app.services.custom_field_service import validate_custom_fields, get_active_field_keys
 from app.services import (
     agreement_gap_service, booking_request_service, conflict_service,
-    environment_decommission_service, lifecycle_service,
+    contention_forecast_service, environment_decommission_service, lifecycle_service,
 )
 from app.services.lifecycle_service import (
     validate_transition,
@@ -326,7 +326,9 @@ async def list_bookings(
     protection: Optional[str] = None,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
-) -> tuple[list[Booking], int]:
+    *,
+    now: datetime,
+) -> tuple[list[Booking], int, dict[int, str]]:
     query = (
         select(Booking)
         .options(
@@ -397,7 +399,16 @@ async def list_bookings(
         # join.
         query = query.where(BookingRequest.protection_level == protection)
     query = apply_sort(query, sort).order_by(Booking.start_date.asc(), Booking.id)
-    return await fetch_page(db, query, page)
+    rows, total = await fetch_page(db, query, page)
+    # ONCE PER RESPONSE, NEVER ONCE PER ROW (B6 Task 4, following A3's
+    # agreement-gap rule) — the whole page's ids in one call, handed back for
+    # the endpoint's response builder to `.get(booking.id)` from. Absent key
+    # means no contention; there is deliberately no "none" state to default
+    # to instead.
+    contention_states = await contention_forecast_service.contention_states_for_bookings(
+        db, tenant_id, [b.id for b in rows], now=now,
+    )
+    return rows, total, contention_states
 
 
 async def list_live_bookings(

@@ -50,6 +50,7 @@ def _to_response(
     group_name: str | None,
     gap: agreement_gap_service.GapWarning | None,
     has_unacknowledged_conflicts: bool,
+    contention_state: str | None,
 ) -> BookingResponse:
     """Convert a Booking ORM object to BookingResponse, populating fields from booking_request.
 
@@ -79,6 +80,14 @@ def _to_response(
     `conflict_service.bookings_with_unacknowledged_conflicts` — the per-row form
     costs `list_conflicts` plus one ack lookup PER CONFLICT and must never be
     called in a loop over a page.
+
+    `contention_state` is B6's folded forward-contention state (`unowned` /
+    `owned` / `decided`), or None when this booking has no contention — batch-
+    resolved via `contention_forecast_service.contention_states_for_bookings`
+    for the whole set the caller is responding with, same rule as `gap` above.
+    Required-positional for the same reason: a defaulted equivalent would
+    silently render null at every call site nobody remembered to update, which
+    is exactly the class of bug B5 shipped with `idle`.
     """
     resp = BookingResponse.model_validate(booking)
     resp.environment_name = booking.environment.name if booking.environment else None
@@ -104,6 +113,7 @@ def _to_response(
         setattr(resp, field, value)
     for field, value in conflict_service.conflict_fields(has_unacknowledged_conflicts).items():
         setattr(resp, field, value)
+    resp.contention_state = contention_state
     return resp
 
 
@@ -131,6 +141,20 @@ async def _has_conflicts_for(db, booking, tenant_id: int) -> bool:
     return booking.id in await conflict_service.bookings_with_unacknowledged_conflicts(
         db, [booking.id], tenant_id
     )
+
+
+async def _contention_state_for(db, booking, tenant_id: int, *, now: datetime) -> str | None:
+    """This booking's B6 forward-contention state, or None.
+
+    The batch call for a set of one, exactly as `_gap_for`/`_has_conflicts_for`
+    above — a single-booking detail read must not disagree with the same
+    booking's row in the list, and must not be called in a loop over a page.
+    """
+    return (
+        await contention_forecast_service.contention_states_for_bookings(
+            db, tenant_id, [booking.id], now=now,
+        )
+    ).get(booking.id)
 
 
 async def _ack_read(db, ack) -> AgreementGapAckRead:
@@ -200,7 +224,8 @@ async def list_bookings(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    bookings, total = await booking_service.list_bookings(
+    now = datetime.now(timezone.utc)
+    bookings, total, contention_states = await booking_service.list_bookings(
         db,
         current_user.active_tenant_id,
         environment_id=environment_id,
@@ -212,6 +237,7 @@ async def list_bookings(
         protection=protection,
         page=page,
         sort=sort,
+        now=now,
     )
     set_total_count(response, total)
     names = await project_service.get_project_names(
@@ -238,6 +264,7 @@ async def list_bookings(
             group_names.get(b.environment_group_id),
             gaps.get(b.id),
             b.id in conflicts,
+            contention_states.get(b.id),
         )
         for b in bookings
     ]
@@ -264,6 +291,7 @@ async def create_booking(
             group_names.get(booking.environment_group_id),
             await _gap_for(db, booking, current_user.active_tenant_id),
             await _has_conflicts_for(db, booking, current_user.active_tenant_id),
+            await _contention_state_for(db, booking, current_user.active_tenant_id, now=now),
         ),
         overlap_warnings=warnings,
     )
@@ -296,6 +324,7 @@ async def get_booking(
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.get_booking(db, booking_id, current_user.active_tenant_id)
+    now = datetime.now(timezone.utc)
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
@@ -308,6 +337,7 @@ async def get_booking(
         group_names.get(booking.environment_group_id),
         await _gap_for(db, booking, current_user.active_tenant_id),
         await _has_conflicts_for(db, booking, current_user.active_tenant_id),
+        await _contention_state_for(db, booking, current_user.active_tenant_id, now=now),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -353,6 +383,7 @@ async def update_standard_fields(
         group_names.get(booking.environment_group_id),
         await _gap_for(db, booking, current_user.active_tenant_id),
         await _has_conflicts_for(db, booking, current_user.active_tenant_id),
+        await _contention_state_for(db, booking, current_user.active_tenant_id, now=now),
     )
     resp.custom_field_permissions = await booking_service.get_custom_field_perms_for_booking(
         db, booking, current_user.role
@@ -371,6 +402,7 @@ async def transition_booking_state(
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.transition_state(db, booking_id, data.to_state, current_user, data.notes)
+    now = datetime.now(timezone.utc)
     names = await project_service.get_project_names(
         db, {booking.booking_request.project_id}, current_user.active_tenant_id
     )
@@ -383,6 +415,7 @@ async def transition_booking_state(
         group_names.get(booking.environment_group_id),
         await _gap_for(db, booking, current_user.active_tenant_id),
         await _has_conflicts_for(db, booking, current_user.active_tenant_id),
+        await _contention_state_for(db, booking, current_user.active_tenant_id, now=now),
     )
 
 

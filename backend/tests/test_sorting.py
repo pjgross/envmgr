@@ -721,7 +721,8 @@ async def test_bookings_sort_precedes_the_tiebreaker_in_the_emitted_sql(
     token; see the guard-proof in the C1 final-fixes report."""
     captured = _spy_on_execute(db_session)
     await booking_service.list_bookings(
-        db_session, test_tenant.id, sort=Sort(column=Booking.start_date, descending=True)
+        db_session, test_tenant.id, sort=Sort(column=Booking.start_date, descending=True),
+        now=datetime.now(timezone.utc),
     )
     order_by = _order_by_clause(_query_with_order_by(captured))
     assert order_by.startswith("booking.start_date DESC NULLS FIRST")
@@ -744,8 +745,9 @@ async def test_bookings_paging_a_sorted_query_over_ties_sees_each_row_once(
 
     seen, offset = [], 0
     while True:
-        rows, total = await booking_service.list_bookings(
-            db_session, test_tenant.id, page=Page(limit=6, offset=offset), sort=sort
+        rows, total, _ = await booking_service.list_bookings(
+            db_session, test_tenant.id, page=Page(limit=6, offset=offset), sort=sort,
+            now=datetime.now(timezone.utc),
         )
         assert total == 25
         if not rows:

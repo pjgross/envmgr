@@ -9,8 +9,8 @@ from app.core.pagination import Page, pagination, set_total_count
 from app.core.security import get_current_user
 from app.services import (
     agreement_gap_service, booking_service, booking_request_service,
-    conflict_service, environment_group_service, environment_service,
-    project_service,
+    conflict_service, contention_forecast_service, environment_group_service,
+    environment_service, project_service,
 )
 from app.services.agreement_gap_service import GapWarning
 from app.api.v1.bookings import _to_response as _booking_to_response
@@ -448,6 +448,7 @@ async def transition_group_bookings(
     bookings = await booking_service.transition_group(
         db, request_id, group_id, data.to_state, current_user, data.notes
     )
+    now = datetime.now(timezone.utc)
     names = await project_service.get_project_names(
         db, {b.booking_request.project_id for b in bookings}, current_user.active_tenant_id
     )
@@ -460,6 +461,11 @@ async def transition_group_bookings(
     unanswered = await conflict_service.bookings_with_unacknowledged_conflicts(
         db, [b.id for b in bookings], current_user.active_tenant_id
     )
+    # Once for the group, never once per member — same rule as bookings.py's
+    # list route.
+    contention_states = await contention_forecast_service.contention_states_for_bookings(
+        db, current_user.active_tenant_id, [b.id for b in bookings], now=now,
+    )
     return [
         _booking_to_response(
             b,
@@ -467,6 +473,7 @@ async def transition_group_bookings(
             group_names.get(b.environment_group_id),
             gaps.get(b.id),
             b.id in unanswered,
+            contention_states.get(b.id),
         )
         for b in bookings
     ]
