@@ -505,4 +505,43 @@ describe('B5 acts only where it says', () => {
     expect(screen.queryByRole('button', { name: /cancel booking/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /move booking/i })).not.toBeInTheDocument();
   });
+
+  // Task 15's own addition. `RemainingBookingSummary` is a disclosure, never
+  // an editable view — extending the block above (not duplicating it) with
+  // the remaining two mutation shapes named in the task-15 brief
+  // ("no cancel-booking, no move-booking, no shorten") and a case with
+  // MULTIPLE remaining bookings of DIFFERENT statuses, so a control keyed
+  // off a single booking's row could not hide behind an empty list.
+  it('offers no shorten control either, and none appears for any remaining booking, admin or team', async () => {
+    const withBookings: DecommissionWithChecklist = {
+      ...WARNED,
+      remaining_bookings: [
+        { id: 11, start_date: '2026-09-05T09:00:00Z', end_date: '2026-09-10T17:00:00Z', status: 'approved' },
+        { id: 12, start_date: '2026-09-12T09:00:00Z', end_date: '2026-09-14T17:00:00Z', status: 'draft' },
+      ],
+    };
+    const admin: DecommissionPanelUser = {
+      id: 99,
+      username: 'admin.amy',
+      role: 'Admin',
+      is_master_admin: false,
+    };
+
+    renderPanel({ decommission: withBookings, steps: STEPS, currentUser: admin });
+
+    expect(screen.getByText(/approved booking/i)).toBeInTheDocument();
+    expect(screen.getByText(/draft booking/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /shorten/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel booking/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /move booking/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reschedule/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /edit booking/i })).not.toBeInTheDocument();
+    // The remaining-bookings list itself renders no interactive element at
+    // all — every button on the page belongs to the decommission workflow
+    // (checklist / extension / tear down / cancel decommission), never to
+    // one of the booking rows just asserted above.
+    const bookingsHeading = screen.getByText(/bookings not touched by teardown/i);
+    const bookingsSection = bookingsHeading.parentElement as HTMLElement;
+    expect(within(bookingsSection).queryAllByRole('button')).toHaveLength(0);
+  });
 });
