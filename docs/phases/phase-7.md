@@ -1,6 +1,6 @@
 # Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance
 
-> Status: 🟡 **In progress** — sub-projects B1, B2, B3a, B3b, B4, A1, A2, A3, A4 and B5 shipped (B3 complete, **programme A complete**) | Roadmap: [../plan.md](../plan.md)
+> Status: ✅ **COMPLETE** — both programmes shipped: A1–A4 (Multi-Project Coordination) and B1–B6 (Environment Lifecycle & Governance), B3 split into B3a/B3b along the way. **Phase 7 is done.** | Roadmap: [../plan.md](../plan.md)
 
 Phase 7 is two independent programmes. Each sub-project gets its own spec, plan
 and PR.
@@ -115,10 +115,16 @@ A1 gates A3 and A4.
       derived, filterable flag (deployments and bookings count as activity; health samples
       deliberately do not) and changes nothing on its own.
       [Spec](../superpowers/specs/2026-08-18-environment-decommissioning-design.md)
-- [ ] **B6** Forward contention as a calendar leading indicator
+- [x] **B6** Forward contention as a calendar leading indicator. A4 computes a verdict and an
+      escalation for every conflicting pair; B6 adds no new fact and **no write path of any
+      kind** — it folds A4's existing data over the bookings a page already fetched and renders
+      it on the calendar, the bookings list and a horizon count. **B6 predicts nothing**; see
+      below for what "leading indicator" means instead.
+      [Spec](../superpowers/specs/2026-08-19-forward-contention-design.md)
 
 B1 gates B2, B3 and B5. B3a gates B3b. B3b completes B3. B2 consumed B1's governance
 fields *and* B3a's operations group as its attribute vocabulary, so it was gated on both.
+B6 is gated on A4, which computes the verdicts and owns the escalation record B6 reads.
 
 ## What A1 established
 
@@ -889,3 +895,75 @@ fields *and* B3a's operations group as its attribute vocabulary, so it was gated
   comparing full rows on cancel. It passed, it was non-vacuous, and it verified a subset of its
   own claim. Found only by the whole-branch review reading the guard against every write path
   rather than against its own test names.
+
+## What B6 established
+
+- **B6 IS THE FIRST PURE-READ SUB-PROJECT IN THIS PROGRAMME.** A3 warns, A4 advises, B2 advises,
+  B5 acts and pins exactly how far — each guarded by a named test asserting a *limit*. B6 guards a
+  stronger claim than any of them: nothing changes **at all**, anywhere, through any of its three
+  entry points. `tests/test_b6_writes_nothing.py` snapshots every column of every booking, booking
+  request, environment, deployment and escalation a populated estate holds, folds contention over
+  all of it through all three entry points, and asserts the snapshot is byte-identical afterwards.
+  Proved non-vacuous the same way B4's and B5's guards were: stamping a value onto a `Booking`
+  inside the fold fails the guard first; reverting passes it again.
+- **THE OVERLAP RULES ARE NOT RESTATED.** `conflict_service.conflicts_with` is the one definition
+  of what counts as a clash, and B6 is its **third** consumer — after `list_conflicts` and the
+  create-dialog preview — not a second copy of the rule. A calendar marker disagreeing with the
+  Conflicts panel about whether two bookings clash would be worse than no marker at all, which is
+  why `overlapping_pairs` calls `conflicts_with` directly rather than re-deriving the overlap
+  predicate.
+- **"LIVE" IS `conflict_service.TERMINAL_STATES`, NOT `booking_states.INACTIVE_BOOKING_STATUSES`**
+  — the same pair A4 had to keep apart. The two sets are deliberately different: `conflict_service`
+  counts a **draft** booking *as* a conflict, so a contention marker can appear on a booking that
+  has never been submitted. Folding the wrong set would make the calendar and the Conflicts panel
+  disagree about whether a clash exists at all — the exact failure the reused predicate exists to
+  prevent.
+- **THE COUNT IS OF CONTENTIONS, NEVER BOOKINGS.** Two clashing bookings are **one** contention.
+  `contention_count_in_window` counts normalised pairs, not marked rows — counting bookings would
+  double every pair and inflate the one number the horizon widget exists to make trustworthy.
+- **ONLY ONE SIDE OF A PAIR NEED BE IN THE REQUESTED SET, AND THIS IS LOAD-BEARING.** A booking
+  rendered in September can clash with one running August to October that the calendar never
+  fetches. Requiring both sides to be in range would silently hide exactly the long-running
+  bookings most likely to collide with something, and the omission would look identical to an
+  absence of contention rather than a blind spot.
+- **THE HORIZON TESTS THE OVERLAP INTERVAL, NOT EITHER BOOKING'S OWN SPAN.** A pair that starts
+  clashing in four months is not a contention in the next six weeks, even if one of the two
+  bookings begins tomorrow — `contention_count_in_window` reuses the same `window` filter as
+  `overlapping_pairs`, decomposed without `GREATEST`/`LEAST` (SQLite has neither): `max(a,b) < X`
+  is `a < X AND b < X`, and `min(a,b) > Y` is `a > Y AND b > Y`. Defining the horizon on either
+  booking's own start would report clashes that cannot happen yet.
+- **THE HORIZON IS INDEPENDENT OF THE MONTH BEING VIEWED, AND THAT INDEPENDENCE IS THE
+  LEADING-INDICATOR CLAIM.** `ContentionHorizon` takes no props and owns its own `?horizon_weeks=`
+  URL param; nothing about the visible calendar range can reach it. The implementer's own proof:
+  wiring the fetch to FullCalendar's `datesSet` callback failed the independence test immediately
+  (an extra fetch on every month navigation) and was reverted. A summary that tracked the visible
+  range would only ever restate the month the reader already navigated to — this one answers a
+  question navigating cannot.
+- **THE FOLD PRECEDENCE IS `unowned → owned → decided`, MOST ACTIONABLE FIRST**, because "nobody
+  is on this" is the state that needs a human, ahead of one someone already owns, ahead of one
+  already settled. A4's third escalation state, `expired`, folds to **`owned`**, not a fourth
+  visual state — an overdue escalation still has a named owner who owes an answer, and the
+  booking's own Conflicts panel is where "overdue" is said explicitly. Four visual states on a
+  calendar cell would be decoration, not information.
+- **DECIDED CONTENTIONS STAY VISIBLE, BECAUSE A4 MOVES NOTHING.** A decision records which booking
+  should give way; it does not move it. Two bookings in a `decided` contention are still genuinely
+  overlapping until a human acts on the decision through the ordinary transition path, so hiding
+  the marker would assert a tidiness the estate does not have — and would hide precisely the cases
+  where a decision was made and never acted on.
+- **Deviation on record.** §2.12 calls this a "leading indicator". B6 **predicts nothing** — every
+  fact it renders, A4 already computed. "Leading" means the information now arrives while the
+  calendar month it concerns is still far enough out that acting on it is cheap, not that B6
+  forecasts anything the register does not already know.
+- **Once per response, never once per row** — A3's rule, restated a fourth time.
+  `contention_states_for_bookings` takes the whole page's booking ids and issues two queries
+  regardless of page size, the same shape A3 built for `agreement_gap` after measuring a per-row
+  helper at roughly 150 queries for 50 rows.
+- **`contention_state` joins docs/pagination.md's permanently-unsortable set and gets no filter of
+  its own.** It is folded in Python after the page is fetched, so `BOOKING_SORTS` cannot whitelist
+  it without a 500 the moment `apply_sort` tried to hand it to `ORDER BY`; and it is deliberately
+  not filterable on `GET /bookings` at all, because `/contentions` already is the filtering
+  surface — a second filter here would need a second definition of the fold precedence above,
+  which is exactly the "two mechanisms answering one question" shape this codebase keeps paying
+  for. See docs/pagination.md for the column's entry in both sets.
+- Migration: **none.** B6 adds no table, no column, and no schema change of any kind —
+  `test_b6_adds_no_migration` pins the Alembic head unchanged from B5's `envdecommission`.

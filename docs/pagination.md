@@ -264,6 +264,20 @@ file that does not ship with the repository, so they're recorded here instead �
    that needs no Python step because that query already has direct, non-correlated access to the
    `environment_decommission` table.
 
+   **A seventeenth joined the set with Phase 7 sub-project B6: `contention_state` on the bookings
+   grid.** `contention_forecast_service.contention_states_for_bookings` folds A4's escalation data
+   over the page's booking ids **once per response**, in Python, after the page is fetched —
+   `BOOKING_SORTS` cannot whitelist it without a 500 the moment `apply_sort` tried to hand it to
+   `ORDER BY`, the same shape as `agreement_gap` and `conflicts` beside it on this exact grid.
+   `BookingList.tsx` marks it `sortable: false`. **Unlike every filterable column noted above, it
+   gets no `GET /bookings` query parameter at all — not `sortable: false` with a filter still
+   attached, no filter of any kind.** `/contentions` (A4's worklist) is already the filtering
+   surface for this data, with its own `?state=`; adding a second filter here would mean a second
+   place deciding the fold precedence (`unowned` beats `owned` beats `decided`, and A4's `expired`
+   folds to `owned`) that `contention_states_for_bookings` already applies once — exactly the "two
+   mechanisms answering one question" shape this document keeps recording as a defect class, not a
+   feature to add deliberately.
+
 3. **`default_dir` is endpoint-wide, not per-field — C3 must always send `sort_dir` explicitly.**
    `sorting()` takes one `default_dir` for the whole endpoint, used only when the client sends no
    `sort_dir` at all. Four endpoints set it to `"desc"` (see the table above), so
