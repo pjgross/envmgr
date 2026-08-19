@@ -215,12 +215,17 @@ the failure the paperwork exists to prevent, and today nothing anywhere notices.
 It is computed on read, never stored — a stored staleness flag would be
 falsified by the next deployment webhook.
 
-### 4.3 No `ready` boolean
+### 4.3 `ok` is derived, never stored
 
-The response carries `blockers` and `warnings` and nothing else. A convenience
-boolean could disagree with its own array — two sources of truth for one
-question, which is the shape this codebase has regretted repeatedly. `blockers
-== []` **is** the decision, and a pipeline tests it directly.
+The response carries `ok`, `blockers` and `warnings`, mirroring
+`CanDeployResponse` exactly — including `ok`, which `preflight_service`
+computes in one place as `ok=len(blockers) == 0`.
+
+A convenience boolean that could *disagree* with its own array would be two
+sources of truth for one question, the shape this codebase has regretted
+repeatedly. Derived in a single expression at the point of construction, it is
+not: `ok` cannot drift from `blockers` because it is `blockers`. A pipeline
+tests `ok`; anything wanting detail reads the array.
 
 ## 5. Surfaces
 
