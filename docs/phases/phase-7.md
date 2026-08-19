@@ -864,3 +864,28 @@ fields *and* B3a's operations group as its attribute vocabulary, so it was gated
   terminate". And **Idle ships derived, never as a status value** in the "extended status set"
   §2.12 describes, the same call B1 made for `reserved_now`: an environment that is idle is still
   active.
+- **B5 BUILT FIVE THINGS AND CONNECTED THEM TO NOTHING**, and not one was caught by a test.
+  `idle` was computed and filterable but absent from `EnvironmentResponse`; `decommission_state`
+  was heading the same way until the plan was amended mid-flight; `environment_tier.
+  idle_threshold_days` was a model column with no schema field and no service handling, so the
+  per-tier override was unsettable and `COALESCE(tier, tenant)` silently always chose the tenant
+  default; `initiated_by_username` was read by the panel, supplied by nobody, and absent from
+  `DecommissionRead`; and **`initiateDecommission` existed in the slice with no caller anywhere,
+  so a decommission could not be started from the product at all**. Every piece worked in
+  isolation, every suite was green, and the gap is invisible to a unit test by construction —
+  this is B3b's "shipped broken, caught only by tracing the workflow" in five new costumes.
+  **The question that finds them is "what consumes this?", asked of every new field, thunk and
+  column.** Four surfaced by accident; only the reachability one was caught by asking.
+- **A REFUSAL IS ONLY AS GOOD AS THE REASON IT REPORTS.** `release_booking_service`'s bulk-book
+  path caught B5's 409 through a branch expecting a `dict` detail, found a string, and reduced it
+  to `{"conflicts": []}` — after which the dialog told the user "Skipped N with an **exclusive
+  conflict**". The refusal worked perfectly and named the wrong cause, and specifically the one
+  axis this codebase already warns must never be conflated with another. A new refusal must be
+  traced to every consumer that renders a refusal, not merely to the paths that raise it.
+- **A GUARD CAN BE NARROWER THAN THE PROMISE IT GUARDS.** The first cut of
+  `test_b5_acts_only_where_it_says.py` never invoked `request_extension`, `decide_extension` or
+  `sign_attestation` — and `decide_extension` is the **only** function that moves
+  `scheduled_teardown_at`. It also compared the environment on two columns at teardown while
+  comparing full rows on cancel. It passed, it was non-vacuous, and it verified a subset of its
+  own claim. Found only by the whole-branch review reading the guard against every write path
+  rather than against its own test names.
