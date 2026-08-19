@@ -210,6 +210,44 @@ to match, and the form shows the pattern and an example beneath the field.
 *Governance gap* is a **different** chip, and older: it means no owner or no operations group,
 regardless of any policy. The two overlap, so a row can carry both.
 
+### Idle and decommissioning
+
+Two more columns can appear on the Environments list, both read-only there — acting on either
+happens on the environment's own page, not from the grid.
+
+- **Idle** — your admin can turn on a check that flags an environment nobody has deployed to or
+  booked (with a booking whose dates actually overlap the quiet period) for longer than a
+  threshold. **This is off by default for most tenants** — if you never see it, that is why, not a
+  missing feature. Idle is a flag, nothing more: an idle environment is exactly as active,
+  bookable and deployable as any other. Health monitoring pinging an environment doesn't stop it
+  reading idle — the flag is about whether anyone is *using* it, not whether it is up.
+- **Decommission state** — if an environment is going through the retirement workflow below, this
+  shows where it stands: *Warned*, *Extension requested*, *Due*, *Torn down*, or *Cancelled*. It's
+  display-only here; to filter or search across every decommission in progress, use
+  *Environment Management → Decommissions* (`/decommissions`), which lists all of them with the
+  same states.
+
+**What a decommission warning means for you.** An environment moving to *Warned* means someone has
+scheduled it to be retired on a given date — shown on the environment's own page. Nothing about
+the environment changes yet: it stays bookable, deployable and exactly as usable as before, with
+one exception — **a booking (or a date edit) whose window would run past the scheduled teardown
+date is refused**, while one that finishes before that date is accepted normally. Existing
+bookings that already overlap the teardown date are left alone; nothing already on the calendar is
+touched by any of this.
+
+**If you're the environment's named owner and need more time**, open the environment, find the
+*Decommission* panel, and click *Request extension* with a reason and the date you need. The
+environment's operating team (or an Admin) then grants or refuses it. **A grant immediately widens
+what can be booked** — the teardown date simply moves, so a booking that was refused a moment ago
+for running past the old date may now succeed against the new one, with nothing else to do.
+**Only one extension is allowed per decommission.** If you need more time after that, ask the
+operating team to *cancel* the decommission (which keeps the record) and raise a fresh one with a
+later date — there is no second extension and no edit to the first.
+
+An environment stays retired-in-progress rather than gone throughout all of this: its *Status*
+chip only changes to *decommissioned* at the very end, when the operating team completes the
+sign-off checklist and clicks *Tear down* — nothing earlier in the workflow touches it.
+
 ### Inside an environment
 
 The environment detail page is also tab-based. Tabs in source order:
@@ -328,6 +366,8 @@ Booking a group is **not** shorthand for hand-picking its current members yourse
 ### Conflict detection
 
 Conflicts surface live in the new-booking dialog as you set the dates, and on the booking detail in the *Conflicts* panel after creation. A conflict is any other non-rejected booking on the **same environment** whose window overlaps yours. If either side requested exclusive use, the conflict is **blocking** (creation fails with HTTP 409). If both sides are shared, the conflict is a **warning** — the booking is created and gets an unacknowledged-conflicts indicator until the booker (or a delegate) acknowledges it. On a blocking conflict, pick a different window, drop the exclusive flag if shared use will do, or ask the existing booker to release their slot.
+
+**A booking against an environment scheduled for decommissioning is refused if it would run past the scheduled teardown date** — a shorter booking, finishing before that date, is accepted normally. This applies the same way to a date edit that pushes an existing booking past teardown, and to a recurring booking's furthest occurrence, not just its first. See [ch. 4 §Idle and decommissioning](#idle-and-decommissioning) for what the warning means and how an owner asks for more time — a granted extension moves the teardown date out and immediately widens what you can book, with nothing else to redo.
 
 ### Project priority and contention
 

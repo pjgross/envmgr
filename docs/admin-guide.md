@@ -480,6 +480,8 @@ Every environment has one of four statuses:
 
 Transitions are unconstrained — you can move between any two statuses by editing the environment. *Decommissioned* is reversible; bring an environment back simply by editing the status.
 
+**This direct edit still works, and it is now the informal path.** Since Phase 7 B5, the audited way to retire an environment is the *Decommission* panel described below — it warns the owner, gates the actual `status` write on signed attestations, and leaves a record of who did what and when. Editing *Status* to *decommissioned* by hand on this form skips all of that: no warning, no checklist, no record beyond the environment's own updated timestamp. Reserve the manual edit for correcting a mistake (e.g. an environment decommissioned outside the register, before B5 existed) rather than for retiring an environment going forward.
+
 ```
    ┌──────────────┐
    │              ▼
@@ -529,16 +531,25 @@ EnvManager does **not** model environment-to-environment dependencies directly. 
 
 On the *Overview* tab, click *Verify Environment*. Each system dependency is reported as *satisfied* (target system attached), *mocked* (covered by a mocked subsystem), or *missing*. Component dependencies are checked the same way. Run this before each booking — if a dependency is *missing*, attach the required system on the *Systems* tab.
 
-### Walkthrough: decommissioning safely
+### Walkthrough: decommissioning through the workflow
 
-Before flipping an environment to *decommissioned*:
+Since Phase 7 B5, retiring an environment goes through a **Decommission** panel on the environment's *Overview* tab rather than a bare status edit — a warning period, an optional one-time extension, a signed checklist, then teardown.
 
-1. Cancel or close out any active bookings that overlap with today (*Schedule* tab on the environment, or `/bookings`).
-2. Close any in-flight change requests that target this environment.
-3. Detach instances or note that hosts will keep their last attachment record.
-4. Edit the environment and set *Status* to **decommissioned**.
+**Who can do what.** Starting a decommission, deciding an extension, signing attestations, tearing down and cancelling are all done by the environment's **operations group** (see [ch. 4 §User Groups](#user-groups)) or an Admin / master admin. **Requesting** an extension is different: it is the environment's **named owner**, or an Admin — the person defending their environment against an early teardown is deliberately not required to be on the team decommissioning it. Where an environment has **no** operations group, or the group is empty, every team action falls back to **Admin-only** — the same degradation B3b uses for handover edits, so a permission that would otherwise resolve to nobody does not stall the workflow.
 
-The status change is **reversible** — the environment is still soft-deleted only when you click *Delete* on the list page. Use *decommissioned* to hide an environment from working views without losing history; use *Delete* (which sets `deleted_at`) only when you're sure the audit trail no longer needs to surface it.
+1. Open the environment and scroll to the **Decommission** panel below Handover. If there is no active decommission, click **Start decommission**.
+2. Give a **Reason** (required — this becomes the audit record) and, optionally, a **Teardown date**. Leave it blank to use the tenant's default notice period (below); if you set one yourself it must be **on or after** that default — an initiator cannot shorten the notice a policy promises.
+3. The environment is now **Warned**, and the panel shows the scheduled teardown date to anyone who opens it. **Bookings that finish before that date are still accepted; a booking (or a date edit) that would run past it is refused**, on every booking path including recurring bookings and per-environment date edits — there is no separate step to police this, it falls straight out of the date.
+4. If the owner needs more time, they click **Request extension**, gives a reason and a new date, and the panel moves to **Extension requested**. A team member or Admin clicks **Grant extension** (moves the teardown date to the requested one and reopens what is bookable — no other action needed) or **Refuse extension** (the original date stands). **Only one extension is allowed per decommission.** If more time is genuinely needed after that, **cancel and start again** — see below; the cancelled record is kept, so nothing about the first attempt is lost.
+5. Work through the **Checklist** — the tenant's decommission steps (below). Each **Required** step needs a signature (a reference — a snapshot id, a ticket, a runbook link — and optional notes) before teardown is allowed; **Optional** steps do not gate it. Signing is permanent: there is no un-sign, and a mistaken signature is corrected by cancelling the decommission rather than editing the attestation.
+6. Once every active required step is signed, click **Tear down**. This is the one step that changes anything outside the decommission's own record: it sets the environment's *Status* to **decommissioned** and records who did it and when. Trying to tear down early is refused with a message **naming exactly which steps are still missing**.
+7. **Nothing is cancelled or moved for you.** Bookings still on the calendar at teardown are listed under *Bookings not touched by teardown* rather than being altered — clear or transition them yourself first if that matters for this environment (*Schedule* tab, or `/bookings`).
+
+**Cancelling** is available at any point up to teardown, to a team member or Admin, and needs a reason. It is the only way to correct a decommission started in error or with the wrong checklist — there is no edit path.
+
+**What EnvManager does not do.** It holds no cloud credentials and has no way to actually take a backup or tear down a resource — that is why teardown is gated on a **human** attesting they did those things, not on the register doing them. And there is no "Available" status to return an environment to at teardown: it becomes *decommissioned*, and the calendar and any remaining bookings are left for a person to deal with.
+
+The status change is still **reversible** the same way it always was — editing *Status* back to *active* — and the environment is only soft-deleted when you click *Delete* on the list page. Use *decommissioned* to hide an environment from working views without losing history; use *Delete* (which sets `deleted_at`) only when you're sure the audit trail no longer needs to surface it.
 
 ### Reading the environment topology
 
@@ -689,6 +700,73 @@ whichever is later — there is no per-environment "failing since" record. So an
 *starts* failing later (its owner is deactivated, say) is quarantined at once, with no fresh grace.
 The alternative would need a second stored value invalidated by things far outside any
 environment edit, such as deleting a user.
+
+### Idle detection and the decommissioning workflow
+
+*Administration → Entity Config → Environments → Lifecycle & Decommissioning* is where a tenant
+configures the two halves of Phase 7 B5: whether — and how eagerly — an unused environment is
+flagged as idle, and the checklist a decommission is gated on. Reading this tab needs only
+tenant membership; saving it needs Admin.
+
+**Idle detection is off by default, and there is a reason to leave it that way until you mean to
+turn it on.** Flip the *Idle detection enabled* switch and every environment already quiet longer
+than the threshold below is flagged **immediately, across the whole estate** — not just ones
+booked from now on. That is correct, and it will look exactly like a bug the first time you see
+it: B2's *Governance gap* chip did the identical thing on first deploy, for the identical reason —
+nothing is backfilled or phased in, the rule is simply applied to everything that already exists.
+Turn it on when you are ready to see (and work through) that number, not before.
+
+**What counts as activity.** An environment reads idle only once it has gone longer than the
+threshold with **no deployment and no booking whose window overlaps that period** — overlap, not
+start, so a long booking taken well before the threshold still counts as claiming the environment
+throughout. **Health monitoring heartbeats do not count.** A monitored environment that nobody is
+actually using is exactly the ghost this feature exists to surface; if heartbeats counted as
+activity, no monitored environment could ever be found idle, however unused it is.
+
+**The fields.**
+
+- **Idle detection enabled** — the off switch described above.
+- **Idle threshold (days)** — how long an environment may go without a deployment or an
+  overlapping booking before it reads as idle. Applies tenant-wide unless a tier overrides it (see
+  below). An environment younger than this many days is never idle, whatever its activity —
+  otherwise every new environment would be born a ghost.
+- **Decommission notice period (days)** — the default gap between starting a decommission and its
+  scheduled teardown date, used whenever the person starting one does not pick a later date
+  themselves. An initiator may push the teardown date out; they may never pull it in ahead of this
+  notice.
+
+**A tier can override the idle threshold.** On the *Tiers* editor (*Administration → Entity Config
+→ Environments → Tiers*), each tier has its own **Idle threshold override (days)**, left blank by
+default to inherit the tenant's number above. A Dev sandbox quiet for 30 days is a ghost worth
+flagging; a DR or Training environment quiet for 90 is behaving exactly as intended, and a single
+tenant-wide number necessarily mislabels one of them. Clear the override field to go back to
+inheriting the tenant default.
+
+**Idle is a flag, not a status.** It shows up as a column and an *Idle* filter chip on the
+Environments list; there is no `idle` status and an idle environment is still fully active,
+bookable and deployable — nothing about it changes on its own.
+
+**The Decommission Checklist** is the tenant's vocabulary of attestation steps — the things a
+human must confirm were actually done (a final backup, DNS removal, licence release, whatever your
+process requires) before a teardown is allowed to proceed. Every tenant starts seeded with two
+required steps, *Final backup taken* and *Infrastructure torn down*, both required. For each step
+you set:
+
+- **Label** and **Description** — shown to whoever is signing it.
+- **Key** — a stable identifier. Signed attestations reference this even after the step's label
+  changes or the step itself is retired, so an old signature keeps reading correctly.
+- **Display order** — where it sits in the checklist.
+- **Required** — a teardown is refused, and told exactly which required steps are still
+  unsigned, until every **active** required step has a signature. An optional step is shown but
+  never blocks anything.
+- **Active** — retiring a step (the *Delete* action, which soft-deletes it) stops it gating any
+  *future* decommission immediately. It does **not** remove or invalidate attestations already
+  signed against it — the signature stands as part of that decommission's record.
+
+See [ch. 6 §Walkthrough: decommissioning through the workflow](#walkthrough-decommissioning-through-the-workflow)
+for how the checklist and the idle flag are actually used, and *Environment Management →
+Decommissions* (`/decommissions`) for the worklist of every decommission across the tenant, live
+and finished alike.
 
 ## 7. Modelling infrastructure (hosts)
 

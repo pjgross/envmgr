@@ -105,7 +105,7 @@ already matched, so it is unaffected.
 |---|---|---|---|
 | `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | — |
 | `GET /bookings/` | `start_date`, `end_date`, `status`, `protection_level` **✧** | `start_date` asc | `agreement_gap` **✦**, `protection` **✧** |
-| `GET /environments/` | `name`, `tier`, `status`, `owner`, `expires_at`, `created_at` | `name` asc | `search` |
+| `GET /environments/` | `name`, `tier`, `status`, `owner`, `expires_at`, `created_at` | `name` asc | `search`, `idle` **⁂** |
 | `GET /change-requests` | `title`, `change_type`, `status`, `scheduled_start` | `scheduled_start` desc | — |
 | `GET /systems/` | `name` | `name` asc | `search` |
 | `GET /infrastructure-components/` | `name`, `component_type`, `provider`, `region`, `source` | `name` asc | `search` (widened to name/provider/region) |
@@ -156,6 +156,18 @@ sub-project B3b — but it joins the same two-sided contract (`REQUEST_SORTS` �
 `sortWhitelists.json`'s `"environment-requests"` entry ↔ `test_sort_whitelist_contract.py`) and
 is bound by the same rules below, including the `default_dir="desc"` hazard in point 3: a
 client that omits `sort_dir` on this endpoint gets **descending**, not ascending.
+
+**⁂** `?idle=` arrived with Phase 7 sub-project B5, the same shape as `agreement_gap` above: a
+**filter only, never a sort key**. `ENVIRONMENT_SORTS` gained nothing for it — the flag comes from
+`environment_idle_service.idle_clause`, a correlated `NOT EXISTS` over recent deployments and
+overlapping bookings gated by a per-row `COALESCE(tier.idle_threshold_days,
+policy.idle_threshold_days)` threshold, so there is no single column an `ORDER BY` could name (see
+the fifteenth entry in point 2 below). It is a plain `Optional[bool]`; omission is the
+no-selection sentinel and an empty `?idle=` is a 422, the same rule every filter on this page
+follows. `decommission_state`, B5's other new field on this endpoint, is display-only on
+`GET /environments/` — there is deliberately no matching `?decommission_state=` filter here; see
+the sixteenth entry in point 2 and *`GET /decommissions`* further down for where that state is
+actually filtered.
 
 Every whitelisted field is a plain column reachable directly off the queried entity. No joined
 column (`environment_name` on a booking, `release_name` on a deployment) is sortable yet — each
@@ -230,6 +242,27 @@ file that does not ship with the repository, so they're recorded here instead �
    a missing owner with `name_compliant` true, and `name_compliant IS NULL` means "no pattern
    applies" and counts as **compliant**, so a three-valued sort would file the compliant rows of a
    tenant with no policy alongside the failures.
+
+   **A fifteenth and sixteenth joined the set with Phase 7 sub-project B5: `idle` and
+   `decommission_state`, both on the environments grid.** Neither is backed by a single column.
+   `idle` is a correlated `EXISTS`/`NOT EXISTS` over deployments and bookings gated by a per-row
+   `COALESCE` threshold (see the **⁂** footnote above). `decommission_state` is built in two
+   steps: three correlated scalar subqueries (`_decommission_field_clause`) each pull one column
+   — `scheduled_teardown_at`, `extension_requested_at`, `extension_decided_at` — off whichever
+   `environment_decommission` row is currently live for that environment (never a join: an
+   environment can carry several *terminal* decommissions alongside its one live one, and a join
+   would multiply the row), and then the five-branch, first-match-wins state itself
+   (`cancelled` → `torn_down` → `extension_requested` → `warned` → `due`) is computed in **Python**
+   from those three raw columns, reusing `environment_decommission_service.decommission_state`
+   rather than re-deriving the branch order. Whitelisting either would 500 the moment `apply_sort`
+   tried to hand it to `ORDER BY` — neither is a single expression to sort by; `idle` is a boolean
+   the database itself decides and `decommission_state` isn't even computed until after the row
+   leaves the database. `EnvironmentList.tsx` marks both `sortable: false`. **`decommission_state`
+   is display-only on this endpoint — there is no `?decommission_state=` filter here at all.**
+   Filtering by state lives on a different endpoint entirely: `GET /decommissions` (below), whose
+   `?state=` runs `state_predicate`, a genuinely SQL-only reproduction of the same branch order
+   that needs no Python step because that query already has direct, non-correlated access to the
+   `environment_decommission` table.
 
 3. **`default_dir` is endpoint-wide, not per-field — C3 must always send `sort_dir` explicitly.**
    `sorting()` takes one `default_dir` for the whole endpoint, used only when the client sends no
@@ -1270,6 +1303,55 @@ The endpoint's **second** filter, `?owner_user_id=`, follows the same two rules:
 from outside that it did) and omitted rather than spelled, with the URL saying `anyone`. It is a
 **filter, not a permission**: any tenant member may read the whole worklist, and who may *answer* a
 row is settled on the decision route.
+
+**`GET /decommissions`** (`backend/app/api/v1/decommissions.py`), added by Phase 7 sub-project B5,
+follows `GET /contention-escalations`' shape closely enough that most of the paragraphs above apply
+almost verbatim. It has its own backend whitelist (`environment_decommission_service
+.DECOMMISSION_SORTS`: sortable `scheduled_teardown_at`, `warned_at`, `environment` — the last
+resolved to `Environment.name` via a join the query carries for exactly that reason; default
+`scheduled_teardown_at` ascending) wired through `sorting()`. It is bounded on `pagination()` like
+every other endpoint in this section, is readable by any tenant member (who may *act* on a row is
+settled on the action routes, not the worklist read). `DecommissionWorklist.tsx` **does** render
+`sortingMode="server"`, and `frontend/src/constants/sortWhitelists.json` carries a matching
+`"decommissions"` entry (`scheduled_teardown_at`, `warned_at`, `environment`; default
+`scheduled_teardown_at` ascending) — so, unlike `projects` and `environment-groups`, this one
+belongs in the two-sided contract by the same logic as `environment-requests` and
+`contention-escalations`. **It is enforced on only one side.** A frontend test
+(`DecommissionWorklist.test.tsx`, *"offers no column the server would answer with a 422"*) checks
+the grid's columns against the JSON file directly, the same as `releaseColumnsSortable.test.ts`
+does for releases — but `backend/tests/test_sort_whitelist_contract.py`'s `WHITELISTS` dict, the
+thing that checks the JSON against `DECOMMISSION_SORTS` itself, has no `"decommissions"` entry.
+Someone widening `DECOMMISSION_SORTS` without updating the JSON (or the reverse) would pass CI
+today, unlike the same mistake on `environment-requests` or `contention-escalations`. Disclosed
+here rather than fixed — this is a documentation pass, not a code change.
+
+None of the three sortable columns is unique — `scheduled_teardown_at` ties are ordinary (a batch
+of environments decommissioned together shares one date) and `warned_at` ties for the same reason
+— so `worklist_query` chains `apply_sort(query, sort).order_by(EnvironmentDecommission.id)` after
+whichever sort the caller asked for, never instead of it. **This tiebreaker produced an honest
+negative during B5's own testing**: removing `.order_by(id)` did not fail the behavioural paging
+test across five runs on SQLite, exactly the documented hazard above (`environments/health/history`,
+`contention-escalations`) where a small fixture's rows happen to come back in a stable order
+without the guarantee that would force them to. The guard actually in the suite is the same
+documented exception to the don't-assert-emitted-SQL rule: a structural assertion on the exposed
+`worklist_query` checking its `ORDER BY` ends in a unique key.
+
+`state` — `warned` / `extension_requested` / `due` / `torn_down` / `cancelled` — is **deliberately
+absent from `DECOMMISSION_SORTS`**, for the same reason it is absent from `ENVIRONMENT_SORTS` (see
+the fifteenth/sixteenth entries in point 2 above): it is computed from three columns and a clock,
+not backed by a single column to `ORDER BY`. Its *filter*, `?state=`, is applied in SQL by
+`state_predicate`, which reproduces the same first-match-wins branch order as the Python function
+that renders each row's state, so the worklist's filter and its rendered chips cannot disagree —
+`state_predicate` deliberately does **not** filter `deleted_at` (that is a separate, explicit
+`AND` in `worklist_query`, since a soft-deleted decommission answering `state_predicate` correctly
+is not the same question as whether it should be listed at all). No-selection is an **omitted
+key** — there is deliberately no `all` value, and an out-of-vocabulary `?state=` is rejected by the
+route's own `pattern=` validation before it reaches the service, rather than by `sorting()`'s 422.
+
+`environment_name`, `initiated_by_username` and `owner_username` are joined names carried on
+`DecommissionWorklistRow` so the browser never resolves them against a capped picker collection —
+the same "names travel with the row" rule A4's `EscalationRead` established. None of the three is
+sortable: they are joined columns, the same category point 2's twelve already cover.
 
 Two more endpoints ship on the A2 branch and are worth noting even though neither takes a row in
 the table above: `POST /booking-requests/{request_id}/groups/{group_id}/transition` and
