@@ -17,7 +17,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.booking import Booking
-from app.services import conflict_service
+from app.services import conflict_service, contention_service
 
 
 async def overlapping_pairs(
@@ -90,3 +90,67 @@ async def overlapping_pairs(
 
     rows = (await db.execute(query.order_by(b1.id, b2.id))).all()
     return [(low, high) for low, high in rows]
+
+
+STATE_UNOWNED = "unowned"
+STATE_OWNED = "owned"
+STATE_DECIDED = "decided"
+
+#: Most actionable first. The fold keeps whichever appears earlier here.
+#: "Nobody is on this" is the state that needs a human, so it outranks a
+#: contention someone already owns, which outranks one already decided.
+_PRECEDENCE = (STATE_UNOWNED, STATE_OWNED, STATE_DECIDED)
+
+
+def _more_actionable(current: Optional[str], candidate: str) -> str:
+    if current is None:
+        return candidate
+    return min(current, candidate, key=_PRECEDENCE.index)
+
+
+async def contention_states_for_bookings(
+    db: AsyncSession,
+    tenant_id: int,
+    booking_ids: Sequence[int],
+    *,
+    now: datetime,
+) -> dict[int, str]:
+    """The contention state of each REQUESTED booking that has one.
+
+    ONCE PER RESPONSE, NEVER ONCE PER ROW. A3 measured a 50-row page through a
+    per-booking helper at roughly 150 queries; this takes the whole page's ids
+    and issues two.
+
+    Absent key == no contention. There is deliberately no `none` state.
+    """
+    requested = set(booking_ids)
+    if not requested:
+        return {}
+
+    pairs = await overlapping_pairs(db, tenant_id, booking_ids=list(requested))
+    if not pairs:
+        return {}
+
+    escalations = await contention_service.escalations_for_pairs(db, pairs, tenant_id)
+
+    states: dict[int, str] = {}
+    for pair in pairs:
+        escalation = escalations.get(pair)
+        if escalation is None:
+            pair_state = STATE_UNOWNED
+        elif contention_service.escalation_state(escalation, now) == (
+            contention_service.STATE_ANSWERED
+        ):
+            pair_state = STATE_DECIDED
+        else:
+            # `open` AND `expired`. An overdue escalation still has a named
+            # owner who owes an answer; the booking's own page says so.
+            pair_state = STATE_OWNED
+
+        for booking_id in pair:
+            if booking_id not in requested:
+                # The counterpart decides the state; it does not get one.
+                continue
+            states[booking_id] = _more_actionable(states.get(booking_id), pair_state)
+
+    return states

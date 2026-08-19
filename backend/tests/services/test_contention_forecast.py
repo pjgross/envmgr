@@ -1,12 +1,16 @@
-"""B6 Task 1 — the overlap query. READS ONLY."""
+"""B6 Task 1 — the overlap query. Task 2 — the fold into one state. READS ONLY."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.db.models.contention_escalation import ContentionEscalation
 from app.services import contention_forecast_service as svc
+from app.services import contention_service
 from tests.factories import ensure_environment, ensure_user, make_booking
 
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+FUTURE_DEADLINE = NOW + timedelta(days=7)
+PAST_DEADLINE = NOW - timedelta(days=7)
 
 
 @pytest.mark.asyncio
@@ -269,3 +273,167 @@ async def test_a_cross_tenant_booking_with_the_lower_id_does_not_pair(db_session
                         start=NOW, end=NOW + timedelta(days=3))
 
     assert await svc.overlapping_pairs(db_session, tenant.id) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 2 — folding each booking's pairs into one actionable state.
+# ---------------------------------------------------------------------------
+
+
+async def _escalate(db_session, tenant, user, a, b, *, respond_by, decided_at=None):
+    """A ContentionEscalation on the NORMALISED pair, same shape as
+    test_contention_escalation.py's direct-construction tests."""
+    lower, higher = contention_service.normalise_pair(a.id, b.id)
+    escalation = ContentionEscalation(
+        tenant_id=tenant.id,
+        booking_id=lower,
+        other_booking_id=higher,
+        escalated_by=user.id,
+        owner_user_id=user.id,
+        respond_by=respond_by,
+        decided_at=decided_at,
+    )
+    db_session.add(escalation)
+    await db_session.flush()
+    return escalation
+
+
+@pytest.mark.asyncio
+async def test_a_clash_with_no_escalation_is_unowned(db_session, tenant):
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    a = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    b = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [a.id, b.id], now=NOW
+    )
+
+    assert states == {a.id: svc.STATE_UNOWNED, b.id: svc.STATE_UNOWNED}
+
+
+@pytest.mark.asyncio
+async def test_an_open_escalation_is_owned(db_session, tenant):
+    """A4's `open` — someone owns it and the deadline is running."""
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    a = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    b = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    await _escalate(db_session, tenant, user, a, b, respond_by=FUTURE_DEADLINE)
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [a.id, b.id], now=NOW
+    )
+
+    assert states == {a.id: svc.STATE_OWNED, b.id: svc.STATE_OWNED}
+
+
+@pytest.mark.asyncio
+async def test_an_expired_escalation_is_still_owned(db_session, tenant):
+    """A4's third state renders as `owned`, not a fourth marker: an overdue
+    escalation still has a NAMED OWNER who owes an answer. The booking's own
+    page says it is overdue."""
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    a = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    b = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    escalation = await _escalate(db_session, tenant, user, a, b, respond_by=PAST_DEADLINE)
+    # Confirm this really is A4's `expired`, not merely a stale-looking `open`.
+    assert contention_service.escalation_state(escalation, NOW) == contention_service.STATE_EXPIRED
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [a.id, b.id], now=NOW
+    )
+
+    assert states == {a.id: svc.STATE_OWNED, b.id: svc.STATE_OWNED}
+
+
+@pytest.mark.asyncio
+async def test_an_answered_escalation_is_decided(db_session, tenant):
+    """And the pair is STILL reported — A4 moves no booking, so the two
+    bookings genuinely still overlap until a human reschedules one."""
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    a = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    b = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                            start=NOW, end=NOW + timedelta(days=3))
+    await _escalate(db_session, tenant, user, a, b, respond_by=FUTURE_DEADLINE, decided_at=NOW)
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [a.id, b.id], now=NOW
+    )
+
+    assert states == {a.id: svc.STATE_DECIDED, b.id: svc.STATE_DECIDED}
+
+
+@pytest.mark.asyncio
+async def test_an_uncontended_booking_is_absent_from_the_map(db_session, tenant):
+    """ABSENT, not a `none` state. A four-valued enum whose fourth value means
+    "nothing to say" invites a consumer to render it, and an empty chip reads
+    as a state of its own."""
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    lonely = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                                 start=NOW, end=NOW + timedelta(days=1))
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [lonely.id], now=NOW
+    )
+
+    assert states == {}
+
+
+@pytest.mark.asyncio
+async def test_the_most_actionable_state_wins(db_session, tenant):
+    """A booking in three contentions shows the one that needs a human:
+    unowned beats owned beats decided. Reverse the precedence and this fails."""
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    hub = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                             start=NOW, end=NOW + timedelta(days=10))
+    # one decided, one owned, one unowned — build them with escalations as the
+    # three tests above do, then:
+    decided_peer = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                                       start=NOW, end=NOW + timedelta(days=1))
+    owned_peer = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                                     start=NOW, end=NOW + timedelta(days=1))
+    # unowned_peer deliberately gets no escalation at all.
+    await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                        start=NOW, end=NOW + timedelta(days=1))
+
+    await _escalate(db_session, tenant, user, hub, decided_peer,
+                     respond_by=FUTURE_DEADLINE, decided_at=NOW)
+    await _escalate(db_session, tenant, user, hub, owned_peer, respond_by=FUTURE_DEADLINE)
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [hub.id], now=NOW
+    )
+    assert states[hub.id] == svc.STATE_UNOWNED
+
+
+@pytest.mark.asyncio
+async def test_the_counterpart_outside_the_set_is_not_reported(db_session, tenant):
+    """Only requested bookings get a state. The long-running counterpart is
+    used to DECIDE the state, not to appear in the answer — otherwise a
+    calendar month would render markers on bookings it never drew."""
+    env = await ensure_environment(db_session, tenant.id, slot=1)
+    user = await ensure_user(db_session, tenant.id)
+    shown = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                               start=NOW, end=NOW + timedelta(days=2))
+    spanning = await make_booking(db_session, tenant.id, booked_by=user.id, environment=env,
+                                  start=NOW - timedelta(days=40),
+                                  end=NOW + timedelta(days=40))
+
+    states = await svc.contention_states_for_bookings(
+        db_session, tenant.id, [shown.id], now=NOW
+    )
+
+    assert set(states) == {shown.id}
+    assert spanning.id not in states
