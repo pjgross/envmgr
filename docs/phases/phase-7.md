@@ -907,11 +907,18 @@ B6 is gated on A4, which computes the verdicts and owns the escalation record B6
   Proved non-vacuous the same way B4's and B5's guards were: stamping a value onto a `Booking`
   inside the fold fails the guard first; reverting passes it again.
 - **THE OVERLAP RULES ARE NOT RESTATED.** `conflict_service.conflicts_with` is the one definition
-  of what counts as a clash, and B6 is its **third** consumer — after `list_conflicts` and the
-  create-dialog preview — not a second copy of the rule. A calendar marker disagreeing with the
-  Conflicts panel about whether two bookings clash would be worse than no marker at all, which is
-  why `overlapping_pairs` calls `conflicts_with` directly rather than re-deriving the overlap
-  predicate.
+  of what counts as a clash, and B6's `overlapping_pairs` is its **fourth** consumer, calling it
+  directly rather than re-deriving the predicate. The three that came before it: `list_conflicts`
+  (the booking's own Conflicts panel, and `create_request`'s post-creation conflict warnings),
+  `_unacknowledged_conflict_exists` (the bookings list's Conflicts flag), and — B6's own immediate
+  predecessor — A4's `contention_service._pair_conflict_exists`, whose docstring already says "THE
+  OVERLAP IS NEVER RE-DERIVED HERE." Omitting A4 from this count would have hidden the one dependant
+  that matters most: it, not B6, is who breaks first if `conflicts_with` is ever edited without
+  checking every caller. (The new-booking dialog's `preview-conflicts` endpoint is **not** a fifth
+  consumer — `booking_request_service.preview_conflicts` re-implements the overlap predicate inline
+  rather than calling `conflicts_with`, a separate, pre-existing copy of the rule this count does not
+  paper over.) A calendar marker disagreeing with the Conflicts panel about whether two bookings
+  clash would be worse than no marker at all.
 - **"LIVE" IS `conflict_service.TERMINAL_STATES`, NOT `booking_states.INACTIVE_BOOKING_STATUSES`**
   — the same pair A4 had to keep apart. The two sets are deliberately different: `conflict_service`
   counts a **draft** booking *as* a conflict, so a contention marker can appear on a booking that
