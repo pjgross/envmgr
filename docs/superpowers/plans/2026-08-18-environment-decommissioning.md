@@ -75,7 +75,7 @@ Every task's requirements implicitly include all of these.
 - Test files alongside each, under `__tests__/`
 
 **Frontend — modify**
-- `src/pages/environments/EnvironmentList.tsx` — idle + decommission columns and filters
+- `src/pages/environments/EnvironmentList.tsx` — idle column + `?idle=` filter, and a display-only decommission-state column (no `?decommission_state=` filter exists; state filtering is the /decommissions worklist's job)
 - `src/pages/environments/EnvironmentDetail.tsx` — mount the panel
 - `src/types/environment.ts` — `idle`, `decommission_state`
 - `src/App.tsx` — the `/decommissions` route

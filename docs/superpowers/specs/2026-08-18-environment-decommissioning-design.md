@@ -394,8 +394,13 @@ both took the required-positional treatment for this reason.
 
 ## 9. UI surface
 
-- **`EnvironmentList`** — an `Idle` chip and a decommission-state column, with
-  matching server-side filters. Both are server-paged from the start; the
+- **`EnvironmentList`** — an `Idle` chip with a server-side `?idle=` filter, and a
+  decommission-state column that is **display-only**. State filtering lives on
+  the `/decommissions` worklist, which exists for exactly that question;
+  duplicating it as a second `?decommission_state=` filter on the estate list
+  would be a second way to ask one thing. (Corrected 2026-08-19: an earlier
+  draft said "matching filters" for both, and no backend task ever built the
+  second one.) Both are server-paged from the start; the
   pagination programme's rule is that a page is never fetched and then filtered
   in the browser.
 - **`EnvironmentDetail`** — a decommission panel carrying the banner, the
