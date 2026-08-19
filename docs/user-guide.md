@@ -455,6 +455,49 @@ booking would move), but nobody is told the set is unsatisfiable, so read the si
 deciding one of them. This follows from A4 recording advice rather than acting on it: a human,
 not the system, reconciles the set.
 
+### Contention markers and the horizon
+
+Three more places surface the same clashes as the *Conflicts* panel above, so the two can never
+disagree about whether a clash exists — they read exactly the same computed pairs, just earlier in
+your workflow than opening a booking:
+
+- **Calendar** (`/bookings/calendar`) — a contended booking's block carries an icon and a short
+  label as well as its usual colour, not colour alone.
+- **List** (`/bookings/list`) — a *Contention* column showing the same icon and label as a cell.
+  Like *Agreement* and *Conflicts* beside it, it is computed after the page is fetched, so it has
+  no sort and no filter of its own on this page — use the *Contention Escalations* worklist
+  (`/contentions`, described above) to filter by state.
+- **The horizon** — a widget above the calendar reading *"N contentions in the next N weeks"*, with
+  2 / 6 / 12 / 26-week buttons and a link straight to the worklist.
+
+A booking shows a marker whenever it clashes with something, even if the other side of that clash
+is not currently on your screen — a booking visible in September can be marked because it clashes
+with one running August to October, which the calendar is not currently showing you.
+
+What each state asks of you:
+
+- **Needs escalating** — the pair clashes and nobody has raised it yet. Somebody should click
+  *Escalate* on the Conflicts panel.
+- **Awaiting a decision** — an escalation exists. Wait for the named owner, or chase them (or an
+  Admin) if the deadline is close. An escalation whose deadline has already passed still shows this
+  way — it still has a named owner who owes an answer, and the booking's own page is where "overdue"
+  is said explicitly.
+- **Decided** — a decision has been recorded, but **the marker stays**. Deciding does not move
+  anything: the two bookings are still genuinely overlapping until whoever the decision names
+  actually reschedules or cancels theirs. Read a decided marker as a to-do for someone, not as a
+  resolved item.
+
+A booking caught in more than one contention at once shows whichever of the three states is most
+urgent — needs-escalating, then awaiting-a-decision, then decided — so a marker never hides a more
+pressing clash underneath it.
+
+**The horizon count has nothing to do with which month you are looking at.** Moving the calendar to
+a different month never changes it, and it is not "how many contentions in the visible range" —
+it deliberately answers a different question: how many clashes exist in the next few weeks from
+*today*, regardless of where you have navigated to. That is the whole point of it: a calendar can
+only tell you about the month you are looking at, and this tells you about a clash next quarter
+while you are looking at this month, while there is still time to do something cheap about it.
+
 ### Usage agreement warnings
 
 If your tenant uses *Projects* (admin guide ch. 4), an Admin can record which environments each project is expected to use — a **usage agreement**, optionally with a start and end date. If you link a booking to a project and no agreement covers that project, that environment and those dates, the booking is flagged with a **usage agreement gap**.

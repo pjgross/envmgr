@@ -107,6 +107,7 @@ const SOLO_BOOKING = envBooking({
 function makeBooking(): BookingResponse {
   return {
     has_unacknowledged_conflicts: false,
+    contention_state: null,
     id: TOP_BOOKING_ID,
     environment_id: ENV_ID,
     environment_name: 'Solo Env',

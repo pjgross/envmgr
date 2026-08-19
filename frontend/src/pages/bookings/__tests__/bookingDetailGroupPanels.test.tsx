@@ -154,6 +154,7 @@ const HAND_PICKED = envBooking({
 function makeBooking(): BookingResponse {
   return {
     has_unacknowledged_conflicts: false,
+    contention_state: null,
     id: TOP_BOOKING_ID,
     environment_id: 8101,
     environment_name: 'Order Service Test',

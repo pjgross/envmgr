@@ -33,12 +33,15 @@ class ConflictingBooking:
 def conflicts_with(other, *, subject_id, environment_id, start_date, end_date, tenant_id):
     """What it means for `other` to conflict with a subject booking.
 
-    ONE definition, two consumers: `list_conflicts` passes literals off a
-    loaded `Booking`, and `_unacknowledged_conflict_exists` passes the
-    correlated `Booking` columns straight through. Both therefore ask the same
-    question, which is the point — a second copy of these five rules is
-    precisely the "two mechanisms enforcing one outcome" shape that has cost
-    this codebase repeated defects, because one test cannot then guard both.
+    ONE definition, four consumers: `list_conflicts` and
+    `_unacknowledged_conflict_exists` here, plus `contention_service`'s A4
+    `_pair_conflict_exists` and `contention_forecast_service`'s B6
+    `overlapping_pairs`. `list_conflicts` passes literals off a loaded
+    `Booking`; the other three pass correlated `Booking` columns straight
+    through. All four therefore ask the same question, which is the point —
+    a second copy of these five rules is precisely the "two mechanisms
+    enforcing one outcome" shape that has cost this codebase repeated
+    defects, because one test cannot then guard both.
 
     Every argument is keyword-only and required: a positional call site that
     silently swapped `start_date` and `end_date` would invert the overlap and

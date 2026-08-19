@@ -1,5 +1,6 @@
 import type { AgreementGapAckRead } from './agreementGap';
 import type { ProtectionLevel } from '../constants/protection';
+import type { ContentionState } from './contentionForecast';
 
 export type BookingStatus = string; // lifecycle state key e.g. 'draft', 'submitted', 'approved'
 export type ContextTag = 'deployment' | 'regression' | 'none';
@@ -78,6 +79,17 @@ export interface BookingResponse {
   // `_to_response` sets it explicitly. Treat an absent value as "unknown", not
   // as soft — rendering nothing is honest, rendering "Preemptible" is a guess.
   protection_level?: ProtectionLevel | null;
+  // B6 — the fold of every live overlapping pair this booking is part of,
+  // most actionable first (`unowned` > `owned` > `decided`); see
+  // contention_forecast_service.contention_states_for_bookings. Required,
+  // not optional: `_to_response` takes it required-positional at every one
+  // of its six call sites, the same rule `agreement_gap` and
+  // `has_unacknowledged_conflicts` follow above, for the same reason (a
+  // defaulted equivalent silently renders null at a call site nobody
+  // remembered to update). `null` is a REAL, common value meaning "no
+  // contention" — there is deliberately no fourth state — never render an
+  // empty marker for it; render nothing (see ContentionMarker's docstring).
+  contention_state: ContentionState | null;
   request?: {
     id: number;
     project_name: string;

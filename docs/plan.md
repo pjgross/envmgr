@@ -129,11 +129,13 @@ strength of a case-sensitive grep that never matched `setGroupBy`. `phases/phase
 
 ---
 
-## Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance — 🟡 In progress
+## Phase 7: Multi-Project Coordination + Environment Lifecycle & Governance — ✅ Complete (2026-08-19)
 
-**Shipped**: B1 (governance fields), B3a + B3b (user groups, environment request form + Welcome
-Pack — B3 complete), A1 (projects + usage agreements), A2 (environment groups + atomic group
-bookings), A3 (usage-agreement warnings, 2026-08-08). **Remaining**: A4, B2, B4, B5, B6.
+**Both programmes are done, ten sub-projects in all**: A1 (projects + usage agreements), A2
+(environment groups + atomic group bookings), A3 (usage-agreement warnings), A4 (project-aware
+contention), B1 (governance fields), B2 (naming & tagging + quarantine), B3a + B3b (user groups,
+environment request form + Welcome Pack — B3 complete), B4 (soft/hard reservations), B5
+(decommissioning + idle detection), B6 (forward contention as a calendar leading indicator).
 
 See [phases/phase-7.md](phases/phase-7.md).
 
