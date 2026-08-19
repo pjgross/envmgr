@@ -472,6 +472,13 @@ describe('EnvironmentList server-side grid', () => {
         'owner',
         'expires_at',
         'reserved_now',
+        // B5's Idle and Decommission columns. Neither can collide with a
+        // tenant custom field the way `owner` did: buildCustomFieldColumns
+        // namespaces every custom column `cf_<key>` — see the collision
+        // tests in environmentIdleColumn.test.tsx for a `field_key: 'idle'`
+        // custom field specifically.
+        'idle',
+        'decommission_state',
         // B2's Compliance column. Named `compliance`, not after a field a
         // tenant might key a custom field on — and namespacing makes a
         // collision impossible either way.

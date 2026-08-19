@@ -48,6 +48,7 @@ import type {
   EnvironmentCreate,
   EnvironmentUpdate,
 } from '../../types/environment';
+import type { DecommissionState } from '../../types/decommission';
 import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
@@ -81,6 +82,42 @@ const EXPIRY_WINDOW_FILTERS: { label: string; value: string }[] = [
   { label: '30 days', value: '30' },
   { label: '90 days', value: '90' },
 ];
+
+// B5 — no deployment or booking for the tier's/tenant's idle threshold.
+// Advisory only, same as reserved_now: nothing about a booking or a control
+// changes because a row is idle. `''` is the no-selection value (buildParams
+// drops it, and an empty `?idle=` is a 422 from the endpoint's
+// `Optional[bool]`), matching every other Select filter on this page — never
+// `'all'`, which is `buildParams`' own no-selection sentinel and would build
+// byte-identical params for two different states.
+const IDLE_FILTERS: { label: string; value: string }[] = [
+  { label: 'Any', value: '' },
+  { label: 'Idle only', value: 'true' },
+  { label: 'Not idle', value: 'false' },
+];
+
+// B5 — labels/colors for the live-or-most-recent decommission's computed
+// state (`environment_decommission_service.decommission_state`, never a
+// stored column). Keyed by the exact five literals in
+// `backend/app/core/decommission_states.py` / `types/decommission.ts`.
+const DECOMMISSION_STATE_LABELS: Record<DecommissionState, string> = {
+  warned: 'Warned',
+  due: 'Due',
+  extension_requested: 'Extension requested',
+  torn_down: 'Torn down',
+  cancelled: 'Cancelled',
+};
+
+const DECOMMISSION_STATE_COLORS: Record<
+  DecommissionState,
+  'warning' | 'error' | 'info' | 'default'
+> = {
+  warned: 'warning',
+  due: 'error',
+  extension_requested: 'info',
+  torn_down: 'default',
+  cancelled: 'default',
+};
 
 interface EnvFormValues {
   name: string;
@@ -163,9 +200,12 @@ function saveColumnModel(userId: number | string | undefined, model: GridColumnV
 // `actions` has no backing column, `reserved_now` is derived from live
 // bookings rather than stored (so the backend cannot sort by it),
 // `operations_group_name` is a joined column rather than an Environment
-// column (so it can never be whitelisted either), and per-tenant custom
-// fields (built separately below, see buildCustomFieldColumns) are never in
-// the backend's sort whitelist — none of those ever was or can be sortable.
+// column (so it can never be whitelisted either), `idle` (B5) is a
+// correlated EXISTS and `decommission_state` (B5) a correlated scalar
+// subquery — neither is a single column `ORDER BY` can address — and
+// per-tenant custom fields (built separately below, see
+// buildCustomFieldColumns) are never in the backend's sort whitelist — none
+// of those ever was or can be sortable.
 // A plain array export, not a component; co-located here per the C3 pilot's
 // releaseColumns precedent (small enough not to warrant its own file). The
 // `actions` column's renderCell is filled in at render time (see `columns`
@@ -229,6 +269,47 @@ export const environmentColumns: GridColDef<EnvironmentResponse>[] = [
     sortable: false,
     renderCell: (params) =>
       params.row.reserved_now ? <Chip label="Reserved" size="small" color="info" /> : '—',
+  },
+  {
+    field: 'idle',
+    headerName: 'Idle',
+    flex: 0.6,
+    // B5 — computed via a correlated EXISTS over live deployments/bookings
+    // (environment_idle_service), not a stored column. Not in
+    // ENVIRONMENT_SORTS; a sortable header would 422 on click, the same
+    // failure reserved_now's sortable: false above already guards against.
+    sortable: false,
+    renderCell: (params) =>
+      params.row.idle ? (
+        <Chip data-testid="idle-chip" label="Idle" size="small" color="warning" />
+      ) : (
+        '—'
+      ),
+  },
+  {
+    field: 'decommission_state',
+    headerName: 'Decommission',
+    flex: 0.9,
+    // B5 — computed via a correlated scalar subquery over
+    // environment_decommission (environment_decommission_service.decommission_state),
+    // not a stored column. Not in ENVIRONMENT_SORTS.
+    sortable: false,
+    renderCell: (params) => {
+      const state = params.row.decommission_state;
+      // Null means "no live or historical decommission" — the common case,
+      // not the edge case; most environments have none. Render NOTHING, not
+      // an empty chip and not even a dash — an empty chip reads as a state
+      // of its own.
+      if (!state) return null;
+      return (
+        <Chip
+          data-testid="decommission-chip"
+          label={DECOMMISSION_STATE_LABELS[state]}
+          size="small"
+          color={DECOMMISSION_STATE_COLORS[state]}
+        />
+      );
+    },
   },
   {
     field: 'compliance',
@@ -381,6 +462,10 @@ export default function EnvironmentList() {
       'owner_user_id',
       'expiring_within_days',
       'operations_group_id',
+      // B5's idle filter — see IDLE_FILTERS above. `''` is the no-selection
+      // value (buildParams drops it), matching every other Select filter on
+      // this page.
+      'idle',
     ],
     // Free-text keys, and also the 'all'-sentinel exemption list. Every entry
     // must also appear in filterKeys above — there is a DEV warning if not.
@@ -655,6 +740,24 @@ export default function EnvironmentList() {
             {groups.map((g) => (
               <MenuItem key={g.id} value={String(g.id)}>
                 {g.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel id="idle-filter-label">Idle</InputLabel>
+          <Select
+            labelId="idle-filter-label"
+            label="Idle"
+            // B5. Runs in SQL, before the window, so X-Total-Count describes
+            // the filtered set — and it narrows the list without refusing
+            // anything: idle is advisory, same as reserved_now.
+            value={grid.filters.idle ?? ''}
+            onChange={(e) => grid.setFilter('idle', e.target.value)}
+          >
+            {IDLE_FILTERS.map((f) => (
+              <MenuItem key={f.value} value={f.value}>
+                {f.label}
               </MenuItem>
             ))}
           </Select>
