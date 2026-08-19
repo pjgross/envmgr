@@ -64,4 +64,55 @@ describe('contentionForecastSlice', () => {
     expect(state.error).toContain('weeks must be between 1 and 104');
     expect(state.loading).toBe(false);
   });
+
+  // THE STRANDING BUG. `ContentionHorizon` dispatches this thunk again on
+  // every horizon change with no cancellation of whatever was already in
+  // flight, and its own `fetchedWeeks === weeks` guard withholds the count
+  // until a response actually describes the currently-selected window.
+  // Without request-id sequencing here, a click from 2 -> 26 weeks fired
+  // rapidly enough for the OLDER (2-week) response to land after the newer
+  // (26-week) one would overwrite `state.weeks` back to 2 — and because
+  // nothing re-dispatches just because `weeks` itself hasn't changed again,
+  // the component would sit under a permanent mismatch with no error and no
+  // way out but a reload. `currentRequestId` is this slice's version of
+  // `environmentGroupSlice`'s `environmentGroupsRequestId` guard.
+  it('an older, slower request landing after a newer one does not overwrite it', async () => {
+    let resolveOlder!: (value: ContentionHorizon) => void;
+    let resolveNewer!: (value: ContentionHorizon) => void;
+    const olderPromise = new Promise<ContentionHorizon>((resolve) => {
+      resolveOlder = resolve;
+    });
+    const newerPromise = new Promise<ContentionHorizon>((resolve) => {
+      resolveNewer = resolve;
+    });
+    vi.mocked(contentionForecastService.getHorizon)
+      .mockReturnValueOnce(olderPromise)
+      .mockReturnValueOnce(newerPromise);
+
+    const store = makeStore();
+    // Two rapid dispatches, as two quick clicks would produce — the older
+    // (2-week) request is in flight when the newer (26-week) one starts.
+    const older = store.dispatch(fetchContentionHorizon(2));
+    const newer = store.dispatch(fetchContentionHorizon(26));
+
+    // Resolve OUT OF ORDER: the newer request settles first, the older one
+    // arrives late — the exact race the guard exists for.
+    resolveNewer({ count: 11, weeks: 26 });
+    await newer;
+
+    let state = store.getState().contentionForecast;
+    expect(state.count).toBe(11);
+    expect(state.weeks).toBe(26);
+    expect(state.loading).toBe(false);
+
+    resolveOlder({ count: 1, weeks: 2 });
+    await older;
+
+    // The stale response must be discarded, not applied on top of the
+    // newer, already-settled one.
+    state = store.getState().contentionForecast;
+    expect(state.count).toBe(11);
+    expect(state.weeks).toBe(26);
+    expect(state.loading).toBe(false);
+  });
 });
