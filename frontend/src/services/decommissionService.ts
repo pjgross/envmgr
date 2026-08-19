@@ -7,6 +7,7 @@ import type {
   DecommissionCreate,
   DecommissionState,
   DecommissionStep,
+  DecommissionStepWrite,
   DecommissionWorklistRow,
   ExtensionDecision,
   ExtensionRequest,
@@ -55,6 +56,23 @@ export const decommissionService = {
         params: { active_only: activeOnly },
       })
       .then((r) => r.data),
+
+  // Write CRUD for the checklist vocabulary — Task 14's admin panel. All
+  // three are `require_tenant_admin()` on the backend; the panel gates its
+  // own controls to match rather than relying on this call site to refuse.
+  createStep: (data: DecommissionStepWrite): Promise<DecommissionStep> =>
+    api.post('/tenant/decommission-steps', data).then((r) => r.data),
+
+  // PATCH takes the SAME shape as POST (`DecommissionStepWrite` on the
+  // backend, not a partial `...Update`) — every field travels on every edit.
+  updateStep: (id: number, data: DecommissionStepWrite): Promise<DecommissionStep> =>
+    api.patch(`/tenant/decommission-steps/${id}`, data).then((r) => r.data),
+
+  // Soft delete — deliberately never refused, even if a live decommission
+  // still references the key (see environment_lifecycle_policy_service.delete_step).
+  // A retired step just stops gating new teardowns.
+  deleteStep: (id: number): Promise<void> =>
+    api.delete(`/tenant/decommission-steps/${id}`).then(() => undefined),
 
   // The worklist: every decommission this tenant can see, live and terminal
   // alike (GET /decommissions, extensions_router's own prefix).

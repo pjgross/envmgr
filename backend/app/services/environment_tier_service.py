@@ -88,6 +88,7 @@ async def create_tier(
         color=data.color,
         display_order=data.display_order,
         is_active=data.is_active,
+        idle_threshold_days=data.idle_threshold_days,
     )
     db.add(tier)
     await db.flush()
@@ -111,6 +112,11 @@ async def update_tier(
         tier.display_order = data.display_order
     if data.is_active is not None:
         tier.is_active = data.is_active
+    # NULL is a legitimate value here ("use the tenant default"), not "leave
+    # alone" — unlike the fields above, an explicit null must be honoured, so
+    # this reads `model_fields_set` rather than `is not None`.
+    if "idle_threshold_days" in data.model_fields_set:
+        tier.idle_threshold_days = data.idle_threshold_days
     await db.flush()
     await db.refresh(tier)
     return tier

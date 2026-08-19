@@ -90,6 +90,10 @@ const TIERS = [
     is_active: false,
     created_at: '2026-08-04T00:00:00Z',
     updated_at: '2026-08-04T00:00:00Z',
+    // A real per-tier override, deliberately different from the null on Dev
+    // below — a fixture where every row shares one value can't distinguish
+    // "renders the stored override" from "renders some constant".
+    idle_threshold_days: 90,
   },
   {
     id: 1,
@@ -102,6 +106,8 @@ const TIERS = [
     is_active: true,
     created_at: '2026-08-04T00:00:00Z',
     updated_at: '2026-08-04T00:00:00Z',
+    // NULL — "use the tenant default". Not a missing value.
+    idle_threshold_days: null,
   },
 ];
 
@@ -157,5 +163,89 @@ describe('EnvironmentTiersPanel', () => {
       ).toBeInTheDocument()
     );
     expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the stored per-tier idle override, and "uses tenant default" when it is null', async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Production')).toBeInTheDocument());
+    expect(screen.getByText('90 days')).toBeInTheDocument();
+    expect(screen.getByText('Uses tenant default')).toBeInTheDocument();
+  });
+
+  // Task 14's own discrimination proof (rule 3 in the dispatch): NULL means
+  // "use the tenant default", a legitimate state, not a missing value. A
+  // form that pre-fills this field with the tenant default (e.g. 30) turns
+  // every subsequent save into an explicit per-tier override nobody asked
+  // for, silently detaching the tier from future tenant-default changes.
+  it('leaves the tier threshold blank rather than showing the tenant default', async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Dev')).toBeInTheDocument());
+
+    // Dev's idle_threshold_days is null in the fixture above.
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[1]);
+
+    const field = await screen.findByLabelText(/idle threshold override/i);
+    expect(field).toHaveValue(null);
+  });
+
+  it('shows the stored override, not the tenant default, when one is set', async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Production')).toBeInTheDocument());
+
+    // Production's idle_threshold_days is 90 in the fixture above.
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0]);
+
+    const field = await screen.findByLabelText(/idle threshold override/i);
+    expect(field).toHaveValue(90);
+  });
+
+  it('sends an explicit null, not an omitted key, when the override field is cleared', async () => {
+    // The backend keys this field on model_fields_set (same rule
+    // environment_service.update_environment applies to expires_at):
+    // omitting the key means "leave the stored override alone", while an
+    // explicit null means "clear it". A blank input must produce the
+    // latter, or clearing the field in the UI silently does nothing.
+    vi.mocked(environmentTierService.updateTier).mockResolvedValueOnce({
+      ...TIERS[0],
+      idle_threshold_days: null,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Production')).toBeInTheDocument());
+
+    await userEvent.click(screen.getAllByRole('button', { name: /^edit$/i })[0]);
+    const field = await screen.findByLabelText(/idle threshold override/i);
+    await userEvent.clear(field);
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(environmentTierService.updateTier).toHaveBeenCalled());
+    const body = vi.mocked(environmentTierService.updateTier).mock.calls[0][1];
+    expect(body).toHaveProperty('idle_threshold_days', null);
+  });
+
+  it('sends the typed value when a blank override is filled in on create', async () => {
+    vi.mocked(environmentTierService.createTier).mockResolvedValueOnce({
+      id: 200,
+      tenant_id: 1,
+      name: 'Training',
+      description: null,
+      category: null,
+      color: '#90A4AE',
+      display_order: 100,
+      is_active: true,
+      created_at: '2026-08-16T00:00:00Z',
+      updated_at: '2026-08-16T00:00:00Z',
+      idle_threshold_days: 45,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('Production')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /new tier/i }));
+    await userEvent.type(screen.getByLabelText(/^name/i), 'Training');
+    await userEvent.type(screen.getByLabelText(/idle threshold override/i), '45');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+    await waitFor(() => expect(environmentTierService.createTier).toHaveBeenCalled());
+    const body = vi.mocked(environmentTierService.createTier).mock.calls[0][0];
+    expect(body).toHaveProperty('idle_threshold_days', 45);
   });
 });

@@ -186,3 +186,51 @@ export interface DecommissionStep {
   is_required: boolean;
   is_active: boolean;
 }
+
+/**
+ * Body of `POST /tenant/decommission-steps` and `PATCH
+ * /tenant/decommission-steps/{id}` — `DecommissionStepWrite` on the backend,
+ * the SAME schema for both verbs, so a PATCH sends the whole step, not a
+ * partial diff (there is no `DecommissionStepUpdate`).
+ */
+export interface DecommissionStepWrite {
+  key: string;
+  label: string;
+  description?: string | null;
+  display_order?: number;
+  is_required?: boolean;
+  is_active?: boolean;
+}
+
+/**
+ * The tenant's environment lifecycle policy, as `EnvironmentLifecyclePolicyRead`
+ * renders it (`GET/PUT /tenant/environment-lifecycle-policy`,
+ * backend/app/api/v1/schemas/lifecycle_policy.py). Governs B5's idle
+ * detection (chips + worklist) and the notice period a new decommission's
+ * `scheduled_teardown_at` defaults from when the caller doesn't supply one.
+ *
+ * A tenant that has never saved one still gets a value here: the service
+ * returns an UNSAVED instance carrying the defaults (disabled, 30 idle days,
+ * 5 notice days) rather than 404ing — see
+ * environment_lifecycle_policy_service.get_policy's own docstring. A reader
+ * must render that as an ordinary unconfigured state, not an error.
+ */
+export interface EnvironmentLifecyclePolicy {
+  idle_detection_enabled: boolean;
+  idle_threshold_days: number;
+  decommission_notice_days: number;
+}
+
+/**
+ * What PUT accepts. `EnvironmentLifecyclePolicyUpdate` on the backend
+ * declares `extra="forbid"` and happens to carry the SAME three keys the
+ * read model does — this policy has no id/timestamp fields to leak, unlike
+ * the naming policy's `effective_from`. Kept as its own named type and built
+ * explicitly (never spread from the read model) so a field added to one side
+ * later cannot silently leak into the other the way B2's did.
+ */
+export interface EnvironmentLifecyclePolicyUpdate {
+  idle_detection_enabled: boolean;
+  idle_threshold_days: number;
+  decommission_notice_days: number;
+}

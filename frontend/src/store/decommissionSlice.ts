@@ -9,6 +9,7 @@ import type {
   DecommissionCreate,
   DecommissionState,
   DecommissionStep,
+  DecommissionStepWrite,
   DecommissionWorklistRow,
   ExtensionDecision,
   ExtensionRequest,
@@ -42,6 +43,16 @@ interface DecommissionSliceState {
   steps: DecommissionStep[];
   stepsLoading: boolean;
   stepsError: string | null;
+
+  // Task 14's admin panel — a SEPARATE list from `steps` above, deliberately.
+  // The checklist panel (Task 12) always fetches `active_only=true`, because
+  // it renders what a decommission must satisfy TODAY; the admin panel needs
+  // every step, active or retired, so it can flip one back on. Sharing one
+  // array would make whichever page mounted last silently determine what the
+  // other page renders on its next read from the store.
+  adminSteps: DecommissionStep[];
+  adminStepsLoading: boolean;
+  adminStepsError: string | null;
 }
 
 const initialState: DecommissionSliceState = {
@@ -58,6 +69,10 @@ const initialState: DecommissionSliceState = {
   steps: [],
   stepsLoading: false,
   stepsError: null,
+
+  adminSteps: [],
+  adminStepsLoading: false,
+  adminStepsError: null,
 };
 
 // Every mutating thunk rejects with `rejectWithValue(formatApiError(...))`
@@ -216,6 +231,61 @@ export const fetchDecommissionSteps = createAsyncThunk<
   }
 });
 
+// Task 14's admin panel — `active_only=false`, unlike the checklist read
+// above: an admin editing the vocabulary needs to see a retired step to
+// reactivate it, not just the ones currently gating a teardown.
+export const fetchAllDecommissionSteps = createAsyncThunk<
+  DecommissionStep[],
+  void,
+  { rejectValue: string }
+>('decommission/fetchAllSteps', async (_, { rejectWithValue }) => {
+  try {
+    return await decommissionService.listSteps(false);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to load the decommission checklist'));
+  }
+});
+
+export const createDecommissionStep = createAsyncThunk<
+  DecommissionStep,
+  DecommissionStepWrite,
+  { rejectValue: string }
+>('decommission/createStep', async (data, { rejectWithValue }) => {
+  try {
+    return await decommissionService.createStep(data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to create this step'));
+  }
+});
+
+export const updateDecommissionStep = createAsyncThunk<
+  DecommissionStep,
+  { id: number; data: DecommissionStepWrite },
+  { rejectValue: string }
+>('decommission/updateStep', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await decommissionService.updateStep(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update this step'));
+  }
+});
+
+// Soft delete — never refused server-side (see decommissionService.deleteStep's
+// comment), so there is no conflict payload to surface here the way tier/group
+// deletes have; a rejection here means auth or network, not "in use".
+export const deleteDecommissionStep = createAsyncThunk<
+  number,
+  number,
+  { rejectValue: string }
+>('decommission/deleteStep', async (id, { rejectWithValue }) => {
+  try {
+    await decommissionService.deleteStep(id);
+    return id;
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to retire this step'));
+  }
+});
+
 const decommissionSlice = createSlice({
   name: 'decommission',
   initialState,
@@ -296,6 +366,35 @@ const decommissionSlice = createSlice({
       .addCase(fetchDecommissionSteps.rejected, (state, action) => {
         state.stepsLoading = false;
         state.stepsError = action.payload ?? 'Failed to load the decommission checklist';
+      })
+      .addCase(fetchAllDecommissionSteps.pending, (state) => {
+        state.adminStepsLoading = true;
+        state.adminStepsError = null;
+      })
+      .addCase(fetchAllDecommissionSteps.fulfilled, (state, action) => {
+        state.adminStepsLoading = false;
+        state.adminSteps = action.payload;
+      })
+      .addCase(fetchAllDecommissionSteps.rejected, (state, action) => {
+        state.adminStepsLoading = false;
+        state.adminStepsError = action.payload ?? 'Failed to load the decommission checklist';
+      })
+      .addCase(createDecommissionStep.fulfilled, (state, action) => {
+        state.adminSteps = [...state.adminSteps, action.payload].sort(
+          (a, b) => a.display_order - b.display_order || a.id - b.id
+        );
+      })
+      .addCase(updateDecommissionStep.fulfilled, (state, action) => {
+        state.adminSteps = state.adminSteps
+          .map((s) => (s.id === action.payload.id ? action.payload : s))
+          .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
+      })
+      .addCase(deleteDecommissionStep.fulfilled, (state, action) => {
+        // Hard-removed from the admin list too: list_steps filters
+        // `deleted_at IS NULL` unconditionally (active_only or not), so a
+        // soft-deleted step genuinely stops coming back from a refetch —
+        // splicing it out locally matches what the server would answer.
+        state.adminSteps = state.adminSteps.filter((s) => s.id !== action.payload);
       });
   },
 });
