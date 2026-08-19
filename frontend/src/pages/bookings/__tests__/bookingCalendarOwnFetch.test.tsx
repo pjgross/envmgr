@@ -29,6 +29,7 @@ import enterpriseMembershipReducer from '../../../store/enterpriseMembershipSlic
 import raidReducer from '../../../store/raidSlice';
 import incidentReducer from '../../../store/incidentSlice';
 import projectReducer from '../../../store/projectSlice';
+import contentionForecastReducer from '../../../store/contentionForecastSlice';
 import type { BookingResponse } from '../../../types/booking';
 import BookingCalendar from '../BookingCalendar';
 
@@ -46,6 +47,17 @@ vi.mock('../../../services/bookingService', () => ({
 vi.mock('../../../services/projectService', () => ({
   projectService: {
     listProjects: vi.fn().mockResolvedValue({ rows: [], total: 0 }),
+  },
+}));
+
+// B6 Task 8 mounted <ContentionHorizon /> onto this page — it dispatches its
+// own fetch on mount regardless of what this file is testing. Mocked the
+// same way bookingCalendarContentionHorizon.test.tsx does, so it resolves
+// quietly and doesn't interfere with the assertions below, which are about
+// the booking list fetch, not the horizon.
+vi.mock('../../../services/contentionForecastService', () => ({
+  contentionForecastService: {
+    getHorizon: vi.fn().mockResolvedValue({ count: 0, weeks: 6 }),
   },
 }));
 
@@ -116,6 +128,7 @@ function renderCalendarWithSliceBookings(sliceBookings: BookingResponse[]) {
       raid: raidReducer,
       incident: incidentReducer,
       project: projectReducer,
+      contentionForecast: contentionForecastReducer,
     },
   });
 
