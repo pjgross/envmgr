@@ -92,6 +92,19 @@ async def overlapping_pairs(
     return [(low, high) for low, high in rows]
 
 
+async def contention_count_in_window(
+    db: AsyncSession, tenant_id: int, *, start: datetime, end: datetime
+) -> int:
+    """How many CONTENTIONS fall inside the window — pairs, never bookings.
+
+    A contention is inside the window when its OVERLAP INTERVAL is: the
+    intersection of the two bookings, not either booking's own span. A pair
+    that starts clashing in four months is not a contention in the next six
+    weeks even if one of its bookings begins tomorrow.
+    """
+    return len(await overlapping_pairs(db, tenant_id, window=(start, end)))
+
+
 STATE_UNOWNED = "unowned"
 STATE_OWNED = "owned"
 STATE_DECIDED = "decided"

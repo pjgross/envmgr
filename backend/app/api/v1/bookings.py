@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Query, Response, status
@@ -11,7 +11,8 @@ from app.db.models.booking import Booking
 from app.db.models.booking_request import BookingRequest
 from app.services import (
     agreement_gap_service, booking_service, booking_request_service,
-    conflict_service, environment_group_service, project_service,
+    conflict_service, contention_forecast_service, environment_group_service,
+    project_service,
 )
 from app.api.v1.schemas.agreement_gap import (
     AgreementGapAckRead,
@@ -266,6 +267,26 @@ async def create_booking(
         ),
         overlap_warnings=warnings,
     )
+
+
+@router.get("/contention-horizon")
+async def get_contention_horizon(
+    weeks: int = Query(6, ge=1, le=104),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """B6 — the leading-indicator count: "N contentions in the next N weeks".
+
+    READ-ONLY, like the rest of B6. Registered ahead of `/{booking_id}` so it
+    is never shadowed by that route.
+    """
+    now = datetime.now(timezone.utc)
+    start = now
+    end = now + timedelta(weeks=weeks)
+    count = await contention_forecast_service.contention_count_in_window(
+        db, current_user.active_tenant_id, start=start, end=end
+    )
+    return {"count": count, "weeks": weeks}
 
 
 @router.get("/{booking_id}", response_model=BookingResponse)
