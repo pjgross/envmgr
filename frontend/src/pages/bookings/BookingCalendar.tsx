@@ -5,7 +5,7 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import type { EventClickArg, EventInput } from '@fullcalendar/core';
+import type { EventClickArg, EventContentArg, EventInput } from '@fullcalendar/core';
 import {
   Alert,
   Box,
@@ -31,6 +31,7 @@ import BookingForm from './BookingForm';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
+import { ContentionMarker } from '../../components/bookings/ContentionMarker';
 import { PROTECTED_MARKER } from '../../constants/protection';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -63,6 +64,36 @@ export function bookingToEvent(booking: BookingResponse): EventInput {
     ...(isProtected ? { classNames: ['booking-protected'] } : {}),
     extendedProps: { booking },
   };
+}
+
+// Exported for its own test, for the same reason as `bookingToEvent` above:
+// FullCalendar's own DOM is not a reliable assertion target in jsdom, and
+// unlike the protection marker (plain text folded into `event.title`), B6's
+// `ContentionMarker` is a React component (an icon + a label) that has to be
+// attached through FullCalendar's `eventContent` render prop rather than a
+// string. `eventContent` REPLACES FullCalendar's own title rendering, so the
+// title is rendered here explicitly alongside the marker — an omission would
+// silently blank every event's text.
+//
+// Renders NOTHING when `contention_state` is null — the common case, not an
+// edge case — matching Task 6's list-column contract exactly (never an empty
+// marker); see ContentionMarker's own docstring for why the component has no
+// branch for that at all.
+// eslint-disable-next-line react-refresh/only-export-components
+export function renderEventContent(arg: EventContentArg) {
+  const booking: BookingResponse = arg.event.extendedProps.booking;
+  return (
+    <Box sx={{ overflow: 'hidden', width: '100%' }}>
+      <Typography variant="caption" component="div" noWrap>
+        {arg.event.title}
+      </Typography>
+      {booking.contention_state && (
+        <span data-testid="contention-marker">
+          <ContentionMarker state={booking.contention_state} />
+        </span>
+      )}
+    </Box>
+  );
 }
 
 export default function BookingCalendar() {
@@ -190,6 +221,7 @@ export default function BookingCalendar() {
         }}
         events={events}
         eventClick={handleEventClick}
+        eventContent={renderEventContent}
         height="auto"
       />
 
