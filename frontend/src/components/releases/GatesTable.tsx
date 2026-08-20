@@ -2,7 +2,7 @@
  * GatesTable — expandable list of release gates with per-gate criteria.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
   Button,
@@ -14,7 +14,9 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   TextField,
   Tooltip,
@@ -28,6 +30,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import type { AppDispatch } from '../../store';
 import {
   createGate,
+  updateGate,
   deleteGate,
   fetchGates,
   createCriterion,
@@ -36,6 +39,8 @@ import {
   reopenCriterion,
   deleteCriterion,
 } from '../../store/releaseSlice';
+import { fetchGateTypes, selectActiveGateTypes } from '../../store/gateTypeSlice';
+import type { RootState } from '../../store';
 import api from '../../services/api';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -73,6 +78,35 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
       .then((r) => setUsers(r.data))
       .catch(() => setUsers([])); // assignee select stays empty on failure
   }, []);
+
+  // Gate type vocabulary (Phase 9 C2, reusing Task 9's gateTypeSlice rather
+  // than a second client). GET /gate-types is open to any tenant member and
+  // returns every type regardless of is_active — needed here to resolve the
+  // NAME of a gate already assigned to a type that has since been retired.
+  const gateTypes = useSelector((s: RootState) => s.gateType.gateTypes);
+  const activeGateTypes = selectActiveGateTypes(gateTypes);
+  useEffect(() => {
+    dispatch(fetchGateTypes());
+  }, [dispatch]);
+
+  const gateTypeById = useMemo(
+    () => new Map(gateTypes.map((t) => [t.id, t])),
+    [gateTypes]
+  );
+  // A gate may point at a type that's since been deactivated — keep it
+  // selectable (rendered, not silently dropped) so its current value doesn't
+  // vanish from the control, mirroring the owner/soft-deleted-group carve-out
+  // elsewhere in this codebase.
+  const assignedTypeIds = useMemo(
+    () => new Set(gates.map((g) => g.gate_type_id).filter((id): id is number => id != null)),
+    [gates]
+  );
+  const selectableGateTypes = useMemo(() => {
+    const retiredButAssigned = gateTypes.filter(
+      (t) => !t.is_active && assignedTypeIds.has(t.id)
+    );
+    return [...activeGateTypes, ...retiredButAssigned];
+  }, [activeGateTypes, gateTypes, assignedTypeIds]);
 
   // Gate create dialog
   const [createOpen, setCreateOpen] = useState(false);
@@ -138,6 +172,17 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
         ? detail
         : err instanceof Error ? err.message : 'Failed to delete gate';
       snackbar.error(msg);
+    }
+  };
+
+  const handleGateTypeChange = async (gate: ReleaseGateResponse, gateTypeId: number | null) => {
+    const result = await dispatch(
+      updateGate({ releaseId, gateId: gate.id, data: { gate_type_id: gateTypeId } })
+    );
+    if (updateGate.fulfilled.match(result)) {
+      snackbar.success('Gate type updated');
+    } else {
+      snackbar.error(result.payload ?? 'Failed to update gate type');
     }
   };
 
@@ -253,6 +298,52 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                 <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>
                   {gate.name}
                 </Typography>
+
+                {/* Gate type — shown and settable inline; the first edit
+                    affordance updateGate has ever had a caller for. Click
+                    stops propagation so opening it doesn't toggle the row. */}
+                <Box
+                  sx={{ minWidth: 150 }}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <Select<string>
+                    size="small"
+                    displayEmpty
+                    fullWidth
+                    inputProps={{ 'aria-label': `Type for gate ${gate.name}` }}
+                    value={gate.gate_type_id != null ? String(gate.gate_type_id) : ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      handleGateTypeChange(gate, v === '' ? null : Number(v));
+                    }}
+                    renderValue={(value) => {
+                      if (value === '') {
+                        return (
+                          <Typography variant="body2" color="text.secondary">
+                            Untyped
+                          </Typography>
+                        );
+                      }
+                      const t = gateTypeById.get(Number(value));
+                      return (
+                        <Typography variant="body2">
+                          {t ? t.name : `Type #${value}`}
+                        </Typography>
+                      );
+                    }}
+                  >
+                    <MenuItem value="">
+                      <em>Untyped</em>
+                    </MenuItem>
+                    {selectableGateTypes.map((t) => (
+                      <MenuItem key={t.id} value={String(t.id)}>
+                        {t.name}
+                        {!t.is_active ? ' (inactive)' : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </Box>
 
                 <Chip
                   size="small"

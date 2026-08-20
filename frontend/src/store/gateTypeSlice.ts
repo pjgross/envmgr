@@ -21,6 +21,18 @@ const initialState: GateTypeState = {
 const sortGateTypes = (rows: GateTypeResponse[]): GateTypeResponse[] =>
   [...rows].sort((a, b) => a.display_order - b.display_order || a.id - b.id);
 
+/**
+ * The assignable vocabulary for a NEW selection on a gate — active types
+ * only, in display order. `fetchGateTypes` loads every type regardless of
+ * `is_active` (the default `include_inactive=true`), so a caller resolving
+ * the NAME of a gate's already-assigned type (which may since have been
+ * retired) should read `gateTypes` directly rather than this — the same
+ * carve-out B3a made for a soft-deleted UserGroup still assigned to an
+ * environment.
+ */
+export const selectActiveGateTypes = (types: GateTypeResponse[]): GateTypeResponse[] =>
+  sortGateTypes(types.filter((t) => t.is_active));
+
 export const fetchGateTypes = createAsyncThunk<
   Paged<GateTypeResponse>,
   void,

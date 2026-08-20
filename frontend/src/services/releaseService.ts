@@ -28,6 +28,7 @@ import type {
   BulkBookResultResponse,
   ScopeChurnAnalyticsResponse,
 } from '../types/release';
+import type { ReleaseReadinessResponse } from '../types/gateReadiness';
 import type {
   GateCriterion,
   GateCriterionWithGate,
@@ -121,6 +122,12 @@ export const releaseService = {
 
   overrideGate: (_releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
     api.post(`/gates/${gateId}/override`, data).then((r) => r.data),
+
+  // --- Readiness (Phase 9 C2) ---
+  // Same evaluate() the pipeline-facing GET /webhooks/release-ready calls —
+  // a gate chip here and the answer a pipeline obeys cannot disagree.
+  getReadiness: (releaseId: number): Promise<ReleaseReadinessResponse> =>
+    api.get(`/releases/${releaseId}/readiness`).then((r) => r.data),
 
   // --- Systems ---
   listSystems: (releaseId: number): Promise<ReleaseSystemResponse[]> =>

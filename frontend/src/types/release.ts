@@ -75,6 +75,9 @@ export interface ReleaseGateResponse {
   decided_by: number | null;
   decided_at: string | null;
   decision_notes: string | null;
+  /** Phase 9 C2 — which GateType (tenant vocabulary) this gate is typed as, or null for untyped. */
+  gate_type_id: number | null;
+  test_phase_id: number | null;
   criteria: GateCriterion[];
   overdue_criterion_count: number;
 }
@@ -191,6 +194,10 @@ export interface ReleaseGateCreatePayload {
 export interface ReleaseGateUpdatePayload {
   name?: string;
   due_date?: string;
+  // PUT /gates/{id} is extra="forbid" and keys on model_fields_set: an
+  // OMITTED key means "leave alone", only an explicit null clears it.
+  gate_type_id?: number | null;
+  test_phase_id?: number | null;
 }
 
 export interface ReleaseGateDecisionPayload {

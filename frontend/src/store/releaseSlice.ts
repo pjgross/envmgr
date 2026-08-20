@@ -34,6 +34,7 @@ import type {
   ReleaseChangeStatusHistoryResponse,
 } from '../types/releaseChange';
 import { releaseService } from '../services/releaseService';
+import { formatApiError } from '../services/apiError';
 
 interface ReleaseState {
   list: ReleaseListItemResponse[];
@@ -163,11 +164,22 @@ export const createGate = createAsyncThunk(
     releaseService.createGate(releaseId, data)
 );
 
-export const updateGate = createAsyncThunk(
-  'release/updateGate',
-  ({ releaseId, gateId, data }: { releaseId: number; gateId: number; data: ReleaseGateUpdatePayload }) =>
-    releaseService.updateGate(releaseId, gateId, data)
-);
+// updateGate had zero callers before the gate-type edit affordance (Phase 9
+// C2, task 10). It rejects with formatApiError(err) — not the RTK default
+// (name/message/stack/code only, which drops response.data.detail) — because
+// its first caller needs the server's refusal reason, not "Request failed
+// with status code 422".
+export const updateGate = createAsyncThunk<
+  ReleaseGateResponse,
+  { releaseId: number; gateId: number; data: ReleaseGateUpdatePayload },
+  { rejectValue: string }
+>('release/updateGate', async ({ releaseId, gateId, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.updateGate(releaseId, gateId, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update gate'));
+  }
+});
 
 export const deleteGate = createAsyncThunk(
   'release/deleteGate',
