@@ -18,6 +18,12 @@ class ReleaseGateUpdate(BaseModel):
 
 class ReleaseGateDecision(BaseModel):
     notes: Optional[str] = None
+    # The three fields below only apply to override_gate (a waiver); pass_gate
+    # and fail_gate ignore them. expires_at=None means a permanent waiver —
+    # a legitimate state, never confused with an expired one.
+    expires_at: Optional[datetime] = None
+    remediation: Optional[str] = None
+    approved_by_user_id: Optional[int] = None
 
 
 class ReleaseGateRead(BaseModel):

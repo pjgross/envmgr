@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import publish_event
 from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
+from app.db.models.gate_waiver import GateWaiver
 from app.api.v1.schemas.release_gate import ReleaseGateCreate, ReleaseGateUpdate
 
 
@@ -323,6 +324,10 @@ async def override_gate(
     notes: Optional[str],
     tenant_id: int,
     user_id: int,
+    *,
+    expires_at: Optional[datetime] = None,
+    remediation: Optional[str] = None,
+    approved_by_user_id: Optional[int] = None,
 ) -> ReleaseGate:
     if not notes or not notes.strip():
         raise HTTPException(
@@ -336,6 +341,21 @@ async def override_gate(
     gate.decided_by = user_id
     gate.decided_at = datetime.now(timezone.utc)
     gate.decision_notes = notes
+    await db.flush()
+
+    db.add(
+        GateWaiver(
+            tenant_id=tenant_id,
+            gate_id=gate.id,
+            reason=notes,
+            approved_by_user_id=(
+                approved_by_user_id if approved_by_user_id is not None else user_id
+            ),
+            expires_at=expires_at,
+            remediation=remediation,
+            created_by=user_id,
+        )
+    )
     await db.flush()
 
     await _record_gate_event(
