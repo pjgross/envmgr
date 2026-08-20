@@ -124,6 +124,23 @@ async def overridden_gate_with_live_waiver(db_session, test_tenant, test_user, r
 
 
 @pytest_asyncio.fixture
+async def overridden_gate_with_permanent_waiver(db_session, test_tenant, test_user, release) -> ReleaseGate:
+    """Overridden with no expiry at all — the "leave blank for a permanent
+    waiver" path. The detail text must say so, not print a literal None."""
+    gt = await _make_gate_type(db_session, test_tenant, name="Business Exit", failure_behaviour="warn")
+    gate = await _make_gate(db_session, test_tenant, release, name="Business Exit Gate",
+                             status="pending", gate_type_id=gt.id)
+    await release_gate_service.override_gate(
+        db_session, gate.id, notes="accepted permanently", tenant_id=test_tenant.id,
+        user_id=test_user.id,
+        approved_by_user_id=test_user.id,
+    )
+    await db_session.commit()
+    await db_session.refresh(gate)
+    return gate
+
+
+@pytest_asyncio.fixture
 async def overridden_gate_with_expired_waiver(db_session, test_tenant, test_user, release) -> ReleaseGate:
     """Overridden with a waiver whose expiry is genuinely in the past —
     inserted directly since override_gate always waives with a caller-given
@@ -238,11 +255,30 @@ async def test_a_failed_gate_is_a_blocker(db_session, test_tenant, release, fail
 
 @pytest.mark.asyncio
 async def test_an_overridden_gate_with_a_live_waiver_is_only_a_warning(
-    db_session, test_tenant, release, overridden_gate_with_live_waiver
+    db_session, test_tenant, test_user, release, overridden_gate_with_live_waiver
 ):
     result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is True
     assert [w.type for w in result.warnings] == ["gate_waived"]
+    # Naming the approver by USERNAME, not the raw id, and naming the expiry
+    # — a bare "Waived by user 3" told nobody who approved it or until when.
+    detail = result.warnings[0].detail
+    assert test_user.username in detail
+    assert f"user {test_user.id}" not in detail
+    assert "expires" in detail
+
+
+@pytest.mark.asyncio
+async def test_a_permanent_waiver_names_the_approver_and_says_no_expiry(
+    db_session, test_tenant, test_user, release, overridden_gate_with_permanent_waiver
+):
+    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    assert result.ok is True
+    assert [w.type for w in result.warnings] == ["gate_waived"]
+    detail = result.warnings[0].detail
+    assert test_user.username in detail
+    assert "no expiry" in detail
+    assert "None" not in detail
 
 
 @pytest.mark.asyncio

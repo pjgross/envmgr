@@ -61,8 +61,14 @@ async def evaluate(
     ).all()
 
     gate_ids = [g.id for g, _ in rows]
-    # Three batch calls, ONCE PER RESPONSE — never once per row.
+    # Four batch calls, ONCE PER RESPONSE — never once per row.
     waivers = await gate_waiver_service.latest_waivers_for_gates(db, tenant_id, gate_ids)
+    # Resolve approver usernames for the wire text below. Deliberately reuses
+    # gate_waiver_service.usernames_for, which is deliberately NOT
+    # tenant-qualified (a master-admin approver may sit outside this tenant).
+    approver_usernames = await gate_waiver_service.usernames_for(
+        db, {w.approved_by_user_id for w in waivers.values()}
+    )
     evidence = await gate_evidence_service.evidence_for_gates(db, tenant_id, gate_ids)
     all_evidence = [e for items in evidence.values() for e in items]
     # The detail form, not just the id set: the warning must name BOTH the
@@ -102,7 +108,16 @@ async def evaluate(
             elif gate_waiver_service.waiver_state(waiver, now) == "expired":
                 blocker("waiver_expired", "The waiver has expired; the gate is unmet again.")
             else:
-                warning("gate_waived", f"Waived by user {waiver.approved_by_user_id}.")
+                # Naming the approver AND the expiry, per the rules table —
+                # a bare "Waived by user 3" told nobody who approved it.
+                approver = approver_usernames.get(
+                    waiver.approved_by_user_id, f"user {waiver.approved_by_user_id}"
+                )
+                if waiver.expires_at is not None:
+                    detail = f"Waived by {approver}, expires {waiver.expires_at:%Y-%m-%d}."
+                else:
+                    detail = f"Waived by {approver}; no expiry."
+                warning("gate_waived", detail)
         elif gate.status == "pending":
             if behaviour is None:
                 # EVERY gate in EVERY existing tenant is untyped until someone

@@ -819,7 +819,7 @@ Hosts get attached to instances on the *Components* tab of an environment — se
 
 A **change kind** is a tenant-configurable category of work that flows through a release — `story`, `defect`, `task`, `spike`, plus anything you add yourself. Kinds drive which scope items show up on a release's *Scope* tab, and whether a particular kind *counts as a scope change* for the rolled-up scope-churn metric. They also discriminate custom-field definitions, so you can attach (say) a `severity` field that only appears on items of kind `defect`.
 
-A **gate** is a checkpoint on a single release that must be cleared before the release advances — *UAT sign-off*, *Security review*, *CAB approval*. Each gate carries a required `due_date` (an absolute timestamp, not a relative offset) and a list of *criteria*. Gates block release transitions until cleared, and the `due_date` renders as a status-coloured diamond on the release timeline.
+A **gate** is a checkpoint on a single release — *UAT sign-off*, *Security review*, *CAB approval*. Each gate carries a required `due_date` (an absolute timestamp, not a relative offset) and a list of *criteria*. **Gates do not block release transitions** — see the note at the end of the next section — but the `due_date` renders as a status-coloured diamond on the release timeline, and since Phase 9 sub-project C2 a gate can also carry a tenant-configured *type*, structured *evidence*, and a *waiver* in place of an informal override; see *Gate Types* below.
 
 ### Walkthrough: managing change kinds
 
@@ -849,7 +849,34 @@ There is **no tenant-level gate library**. Gates exist in two places only:
 - **On a release template** — the template's `gates` JSON array carries a skeleton that is materialised into real gate rows when a release is created from the template. Edit the skeleton from the *Release Templates* admin page — see ch. 9.
 - **On a release** — the *Plan* tab on any release has a *Gates* section. Click *Add Gate*, fill *Name* (e.g. *UAT Sign-off*) and *Due date* (a calendar picker — required, stored as an absolute UTC timestamp), then *Create*. Each gate can carry one or more *criteria*, each assignable to a user and toggleable as *open* or *done*.
 
-A release cannot advance while any gate is pending or has open criteria past `due_date`. Gate dates render on the release Gantt as coloured diamonds — slate pending, green passed, red failed, amber overridden — so missed milestones jump out.
+Gate dates render on the release Gantt as coloured diamonds — slate pending, green passed, red failed, amber overridden — so missed milestones jump out. **A release is never blocked by gate state**: `lifecycle_service` does not reference `release_gate` at all, and a release can be transitioned, including to a terminal status, with every gate still pending and every criterion still open. Gates and their overdue badges are read entirely as a checklist for humans, not as a backend precondition — see user guide ch. 8 for the same statement from the release-detail side, and *What C2 established* in [phase-9.md](phases/phase-9.md) for the guarding test.
+
+### Gate Types
+
+*Administration → Releases → Gate Types* (`/admin/config/release`, tab *Gate Types*, Admin only) is where your tenant declares the **vocabulary** a gate can be typed against — a `functional` gate reads differently from a `security` one, and each type declares what a failure *should* mean and what evidence is expected. Every tenant is seeded with the eight standard types from [requirements.md §2.11](../requirements.md): *Functional*, *NFR / Performance*, *Integration*, *Security*, *License*, *Accessibility*, *Business*, and *Ops Readiness*. You can edit any of them, deactivate ones you don't use, and add tenant-specific types alongside them — a tenant-added type shows no *Standard category*, since that column is only populated for the eight seeded types.
+
+Each type has:
+
+- **Verdict behaviour** — `Blocks (advisory)`, `Warns`, or `Accept with exception`. This is a **label for the readiness verdict only** — see *What `failure_behaviour` does, and does not do* below.
+- **Expected evidence** — a free-form list of evidence *kind* names (e.g. *Test execution report*, *Defect summary*). These are offered as suggestions in the *Add Evidence* dialog's *Kind* field, not a closed list — evidence of an unlisted kind is still accepted, it simply satisfies no expectation and the readiness verdict will list it as missing.
+- **Requires a deployment link** — whether evidence of this type is expected to name the deployment it vouches for. Also a hint, not an enforced rule: the *Add Evidence* dialog shows an explanatory note when this is on and no deployment has been picked, but the save proceeds regardless.
+- **Display order** and **Status** (*Active*/*Inactive*) — an inactive type is hidden from the type picker on gates and templates but still renders correctly on any gate already using it; deactivating a type does not retype the gates that used it.
+
+Name uniqueness (per tenant) is enforced by the service, not a database constraint — same as `environment_tier` and `user_group`.
+
+**Assigning a type to a gate** happens on the gate itself: the *Type* select inline on each row of a release's *Gates & Test Phases* tab. The backend also accepts a `gate_type_id` on a release template's gate skeleton (ch. 9), so a release created from a typed template starts typed too — this is how the SIT → UAT → Pre-Prod → Production strictness ladder from §2.11 is meant to be expressed: a "UAT Sign-off" type that expects more evidence kinds than a "SIT Sign-off" type, materialised onto the right phase by the template. There is no second policy engine matching (type, tier) pairs; strictness is only ever what the type itself declares.
+
+> **Not yet available:** the *Release Templates* admin page (ch. 9) has no field to set a gate skeleton's type — only *Gate Name*, *Attach to Phase* and *Acceptance Criteria*. The backend write path exists (`gate_type_id` on a template's gate skeleton), so a template gate can be typed via the API, but not through the product today. Until the UI catches up, a release created from a template starts every gate untyped, and someone has to type each one by hand on the release itself.
+
+#### What `failure_behaviour` does, and does not do
+
+**It does not block anything, ever.** No `failure_behaviour` value — not even `Blocks (advisory)` — refuses a release transition, a deployment, or a booking. What it controls is a single thing: whether a pending gate of that type appears as a **blocker** or a **warning** in the readiness verdict (the banner on the release page, and the `release-ready` webhook response described in ch. 10). `Blocks (advisory)` produces a blocker entry in that response; `Warns` and `Accept with exception` both produce a warning entry, and today there is no behavioural difference between the two — the distinction is for the reader (and for a future consumer, such as a connected pipeline, that might treat them differently). A gate with no type set at all is always a warning, never a blocker — every existing gate in every tenant is untyped until someone assigns it a type, and treating "nobody has said" as "block" would turn on a wall of blockers nobody configured on the day this shipped.
+
+The readiness verdict is advisory end to end. It exists so a **connected deployment pipeline can choose to act on it** — refuse a promotion, post a warning to a chat channel, whatever your pipeline is built to do — not so that EnvManager enforces anything itself. See ch. 10, *Preflight: release-ready*.
+
+#### Deploy step: seeding gate types for existing tenants
+
+The migration that introduced gate types (`gatetypes`) backfills the eight standard types for every tenant that exists at migration time — this happened automatically for `demo` and `system` on this deployment. **A tenant created after that migration ran, or a tenant restored from a backup taken before it, has no gate types at all** and needs `seed_gate_type_defaults_for_tenant` run for it by hand, the same standing step B3b's `envrequests` revision needed for the environment-request lifecycle. Until that runs, the *Gate Types* tab shows an empty table, the type selector on every gate offers nothing but *Untyped*, and the feature reads as **broken**, not merely unconfigured — there is no error, just an empty vocabulary. Check this first if a tenant reports "gate types don't work."
 
 ### Tips
 

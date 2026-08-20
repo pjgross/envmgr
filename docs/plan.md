@@ -143,14 +143,31 @@ See [phases/phase-7.md](phases/phase-7.md).
 
 ---
 
-## Phases 9–13: Governance & Enterprise-TEM Expansion — ⏳ Planned (2026-07-16)
+## Phases 9–13: Governance & Enterprise-TEM Expansion
 
 Added from the gap analysis of the two domain-introduction documents. Capability matrix:
 [gap-analysis.md](gap-analysis.md). Requirements: [requirements.md](requirements.md) §2.11, §2.13–§2.16.
 Phase 8 remains reserved for the parked AI Copilot / AI-driven Integrations design.
 
-### Phase 9 — Release Governance & Deployment Safety
-Release Intake Form + risk scoring; content/scope freeze + Scope Stability KPI; Go/No-Go decision record (joint Test/RM/Sponsor sign-off, dissents); typed gates + evidence + waiver-with-expiry; rollback governance (plan-before-deploy, data-reversibility flags, in-flight authorisation record, rehearsal gate); deployment execution (pre-deploy checklist gate, blue-green/canary, post-deploy verification, traffic ramp); hyper-care window + "declared stable" closeout + retro actions; feature-flag governance (state/drift/lifecycle/audit); read-only "Stable Windows".
+### Phase 9 — Release Governance & Deployment Safety — 🟡 In progress (2026-08-20)
+Decomposed into nine clusters, C1–C9 (lifecycle order, not build order) — see
+[phases/phase-9.md](phases/phase-9.md). **C2 (typed gates + evidence + waiver-with-expiry) is
+complete**: `gate_type` (tenant-configurable, seeded with the eight standard types),
+`gate_evidence` (a reference to a deployment, going stale when a later successful deployment
+of the same component/environment supersedes it), `gate_waiver` (reason, approver, optional
+expiry, remediation, live/expired computed on read) and one evaluator,
+`gate_readiness_service.evaluate()`, serving both the release detail banner and a new
+API-key-gated `GET /api/v1/webhooks/release-ready` for a DevOps pipeline. C2 refuses nothing —
+the same advisory promise A3/A4/B2/B4 each made. Outstanding: **C1** Release Intake Form + risk
+scoring; **C3** Go/No-Go decision record (joint Test/RM/Sponsor sign-off, dissents); **C4**
+rollback governance (plan-before-deploy, data-reversibility flags, in-flight authorisation
+record, rehearsal gate); **C5** deployment execution (pre-deploy checklist gate, blue-green/
+canary, post-deploy verification, traffic ramp); **C6** hyper-care window + "declared stable"
+closeout + retro actions; **C7** content/scope freeze completion + Scope Stability KPI (most of
+the supporting machinery — `scope_deadline`, Scope Windows, churn analytics — already ships);
+**C8** feature-flag governance (state/drift/lifecycle/audit); **C9** read-only "Stable Windows"
+(with an open question of its own — see phase-9.md — on whether a Stable Window ever becomes a
+`can-deploy` blocker).
 
 ### Phase 10 — Test Data Management
 Data profiles; Production-snapshot masking/anonymisation; one-way Prod→non-Prod enforcement + post-load leak check; scheduled refreshes + Refresh Cycle Time; data swimlanes / account-range partitioning; masking waivers recorded against the environment.
