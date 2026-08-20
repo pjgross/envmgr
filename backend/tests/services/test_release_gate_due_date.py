@@ -48,8 +48,9 @@ async def _make_release(db_session, tenant_id, user_id, status="draft", name="R"
 
 @pytest.mark.asyncio
 async def test_create_gate_persists_due_date(db_session, tenant, user):
-    """create_gate stores due_date on the row and the returned dict exposes it
-    without leaking test_phase_id."""
+    """create_gate stores due_date on the row and the returned dict exposes it,
+    alongside gate_type_id/test_phase_id (Phase 9 C2's typed-gate columns),
+    defaulting to None when unset."""
     release = await _make_release(db_session, tenant.id, user.id)
 
     due = datetime.now(timezone.utc) + timedelta(days=7)
@@ -72,7 +73,12 @@ async def test_create_gate_persists_due_date(db_session, tenant, user):
     g = gates[0]
     assert "due_date" in g
     assert g["due_date"] is not None
-    assert "test_phase_id" not in g
+    # Phase 9 C2 added gate_type_id/test_phase_id to the read payload; this
+    # gate was created without either, so both are present but None.
+    assert "gate_type_id" in g
+    assert g["gate_type_id"] is None
+    assert "test_phase_id" in g
+    assert g["test_phase_id"] is None
 
 
 # ── Test 2: list_gates returns correct overdue_criterion_count ───────────────
@@ -118,5 +124,9 @@ async def test_list_gates_overdue_criterion_count(db_session, tenant, user):
     # Future gate: gate due_date is in the future → 0 overdue regardless of criteria.
     assert by_name["Future Gate"]["overdue_criterion_count"] == 0
     assert "due_date" in by_name["Past Gate"]
-    assert "test_phase_id" not in by_name["Past Gate"]
-    assert "test_phase_id" not in by_name["Future Gate"]
+    # Phase 9 C2 added gate_type_id/test_phase_id to the read payload; neither
+    # gate here set them, so both are present but None on each row.
+    assert by_name["Past Gate"]["gate_type_id"] is None
+    assert by_name["Past Gate"]["test_phase_id"] is None
+    assert by_name["Future Gate"]["gate_type_id"] is None
+    assert by_name["Future Gate"]["test_phase_id"] is None
