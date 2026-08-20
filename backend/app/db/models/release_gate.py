@@ -20,6 +20,18 @@ class ReleaseGate(Base):
     decided_by: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     decision_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Nullable, no backfill: every existing gate stays valid as UNTYPED, and
+    # untyped is a state the verdict handles explicitly (it warns, never blocks
+    # — no behaviour was declared, so none is invented).
+    gate_type_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("gate_type.id"), nullable=True, index=True
+    )
+    # Nullable because MOST GATES HAVE NO PHASE: Scope Sign-off is created early
+    # and belongs to none, and a Go/No-Go gate sits at the end and belongs to
+    # none either. Only test sign-off gates carry one.
+    test_phase_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("test_phase.id"), nullable=True, index=True
+    )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     criteria = relationship(

@@ -252,12 +252,21 @@ async def test_listing_bookings_with_contention_changes_no_row(
 
 @pytest.mark.asyncio
 async def test_b6_adds_no_migration():
-    """STRUCTURAL, and a SMOKE ALARM rather than a proof: the Alembic head is
-    unchanged from the branch point — `envdecommission`, B5's own migration
-    and the revision `alembic heads` reported before any B6 commit landed —
-    so B6 introduced no schema change. Reads the migration chain directly
-    (no database connection needed), so it runs identically on the
-    SQLite-only leg and the PostgreSQL leg.
+    """STRUCTURAL, and a SMOKE ALARM rather than a proof: `envdecommission`
+    — B5's own migration and the revision `alembic heads` reported before any
+    B6 commit landed — has exactly one migration on top of it,
+    Phase 9 sub-project C2's `gatetypes` (typed gates, evidence and waivers).
+    That is the FIRST migration to land since B6, which is what proves B6
+    itself introduced no schema change: if B6 had added one, `envdecommission`
+    would have two children, or `gatetypes`' own `down_revision` would not be
+    `envdecommission`. Reads the migration chain directly (no database
+    connection needed), so it runs identically on the SQLite-only leg and the
+    PostgreSQL leg.
+
+    Updated 2026-08-20 when `gatetypes` landed: the original assertion pinned
+    the literal head to `envdecommission`, which was only ever going to hold
+    until the next legitimate migration — B6 does not own the migration chain
+    forever, only the claim that IT added nothing to it.
 
     THIS IS A SMOKE ALARM, NOT A PROOF: it is a bounded check on the
     migration CHAIN alone. It would not catch a raw DDL statement executed at
@@ -269,9 +278,17 @@ async def test_b6_adds_no_migration():
     cfg = Config(str(backend_dir / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend_dir / "app" / "db" / "migrations"))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["envdecommission"], (
-        "the Alembic head has moved since B5 — B6 is supposed to add no "
-        "table, no column and no migration of any kind"
+    heads = script.get_heads()
+    assert heads == ["gatetypes"], (
+        "the Alembic head is not the expected single migration on top of "
+        "envdecommission — either B6 has started adding schema changes, or "
+        "an unrelated migration landed without updating this pin"
+    )
+    assert script.get_revision("gatetypes").down_revision == "envdecommission", (
+        "gatetypes must chain directly onto envdecommission — B5's own "
+        "migration and the revision in place before any B6 commit landed — "
+        "or B6 (or something else) added an undocumented migration between "
+        "the two"
     )
 
 

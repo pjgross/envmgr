@@ -124,6 +124,9 @@ async def test_create_tenant_calls_db_add_and_commit():
     ), patch(
         "app.services.tenant_service.seed_decommission_steps_for_tenant",
         new=AsyncMock(),
+    ), patch(
+        "app.services.tenant_service.seed_gate_type_defaults_for_tenant",
+        new=AsyncMock(),
     ):
         await create_tenant(db, data)
 
@@ -175,6 +178,9 @@ async def test_create_tenant_uses_correct_fields():
         new=AsyncMock(),
     ), patch(
         "app.services.tenant_service.seed_decommission_steps_for_tenant",
+        new=AsyncMock(),
+    ), patch(
+        "app.services.tenant_service.seed_gate_type_defaults_for_tenant",
         new=AsyncMock(),
     ):
         await create_tenant(db, data)
