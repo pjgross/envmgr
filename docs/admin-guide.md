@@ -872,9 +872,13 @@ Name uniqueness (per tenant) is enforced by the service, not a database constrai
 
 The readiness verdict is advisory end to end. It exists so a **connected deployment pipeline can choose to act on it** — refuse a promotion, post a warning to a chat channel, whatever your pipeline is built to do — not so that EnvManager enforces anything itself. See ch. 10, *Preflight: release-ready*.
 
-#### Deploy step: seeding gate types for existing tenants
+#### Seeding gate types: normally automatic
 
-The migration that introduced gate types (`gatetypes`) backfills the eight standard types for every tenant that exists at migration time — this happened automatically for `demo` and `system` on this deployment. **A tenant created after that migration ran, or a tenant restored from a backup taken before it, has no gate types at all** and needs `seed_gate_type_defaults_for_tenant` run for it by hand, the same standing step B3b's `envrequests` revision needed for the environment-request lifecycle. Until that runs, the *Gate Types* tab shows an empty table, the type selector on every gate offers nothing but *Untyped*, and the feature reads as **broken**, not merely unconfigured — there is no error, just an empty vocabulary. Check this first if a tenant reports "gate types don't work."
+The migration that introduced gate types (`gatetypes`) backfills the eight standard types for every tenant that exists at migration time — this happened automatically for `demo` and `system` on this deployment — and `tenant_service.create_tenant` seeds every tenant created afterwards. **In the ordinary case there is no deploy step to run.**
+
+The one case that still needs `seed_gate_type_defaults_for_tenant` run by hand is **a tenant restored from a backup taken before the migration**. The seeder is idempotent, so running it against an already-seeded tenant is harmless.
+
+A tenant with no seeded types is worth recognising, because there is no error — just an empty vocabulary: the *Gate Types* tab shows an empty table and the type selector on every gate offers nothing but *Untyped*, so the feature reads as **broken** rather than unconfigured. Check this first if a tenant reports "gate types don't work."
 
 ### Tips
 

@@ -67,10 +67,13 @@ around teardown.
 
 Migration `gatetypes` is additive: three new tables (`gate_type`,
 `gate_evidence`, `gate_waiver`), two nullable columns on `release_gate`
-(`gate_type_id`, `test_phase_id`), no backfill. **Existing tenants need
-`seed_gate_type_defaults_for_tenant` run as a deploy step** — see the admin
-guide — or they have no vocabulary to type a gate with and the feature reads as
-broken rather than unconfigured. Spec:
+(`gate_type_id`, `test_phase_id`). It **backfills the eight standard gate types
+for every tenant that exists when it runs**, and `tenant_service.create_tenant`
+seeds any tenant created afterwards — so no deploy step is required. The one
+case that still needs `seed_gate_type_defaults_for_tenant` by hand is a tenant
+restored from a backup taken before the migration; the seeder is idempotent, so
+running it again is harmless. A tenant with no seeded types has no vocabulary to
+type a gate with, and the feature reads as broken rather than unconfigured. Spec:
 [docs/superpowers/specs/2026-08-19-typed-gates-evidence-waivers-design.md](../superpowers/specs/2026-08-19-typed-gates-evidence-waivers-design.md).
 
 ### What C2 established, and what will bite if forgotten
