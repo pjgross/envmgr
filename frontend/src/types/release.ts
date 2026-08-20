@@ -202,6 +202,13 @@ export interface ReleaseGateUpdatePayload {
 
 export interface ReleaseGateDecisionPayload {
   notes?: string | null;
+  // The three fields below only apply to POST /gates/{id}/override (a
+  // waiver) — pass/fail ignore them if sent. expires_at: null (or omitted)
+  // means a permanent waiver, a legitimate state, mirroring the backend's
+  // ReleaseGateDecision.
+  expires_at?: string | null;
+  remediation?: string | null;
+  approved_by_user_id?: number | null;
 }
 
 export interface ReleaseSystemCreatePayload {

@@ -38,6 +38,8 @@ import {
   completeCriterion,
   reopenCriterion,
   deleteCriterion,
+  fetchGateEvidence,
+  deleteGateEvidence,
 } from '../../store/releaseSlice';
 import { fetchGateTypes, selectActiveGateTypes } from '../../store/gateTypeSlice';
 import type { RootState } from '../../store';
@@ -45,10 +47,14 @@ import api from '../../services/api';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import GateDecisionDialog from './GateDecisionDialog';
+import WaiverDialog from './WaiverDialog';
+import GateEvidenceList from './GateEvidenceList';
+import AddEvidenceDialog from './AddEvidenceDialog';
 import CriterionRow from './CriterionRow';
 import CriterionDialog from './CriterionDialog';
 import type { ReleaseGateResponse } from '../../types/release';
 import type { GateCriterion, GateCriterionCreatePayload, GateCriterionUpdatePayload } from '../../types/gateCriterion';
+import type { GateEvidenceResponse } from '../../types/gateEvidence';
 
 interface Props {
   releaseId: number;
@@ -117,8 +123,33 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
   const [selectedGate, setSelectedGate] = useState<ReleaseGateResponse | null>(null);
   const [decisionOpen, setDecisionOpen] = useState(false);
 
+  // Waiver dialog (task 10b) — opened either from the "Waive" action on a
+  // pending gate or by clicking an already-"overridden" gate's status chip.
+  const [waiverGate, setWaiverGate] = useState<ReleaseGateResponse | null>(null);
+  const [waiverOpen, setWaiverOpen] = useState(false);
+
+  // Evidence (task 10b). Lazily fetched per gate on first expand — see the
+  // effect below — and keyed by gate id in the store, not held locally, so
+  // a fulfilled add/delete re-renders GateEvidenceList without a manual
+  // refetch.
+  const gateEvidenceByGate = useSelector((s: RootState) => s.release.gateEvidenceByGate);
+  const [evidenceDialogGateId, setEvidenceDialogGateId] = useState<number | null>(null);
+
   // Expandable rows — set of gate ids that are open
   const [expandedGateIds, setExpandedGateIds] = useState<Set<number>>(new Set());
+
+  // Fetch a gate's evidence the first time its row is expanded. Absence
+  // from `gateEvidenceByGate` means "never fetched", not "no evidence" —
+  // see the slice's own comment — so this only fires once per gate per
+  // mount, not on every expand/collapse toggle.
+  useEffect(() => {
+    expandedGateIds.forEach((gateId) => {
+      if (gateEvidenceByGate[gateId] === undefined) {
+        dispatch(fetchGateEvidence(gateId));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedGateIds]);
 
   // Criterion dialog state
   const [criterionDialogOpen, setCriterionDialogOpen] = useState(false);
@@ -183,6 +214,16 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
       snackbar.success('Gate type updated');
     } else {
       snackbar.error(result.payload ?? 'Failed to update gate type');
+    }
+  };
+
+  const handleDeleteEvidence = async (gateId: number, evidence: GateEvidenceResponse) => {
+    if (!(await confirm({ message: `Delete evidence "${evidence.label}"?`, destructive: true }))) return;
+    const result = await dispatch(deleteGateEvidence({ gateId, evidenceId: evidence.id }));
+    if (deleteGateEvidence.fulfilled.match(result)) {
+      snackbar.success('Evidence deleted');
+    } else {
+      snackbar.error(result.payload ?? 'Failed to delete evidence');
     }
   };
 
@@ -351,11 +392,26 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                   label={`Due ${gate.due_date.slice(0, 10)}`}
                 />
 
-                <Chip
-                  size="small"
-                  label={gate.status}
-                  color={STATUS_COLORS[gate.status] ?? 'default'}
-                />
+                {gate.status === 'overridden' ? (
+                  <Tooltip title="View the waiver">
+                    <Chip
+                      size="small"
+                      label={gate.status}
+                      color={STATUS_COLORS[gate.status] ?? 'default'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setWaiverGate(gate);
+                        setWaiverOpen(true);
+                      }}
+                    />
+                  </Tooltip>
+                ) : (
+                  <Chip
+                    size="small"
+                    label={gate.status}
+                    color={STATUS_COLORS[gate.status] ?? 'default'}
+                  />
+                )}
 
                 {total > 0 && (
                   <Tooltip title={`${done} of ${total} criteria complete`}>
@@ -434,6 +490,31 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                       Add criterion
                     </Button>
                   </Box>
+
+                  {/* Evidence (task 10b) — kept inside the expand panel
+                      rather than the header row, which was already dense
+                      before this task. */}
+                  <Divider />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pl: 4, pr: 2, pt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
+                      Evidence
+                    </Typography>
+                    <Button
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEvidenceDialogGateId(gate.id);
+                      }}
+                    >
+                      Add evidence
+                    </Button>
+                  </Box>
+                  <GateEvidenceList
+                    releaseId={releaseId}
+                    evidence={gateEvidenceByGate[gate.id] ?? []}
+                    onDelete={(evidence) => handleDeleteEvidence(gate.id, evidence)}
+                  />
                 </Box>
               </Collapse>
             </Paper>
@@ -491,7 +572,36 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
         onClose={() => setDecisionOpen(false)}
         releaseId={releaseId}
         gate={selectedGate}
+        onWaiveInstead={() => {
+          setWaiverGate(selectedGate);
+          setWaiverOpen(true);
+        }}
       />
+
+      <WaiverDialog
+        open={waiverOpen}
+        onClose={() => setWaiverOpen(false)}
+        releaseId={releaseId}
+        gate={waiverGate}
+        users={userList}
+      />
+
+      {evidenceDialogGateId !== null && (() => {
+        const evidenceGate = gates.find((g) => g.id === evidenceDialogGateId);
+        const evidenceGateType = evidenceGate?.gate_type_id != null
+          ? gateTypeById.get(evidenceGate.gate_type_id)
+          : undefined;
+        return (
+          <AddEvidenceDialog
+            open
+            onClose={() => setEvidenceDialogGateId(null)}
+            releaseId={releaseId}
+            gateId={evidenceDialogGateId}
+            expectedEvidence={evidenceGateType?.expected_evidence ?? []}
+            requiresDeploymentLink={evidenceGateType?.requires_deployment_link ?? false}
+          />
+        );
+      })()}
     </Box>
   );
 }

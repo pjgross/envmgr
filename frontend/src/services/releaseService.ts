@@ -35,6 +35,7 @@ import type {
   GateCriterionCreatePayload,
   GateCriterionUpdatePayload,
 } from '../types/gateCriterion';
+import type { GateEvidenceResponse, GateEvidenceCreatePayload } from '../types/gateEvidence';
 import type { ReleaseEventResponse, ReleaseEventCreatePayload } from '../types/releaseEvent';
 import type {
   ReleaseChangeResponse,
@@ -122,6 +123,16 @@ export const releaseService = {
 
   overrideGate: (_releaseId: number, gateId: number, data: ReleaseGateDecisionPayload = {}): Promise<ReleaseGateResponse> =>
     api.post(`/gates/${gateId}/override`, data).then((r) => r.data),
+
+  // --- Gate evidence (Phase 9 C2, task 10b) ---
+  listGateEvidence: (gateId: number): Promise<GateEvidenceResponse[]> =>
+    api.get(`/gates/${gateId}/evidence`).then((r) => r.data),
+
+  addGateEvidence: (gateId: number, data: GateEvidenceCreatePayload): Promise<GateEvidenceResponse> =>
+    api.post(`/gates/${gateId}/evidence`, data).then((r) => r.data),
+
+  deleteGateEvidence: (evidenceId: number): Promise<void> =>
+    api.delete(`/gates/evidence/${evidenceId}`).then(() => undefined),
 
   // --- Readiness (Phase 9 C2) ---
   // Same evaluate() the pipeline-facing GET /webhooks/release-ready calls —
