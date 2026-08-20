@@ -815,15 +815,41 @@ async def override_gate(
 # structure (a handful of references per gate), not a growth-bearing list — a
 # decision, not an oversight.
 
+def _evidence_to_read(row, is_stale: bool) -> GateEvidenceRead:
+    """Convert a GateEvidence ORM row to GateEvidenceRead, with `is_stale`
+    required-positional rather than defaulted — see the field's own docstring
+    on why a defaulted bool is how this ships permanently wrong. Every route
+    that returns evidence must call `gate_evidence_service.stale_evidence_ids`
+    itself (once for the whole response, never once per row) and pass the
+    result in here."""
+    return GateEvidenceRead(
+        id=row.id,
+        gate_id=row.gate_id,
+        kind=row.kind,
+        label=row.label,
+        url=row.url,
+        notes=row.notes,
+        deployment_id=row.deployment_id,
+        added_by=row.added_by,
+        created_at=row.created_at,
+        is_stale=is_stale,
+    )
+
+
 @gates_router.get("/{gate_id}/evidence", response_model=list[GateEvidenceRead])
 async def list_gate_evidence(
     gate_id: int,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await gate_evidence_service.list_evidence(
+    rows = await gate_evidence_service.list_evidence(
         db, gate_id, current_user.active_tenant_id
     )
+    # Once for the whole page, never once per row.
+    stale_ids = await gate_evidence_service.stale_evidence_ids(
+        db, current_user.active_tenant_id, rows
+    )
+    return [_evidence_to_read(row, row.id in stale_ids) for row in rows]
 
 
 @gates_router.post(
@@ -835,9 +861,17 @@ async def add_gate_evidence(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await gate_evidence_service.add_evidence(
+    row = await gate_evidence_service.add_evidence(
         db, gate_id, current_user.active_tenant_id, current_user.id, data
     )
+    # A cited deployment need not be the gate's own release's latest — see
+    # add_evidence's docstring — so it can in principle already be
+    # superseded the moment it is linked. One-row call, still "once for the
+    # response, never per row" since this response IS one row.
+    stale_ids = await gate_evidence_service.stale_evidence_ids(
+        db, current_user.active_tenant_id, [row]
+    )
+    return _evidence_to_read(row, row.id in stale_ids)
 
 
 @gates_router.delete("/evidence/{evidence_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -77,7 +77,9 @@ async def test_adding_evidence_over_http(client, auth_headers, gate):
     assert body["kind"] == "Runbook"
     assert body["gate_id"] == gate.id
     assert body["deployment_id"] is None
-    assert "is_stale" not in body  # lands in Task 5, not here
+    # Task 5: is_stale now always travels with the row. Fresh evidence with
+    # no superseding deployment reads as current.
+    assert body["is_stale"] is False
 
     listed = await client.get(f"/api/v1/gates/{gate.id}/evidence", headers=auth_headers)
     assert listed.status_code == 200, listed.text
@@ -226,3 +228,54 @@ async def test_a_non_admin_member_can_delete_evidence_over_http(client, member_h
 
     listed = await client.get(f"/api/v1/gates/{gate.id}/evidence", headers=member_headers)
     assert listed.json() == []
+
+
+@pytest.mark.asyncio
+async def test_is_stale_travels_over_the_wire(
+    client, auth_headers, db_session, test_tenant, gate
+):
+    """Task 5: is_stale is computed once per response and set explicitly on
+    every row. Evidence citing a deployment later superseded by a successful
+    redeploy of the same component into the same environment reads
+    is_stale=true; evidence with no such later deployment reads false."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    deployment_41 = await ensure_deployment(
+        db_session, test_tenant.id, env.id,
+        deployed_at=datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc), status="success",
+    )
+    await db_session.commit()
+
+    stale_evidence = await client.post(
+        f"/api/v1/gates/{gate.id}/evidence",
+        json={
+            "kind": "Deployment record", "label": "Superseded sign-off",
+            "url": None, "deployment_id": deployment_41.id,
+        },
+        headers=auth_headers,
+    )
+    assert stale_evidence.status_code == 201, stale_evidence.text
+    stale_evidence_id = stale_evidence.json()["id"]
+    # Not stale yet — no later deployment exists.
+    assert stale_evidence.json()["is_stale"] is False
+
+    current_evidence = await client.post(
+        f"/api/v1/gates/{gate.id}/evidence",
+        json={"kind": "Runbook", "label": "No deployment link", "url": None},
+        headers=auth_headers,
+    )
+    assert current_evidence.status_code == 201, current_evidence.text
+    assert current_evidence.json()["is_stale"] is False
+
+    # A later SUCCESSFUL deployment of the same component into the same
+    # environment supersedes deployment_41.
+    await ensure_deployment(
+        db_session, test_tenant.id, env.id,
+        deployed_at=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc), status="success",
+    )
+    await db_session.commit()
+
+    listed = await client.get(f"/api/v1/gates/{gate.id}/evidence", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    by_id = {row["id"]: row for row in listed.json()}
+    assert by_id[stale_evidence_id]["is_stale"] is True
+    assert by_id[current_evidence.json()["id"]]["is_stale"] is False

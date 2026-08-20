@@ -32,7 +32,8 @@ class GateEvidenceRead(BaseModel):
     deployment_id: Optional[int]
     added_by: int
     created_at: datetime
-    # is_stale deliberately NOT here yet. It lands in Task 5 together with the
-    # stale_evidence_ids function that computes it — nothing in this task can
-    # compute it, and shipping a field that is permanently False over HTTP
-    # would be a lie to every client.
+    # Required, no default — deliberately. A defaulted bool renders `False` at
+    # any construction site that forgets to set it, which is how a field ships
+    # permanently (and silently) wrong; see gate_evidence_service.stale_evidence_ids
+    # and releases.py's _evidence_to_read, the only two places this is computed.
+    is_stale: bool
