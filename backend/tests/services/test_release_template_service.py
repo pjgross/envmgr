@@ -229,3 +229,232 @@ async def test_tenant_isolation(db_session, tenant, user):
     # Listing for tenant B returns nothing
     b_templates = await release_template_service.list_templates(db_session, tenant_b.id)
     assert len(b_templates) == 0
+
+
+# ── Task 6c — release templates carry a gate type ────────────────────────────
+#
+# The design's central claim (docs/superpowers/specs) is that the SIT → UAT →
+# PreProd → Production strictness ladder is expressed entirely through a
+# tenant's release template materialising the right GateType per phase — "no
+# second policy engine keyed on (type, tier)". Task 6b made a gate's type
+# settable one gate at a time; these tests guard the bulk path, which is how
+# gates actually get created in practice.
+
+from app.db.models.gate_type import GateType
+from app.services import gate_readiness_service, gate_type_service
+from app.api.v1.schemas.gate_type import GateTypeCreate
+
+
+async def _make_gate_type(db_session, tenant_id, **kwargs) -> GateType:
+    defaults = dict(
+        name="Sign-off",
+        failure_behaviour="warn",
+        expected_evidence=[],
+        is_active=True,
+    )
+    defaults.update(kwargs)
+    row = GateType(tenant_id=tenant_id, **defaults)
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
+@pytest.mark.asyncio
+async def test_gate_config_with_type_materialises_typed_gate(db_session, tenant, user):
+    await _seed_lifecycle(db_session, tenant.id, is_default=True)
+    gate_type = await _make_gate_type(db_session, tenant.id, name="SIT Sign-off")
+
+    tpl_data = _make_create_data(
+        phases=[],
+        gates=[
+            ReleaseTemplateGate(
+                name="SIT Gate", phase_name=None,
+                acceptance_criteria=None, gate_type_id=gate_type.id,
+            ),
+        ],
+    )
+    tpl = await release_template_service.create_template(db_session, tpl_data, tenant.id)
+
+    release = await release_template_service.instantiate(
+        db_session, tpl.id,
+        ReleaseTemplateInstantiate(name="R", target_date=datetime(2026, 9, 1, tzinfo=timezone.utc)),
+        tenant.id, user.id,
+    )
+
+    gate = (
+        await db_session.execute(
+            select(ReleaseGate).where(ReleaseGate.release_id == release.id)
+        )
+    ).scalar_one()
+    assert gate.gate_type_id == gate_type.id
+
+
+@pytest.mark.asyncio
+async def test_gate_config_with_no_gate_type_key_still_materialises_untyped(
+    db_session, tenant, user
+):
+    """Back-compat: a template stored before this field existed has gate
+    configs with NO 'gate_type_id' key at all — not a null value. Build the
+    template that way directly (bypassing the schema, which always emits the
+    key) to reproduce exactly what is sitting in the database today."""
+    await _seed_lifecycle(db_session, tenant.id, is_default=True)
+    tpl_data = _make_create_data(phases=[], gates=[])
+    tpl = await release_template_service.create_template(db_session, tpl_data, tenant.id)
+
+    # Overwrite with a gate config shaped like pre-6c stored data: no
+    # 'gate_type_id' key present.
+    tpl.gates = [{"name": "Legacy Gate", "phase_name": None, "acceptance_criteria": None}]
+    db_session.add(tpl)
+    await db_session.flush()
+
+    release = await release_template_service.instantiate(
+        db_session, tpl.id,
+        ReleaseTemplateInstantiate(name="R", target_date=datetime(2026, 9, 1, tzinfo=timezone.utc)),
+        tenant.id, user.id,
+    )
+
+    gate = (
+        await db_session.execute(
+            select(ReleaseGate).where(ReleaseGate.release_id == release.id)
+        )
+    ).scalar_one()
+    assert gate.gate_type_id is None
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_gate_type_id_refused_at_save(db_session, tenant, user):
+    from fastapi import HTTPException
+
+    tenant_b = Tenant(name="Other Co 6c", slug="other-co-6c")
+    db_session.add(tenant_b)
+    await db_session.flush()
+    foreign_type = await _make_gate_type(db_session, tenant_b.id, name="Theirs")
+
+    tpl_data = _make_create_data(
+        phases=[],
+        gates=[
+            ReleaseTemplateGate(
+                name="G", phase_name=None,
+                acceptance_criteria=None, gate_type_id=foreign_type.id,
+            ),
+        ],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await release_template_service.create_template(db_session, tpl_data, tenant.id)
+    assert exc_info.value.status_code == 404
+
+    # Same rule applies on update.
+    ok_tpl = await release_template_service.create_template(
+        db_session, _make_create_data(phases=[], gates=[]), tenant.id
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await release_template_service.update_template(
+            db_session, ok_tpl.id,
+            ReleaseTemplateUpdate(gates=[
+                ReleaseTemplateGate(
+                    name="G", phase_name=None,
+                    acceptance_criteria=None, gate_type_id=foreign_type.id,
+                ),
+            ]),
+            tenant.id,
+        )
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_soft_deleted_gate_type_still_materialises(db_session, tenant, user):
+    await _seed_lifecycle(db_session, tenant.id, is_default=True)
+    gate_type = await _make_gate_type(db_session, tenant.id, name="Archived Sign-off")
+
+    tpl_data = _make_create_data(
+        phases=[],
+        gates=[
+            ReleaseTemplateGate(
+                name="G", phase_name=None,
+                acceptance_criteria=None, gate_type_id=gate_type.id,
+            ),
+        ],
+    )
+    # Valid (live type) at save time.
+    tpl = await release_template_service.create_template(db_session, tpl_data, tenant.id)
+
+    # Archived some time later — must NOT block materialisation.
+    await gate_type_service.delete_type(db_session, gate_type.id, tenant.id)
+
+    release = await release_template_service.instantiate(
+        db_session, tpl.id,
+        ReleaseTemplateInstantiate(name="R", target_date=datetime(2026, 9, 1, tzinfo=timezone.utc)),
+        tenant.id, user.id,
+    )
+
+    gate = (
+        await db_session.execute(
+            select(ReleaseGate).where(ReleaseGate.release_id == release.id)
+        )
+    ).scalar_one()
+    assert gate.gate_type_id == gate_type.id
+
+
+@pytest.mark.asyncio
+async def test_strictness_ladder_end_to_end_via_readiness_evaluate(db_session, tenant, user):
+    """The payoff: two gates typed by two gate types with different
+    expected_evidence lists produce DIFFERENT verdicts from
+    gate_readiness_service.evaluate() — the strictness ladder actually
+    working, materialised in bulk from one template."""
+    await _seed_lifecycle(db_session, tenant.id, is_default=True)
+    lax = await _make_gate_type(
+        db_session, tenant.id, name="SIT Sign-off", expected_evidence=[],
+    )
+    strict = await _make_gate_type(
+        db_session, tenant.id, name="UAT Sign-off",
+        expected_evidence=["Test execution report", "Defect summary"],
+    )
+
+    tpl_data = _make_create_data(
+        phases=[],
+        gates=[
+            ReleaseTemplateGate(
+                name="SIT Gate", phase_name=None,
+                acceptance_criteria=None, gate_type_id=lax.id,
+            ),
+            ReleaseTemplateGate(
+                name="UAT Gate", phase_name=None,
+                acceptance_criteria=None, gate_type_id=strict.id,
+            ),
+        ],
+    )
+    tpl = await release_template_service.create_template(db_session, tpl_data, tenant.id)
+
+    release = await release_template_service.instantiate(
+        db_session, tpl.id,
+        ReleaseTemplateInstantiate(name="R", target_date=datetime(2026, 9, 1, tzinfo=timezone.utc)),
+        tenant.id, user.id,
+    )
+
+    gates = (
+        await db_session.execute(
+            select(ReleaseGate).where(ReleaseGate.release_id == release.id)
+        )
+    ).scalars().all()
+    sit_gate = next(g for g in gates if g.name == "SIT Gate")
+    uat_gate = next(g for g in gates if g.name == "UAT Gate")
+    assert sit_gate.gate_type_id == lax.id
+    assert uat_gate.gate_type_id == strict.id
+
+    result = await gate_readiness_service.evaluate(db_session, release.id, tenant.id)
+
+    evidence_missing_gate_ids = {
+        w.ref_id for w in result.warnings if w.type == "evidence_missing"
+    }
+    assert uat_gate.id in evidence_missing_gate_ids, (
+        "the strict UAT type must warn about missing evidence"
+    )
+    assert sit_gate.id not in evidence_missing_gate_ids, (
+        "the lax SIT type must NOT warn — it expects no evidence at all"
+    )
+    uat_warning = next(
+        w for w in result.warnings
+        if w.type == "evidence_missing" and w.ref_id == uat_gate.id
+    )
+    assert "Test execution report" in uat_warning.detail
+    assert "Defect summary" in uat_warning.detail

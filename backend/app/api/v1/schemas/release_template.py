@@ -15,6 +15,15 @@ class ReleaseTemplateGate(BaseModel):
     name: str = Field(..., max_length=150)
     phase_name: Optional[str] = None  # None = release-level gate
     acceptance_criteria: Optional[str] = None
+    # Optional and back-compat: a template gate config saved before this field
+    # existed has no key for it at all (not merely null), and must keep
+    # materialising an UNTYPED gate exactly as before — no migration, no
+    # backfill. Validated tenant-scoped at template SAVE time
+    # (release_template_service._validate_template_gate_types), not here —
+    # this schema has no db access. Materialisation does NOT re-check
+    # liveness: a type valid when the template was saved must still
+    # materialise after being archived (see release_template_service.instantiate).
+    gate_type_id: Optional[int] = None
 
 
 class ReleaseTemplateCreate(BaseModel):

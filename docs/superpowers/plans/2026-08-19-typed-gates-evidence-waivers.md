@@ -31,7 +31,7 @@
 - Create: `backend/app/db/models/gate_evidence.py`
 - Create: `backend/app/db/models/gate_waiver.py`
 - Create: `backend/app/services/gate_type_defaults.py`
-- Create: `backend/alembic/versions/<rev>_gatetypes.py`
+- Create: `backend/app/db/migrations/versions/<rev>_gatetypes.py`
 - Modify: `backend/app/db/models/release_gate.py`
 - Modify: `backend/app/db/models/__init__.py`
 - Modify: `backend/app/services/tenant_service.py`
@@ -452,7 +452,7 @@ Expected: PASS. Remember this compares **column name sets only** — not types, 
 git add backend/app/db/models/gate_type.py backend/app/db/models/gate_evidence.py \
         backend/app/db/models/gate_waiver.py backend/app/db/models/release_gate.py \
         backend/app/db/models/__init__.py backend/app/services/gate_type_defaults.py \
-        backend/app/services/tenant_service.py backend/alembic/versions/ \
+        backend/app/services/tenant_service.py backend/app/db/migrations/versions/ \
         backend/tests/test_gate_type_defaults.py
 git commit -m "feat(c2): gate types, evidence and waivers — schema and seeding"
 ```
