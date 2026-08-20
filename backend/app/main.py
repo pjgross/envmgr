@@ -235,3 +235,9 @@ app.include_router(
     prefix="/api/v1/environment-groups",
     tags=["Environment Groups"],
 )
+
+from app.api.v1 import gate_types as gate_types_router
+
+app.include_router(
+    gate_types_router.router, prefix="/api/v1/gate-types", tags=["Gate Types"]
+)
