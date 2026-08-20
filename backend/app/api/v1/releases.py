@@ -41,6 +41,7 @@ from app.services import (
     release_booking_service,
     release_system_service,
     project_service,
+    gate_evidence_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -88,6 +89,7 @@ from app.api.v1.schemas.release_bulk_booking import (
     BulkBookResult,
 )
 from app.api.v1.schemas.scope_churn_analytics import ScopeChurnAnalyticsRead
+from app.api.v1.schemas.gate_evidence import GateEvidenceCreate, GateEvidenceRead
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -805,6 +807,47 @@ async def override_gate(
         expires_at=data.expires_at,
         remediation=data.remediation,
         approved_by_user_id=data.approved_by_user_id,
+    )
+
+
+# ── Gate evidence ─────────────────────────────────────────────────────────────
+# No pagination() here: these are per-gate collections bounded by a gate's own
+# structure (a handful of references per gate), not a growth-bearing list — a
+# decision, not an oversight.
+
+@gates_router.get("/{gate_id}/evidence", response_model=list[GateEvidenceRead])
+async def list_gate_evidence(
+    gate_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await gate_evidence_service.list_evidence(
+        db, gate_id, current_user.active_tenant_id
+    )
+
+
+@gates_router.post(
+    "/{gate_id}/evidence", response_model=GateEvidenceRead, status_code=status.HTTP_201_CREATED
+)
+async def add_gate_evidence(
+    gate_id: int,
+    data: GateEvidenceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return await gate_evidence_service.add_evidence(
+        db, gate_id, current_user.active_tenant_id, current_user.id, data
+    )
+
+
+@gates_router.delete("/evidence/{evidence_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_gate_evidence(
+    evidence_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    await gate_evidence_service.delete_evidence(
+        db, evidence_id, current_user.active_tenant_id
     )
 
 
