@@ -19,7 +19,11 @@ from app.db.models.gate_evidence import GateEvidence
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
-from app.services.gate_evidence_service import stale_evidence_ids
+from app.services.gate_evidence_service import (
+    _build_label,
+    stale_evidence_details,
+    stale_evidence_ids,
+)
 from tests.factories import ensure_change_request, ensure_environment, ensure_subsystem
 
 UTC = timezone.utc
@@ -177,6 +181,24 @@ async def deploy_build_42_and_roll_back(db_session, evidence_context) -> Deploym
 
 
 @pytest_asyncio.fixture
+async def deploy_build_42_successfully_then_soft_delete_it(db_session, evidence_context) -> Deployment:
+    """A later, successful deployment of the SAME subsystem+environment that
+    would supersede evidence_on_build_41 — except it is soft-deleted. Proves
+    the `deleted_at.is_(None)` filter on the candidate query: I2 in the C2
+    final review found this filter was mutable to `true()` with all 36
+    then-existing gate tests staying green, because nothing exercised it on
+    the shared predicate at all."""
+    build_42 = await _make_build(db_session, evidence_context.tenant_id, evidence_context.subsystem.id)
+    d = await _make_deployment(
+        db_session, evidence_context.tenant_id, build_42.id,
+        evidence_context.environment.id, T0 + timedelta(hours=1), "success",
+    )
+    d.deleted_at = T0 + timedelta(hours=2)
+    await db_session.flush()
+    return d
+
+
+@pytest_asyncio.fixture
 async def deploy_a_different_subsystem(db_session, evidence_context) -> Deployment:
     other_subsystem = await ensure_subsystem(
         db_session, evidence_context.tenant_id, name="stale-eval-other-subsystem"
@@ -225,6 +247,18 @@ async def test_a_rolled_back_deployment_does_not_make_evidence_stale(
 ):
     """After a rollback, build 41 is what is running again — so evidence for 41
     is current, not stale. Only status == 'success' counts."""
+    stale = await stale_evidence_ids(db_session, test_tenant.id, [evidence_on_build_41])
+    assert stale == set()
+
+
+@pytest.mark.asyncio
+async def test_a_soft_deleted_superseding_deployment_does_not_make_evidence_stale(
+    db_session, test_tenant, evidence_on_build_41, deploy_build_42_successfully_then_soft_delete_it
+):
+    """A soft-deleted deployment record must not supersede anything — the
+    same `deleted_at.is_(None)` rule every other query in this codebase
+    follows. I2's coverage gap: this filter existed in the code and was
+    unguarded by any test on the predicate both public routes actually use."""
     stale = await stale_evidence_ids(db_session, test_tenant.id, [evidence_on_build_41])
     assert stale == set()
 
@@ -332,3 +366,32 @@ async def test_the_evidence_deployment_lookup_is_tenant_scoped(
 
     stale = await stale_evidence_ids(db_session, test_tenant.id, [corrupt_evidence])
     assert stale == set()
+
+
+# ── I2: ONE predicate — stale_evidence_ids is a thin wrapper over
+# stale_evidence_details, so every case above (all seven) now exercises the
+# SAME query gate_readiness_service.evaluate() uses for both public routes. ──
+
+@pytest.mark.asyncio
+async def test_stale_evidence_ids_is_exactly_the_key_set_of_stale_evidence_details(
+    db_session, test_tenant, evidence_on_build_41, deploy_build_42_successfully
+):
+    """Locks the collapse itself: if a future edit re-forks the two functions
+    instead of one delegating to the other, this is the test that notices."""
+    ids = await stale_evidence_ids(db_session, test_tenant.id, [evidence_on_build_41])
+    details = await stale_evidence_details(db_session, test_tenant.id, [evidence_on_build_41])
+    assert ids == set(details.keys())
+    assert ids == {evidence_on_build_41.id}
+
+
+def test_build_label_falls_back_to_the_git_sha_when_build_number_is_null():
+    """The `_build_label` fallback a readiness warning's deployment names go
+    through — deferred minor folded into I2. `git_sha` in this codebase is a
+    40-char hex string; the label is the short (8-char) form, same
+    convention as `formatDeploymentLabel`'s `build_sha_short` on the
+    frontend (M4 in the review: the two ARE two different label functions,
+    a separate finding not fixed in this wave)."""
+    sha = "abcdef0123456789abcdef0123456789abcdef01"
+    assert _build_label(None, sha) == "abcdef01"
+    assert _build_label("", sha) == "abcdef01"
+    assert _build_label("build-77", sha) == "build-77"

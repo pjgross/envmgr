@@ -162,6 +162,22 @@ async def test_the_approver_username_resolves_from_outside_the_gates_tenant(
     `gate_waiver_service.usernames_for`, and its siblings
     `agreement_gap_service.ack_author_username` /
     `contention_service`'s decider-name lookup, which carry the same rule.
+
+    NOTE (I1 in the C2 final review): this used to call `override_gate` with
+    an EXPLICIT `approved_by_user_id=other_admin.id` — i.e. the caller
+    (`test_user`, inside `test_tenant`) naming a THIRD PARTY from another
+    tenant as approver. That is exactly the unvalidated-FK hole I1 closed:
+    `_validate_approver_user_id` now refuses that shape with a 404, so the
+    old fixture no longer represents a legitimate case at all. The genuine
+    cross-tenant path is the DEFAULT one — `approved_by_user_id` OMITTED, so
+    it falls back to `user_id`, i.e. the ACTOR's own id — which is exactly
+    how a real master-admin impersonation session produces a foreign
+    approver: `other_admin` is who is actually calling (their real identity,
+    outside `test_tenant`), impersonating into `test_tenant` to override the
+    gate and self-approve it. That path is deliberately never validated (see
+    `_validate_approver_user_id`'s docstring) because it is `current_user.id`,
+    not client-supplied input — the same distinction A4's `record_decision`
+    draws for `decided_by`.
     """
     from app.services import release_gate_service
 
@@ -169,9 +185,10 @@ async def test_the_approver_username_resolves_from_outside_the_gates_tenant(
     assert other_tenant.id != test_tenant.id
 
     await release_gate_service.override_gate(
-        db_session, gate.id, notes="approved by an out-of-tenant admin",
-        tenant_id=test_tenant.id, user_id=test_user.id,
-        approved_by_user_id=other_admin.id,
+        db_session, gate.id, notes="approved by an impersonating master admin",
+        tenant_id=test_tenant.id, user_id=other_admin.id,
+        # approved_by_user_id OMITTED — defaults to user_id (other_admin.id),
+        # never passed through _validate_approver_user_id at all.
     )
     await db_session.flush()
 
@@ -183,6 +200,62 @@ async def test_the_approver_username_resolves_from_outside_the_gates_tenant(
         "the approver's name must not be resolved with a tenant-qualified join — "
         "under impersonation they legitimately sit outside the gate's tenant"
     )
+
+
+# ── I1: approved_by_user_id is a client-supplied FK, validated at the write ──
+
+@pytest.mark.asyncio
+async def test_a_cross_tenant_approved_by_user_id_is_refused_over_http(
+    client, auth_headers, gate, second_tenant_factory,
+):
+    """Before I1: any tenant member could attribute a waiver to ANY user id
+    in the database — including one in a different tenant — and the response
+    would then disclose that foreign tenant's username (usernames_for is
+    deliberately not tenant-qualified). This is the write-side guard: naming
+    a real user who is NOT in the caller's active tenant is refused."""
+    _other_tenant, other_admin = await second_tenant_factory()
+
+    resp = await client.post(
+        f"/api/v1/gates/{gate.id}/override",
+        json={"notes": "risk accepted", "approved_by_user_id": other_admin.id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_approved_by_user_id_is_a_404_not_a_500(
+    client, auth_headers, gate,
+):
+    """Before I1: an id that resolves to no user at all raised an unhandled
+    IntegrityError (FOREIGN KEY constraint failed) → 500 — the one client-
+    supplied FK in this codebase that didn't 404 like every other one."""
+    resp = await client.post(
+        f"/api/v1/gates/{gate.id}/override",
+        json={"notes": "risk accepted", "approved_by_user_id": 999999999},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_a_cross_tenant_approver_is_refused_at_the_service_layer(
+    db_session, test_tenant, gate, test_user, second_tenant_factory,
+):
+    """Service-level mirror of the HTTP probe above — the same shape as
+    contention_service's owner-validation tests, exercising
+    _validate_approver_user_id directly rather than through the router."""
+    from fastapi import HTTPException
+    from app.services import release_gate_service
+
+    _other_tenant, other_admin = await second_tenant_factory()
+
+    with pytest.raises(HTTPException) as exc:
+        await release_gate_service.override_gate(
+            db_session, gate.id, notes="n", tenant_id=test_tenant.id,
+            user_id=test_user.id, approved_by_user_id=other_admin.id,
+        )
+    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -292,3 +365,117 @@ async def test_updating_an_overridden_gate_does_not_blank_its_waiver(
     assert waiver["state"] == "live"
     assert waiver["remediation"] == "Will fix next sprint"
     assert waiver["approved_by_user_id"] == test_user.id
+
+
+# ── I3: single-gate endpoints must carry criteria + overdue_criterion_count ──
+# exactly the way GET /releases/{id}/gates does. Task 10c fixed this for
+# `waiver`; the final review found `criteria` and `overdue_criterion_count`
+# blanked the same way — model_validate(gate) alone defaults both, since
+# ReleaseGate carries neither as a real attribute.
+
+@pytest.mark.asyncio
+async def test_updating_a_gate_preserves_its_criteria_and_overdue_count(
+    client, auth_headers, db_session, test_tenant, test_user, gate,
+):
+    """The reviewer's probe: a gate with an open criterion, backdated so it
+    is genuinely overdue. PUT a change and confirm both fields survive in
+    the response — before this fix they silently reset to `[]` / `0`, and
+    GatesTable's inline type Select (updateGate's first caller ever) made
+    that reachable: retyping a gate visibly wiped its criteria list and its
+    done/overdue chips until something else refetched.
+    """
+    from app.api.v1.schemas.gate_criterion import GateCriterionCreate
+    from app.services import gate_criterion_service
+
+    gate.due_date = datetime.now(timezone.utc) - timedelta(days=3)
+    await db_session.commit()
+
+    await gate_criterion_service.create_criterion(
+        db_session, gate_id=gate.id, tenant_id=test_tenant.id, user_id=test_user.id,
+        data=GateCriterionCreate(title="Sign-off"),
+    )
+    await db_session.commit()
+
+    before = await client.get(f"/api/v1/releases/{gate.release_id}/gates", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    row = before.json()[0]
+    assert len(row["criteria"]) == 1
+    assert row["overdue_criterion_count"] == 1
+
+    updated = await client.put(
+        f"/api/v1/gates/{gate.id}",
+        json={"name": "SIT Exit (renamed again)"},
+        headers=auth_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["name"] == "SIT Exit (renamed again)"
+    assert len(body["criteria"]) == 1, (
+        "PUT /gates/{id} must carry the gate's criteria the same way GET "
+        "/releases/{id}/gates does — model_validate(gate) alone silently "
+        "drops them"
+    )
+    assert body["criteria"][0]["title"] == "Sign-off"
+    assert body["overdue_criterion_count"] == 1, (
+        "overdue_criterion_count must survive a PUT too — it defaults to 0 "
+        "the same way `criteria` defaults to []"
+    )
+
+
+@pytest.mark.asyncio
+async def test_criteria_reads_for_gates_is_called_once_for_a_multi_gate_page(
+    client, auth_headers, db_session, test_tenant, test_user, monkeypatch,
+):
+    """ONE query pair for the whole page, never one per gate — same shape as
+    test_latest_waivers_for_gates_is_called_once_for_a_multi_gate_page above,
+    now that list_gates gets its criteria from the same batched helper
+    gate_read_with_waiver uses for a single gate."""
+    from app.services import gate_criterion_service
+
+    template = LifecycleTemplate(
+        tenant_id=test_tenant.id,
+        entity_type="release",
+        name="Test Major 3",
+        is_default=False,
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {"draft": {"standard_fields": {}, "custom_fields": {}}},
+        },
+    )
+    db_session.add(template)
+    await db_session.flush()
+    release = Release(
+        tenant_id=test_tenant.id, name="R-crit-batch", release_type="Major",
+        lifecycle_template_id=template.id, raised_by=test_user.id,
+    )
+    db_session.add(release)
+    await db_session.flush()
+
+    gates = []
+    for i in range(3):
+        g = ReleaseGate(
+            tenant_id=test_tenant.id, release_id=release.id, name=f"Gate {i}",
+            due_date=datetime.now(timezone.utc) + timedelta(days=7),
+        )
+        db_session.add(g)
+        await db_session.flush()
+        gates.append(g)
+    await db_session.commit()
+
+    call_count = 0
+    original = gate_criterion_service.criteria_reads_for_gates
+
+    async def counting_wrapper(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(gate_criterion_service, "criteria_reads_for_gates", counting_wrapper)
+
+    listed = await client.get(f"/api/v1/releases/{release.id}/gates", headers=auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()) == 3
+    assert call_count == 1, "criteria_reads_for_gates must be called once per page, not once per gate"

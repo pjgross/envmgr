@@ -37,7 +37,11 @@ async def latest_waivers_for_gates(
 ) -> dict[int, GateWaiver]:
     """The current waiver per gate — ONE query for the page, never one per row.
 
-    Rows accumulate as history; the newest live row per gate is current.
+    Rows accumulate as history; the newest row per gate is current, WHETHER
+    LIVE OR EXPIRED — the query itself does not filter on state at all, only
+    on `deleted_at`. "Current" means most recent, not live; `waiver_state`
+    (above) is what decides live-versus-expired, computed separately at read
+    time from `expires_at`.
     """
     if not gate_ids:
         return {}

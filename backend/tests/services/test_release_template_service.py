@@ -176,6 +176,50 @@ async def test_instantiate_release_level_gate_has_null_phase(db_session, tenant,
     assert release_level.due_date is not None
 
 
+# ── I5 (C2 final review): instantiate() sets test_phase_id ──────────────────
+# ReleaseGate.test_phase_id shipped with a migration, a validator and an
+# archived-value carve-out but was never written by the one place in the
+# codebase that resolves a gate's phase by name — matched_phase, already
+# computed here to derive gate_due_date, was thrown away instead of being
+# recorded on the gate. Nothing reads the column yet; this only makes the
+# phase linkage legible in the data instead of inferable from a name string.
+
+@pytest.mark.asyncio
+async def test_instantiate_sets_test_phase_id_from_the_matched_phase(db_session, tenant, user):
+    await _seed_lifecycle(db_session, tenant.id, is_default=True)
+    tpl_data = _make_create_data()
+    tpl = await release_template_service.create_template(db_session, tpl_data, tenant.id)
+
+    target = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    release = await release_template_service.instantiate(
+        db_session, tpl.id,
+        ReleaseTemplateInstantiate(name="R", target_date=target),
+        tenant.id, user.id
+    )
+
+    phases = (
+        await db_session.execute(
+            select(TestPhase).where(TestPhase.release_id == release.id)
+        )
+    ).scalars().all()
+    sit_phase = next(p for p in phases if p.name == "SIT")
+
+    gates = (
+        await db_session.execute(
+            select(ReleaseGate).where(ReleaseGate.release_id == release.id)
+        )
+    ).scalars().all()
+
+    sit_gate = next(g for g in gates if g.name == "SIT Exit")
+    assert sit_gate.test_phase_id == sit_phase.id
+
+    # Release-level gate (phase_name=None) must materialise with NO phase —
+    # matched_phase is None, so test_phase_id must be None, not some
+    # accidental default.
+    release_gate = next(g for g in gates if g.name == "Release Gate")
+    assert release_gate.test_phase_id is None
+
+
 # ── test_delete_refused_when_in_use ─────────────────────────────────────────
 
 @pytest.mark.asyncio

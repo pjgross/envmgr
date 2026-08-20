@@ -11,7 +11,8 @@ class GateWaiver(Base):
     """The record behind an overridden gate: reason, approver, expiry,
     remediation.
 
-    Rows ACCUMULATE as history; the latest live one is current. Re-waiving after
+    Rows ACCUMULATE as history; the newest row (by id) is current, WHETHER
+    LIVE OR EXPIRED — "current" is about recency, not state. Re-waiving after
     an expiry must not overwrite the previous approver and reason — destroying
     that history destroys the one thing a waiver exists to create.
 

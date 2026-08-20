@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.gate_evidence import GateEvidenceCreate
@@ -129,89 +129,11 @@ def _utc(value: Optional[datetime]) -> Optional[datetime]:
     return value.replace(tzinfo=timezone.utc)
 
 
-async def stale_evidence_ids(
-    db: AsyncSession, tenant_id: int, evidence_rows: list[GateEvidence]
-) -> set[int]:
-    """Evidence ids whose deployment has been superseded.
-
-    Evidence links deployment D — build of subsystem S into environment E at
-    time T. It is STALE if a later SUCCESSFUL deployment of S into E exists.
-
-    'success' exactly, not 'not failed': a failed redeploy leaves the
-    evidence's own build still running, and a rolled_back deployment means
-    the earlier build is what is running again — so neither may supersede
-    anything. Computed on read, in two queries never once per row — a stored
-    flag would be falsified by the next deployment webhook.
-    """
-    linked = [e for e in evidence_rows if e.deployment_id is not None]
-    if not linked:
-        return set()
-
-    referenced = {
-        row.id: row
-        for row in (
-            await db.execute(
-                select(
-                    Deployment.id,
-                    Build.subsystem_id,
-                    Deployment.environment_id,
-                    Deployment.deployed_at,
-                )
-                .join(Build, Build.id == Deployment.build_id)
-                .where(
-                    Deployment.id.in_([e.deployment_id for e in linked]),
-                    Deployment.tenant_id == tenant_id,
-                )
-            )
-        ).all()
-    }
-    if not referenced:
-        return set()
-
-    pairs = {(r.subsystem_id, r.environment_id) for r in referenced.values()}
-    latest_rows = (
-        await db.execute(
-            select(
-                Build.subsystem_id,
-                Deployment.environment_id,
-                func.max(Deployment.deployed_at).label("latest"),
-            )
-            .join(Build, Build.id == Deployment.build_id)
-            .where(
-                Deployment.tenant_id == tenant_id,
-                Deployment.deleted_at.is_(None),
-                Deployment.status == "success",
-                # or_(and_(...)) rather than a tuple/row-value IN: SQLite has
-                # no reliable row-value IN support, and this form compiles
-                # identically on both engines.
-                or_(*[
-                    and_(Build.subsystem_id == s, Deployment.environment_id == e)
-                    for s, e in pairs
-                ]),
-            )
-            .group_by(Build.subsystem_id, Deployment.environment_id)
-        )
-    ).all()
-    latest = {(r.subsystem_id, r.environment_id): r.latest for r in latest_rows}
-
-    stale: set[int] = set()
-    for evidence in linked:
-        ref = referenced.get(evidence.deployment_id)
-        if ref is None:
-            continue
-        newest = _utc(latest.get((ref.subsystem_id, ref.environment_id)))
-        if newest is not None and newest > _utc(ref.deployed_at):
-            stale.add(evidence.id)
-    return stale
-
-
 @dataclass(frozen=True)
 class StaleEvidenceDetail:
     """Enough to name BOTH deployments an `evidence_stale` warning must
     mention: the one the evidence actually cites (now superseded) and the
-    later successful one that superseded it. `stale_evidence_ids` above
-    stays untouched — its callers (the evidence-list/create endpoints) only
-    ever need the id set for a boolean `is_stale` flag."""
+    later successful one that superseded it."""
 
     environment_name: str
     superseded_build_label: str
@@ -227,10 +149,24 @@ def _build_label(build_number: Optional[str], git_sha: str) -> str:
 async def stale_evidence_details(
     db: AsyncSession, tenant_id: int, evidence_rows: list[GateEvidence]
 ) -> dict[int, StaleEvidenceDetail]:
-    """Like `stale_evidence_ids`, but keyed on evidence id with the detail
-    needed to name both deployments in a warning. Same predicate, same two
-    batch queries (plus one more for environment names) — never once per
-    row."""
+    """THE staleness predicate — the ONLY place it is implemented.
+
+    Evidence links deployment D — build of subsystem S into environment E at
+    time T. It is STALE if a later SUCCESSFUL deployment of S into E exists.
+
+    'success' exactly, not 'not failed': a failed redeploy leaves the
+    evidence's own build still running, and a rolled_back deployment means
+    the earlier build is what is running again — so neither may supersede
+    anything. Computed on read, in three queries (plus one for environment
+    names) never once per row — a stored flag would be falsified by the next
+    deployment webhook.
+
+    `stale_evidence_ids`, below, is a thin wrapper over this — the two used
+    to be two independently-written copies of the same predicate, and only
+    this one (via `evaluate()`) was under any staleness test at all. Collapsed
+    per I2 in the C2 final review: a rule can no longer be changed in one
+    without changing it in the other, because there is only one.
+    """
     linked = [e for e in evidence_rows if e.deployment_id is not None]
     if not linked:
         return {}
@@ -320,3 +256,16 @@ async def stale_evidence_details(
             superseding_deployed_at=newest_at,
         )
     return details
+
+
+async def stale_evidence_ids(
+    db: AsyncSession, tenant_id: int, evidence_rows: list[GateEvidence]
+) -> set[int]:
+    """Evidence ids whose deployment has been superseded — the id-only
+    projection of `stale_evidence_details`' full predicate, for callers
+    (the evidence list/create routes) that only need a boolean `is_stale`
+    flag and not the detail text a readiness warning needs. NOT a second
+    implementation: this delegates, so the `status == 'success'`, tenant and
+    `deleted_at` filters can only ever be changed in one place."""
+    details = await stale_evidence_details(db, tenant_id, evidence_rows)
+    return set(details.keys())

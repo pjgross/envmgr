@@ -334,6 +334,66 @@ async def test_assigning_an_archived_type_to_a_different_gate_is_refused(
     assert exc.value.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_full_form_update_resending_an_unreachable_test_phase_id_unchanged_succeeds(
+    db_session, test_tenant, release,
+):
+    """The test_phase_id counterpart of the gate_type_id carve-out above —
+    deferred as a minor until I5 (C2 final review) gave the column a
+    consumer, and now covered the same way gate_type_id already was.
+
+    TestPhase has no delete service (nothing in the product retires one),
+    so "otherwise unreachable" is produced directly, the same way this
+    module already constructs cross-tenant rows for its FK probes: soft-
+    delete the phase in place. A full-form save re-sending the gate's own
+    (now-unreachable) test_phase_id, plus an unrelated field change, must
+    still succeed — exactly as a full-form save re-sending an archived
+    gate_type_id does.
+    """
+    phase = await _make_test_phase(db_session, test_tenant, release)
+    gate = await release_gate_service.create_gate(
+        db_session, release.id,
+        ReleaseGateCreate(
+            name="G", due_date=datetime.now(timezone.utc) + timedelta(days=7),
+            test_phase_id=phase.id,
+        ),
+        test_tenant.id,
+    )
+
+    phase.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    updated = await release_gate_service.update_gate(
+        db_session, gate.id,
+        ReleaseGateUpdate(name="G renamed", test_phase_id=phase.id),
+        test_tenant.id,
+    )
+    assert updated.name == "G renamed"
+    assert updated.test_phase_id == phase.id
+
+
+@pytest.mark.asyncio
+async def test_assigning_an_unreachable_test_phase_id_to_a_different_gate_is_refused(
+    db_session, test_tenant, release,
+):
+    phase = await _make_test_phase(db_session, test_tenant, release)
+    phase.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    other_gate = await release_gate_service.create_gate(
+        db_session, release.id,
+        ReleaseGateCreate(name="Other Gate", due_date=datetime.now(timezone.utc) + timedelta(days=7)),
+        test_tenant.id,
+    )
+    with pytest.raises(HTTPException) as exc:
+        await release_gate_service.update_gate(
+            db_session, other_gate.id,
+            ReleaseGateUpdate(test_phase_id=phase.id),
+            test_tenant.id,
+        )
+    assert exc.value.status_code == 404
+
+
 # ── The end-to-end proof: typing a gate makes it REACHABLE by the evaluator ─
 
 @pytest.mark.asyncio

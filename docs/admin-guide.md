@@ -864,9 +864,7 @@ Each type has:
 
 Name uniqueness (per tenant) is enforced by the service, not a database constraint — same as `environment_tier` and `user_group`.
 
-**Assigning a type to a gate** happens on the gate itself: the *Type* select inline on each row of a release's *Gates & Test Phases* tab. The backend also accepts a `gate_type_id` on a release template's gate skeleton (ch. 9), so a release created from a typed template starts typed too — this is how the SIT → UAT → Pre-Prod → Production strictness ladder from §2.11 is meant to be expressed: a "UAT Sign-off" type that expects more evidence kinds than a "SIT Sign-off" type, materialised onto the right phase by the template. There is no second policy engine matching (type, tier) pairs; strictness is only ever what the type itself declares.
-
-> **Not yet available:** the *Release Templates* admin page (ch. 9) has no field to set a gate skeleton's type — only *Gate Name*, *Attach to Phase* and *Acceptance Criteria*. The backend write path exists (`gate_type_id` on a template's gate skeleton), so a template gate can be typed via the API, but not through the product today. Until the UI catches up, a release created from a template starts every gate untyped, and someone has to type each one by hand on the release itself.
+**Assigning a type to a gate** happens on the gate itself: the *Type* select inline on each row of a release's *Gates & Test Phases* tab. The *Release Templates* admin page (ch. 9) also has a *Gate Type* field on each gate skeleton, so a release created from a typed template starts typed too — this is how the SIT → UAT → Pre-Prod → Production strictness ladder from §2.11 is meant to be expressed: a "UAT Sign-off" type that expects more evidence kinds than a "SIT Sign-off" type, materialised onto the right phase by the template at instantiation (the gate also records which phase it was matched to, via `test_phase_id`, though nothing reads that column back today). There is no second policy engine matching (type, tier) pairs; strictness is only ever what the type itself declares.
 
 #### What `failure_behaviour` does, and does not do
 
@@ -926,7 +924,7 @@ A *release template* is a reusable skeleton for releases. It bundles a release t
    - *Release Type* — one of `project`, `hotfix`, `patch`, `major`, `minor`. This becomes the type on every release built from the template.
    - *Description* (multi-line).
 4. In the *Phases* panel, add one row per phase. Each phase has *Phase Name* (required), *Default Duration (days)* (used to back-compute phase dates from the release's target date — the last phase ends on the target date), and *Activities* (a comma-separated list of free-text labels). Use the up/down arrows to reorder; phase order is renumbered on save.
-5. In the *Gates* panel, add one row per gate. Each gate skeleton holds *Gate Name*, *Attach to Phase* (a phase name from the list above, or "Release-level (no phase)"), and *Acceptance Criteria* (free text). At instantiation each gate becomes a *ReleaseGate* with status `pending`; the acceptance-criteria text, if present, seeds a single criterion titled *Acceptance criteria*.
+5. In the *Gates* panel, add one row per gate. Each gate skeleton holds *Gate Name*, *Attach to Phase* (a phase name from the list above, or "Release-level (no phase)"), *Acceptance Criteria* (free text), and *Gate Type* (§8's gate-type vocabulary — pick an active type, or leave it untyped). At instantiation each gate becomes a *ReleaseGate* with status `pending`; the acceptance-criteria text, if present, seeds a single criterion titled *Acceptance criteria*, and the chosen gate type carries across so the gate reads with the same failure behaviour and expected evidence it would have if typed by hand.
 6. Click *Save*.
 
 ### Walkthrough: editing and deleting

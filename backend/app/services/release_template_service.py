@@ -340,6 +340,13 @@ async def instantiate(
             status="pending",
             due_date=gate_due_date,
             gate_type_id=gate_type_id,
+            # I5 in the C2 final review: this is the one place in the
+            # codebase that knows which phase a template gate belongs to
+            # (matched by name, just above, to compute gate_due_date) and,
+            # until now, was the one place that didn't write it down. None
+            # for a release-level gate (matched_phase is None), same as
+            # every other field on that gate.
+            test_phase_id=matched_phase.id if matched_phase else None,
         )
         db.add(gate)
         await db.flush()

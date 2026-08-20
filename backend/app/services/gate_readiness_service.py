@@ -50,7 +50,18 @@ async def evaluate(
     rows = (
         await db.execute(
             select(ReleaseGate, GateType)
-            .outerjoin(GateType, GateType.id == ReleaseGate.gate_type_id)
+            .outerjoin(
+                GateType,
+                (GateType.id == ReleaseGate.gate_type_id)
+                # Defence in depth, per M3 in the C2 final review: the id
+                # itself only ever gets here through _validate_gate_type_id,
+                # which already refuses a cross-tenant type at write time, so
+                # no test can currently make this clause the difference
+                # between pass and fail — it is a second lock on a door the
+                # write path's own guard already keeps shut, in the house
+                # convention every tenant-scoped join here follows anyway.
+                & (GateType.tenant_id == tenant_id),
+            )
             .where(
                 ReleaseGate.release_id == release_id,
                 ReleaseGate.tenant_id == tenant_id,

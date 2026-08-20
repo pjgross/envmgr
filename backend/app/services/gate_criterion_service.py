@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import publish_event
 from app.db.models.gate_criterion import GateCriterion
 from app.db.models.release_gate import ReleaseGate
+from app.db.models.user import User
 from app.api.v1.schemas.gate_criterion import GateCriterionCreate, GateCriterionUpdate
 
 
@@ -85,6 +86,68 @@ async def list_overdue_for_release(
         )
     ).all()
     return [(c, g) for c, g in rows]
+
+
+async def criteria_reads_for_gates(
+    db: AsyncSession, tenant_id: int, gate_ids: list[int]
+) -> dict[int, list[dict]]:
+    """Wire-shaped criteria for a set of gates, keyed by gate_id — ONCE PER
+    RESPONSE, never once per gate and never once per row for the assignee
+    username lookup.
+
+    SHARED by list_gates (a page of gates) and gate_read_with_waiver (one
+    gate fresh from create/update/pass/fail/override) so a single-gate
+    endpoint's `criteria` can never diverge from what the list endpoint
+    would have shown for the same gate — see I3 in the C2 final review:
+    `model_validate(gate)` alone leaves `criteria: []` because `ReleaseGate`
+    carries no such attribute, exactly the trap that already existed for
+    `waiver`.
+    """
+    if not gate_ids:
+        return {}
+    crit_rows = (
+        await db.execute(
+            select(GateCriterion).where(
+                GateCriterion.gate_id.in_(gate_ids),
+                GateCriterion.tenant_id == tenant_id,
+                GateCriterion.deleted_at.is_(None),
+            ).order_by(GateCriterion.id)
+        )
+    ).scalars().all()
+
+    assignee_ids = {c.assigned_to_user_id for c in crit_rows if c.assigned_to_user_id is not None}
+    username_by_id: dict[int, str] = {}
+    if assignee_ids:
+        user_rows = (
+            await db.execute(select(User.id, User.username).where(User.id.in_(assignee_ids)))
+        ).all()
+        username_by_id = {row.id: row.username for row in user_rows}
+
+    by_gate: dict[int, list[dict]] = {gid: [] for gid in gate_ids}
+    for c in crit_rows:
+        by_gate[c.gate_id].append({
+            "id": c.id, "gate_id": c.gate_id, "title": c.title, "notes": c.notes,
+            "assigned_to_user_id": c.assigned_to_user_id,
+            "assigned_role": c.assigned_role,
+            "assigned_to_username": username_by_id.get(c.assigned_to_user_id) if c.assigned_to_user_id else None,
+            "status": c.status,
+            "completed_at": c.completed_at, "completed_by_user_id": c.completed_by_user_id,
+            "created_at": c.created_at, "updated_at": c.updated_at,
+        })
+    return by_gate
+
+
+def overdue_count(gate: ReleaseGate, criteria: list[dict], now: datetime) -> int:
+    """N for a gate whose due_date < now (count of its OPEN criteria in the
+    already-fetched `criteria` list), 0 otherwise. Shares the criteria list
+    `criteria_reads_for_gates` already fetched rather than re-querying —
+    same reason that function exists."""
+    due = gate.due_date
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    if due >= now:
+        return 0
+    return sum(1 for c in criteria if c["status"] == "open")
 
 
 async def create_criterion(

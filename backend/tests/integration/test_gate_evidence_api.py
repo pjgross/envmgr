@@ -231,6 +231,40 @@ async def test_a_non_admin_member_can_delete_evidence_over_http(client, member_h
 
 
 @pytest.mark.asyncio
+async def test_posting_evidence_for_an_already_superseded_deployment_is_stale_immediately(
+    client, auth_headers, db_session, test_tenant, gate
+):
+    """Deferred minor folded into I2: the superseding deployment already
+    exists BEFORE the evidence citing the superseded one is even created —
+    e.g. someone adding paperwork after the fact for an earlier deploy. Must
+    read is_stale=true on the very first response, not just after a later
+    deployment arrives (that path is test_is_stale_travels_over_the_wire,
+    below)."""
+    env = await ensure_environment(db_session, test_tenant.id)
+    superseded = await ensure_deployment(
+        db_session, test_tenant.id, env.id,
+        deployed_at=datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc), status="success",
+    )
+    # The superseding deployment already exists at POST time.
+    await ensure_deployment(
+        db_session, test_tenant.id, env.id,
+        deployed_at=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc), status="success",
+    )
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/api/v1/gates/{gate.id}/evidence",
+        json={
+            "kind": "Deployment record", "label": "Late paperwork for an old deploy",
+            "url": None, "deployment_id": superseded.id,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["is_stale"] is True
+
+
+@pytest.mark.asyncio
 async def test_is_stale_travels_over_the_wire(
     client, auth_headers, db_session, test_tenant, gate
 ):
