@@ -458,3 +458,123 @@ async def test_strictness_ladder_end_to_end_via_readiness_evaluate(db_session, t
     )
     assert "Test execution report" in uat_warning.detail
     assert "Defect summary" in uat_warning.detail
+
+
+# ── The set-based grandfather carve-out on template UPDATE ──────────────────
+#
+# ReleaseTemplateForm.tsx sends the WHOLE gates array on every save (create
+# and update share one submit path, no dirty-tracking), so once any gate on
+# a template carries a gate_type_id, an admin editing something unrelated —
+# a due date, a name — re-sends that gate_type_id every time. Without a
+# carve-out, archiving that type later makes the template permanently
+# unsavable. Task 6b already carved this out on the sibling single-gate
+# path; these tests hold the template path to the same standard.
+
+@pytest.mark.asyncio
+async def test_archived_gate_type_unchanged_in_reordered_gates_list_is_grandfathered(
+    db_session, tenant, user
+):
+    gate_type = await _make_gate_type(db_session, tenant.id, name="Will Be Archived")
+    other_type = await _make_gate_type(db_session, tenant.id, name="Untouched")
+
+    tpl_data = _make_create_data(
+        phases=[],
+        gates=[
+            ReleaseTemplateGate(
+                name="A Gate", phase_name=None,
+                acceptance_criteria=None, gate_type_id=gate_type.id,
+            ),
+            ReleaseTemplateGate(
+                name="B Gate", phase_name=None,
+                acceptance_criteria=None, gate_type_id=other_type.id,
+            ),
+        ],
+    )
+    tpl = await release_template_service.create_template(db_session, tpl_data, tenant.id)
+
+    # Archived some time later.
+    await gate_type_service.delete_type(db_session, gate_type.id, tenant.id)
+
+    # Re-save: whole gates array re-sent, REORDERED (B first, A second) and
+    # with an unrelated field (name) changed — exactly what the real form
+    # does on every submit. Must NOT 404 — proves the carve-out is set-based,
+    # not positional.
+    updated = await release_template_service.update_template(
+        db_session, tpl.id,
+        ReleaseTemplateUpdate(
+            name="Renamed Template",
+            gates=[
+                ReleaseTemplateGate(
+                    name="B Gate", phase_name=None,
+                    acceptance_criteria=None, gate_type_id=other_type.id,
+                ),
+                ReleaseTemplateGate(
+                    name="A Gate", phase_name=None,
+                    acceptance_criteria=None, gate_type_id=gate_type.id,
+                ),
+            ],
+        ),
+        tenant.id,
+    )
+    assert updated.name == "Renamed Template"
+    saved_ids = {g["gate_type_id"] for g in updated.gates}
+    assert gate_type.id in saved_ids
+    assert other_type.id in saved_ids
+
+
+@pytest.mark.asyncio
+async def test_archived_gate_type_assigned_to_a_template_that_never_referenced_it_still_refused(
+    db_session, tenant, user
+):
+    """The carve-out is scoped to a template's OWN stored gates. A type
+    archived after being referenced by template A is not grandfathered on
+    template B, which never referenced it before this save — that's a
+    genuinely new assignment and must still 404."""
+    from fastapi import HTTPException
+
+    gate_type = await _make_gate_type(db_session, tenant.id, name="Will Be Archived Too")
+
+    # Template A references the type (so it exists, live, at save time)...
+    tpl_a_data = _make_create_data(
+        phases=[],
+        gates=[
+            ReleaseTemplateGate(
+                name="A Gate", phase_name=None,
+                acceptance_criteria=None, gate_type_id=gate_type.id,
+            ),
+        ],
+    )
+    await release_template_service.create_template(db_session, tpl_a_data, tenant.id)
+
+    # ...then it's archived.
+    await gate_type_service.delete_type(db_session, gate_type.id, tenant.id)
+
+    # Template B never referenced it. Assigning it now, after archival, on
+    # an unrelated template must be refused — the carve-out does not leak
+    # across templates.
+    tpl_b = await release_template_service.create_template(
+        db_session,
+        _make_create_data(
+            phases=[],
+            gates=[
+                ReleaseTemplateGate(
+                    name="B Gate", phase_name=None,
+                    acceptance_criteria=None, gate_type_id=None,
+                ),
+            ],
+        ),
+        tenant.id,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await release_template_service.update_template(
+            db_session, tpl_b.id,
+            ReleaseTemplateUpdate(gates=[
+                ReleaseTemplateGate(
+                    name="B Gate", phase_name=None,
+                    acceptance_criteria=None, gate_type_id=gate_type.id,
+                ),
+            ]),
+            tenant.id,
+        )
+    assert exc_info.value.status_code == 404

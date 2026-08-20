@@ -49,31 +49,50 @@ async def _validate_template_gate_types(
     db: AsyncSession,
     tenant_id: int,
     gates: list[ReleaseTemplateGate],
+    *,
+    grandfathered_ids: frozenset[int] = frozenset(),
 ) -> None:
-    """Every gate config naming a gate_type_id must resolve to a live,
+    """Every gate config naming a NEW gate_type_id must resolve to a live,
     in-tenant GateType at SAVE time — a cross-tenant (or unknown) id is a
     404 here, not a surprise the day a release is created from the template.
 
-    Deliberately checks liveness (deleted_at IS NULL) at save time, same as
-    _validate_gate_type_id's "new assignment" branch elsewhere — but this is
-    the ONLY place that check happens. Materialisation (instantiate(), below)
-    does NOT repeat it: a type that was live when the template was saved and
-    has since been archived must still materialise, per the design's
-    read-rendering rule (an archived gate type still renders its name).
+    `grandfathered_ids` is the set-based carve-out (Task 6b's
+    _validate_gate_type_id "unchanged value" rule, generalised to a whole
+    list rather than one field): any id already present anywhere in the
+    template's STORED gates before this save is accepted even if it has
+    since been archived, regardless of which gate config it appears on now,
+    what order the list is in, or whether unrelated fields (a due date, a
+    name) are the only thing actually changing. The caller (update_template)
+    computes it from `tpl.gates` BEFORE the incoming data overwrites it.
+    Deliberately set-based, not positional — the sibling single-gate path
+    can key an "unchanged" comparison on one field because it has one
+    stored value to compare against; a template's gate list has no stable
+    per-gate identity (no id, no key) to match old-position to new-position
+    by, and ReleaseTemplateForm.tsx sends the WHOLE gates array on every
+    save with no dirty-tracking, so a positional or "did this exact index
+    change" comparison would misfire the moment an admin reorders gates.
+
+    Only a genuinely NEW id (introduced now, not seen in the stored gates
+    before this save) must resolve to a live, in-tenant type. Materialisation
+    (instantiate(), below) does not repeat either check: a type that was
+    live when the template was saved and has since been archived must still
+    materialise, per the design's read-rendering rule (an archived gate type
+    still renders its name).
     """
     ids = {g.gate_type_id for g in gates if g.gate_type_id is not None}
-    if not ids:
+    new_ids = ids - grandfathered_ids
+    if not new_ids:
         return
     found = (
         await db.execute(
             select(GateType.id).where(
-                GateType.id.in_(ids),
+                GateType.id.in_(new_ids),
                 GateType.tenant_id == tenant_id,
                 GateType.deleted_at.is_(None),
             )
         )
     ).scalars().all()
-    missing = ids - set(found)
+    missing = new_ids - set(found)
     if missing:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
@@ -146,7 +165,20 @@ async def update_template(
     tpl = await _get_template(db, template_id, tenant_id)
 
     if data.gates is not None:
-        await _validate_template_gate_types(db, tenant_id, data.gates)
+        # Grandfather set: every gate_type_id already sitting in the STORED
+        # gates, read BEFORE the incoming data overwrites tpl.gates below.
+        # tpl.gates holds plain dicts (serialised at the last save), so
+        # .get() — a pre-6c-stored template's gate configs have no key at
+        # all. See _validate_template_gate_types' docstring for why this is
+        # set-based rather than positional.
+        stored_ids = frozenset(
+            gc.get("gate_type_id")
+            for gc in (tpl.gates or [])
+            if isinstance(gc, dict) and gc.get("gate_type_id") is not None
+        )
+        await _validate_template_gate_types(
+            db, tenant_id, data.gates, grandfathered_ids=stored_ids,
+        )
 
     update_data = data.model_dump(exclude_unset=True)
     # Serialise nested schemas to plain dicts if present
