@@ -205,3 +205,24 @@ async def test_evidence_for_a_gate_in_another_tenant_is_404(
 
     resp = await client.get(f"/api/v1/gates/{other_gate.id}/evidence", headers=auth_headers)
     assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_a_non_admin_member_can_delete_evidence_over_http(client, member_headers, gate):
+    """Deletion is soft and open to any tenant member, same as add/list —
+    not Admin-gated."""
+    created = await client.post(
+        f"/api/v1/gates/{gate.id}/evidence",
+        json={"kind": "Runbook", "label": "Member-added", "url": None},
+        headers=member_headers,
+    )
+    assert created.status_code == 201, created.text
+    evidence_id = created.json()["id"]
+
+    deleted = await client.delete(
+        f"/api/v1/gates/evidence/{evidence_id}", headers=member_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    listed = await client.get(f"/api/v1/gates/{gate.id}/evidence", headers=member_headers)
+    assert listed.json() == []

@@ -5,6 +5,7 @@ import pytest_asyncio
 from fastapi import HTTPException
 
 from app.api.v1.schemas.gate_evidence import GateEvidenceCreate
+from app.db.models.gate_evidence import GateEvidence
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
@@ -184,3 +185,92 @@ async def test_evidence_for_gates_is_one_query_batched_by_gate(
     )
     assert len(grouped[gate.id]) == 1
     assert grouped[other_gate_id] == []
+
+
+@pytest.mark.asyncio
+async def test_evidence_for_gates_does_not_leak_another_tenants_evidence(
+    db_session, test_tenant, test_user, gate, second_tenant_factory
+):
+    """evidence_for_gates' tenant filter is its ONLY isolation guard — unlike
+    list_evidence/add_evidence/delete_evidence, there is no get_gate
+    precursor to 404 a cross-tenant caller first. Proven by mutation: this
+    test fails if `GateEvidence.tenant_id == tenant_id` is removed from the
+    query, because gate_id.in_(gate_ids) alone would still match tenant B's
+    row."""
+    await gate_evidence_service.add_evidence(
+        db_session, gate.id, test_tenant.id, test_user.id,
+        GateEvidenceCreate(kind="Runbook", label="Tenant A's evidence", url=None),
+    )
+
+    other_tenant, other_admin = await second_tenant_factory()
+    other_template = LifecycleTemplate(
+        tenant_id=other_tenant.id,
+        entity_type="release",
+        name="Other Major",
+        is_default=True,
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+            ],
+            "transitions": [],
+            "field_permissions": {},
+        },
+    )
+    db_session.add(other_template)
+    await db_session.flush()
+    other_release = Release(
+        tenant_id=other_tenant.id,
+        name="Other R",
+        release_type="Major",
+        lifecycle_template_id=other_template.id,
+        raised_by=other_admin.id,
+    )
+    db_session.add(other_release)
+    await db_session.flush()
+    other_gate = ReleaseGate(
+        tenant_id=other_tenant.id,
+        release_id=other_release.id,
+        name="Other Gate",
+        due_date=datetime.now(timezone.utc) + timedelta(days=7),
+    )
+    db_session.add(other_gate)
+    await db_session.flush()
+
+    await gate_evidence_service.add_evidence(
+        db_session, other_gate.id, other_tenant.id, other_admin.id,
+        GateEvidenceCreate(kind="Runbook", label="Tenant B's evidence", url=None),
+    )
+
+    grouped = await gate_evidence_service.evidence_for_gates(
+        db_session, test_tenant.id, [gate.id, other_gate.id]
+    )
+    assert [row.label for row in grouped[gate.id]] == ["Tenant A's evidence"]
+    assert grouped[other_gate.id] == []
+
+
+@pytest.mark.asyncio
+async def test_list_evidence_does_not_return_a_row_with_a_mismatched_tenant_id(
+    db_session, test_tenant, test_user, gate, second_tenant_factory
+):
+    """list_evidence's own tenant filter, isolated from get_gate's 404. A
+    legitimate write can never produce a GateEvidence row whose tenant_id
+    disagrees with its gate's tenant (add_evidence's get_gate call sees to
+    that) — so this inserts the row directly, simulating corrupted data or a
+    second write path that skips validation, to exercise the query's filter
+    on its own. Proven by mutation: fails if
+    `GateEvidence.tenant_id == tenant_id` is removed from list_evidence's
+    query, since gate_id == gate.id alone would still match this row."""
+    other_tenant, _other_admin = await second_tenant_factory()
+
+    mismatched = GateEvidence(
+        tenant_id=other_tenant.id,  # deliberately NOT test_tenant.id
+        gate_id=gate.id,  # but points at test_tenant's own gate
+        kind="Runbook",
+        label="Should never be returned",
+        added_by=test_user.id,
+    )
+    db_session.add(mismatched)
+    await db_session.flush()
+
+    rows = await gate_evidence_service.list_evidence(db_session, gate.id, test_tenant.id)
+    assert [r.label for r in rows] == []
