@@ -246,3 +246,49 @@ async def test_latest_waivers_for_gates_is_called_once_for_a_multi_gate_page(
     assert len(listed.json()) == 3
     assert all(row["waiver"] is not None for row in listed.json())
     assert call_count == 1, "latest_waivers_for_gates must be called once per page, not once per gate"
+
+
+@pytest.mark.asyncio
+async def test_updating_an_overridden_gate_does_not_blank_its_waiver(
+    client, auth_headers, gate, test_user,
+):
+    """Review finding on task 10c: PUT /gates/{id} returned the bare ORM
+    object, so model_validate(gate) alone silently rendered `waiver: null`
+    for a gate that was already overridden and stayed overridden — even
+    though GatesTable's gate-type Select is deliberately enabled on an
+    overridden gate (see gateTypeAndReadiness.test.tsx), and
+    updateGate.fulfilled does a full-row Redux replace. Renaming or
+    retyping an overridden gate must not make its waiver (and in
+    particular an EXPIRED waiver's distinct state) disappear from the
+    response until something else triggers a refetch.
+    """
+    far_future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    override = await client.post(
+        f"/api/v1/gates/{gate.id}/override",
+        json={
+            "notes": "Accepted risk",
+            "expires_at": far_future,
+            "remediation": "Will fix next sprint",
+        },
+        headers=auth_headers,
+    )
+    assert override.status_code == 200, override.text
+    assert override.json()["waiver"] is not None
+
+    updated = await client.put(
+        f"/api/v1/gates/{gate.id}",
+        json={"name": "SIT Exit (renamed)"},
+        headers=auth_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["name"] == "SIT Exit (renamed)"
+    assert body["status"] == "overridden"
+    waiver = body["waiver"]
+    assert waiver is not None, (
+        "PUT /gates/{id} must carry the same waiver the gate had before the "
+        "update — model_validate(gate) alone silently drops it"
+    )
+    assert waiver["state"] == "live"
+    assert waiver["remediation"] == "Will fix next sprint"
+    assert waiver["approved_by_user_id"] == test_user.id

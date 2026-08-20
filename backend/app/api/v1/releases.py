@@ -43,7 +43,6 @@ from app.services import (
     project_service,
     gate_evidence_service,
     gate_readiness_service,
-    gate_waiver_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -774,7 +773,12 @@ async def create_gate(
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    return await release_gate_service.create_gate(db, release_id, data, tenant_id)
+    gate = await release_gate_service.create_gate(db, release_id, data, tenant_id)
+    # A new gate always starts "pending" (never carries a waiver), but goes
+    # through the same shared helper as every other gate-returning endpoint
+    # so there is exactly one place that knows how to shape this response —
+    # see gate_read_with_waiver's own docstring.
+    return await release_gate_service.gate_read_with_waiver(db, tenant_id, gate)
 
 
 @gates_router.put("/{gate_id}", response_model=ReleaseGateRead)
@@ -784,7 +788,15 @@ async def update_gate(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await release_gate_service.update_gate(db, gate_id, data, current_user.active_tenant_id)
+    tenant_id = current_user.active_tenant_id
+    gate = await release_gate_service.update_gate(db, gate_id, data, tenant_id)
+    # Task 10c review finding: a rename/type-change on an ALREADY-overridden
+    # gate left `status` unchanged but model_validate(gate) alone silently
+    # nulled `waiver` — undermining the "expired waiver stays visibly
+    # distinct" requirement for exactly as long as it took the page to
+    # refetch. gate_read_with_waiver re-attaches it here the same way
+    # override_gate's own response does.
+    return await release_gate_service.gate_read_with_waiver(db, tenant_id, gate)
 
 
 @gates_router.delete("/{gate_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -803,9 +815,14 @@ async def pass_gate(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await release_gate_service.pass_gate(
-        db, gate_id, data.notes, current_user.active_tenant_id, current_user.id
+    tenant_id = current_user.active_tenant_id
+    gate = await release_gate_service.pass_gate(
+        db, gate_id, data.notes, tenant_id, current_user.id
     )
+    # pass_gate always moves status OFF "overridden", so this is a no-op
+    # query-wise today — kept for the same reason create_gate now goes
+    # through it too: one shared site, not one that's "usually" right.
+    return await release_gate_service.gate_read_with_waiver(db, tenant_id, gate)
 
 
 @gates_router.post("/{gate_id}/fail", response_model=ReleaseGateRead)
@@ -815,9 +832,12 @@ async def fail_gate(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await release_gate_service.fail_gate(
-        db, gate_id, data.notes, current_user.active_tenant_id, current_user.id
+    tenant_id = current_user.active_tenant_id
+    gate = await release_gate_service.fail_gate(
+        db, gate_id, data.notes, tenant_id, current_user.id
     )
+    # Same no-op-today, shared-site reasoning as pass_gate above.
+    return await release_gate_service.gate_read_with_waiver(db, tenant_id, gate)
 
 
 @gates_router.post("/{gate_id}/override", response_model=ReleaseGateRead)
@@ -838,11 +858,12 @@ async def override_gate(
     # null` — a ReleaseGate ORM row has no such attribute, and an optional
     # field with a default fills in quietly rather than raising (the exact
     # trap A1 shipped once already). The waiver we just wrote must not go
-    # missing from the response that reports it.
-    result = ReleaseGateRead.model_validate(gate)
-    waiver_reads = await gate_waiver_service.waiver_reads_for_gates(db, tenant_id, [gate.id])
-    result.waiver = waiver_reads.get(gate.id)
-    return result
+    # missing from the response that reports it. gate_read_with_waiver is
+    # the SHARED site every gate-returning endpoint uses for this now, so
+    # this and update_gate's fix can't drift apart the way they did before
+    # the review caught update_gate's copy of this comment sitting
+    # unattached to any actual enrichment.
+    return await release_gate_service.gate_read_with_waiver(db, tenant_id, gate)
 
 
 # ── Gate evidence ─────────────────────────────────────────────────────────────

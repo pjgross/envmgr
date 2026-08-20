@@ -16,7 +16,7 @@ from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
 from app.db.models.gate_waiver import GateWaiver
 from app.db.models.test_phase import TestPhase
-from app.api.v1.schemas.release_gate import ReleaseGateCreate, ReleaseGateUpdate
+from app.api.v1.schemas.release_gate import ReleaseGateCreate, ReleaseGateRead, ReleaseGateUpdate
 from app.services import gate_waiver_service
 
 
@@ -234,6 +234,35 @@ async def list_gates(
         }
         for g in gate_rows
     ]
+
+
+async def gate_read_with_waiver(
+    db: AsyncSession, tenant_id: int, gate: ReleaseGate
+) -> ReleaseGateRead:
+    """Build a ReleaseGateRead for ONE gate fresh from a service call
+    (create/update/pass/fail/override), with `waiver` enriched exactly the
+    way list_gates enriches it — the SHARED site both paths call, so there
+    is only one place that knows how to attach a waiver to a gate response.
+
+    `model_validate(gate)` alone would silently leave `waiver: None` (the
+    field's default) for every caller, including one that just wrote a live
+    waiver moments ago (override_gate) or that left an existing overridden
+    gate's waiver untouched (update_gate) — a ReleaseGate ORM row carries no
+    `waiver` attribute at all, so Pydantic never raises, it just defaults.
+    See CLAUDE.md's note on this exact trap from A1.
+
+    Only queries when `gate.status == "overridden"` — mirrors list_gates'
+    own restriction, and keeps every other transition (create/pass/fail,
+    and an update that doesn't touch an overridden gate) to zero extra
+    queries, exactly as the default already gave them for free.
+    """
+    result = ReleaseGateRead.model_validate(gate)
+    if gate.status == "overridden":
+        waiver_reads = await gate_waiver_service.waiver_reads_for_gates(
+            db, tenant_id, [gate.id]
+        )
+        result.waiver = waiver_reads.get(gate.id)
+    return result
 
 
 async def create_gate(
