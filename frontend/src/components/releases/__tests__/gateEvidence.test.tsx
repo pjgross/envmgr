@@ -4,7 +4,7 @@
  * gateTypeAndReadiness.test.tsx and deliberately not repeated here.
  */
 import { configureStore } from '@reduxjs/toolkit';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { AxiosError } from 'axios';
@@ -84,14 +84,39 @@ const GATE_PENDING: ReleaseGateResponse = {
   test_phase_id: null,
   criteria: [],
   overdue_criterion_count: 0,
+  waiver: null,
 };
 
+// Overridden, but predates C2's waiver tracking — no GateWaiver row, so
+// `waiver` stays null even though status is 'overridden'. Exercises the
+// dishonest-fallback path WaiverDialog keeps for exactly this case.
 const GATE_OVERRIDDEN: ReleaseGateResponse = {
   ...GATE_PENDING,
   status: 'overridden',
   decided_by: 7,
   decided_at: '2026-08-01T00:00:00Z',
   decision_notes: 'Known issue, ticket ENV-123 tracks the fix.',
+};
+
+const LIVE_WAIVER = {
+  id: 1,
+  reason: 'Accepted risk pending fix',
+  approved_by_user_id: 7,
+  approved_by_username: 'alice',
+  expires_at: '2026-12-31T00:00:00Z',
+  remediation: 'Fix tracked in ENV-124',
+  created_at: '2026-08-01T00:00:00Z',
+  state: 'live' as const,
+};
+
+const GATE_OVERRIDDEN_WITH_LIVE_WAIVER: ReleaseGateResponse = {
+  ...GATE_OVERRIDDEN,
+  waiver: LIVE_WAIVER,
+};
+
+const GATE_OVERRIDDEN_WITH_EXPIRED_WAIVER: ReleaseGateResponse = {
+  ...GATE_OVERRIDDEN,
+  waiver: { ...LIVE_WAIVER, id: 2, expires_at: '2026-01-01T00:00:00Z', state: 'expired' as const },
 };
 
 describe('GateEvidenceList', () => {
@@ -388,5 +413,44 @@ describe('WaiverDialog', () => {
 
     expect(await screen.findByDisplayValue(/different reason entirely/i)).toBeInTheDocument();
     expect(screen.queryByDisplayValue(/known issue, ticket env-123/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the REAL waiver — approver, expiry and remediation — when the gate carries one (task 10c)', () => {
+    renderDialog(GATE_OVERRIDDEN_WITH_LIVE_WAIVER);
+
+    // Approver: the server-resolved username, not a guess from the local
+    // `users` list (passed here as [] to prove it isn't needed).
+    expect(screen.getByText(/approved by alice/i)).toBeInTheDocument();
+    expect(screen.getByText(/accepted risk pending fix/i)).toBeInTheDocument();
+    // Remediation has no home anywhere else in the UI before this task.
+    expect(screen.getByText(/fix tracked in env-124/i)).toBeInTheDocument();
+    // Expiry, via the shared WaiverChip.
+    expect(screen.getByText(/expires/i)).toBeInTheDocument();
+    // The dishonest fallback panel must not also render.
+    expect(screen.queryByText(/no waiver record/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the dishonest-fallback panel only when the gate has no waiver record', () => {
+    renderDialog(GATE_OVERRIDDEN);
+
+    expect(screen.getByText(/currently overridden — no waiver record/i)).toBeInTheDocument();
+    expect(screen.getByText(/predates waiver tracking/i)).toBeInTheDocument();
+  });
+
+  it('an expired waiver is visibly distinct from a live one', () => {
+    renderDialog(GATE_OVERRIDDEN_WITH_LIVE_WAIVER);
+    expect(screen.getByText(/currently overridden/i)).toBeInTheDocument();
+    expect(screen.queryByText(/waiver expired/i)).not.toBeInTheDocument();
+    // The live chip must not read as expired.
+    expect(screen.getByText(/^expires /i)).toBeInTheDocument();
+    cleanup();
+
+    renderDialog(GATE_OVERRIDDEN_WITH_EXPIRED_WAIVER);
+    // Distinct heading AND a distinct chip label — not just a colour swap
+    // nothing in the DOM text would let a test (or an assistive tech user)
+    // tell apart.
+    expect(screen.getByText(/waiver expired — unmet again/i)).toBeInTheDocument();
+    expect(screen.getByText(/^expired /i)).toBeInTheDocument();
+    expect(screen.queryByText(/^currently overridden$/i)).not.toBeInTheDocument();
   });
 });

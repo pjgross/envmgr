@@ -43,6 +43,7 @@ from app.services import (
     project_service,
     gate_evidence_service,
     gate_readiness_service,
+    gate_waiver_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -826,12 +827,22 @@ async def override_gate(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await release_gate_service.override_gate(
-        db, gate_id, data.notes, current_user.active_tenant_id, current_user.id,
+    tenant_id = current_user.active_tenant_id
+    gate = await release_gate_service.override_gate(
+        db, gate_id, data.notes, tenant_id, current_user.id,
         expires_at=data.expires_at,
         remediation=data.remediation,
         approved_by_user_id=data.approved_by_user_id,
     )
+    # Task 10c: model_validate(gate) alone would silently render `waiver:
+    # null` — a ReleaseGate ORM row has no such attribute, and an optional
+    # field with a default fills in quietly rather than raising (the exact
+    # trap A1 shipped once already). The waiver we just wrote must not go
+    # missing from the response that reports it.
+    result = ReleaseGateRead.model_validate(gate)
+    waiver_reads = await gate_waiver_service.waiver_reads_for_gates(db, tenant_id, [gate.id])
+    result.waiver = waiver_reads.get(gate.id)
+    return result
 
 
 # ── Gate evidence ─────────────────────────────────────────────────────────────

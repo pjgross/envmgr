@@ -17,6 +17,7 @@ from app.db.models.release_event import ReleaseEvent, ReleaseEventType
 from app.db.models.gate_waiver import GateWaiver
 from app.db.models.test_phase import TestPhase
 from app.api.v1.schemas.release_gate import ReleaseGateCreate, ReleaseGateUpdate
+from app.services import gate_waiver_service
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
@@ -190,6 +191,15 @@ async def list_gates(
         username_by_id = {row.id: row.username for row in user_rows}
 
     now = datetime.now(timezone.utc)
+
+    # Task 10c — the current waiver per gate, batched ONCE for the whole
+    # page (never one query per row). Only `overridden` gates can carry one;
+    # asking for the rest would just cost queries for a result nothing uses.
+    overridden_gate_ids = [g.id for g in gate_rows if g.status == "overridden"]
+    waiver_reads = await gate_waiver_service.waiver_reads_for_gates(
+        db, tenant_id, overridden_gate_ids, now=now
+    )
+
     open_counts: dict[int, int] = {gid: 0 for gid in gate_ids}
     by_gate: dict[int, list[dict]] = {gid: [] for gid in gate_ids}
     for c in crit_rows:
@@ -220,6 +230,7 @@ async def list_gates(
             "gate_type_id": g.gate_type_id, "test_phase_id": g.test_phase_id,
             "criteria": by_gate[g.id],
             "overdue_criterion_count": _overdue(g),
+            "waiver": waiver_reads.get(g.id),
         }
         for g in gate_rows
     ]

@@ -1,4 +1,5 @@
 import type { GateCriterion } from './gateCriterion';
+import type { GateWaiverResponse } from './gateWaiver';
 
 export type ReleaseStatus = string;
 export type ReleaseKind = 'project' | 'enterprise';
@@ -80,6 +81,15 @@ export interface ReleaseGateResponse {
   test_phase_id: number | null;
   criteria: GateCriterion[];
   overdue_criterion_count: number;
+  /**
+   * Task 10c. Populated only for an `overridden` gate — the current waiver
+   * for it, or null (no waiver record at all: a pending/passed/failed gate,
+   * or a gate overridden before C2 shipped waiver tracking). Required, no
+   * default — a fixture or construction site that forgets it is a compile
+   * error, not a silently-null field (see GateWaiverRead's own docstring on
+   * the backend for the construction-site trap this guards against).
+   */
+  waiver: GateWaiverResponse | null;
 }
 
 export interface ReleaseSystemResponse {

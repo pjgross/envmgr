@@ -4,15 +4,15 @@
  * notes); approver and expiry are optional, and an empty expiry is a
  * legitimate PERMANENT waiver, not a missing value.
  *
- * There is no `GET .../waiver` endpoint (see `backend/app/services/
- * gate_waiver_service.py` — the current waiver is only ever read back
- * through the readiness verdict's summarised text, batched for a whole
- * page). So "show an existing waiver" here means what this view genuinely
- * has: the gate's own decision fields (`decision_notes`, `decided_by`,
- * `decided_at`) when the gate is already `overridden` — not a re-read of
- * the waiver row's approver/expiry, which this page cannot fetch. Submitting
- * again always records a NEW waiver row (the backend's own model: rows
- * accumulate as history, nothing is overwritten).
+ * Task 10c added a real `GET .../gates` waiver read (`gate.waiver`, see
+ * `backend/app/api/v1/schemas/release_gate.py`'s `GateWaiverRead`), so
+ * "show an existing waiver" now means the REAL thing — approver, expiry
+ * (with its live/expired state, computed server-side), and remediation —
+ * not the dishonest fallback (the gate's own `decision_notes`/`decided_by`)
+ * task 10b shipped because no read path existed yet. That fallback is kept
+ * for exactly one case: a gate overridden before C2 shipped waiver
+ * tracking, which has no `GateWaiver` row at all (`gate.waiver === null`)
+ * even though `gate.status === 'overridden'`.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
@@ -130,10 +130,39 @@ export default function WaiverDialog({ open, onClose, releaseId, gate, users }: 
       <DialogTitle>Waive Gate — {gate.name}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
-          {gate.status === 'overridden' && (
+          {gate.status === 'overridden' && gate.waiver && (
+            <Alert severity={gate.waiver.state === 'expired' ? 'error' : 'info'}>
+              <Typography variant="body2" fontWeight="medium">
+                {gate.waiver.state === 'expired' ? 'Waiver expired — unmet again' : 'Currently overridden'}
+              </Typography>
+              <Typography variant="body2">
+                Approved by{' '}
+                {gate.waiver.approved_by_username ?? `user #${gate.waiver.approved_by_user_id}`}
+                {`: "${gate.waiver.reason}"`}
+              </Typography>
+              <Box sx={{ mt: 0.5, mb: 0.5 }}>
+                <WaiverChip expiresAt={gate.waiver.expires_at} state={gate.waiver.state} />
+              </Box>
+              {gate.waiver.remediation && (
+                <Typography variant="body2">
+                  <strong>Remediation:</strong> {gate.waiver.remediation}
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.secondary">
+                Submitting below records a new waiver.
+              </Typography>
+            </Alert>
+          )}
+
+          {/* A gate can be `overridden` with no GateWaiver row at all — one
+              overridden before C2 shipped waiver tracking. Say so honestly
+              rather than either hiding the override or fabricating a
+              waiver that doesn't exist; fall back to the gate's own
+              decision fields, the only record that predates this. */}
+          {gate.status === 'overridden' && !gate.waiver && (
             <Alert severity="info">
               <Typography variant="body2" fontWeight="medium">
-                Currently overridden
+                Currently overridden — no waiver record
               </Typography>
               <Typography variant="body2">
                 {previousOwner ? previousOwner.username : gate.decided_by ? `user #${gate.decided_by}` : 'someone'}
@@ -141,7 +170,8 @@ export default function WaiverDialog({ open, onClose, releaseId, gate, users }: 
                 {gate.decision_notes ? `: "${gate.decision_notes}"` : ''}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Submitting below records a new waiver.
+                This override predates waiver tracking, so there is no approver, expiry or
+                remediation on file for it. Submitting below records a new waiver.
               </Typography>
             </Alert>
           )}

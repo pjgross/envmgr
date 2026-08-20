@@ -98,6 +98,7 @@ const GATE: ReleaseGateResponse = {
   test_phase_id: null,
   criteria: [],
   overdue_criterion_count: 0,
+  waiver: null,
 };
 
 const GATE_TYPES: GateTypeResponse[] = [
@@ -203,6 +204,67 @@ describe('GatesTable — gate typing', () => {
     const combobox = await screen.findByRole('combobox', { name: /type for gate security gate/i });
     expect(combobox).toBeEnabled();
     expect(screen.getByRole('button', { name: /decide/i })).toBeEnabled();
+  });
+});
+
+// Task 10c — the waiver record is readable, not just written. WaiverDialog's
+// own rendering of approver/expiry/remediation is covered in
+// gateEvidence.test.tsx; this covers the GatesTable ROW: the status chip
+// must read as visibly distinct for an expired waiver (requirement: an
+// expired waiver must never look like a live one, since the readiness
+// verdict treats it as a blocker again), and the expand panel's Waiver
+// section must render for an overridden gate.
+describe('GatesTable — waiver rendering (task 10c)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(gateTypeService.listGateTypes).mockResolvedValue({ rows: GATE_TYPES, total: 2 });
+  });
+
+  const LIVE_WAIVER = {
+    id: 1,
+    reason: 'Accepted risk pending fix',
+    approved_by_user_id: 7,
+    approved_by_username: 'alice',
+    expires_at: '2026-12-31T00:00:00Z',
+    remediation: 'Fix tracked in ENV-124',
+    created_at: '2026-08-01T00:00:00Z',
+    state: 'live' as const,
+  };
+
+  it('shows a plain "overridden" chip for a live waiver', async () => {
+    renderGatesTable({ ...GATE, status: 'overridden', waiver: LIVE_WAIVER });
+
+    expect(await screen.findByText('overridden')).toBeInTheDocument();
+    expect(screen.queryByText(/overridden \(expired\)/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a distinct "overridden (expired)" chip for an expired waiver', async () => {
+    renderGatesTable({
+      ...GATE,
+      status: 'overridden',
+      waiver: { ...LIVE_WAIVER, id: 2, expires_at: '2026-01-01T00:00:00Z', state: 'expired' as const },
+    });
+
+    expect(await screen.findByText(/overridden \(expired\)/i)).toBeInTheDocument();
+    expect(screen.queryByText('overridden')).not.toBeInTheDocument();
+  });
+
+  it('renders approver, expiry and remediation in the expand panel', async () => {
+    renderGatesTable({ ...GATE, status: 'overridden', waiver: LIVE_WAIVER });
+
+    await userEvent.click(screen.getByRole('button', { name: /expand gate security gate/i }));
+
+    expect(await screen.findByText(/approved by alice/i)).toBeInTheDocument();
+    expect(screen.getByText(/fix tracked in env-124/i)).toBeInTheDocument();
+    expect(screen.getByText(/expires/i)).toBeInTheDocument();
+  });
+
+  it('the expand panel says so honestly when an overridden gate has no waiver record', async () => {
+    renderGatesTable({ ...GATE, status: 'overridden', waiver: null });
+
+    await userEvent.click(screen.getByRole('button', { name: /expand gate security gate/i }));
+
+    expect(await screen.findByText(/no waiver record/i)).toBeInTheDocument();
   });
 });
 

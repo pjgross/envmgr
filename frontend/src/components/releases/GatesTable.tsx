@@ -48,6 +48,7 @@ import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import GateDecisionDialog from './GateDecisionDialog';
 import WaiverDialog from './WaiverDialog';
+import WaiverChip from './WaiverChip';
 import GateEvidenceList from './GateEvidenceList';
 import AddEvidenceDialog from './AddEvidenceDialog';
 import CriterionRow from './CriterionRow';
@@ -393,11 +394,22 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                 />
 
                 {gate.status === 'overridden' ? (
-                  <Tooltip title="View the waiver">
+                  // An expired waiver must read as visibly distinct from a
+                  // live one — the readiness verdict treats it as a BLOCKER
+                  // again (waiver_expired), so a chip that still just says
+                  // "overridden" in the same info colour would contradict
+                  // the verdict right next to it.
+                  <Tooltip
+                    title={
+                      gate.waiver?.state === 'expired'
+                        ? 'Waiver expired — view the waiver'
+                        : 'View the waiver'
+                    }
+                  >
                     <Chip
                       size="small"
-                      label={gate.status}
-                      color={STATUS_COLORS[gate.status] ?? 'default'}
+                      label={gate.waiver?.state === 'expired' ? 'overridden (expired)' : gate.status}
+                      color={gate.waiver?.state === 'expired' ? 'error' : STATUS_COLORS[gate.status] ?? 'default'}
                       onClick={(e) => {
                         e.stopPropagation();
                         setWaiverGate(gate);
@@ -490,6 +502,55 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                       Add criterion
                     </Button>
                   </Box>
+
+                  {/* Waiver (task 10c) — same placement rule task 10b set
+                      for Evidence: inside the expand panel, not a seventh
+                      always-visible header control. Only rendered for an
+                      overridden gate; clicking through re-opens the same
+                      WaiverDialog the status chip already opens. */}
+                  {gate.status === 'overridden' && (
+                    <>
+                      <Divider />
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pl: 4, pr: 2, pt: 1, pb: 1 }}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
+                            Waiver
+                          </Typography>
+                          {gate.waiver ? (
+                            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                              <Typography variant="body2">
+                                Approved by{' '}
+                                {gate.waiver.approved_by_username ?? `user #${gate.waiver.approved_by_user_id}`}
+                                {`: "${gate.waiver.reason}"`}
+                              </Typography>
+                              <Box>
+                                <WaiverChip expiresAt={gate.waiver.expires_at} state={gate.waiver.state} />
+                              </Box>
+                              {gate.waiver.remediation && (
+                                <Typography variant="body2">
+                                  <strong>Remediation:</strong> {gate.waiver.remediation}
+                                </Typography>
+                              )}
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                              No waiver record (overridden before waiver tracking).
+                            </Typography>
+                          )}
+                        </Box>
+                        <Button
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setWaiverGate(gate);
+                            setWaiverOpen(true);
+                          }}
+                        >
+                          View waiver
+                        </Button>
+                      </Box>
+                    </>
+                  )}
 
                   {/* Evidence (task 10b) — kept inside the expand panel
                       rather than the header row, which was already dense
