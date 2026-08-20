@@ -801,7 +801,10 @@ async def override_gate(
     current_user=Depends(get_current_user),
 ):
     return await release_gate_service.override_gate(
-        db, gate_id, data.notes, current_user.active_tenant_id, current_user.id
+        db, gate_id, data.notes, current_user.active_tenant_id, current_user.id,
+        expires_at=data.expires_at,
+        remediation=data.remediation,
+        approved_by_user_id=data.approved_by_user_id,
     )
 
 

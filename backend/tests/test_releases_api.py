@@ -398,6 +398,103 @@ async def test_override_gate_success(client: AsyncClient, auth_headers, release)
 
 
 @pytest.mark.asyncio
+async def test_override_gate_waiver_fields_round_trip(
+    client: AsyncClient, auth_headers, release, test_tenant, db_session: AsyncSession,
+):
+    """A client-supplied expires_at/remediation must reach the stored waiver —
+    not be silently dropped by the route, which would turn a time-limited
+    waiver into a permanent one with a 200 and no error anywhere."""
+    from app.services import gate_waiver_service
+
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+    cr = await client.post(
+        f"/api/v1/releases/{release.id}/gates",
+        headers=auth_headers,
+        json={"name": "Time-limited Override", "due_date": _due},
+    )
+    gate_id = cr.json()["id"]
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    resp = await client.post(
+        f"/api/v1/gates/{gate_id}/override",
+        headers=auth_headers,
+        json={
+            "notes": "Accepted risk pending fix",
+            "expires_at": expires_at,
+            "remediation": "Patch will land next sprint",
+        },
+    )
+    assert resp.status_code == 200
+
+    waivers = await gate_waiver_service.latest_waivers_for_gates(
+        db_session, test_tenant.id, [gate_id]
+    )
+    waiver = waivers[gate_id]
+    assert waiver.remediation == "Patch will land next sprint"
+    assert waiver.expires_at is not None
+    assert waiver.expires_at.date() == datetime.fromisoformat(expires_at).date()
+
+
+@pytest.mark.asyncio
+async def test_override_gate_with_no_expiry_is_a_permanent_waiver(
+    client: AsyncClient, auth_headers, release, test_tenant, db_session: AsyncSession,
+):
+    """No expires_at in the request is the legitimate default: a permanent
+    waiver (expires_at IS NULL), not an error and not something the route
+    should invent a value for."""
+    from app.services import gate_waiver_service
+
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+    cr = await client.post(
+        f"/api/v1/releases/{release.id}/gates",
+        headers=auth_headers,
+        json={"name": "Permanent Override", "due_date": _due},
+    )
+    gate_id = cr.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/gates/{gate_id}/override",
+        headers=auth_headers,
+        json={"notes": "No fix planned, risk accepted indefinitely"},
+    )
+    assert resp.status_code == 200
+
+    waivers = await gate_waiver_service.latest_waivers_for_gates(
+        db_session, test_tenant.id, [gate_id]
+    )
+    assert waivers[gate_id].expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_override_gate_approved_by_defaults_to_acting_user(
+    client: AsyncClient, auth_headers, release, test_tenant, test_user, db_session: AsyncSession,
+):
+    """An omitted approved_by_user_id defaults to the caller — the person
+    submitting the override, not left null."""
+    from app.services import gate_waiver_service
+
+    _due = (datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+    cr = await client.post(
+        f"/api/v1/releases/{release.id}/gates",
+        headers=auth_headers,
+        json={"name": "Approver Default Gate", "due_date": _due},
+    )
+    gate_id = cr.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/gates/{gate_id}/override",
+        headers=auth_headers,
+        json={"notes": "Accepted by submitter"},
+    )
+    assert resp.status_code == 200
+
+    waivers = await gate_waiver_service.latest_waivers_for_gates(
+        db_session, test_tenant.id, [gate_id]
+    )
+    assert waivers[gate_id].approved_by_user_id == test_user.id
+
+
+@pytest.mark.asyncio
 async def test_gate_wrong_release_404(client: AsyncClient, auth_headers):
     resp = await client.get("/api/v1/releases/99999/gates", headers=auth_headers)
     assert resp.status_code == 404
