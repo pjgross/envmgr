@@ -7,13 +7,26 @@ from app.api.v1.schemas.gate_criterion import GateCriterionRead
 
 
 class ReleaseGateCreate(BaseModel):
+    # extra="forbid" so a typo'd key (e.g. gateTypeId) is a 422 rather than a
+    # silent drop — the POST /projects class of bug, and the exact shape of
+    # the hole this schema is being extended to close.
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(..., max_length=150)
     due_date: datetime
+    gate_type_id: Optional[int] = None
+    test_phase_id: Optional[int] = None
 
 
 class ReleaseGateUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(None, max_length=150)
     due_date: Optional[datetime] = None
+    # Both keyed on model_fields_set by the service: an OMITTED key means
+    # "leave alone", only an explicit null clears it. See update_gate.
+    gate_type_id: Optional[int] = None
+    test_phase_id: Optional[int] = None
 
 
 class ReleaseGateDecision(BaseModel):
@@ -38,5 +51,7 @@ class ReleaseGateRead(BaseModel):
     decided_by: Optional[int]
     decided_at: Optional[datetime]
     decision_notes: Optional[str]
+    gate_type_id: Optional[int] = None
+    test_phase_id: Optional[int] = None
     criteria: List[GateCriterionRead] = []
     overdue_criterion_count: int = 0

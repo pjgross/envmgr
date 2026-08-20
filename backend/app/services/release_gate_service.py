@@ -11,9 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.db.models.gate_type import GateType
 from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_event import ReleaseEvent, ReleaseEventType
 from app.db.models.gate_waiver import GateWaiver
+from app.db.models.test_phase import TestPhase
 from app.api.v1.schemas.release_gate import ReleaseGateCreate, ReleaseGateUpdate
 
 
@@ -79,6 +81,65 @@ async def _record_gate_event(
         )
     )
     await db.flush()
+
+
+async def _validate_gate_type_id(
+    db: AsyncSession,
+    tenant_id: int,
+    gate_type_id: Optional[int],
+    *,
+    current_gate_type_id: Optional[int] = None,
+) -> None:
+    """Client-supplied FK, so it must resolve within the caller's tenant.
+
+    Carve-out (A1's rule, environment_service._validate_client_foreign_keys'
+    operations_group_id branch): a value UNCHANGED from what the gate already
+    stores is accepted even if the type has since been soft-deleted — a
+    full-form save that re-sends the existing gate_type_id must not 404 just
+    because that type was archived in the meantime. Only a NEW assignment has
+    to resolve to a live, in-tenant type.
+    """
+    if gate_type_id is None or gate_type_id == current_gate_type_id:
+        return
+    found = (
+        await db.execute(
+            select(GateType.id).where(
+                GateType.id == gate_type_id,
+                GateType.tenant_id == tenant_id,
+                GateType.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Gate type not found")
+
+
+async def _validate_test_phase_id(
+    db: AsyncSession,
+    tenant_id: int,
+    test_phase_id: Optional[int],
+    *,
+    current_test_phase_id: Optional[int] = None,
+) -> None:
+    """Same rule as _validate_gate_type_id, for TestPhase. TestPhase has no
+    soft-delete column of its own that reads differently here, but the
+    unchanged-value carve-out still applies: a full-form save re-sending the
+    stored id must not 404 on a phase that has since become otherwise
+    unreachable (e.g. its release was deleted, tenant-scoped queries always
+    exclude it going forward)."""
+    if test_phase_id is None or test_phase_id == current_test_phase_id:
+        return
+    found = (
+        await db.execute(
+            select(TestPhase.id).where(
+                TestPhase.id == test_phase_id,
+                TestPhase.tenant_id == tenant_id,
+                TestPhase.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Test phase not found")
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -156,6 +217,7 @@ async def list_gates(
             "name": g.name, "due_date": g.due_date, "status": g.status,
             "decided_by": g.decided_by, "decided_at": g.decided_at,
             "decision_notes": g.decision_notes,
+            "gate_type_id": g.gate_type_id, "test_phase_id": g.test_phase_id,
             "criteria": by_gate[g.id],
             "overdue_criterion_count": _overdue(g),
         }
@@ -169,12 +231,17 @@ async def create_gate(
     data: ReleaseGateCreate,
     tenant_id: int,
 ) -> ReleaseGate:
+    await _validate_gate_type_id(db, tenant_id, data.gate_type_id)
+    await _validate_test_phase_id(db, tenant_id, data.test_phase_id)
+
     gate = ReleaseGate(
         tenant_id=tenant_id,
         release_id=release_id,
         name=data.name,
         due_date=data.due_date,
         status="pending",
+        gate_type_id=data.gate_type_id,
+        test_phase_id=data.test_phase_id,
     )
     db.add(gate)
     await db.flush()
@@ -203,7 +270,18 @@ async def update_gate(
 ) -> ReleaseGate:
     gate = await _get_gate(db, gate_id, tenant_id)
 
+    # Omitted key means "leave alone"; only an explicit null clears it.
     update_data = data.model_dump(exclude_unset=True)
+    if "gate_type_id" in update_data:
+        await _validate_gate_type_id(
+            db, tenant_id, update_data["gate_type_id"],
+            current_gate_type_id=gate.gate_type_id,
+        )
+    if "test_phase_id" in update_data:
+        await _validate_test_phase_id(
+            db, tenant_id, update_data["test_phase_id"],
+            current_test_phase_id=gate.test_phase_id,
+        )
     for field, value in update_data.items():
         setattr(gate, field, value)
     await db.flush()
