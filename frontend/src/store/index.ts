@@ -34,6 +34,7 @@ import environmentNamingPolicyReducer from './environmentNamingPolicySlice';
 import decommissionReducer from './decommissionSlice';
 import environmentLifecyclePolicyReducer from './environmentLifecyclePolicySlice';
 import contentionForecastReducer from './contentionForecastSlice';
+import gateTypeReducer from './gateTypeSlice';
 
 export const store = configureStore({
   reducer: {
@@ -72,6 +73,7 @@ export const store = configureStore({
     decommission: decommissionReducer,
     environmentLifecyclePolicy: environmentLifecyclePolicyReducer,
     contentionForecast: contentionForecastReducer,
+    gateType: gateTypeReducer,
   },
 });
 
