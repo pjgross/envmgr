@@ -42,6 +42,7 @@ from app.services import (
     release_system_service,
     project_service,
     gate_evidence_service,
+    gate_readiness_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -90,6 +91,7 @@ from app.api.v1.schemas.release_bulk_booking import (
 )
 from app.api.v1.schemas.scope_churn_analytics import ScopeChurnAnalyticsRead
 from app.api.v1.schemas.gate_evidence import GateEvidenceCreate, GateEvidenceRead
+from app.api.v1.schemas.gate_readiness import ReleaseReadinessResponse
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -651,6 +653,28 @@ async def get_release_history(
     rows, total = await release_service.list_release_history(db, release_id, page=page)
     set_total_count(response, total)
     return rows
+
+
+@router.get("/{release_id}/readiness", response_model=ReleaseReadinessResponse)
+async def get_release_readiness(
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """The UI half of C2's gate readiness verdict — calls the SAME
+    `gate_readiness_service.evaluate` as the pipeline-facing
+    `GET /webhooks/release-ready`, so a gate chip here and the answer a
+    pipeline obeys cannot disagree.
+
+    Safe to register anywhere relative to `/{release_id}` (a one-segment
+    catch-all): this route has TWO segments, and no sibling route here uses
+    a wildcard second segment, so there is no shadowing risk of the kind that
+    bit B6's `GET /{booking_id}` swallowing a literal `contention-horizon`.
+    Verified by an actual HTTP call in tests/test_release_ready_endpoint.py,
+    not by this reasoning alone.
+    """
+    tenant_id = current_user.active_tenant_id
+    return await gate_readiness_service.evaluate(db, release_id, tenant_id)
 
 
 # ── Phases ────────────────────────────────────────────────────────────────────

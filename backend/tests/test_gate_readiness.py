@@ -3,8 +3,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from sqlalchemy import select
 
 from app.api.v1.schemas.gate_evidence import GateEvidenceCreate
+from app.db.models.build import Build
 from app.db.models.gate_type import GateType
 from app.db.models.gate_waiver import GateWaiver
 from app.db.models.lifecycle import LifecycleTemplate
@@ -181,10 +183,13 @@ async def passed_gate_expecting_two_kinds_with_one(db_session, test_tenant, test
 
 
 @pytest_asyncio.fixture
-async def passed_gate_with_stale_evidence(db_session, test_tenant, test_user, release) -> ReleaseGate:
+async def passed_gate_with_stale_evidence(db_session, test_tenant, test_user, release):
     """Evidence links a deployment that a later successful deployment of the
     same subsystem+environment has since superseded — genuinely stale, not
-    merely labelled so."""
+    merely labelled so.
+
+    Returns (gate, earlier_deployment, later_deployment) — the test needs
+    both deployments' own build identity to assert the warning names both."""
     gt = await _make_gate_type(db_session, test_tenant, name="SIT Sign-off", failure_behaviour="warn")
     gate = await _make_gate(db_session, test_tenant, release, name="SIT Sign-off Gate",
                              status="passed", gate_type_id=gt.id)
@@ -198,7 +203,7 @@ async def passed_gate_with_stale_evidence(db_session, test_tenant, test_user, re
         db_session, test_tenant.id, env.id,
         deployed_at=datetime.now(timezone.utc) - timedelta(days=5),
     )
-    await ensure_deployment(
+    later = await ensure_deployment(
         db_session, test_tenant.id, env.id,
         deployed_at=datetime.now(timezone.utc) - timedelta(days=1),
     )
@@ -211,7 +216,7 @@ async def passed_gate_with_stale_evidence(db_session, test_tenant, test_user, re
     )
     await db_session.commit()
     await db_session.refresh(gate)
-    return gate
+    return gate, earlier, later
 
 
 # ── Tests, one per row of the rules table ────────────────────────────────────
@@ -286,10 +291,23 @@ async def test_a_passed_gate_missing_expected_evidence_warns(
 async def test_stale_evidence_warns_and_names_both_deployments(
     db_session, test_tenant, release, passed_gate_with_stale_evidence
 ):
+    gate, earlier, later = passed_gate_with_stale_evidence
+    earlier_build = (
+        await db_session.execute(select(Build).where(Build.id == earlier.build_id))
+    ).scalar_one()
+    later_build = (
+        await db_session.execute(select(Build).where(Build.id == later.build_id))
+    ).scalar_one()
+
     result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     warning = next(w for w in result.warnings if w.type == "evidence_stale")
     assert warning.ref_id is not None
     assert result.ok is True
+    # The whole point of this test's name: BOTH deployments are actually
+    # named, not just "a deployment has since been superseded".
+    assert earlier_build.build_number in warning.detail
+    assert later_build.build_number in warning.detail
+    assert earlier_build.build_number != later_build.build_number
 
 
 @pytest.mark.asyncio

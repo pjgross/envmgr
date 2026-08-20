@@ -65,7 +65,9 @@ async def evaluate(
     waivers = await gate_waiver_service.latest_waivers_for_gates(db, tenant_id, gate_ids)
     evidence = await gate_evidence_service.evidence_for_gates(db, tenant_id, gate_ids)
     all_evidence = [e for items in evidence.values() for e in items]
-    stale_ids = await gate_evidence_service.stale_evidence_ids(db, tenant_id, all_evidence)
+    # The detail form, not just the id set: the warning must name BOTH the
+    # superseded deployment the evidence cites and the one that superseded it.
+    stale_details = await gate_evidence_service.stale_evidence_details(db, tenant_id, all_evidence)
 
     blockers: list[ReadinessBlocker] = []
     warnings: list[ReadinessWarning] = []
@@ -121,10 +123,17 @@ async def evaluate(
             if missing:
                 warning("evidence_missing", "Expected but not supplied: " + ", ".join(missing))
         for item in items:
-            if item.id in stale_ids:
+            detail = stale_details.get(item.id)
+            if detail is not None:
                 warning(
                     "evidence_stale",
-                    f"'{item.label}' vouches for a deployment that has since been superseded.",
+                    (
+                        f"'{item.label}' cites {detail.superseded_build_label} "
+                        f"deployed {detail.superseded_deployed_at:%Y-%m-%d} to "
+                        f"{detail.environment_name}, superseded by "
+                        f"{detail.superseding_build_label} deployed "
+                        f"{detail.superseding_deployed_at:%Y-%m-%d}."
+                    ),
                     ref_id=item.id,
                 )
 

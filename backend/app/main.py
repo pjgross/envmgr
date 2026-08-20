@@ -104,6 +104,7 @@ from app.api.v1 import enterprise_memberships as enterprise_memberships_router
 from app.api.v1 import enterprise_rollup as enterprise_rollup_router
 from app.api.v1.webhooks import deployment as webhook_deployment_router
 from app.api.v1.webhooks import can_deploy as webhook_can_deploy_router
+from app.api.v1.webhooks import release_ready as webhook_release_ready_router
 
 app.include_router(api_keys_router.router, prefix="/api/v1/api-keys", tags=["api-keys"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
@@ -183,6 +184,11 @@ app.include_router(
 )
 app.include_router(
     webhook_can_deploy_router.router,
+    prefix="/api/v1/webhooks",
+    tags=["webhooks"],
+)
+app.include_router(
+    webhook_release_ready_router.router,
     prefix="/api/v1/webhooks",
     tags=["webhooks"],
 )

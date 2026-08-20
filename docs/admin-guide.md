@@ -920,7 +920,7 @@ Templates earn their keep when releases follow a predictable cadence: a monthly 
 
 API keys are tenant-scoped, scope-restricted credentials that let external systems — typically your CI/CD pipelines — write to EnvManager. A key belongs to one tenant, carries one or more named scopes, and is presented in the `X-Api-Key` header. Keys are stored as a SHA-256 hash; the plaintext is shown **once**, on the screen that follows creation. EnvManager has no way to recover a lost plaintext — if you lose it, revoke and re-issue.
 
-Today the only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 9.
+The only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 9. Two further endpoints are read-only advisory queries a pipeline can call before or after that write: the deployment scope's *can-deploy* preflight, and the release scope's *release-ready* gate check (see *Available scopes* below) — neither refuses anything; both hand back a structured verdict for the caller to act on.
 
 ### Walkthrough: creating an API key
 
@@ -930,7 +930,7 @@ API keys are managed by **Tenant Admins** at `/tenant/api-keys` (left nav: *API 
 2. Click *New key* (top right).
 3. Fill the *New API key* dialog:
    - *Name* — required, max 120 chars; pick something that identifies the consumer (for example `gitlab-ci-deploy`).
-   - *Scopes* — at least one must be selected. Today the only scope on offer is *CI/CD deployment webhook* (`webhooks:deployment`).
+   - *Scopes* — at least one must be selected. Two are on offer: *CI/CD deployment webhook* (`webhooks:deployment`) and *Release gate readiness webhook* (`webhooks:release`). Grant only what a consumer needs — a deployment key is deliberately unable to read gate governance detail (waiver reasons, approver names, evidence URLs) unless it also carries `webhooks:release`.
    - *Expires at (optional)* — calendar field; leave blank for a non-expiring key.
 4. Click *Create*. The dialog closes and the *API key created* dialog opens with a one-time read-only field containing the plaintext. Use the copy icon to drop it into your CI secrets store **now**.
 5. Click *I've copied it*. The plaintext is gone — only its hash, plus the metadata you entered, remain on the *API keys* page.
@@ -948,6 +948,7 @@ Each handler declares the scope it requires; a key passes auth only if its scope
 | Scope | What it grants | Example use |
 |-------|----------------|-------------|
 | `webhooks:deployment` | `POST /api/v1/webhooks/deployment` — register a build and deployment, auto-create a `code_deployment` change request on first call. **Also** `GET /api/v1/webhooks/can-deploy` — preflight gate (see *Preflight: can-deploy* below). | GitLab/Jenkins/GitHub Actions: step that fires before deploying (preflight) and step that fires after a successful deploy (ingest). |
+| `webhooks:release` | `GET /api/v1/webhooks/release-ready` — release gate readiness (see *Preflight: release-ready* below). Deliberately **not** granted by `webhooks:deployment`: reusing that scope would silently widen what every existing deployment key can read to include gate governance detail (waiver reasons, approver names, evidence URLs). | A release pipeline step that asks "are this release's gates satisfied?" before promoting a build, independent of any single environment's deploy preflight. |
 
 Future phases will extend this list.
 
@@ -1118,6 +1119,50 @@ The minimum two are the slugs. If your pipeline knows what release or what booki
 - **Direct claim:** pass `booking_id` if the CI job has been issued the booking's id (e.g. via a CI variable populated when the booking was approved). This is the strongest unlock and the right pattern when `release_id` doesn't apply.
 - **Neither known:** the call still works, but exclusive bookings are unconditional blockers.
 
+### Preflight: release-ready
+
+A separate advisory query from *can-deploy* above: this asks "are this release's typed gates satisfied?" rather than "is this specific environment reservable right now?" A pipeline that promotes a build through a release can call it before doing so.
+
+The same evaluator backs a UI element too — the release detail page's gate readiness panel calls `GET /api/v1/releases/{release_id}/readiness` (JWT-authenticated), which runs the identical rule set. **The two can never disagree**: both call the same `gate_readiness_service.evaluate` function; only the auth layer and the source of the tenant id (the caller's active tenant vs. the API key's own tenant) differ.
+
+**Endpoint** `GET /api/v1/webhooks/release-ready`
+**Required scope** `webhooks:release`
+**Auth header** `X-Api-Key: <plaintext key>`
+
+Query parameters:
+
+| Param | Required | Notes |
+|-------|----------|-------|
+| `release_id` | yes | Resolved against the tenant the API key belongs to. `404` if unknown or in a different tenant. |
+
+```bash
+curl "http://localhost:8000/api/v1/webhooks/release-ready?release_id=42" \
+  -H "X-Api-Key: $YOUR_KEY"
+```
+
+Response (a gate is pending and typed to block):
+
+```json
+{
+  "ok": false,
+  "release_id": 42,
+  "checked_at": "2026-08-20T09:00:00Z",
+  "blockers": [
+    {
+      "type": "gate_pending",
+      "ref_kind": "gate",
+      "ref_id": 7,
+      "gate_name": "Go/No-Go",
+      "gate_type": "Go/No-Go",
+      "detail": "The gate has not been decided."
+    }
+  ],
+  "warnings": []
+}
+```
+
+`ok` is the field a pipeline reads; treat `false` as "gates are not satisfied." As with *can-deploy*, **HTTP status is not the gate** — a blocked release still returns `200 OK` with the verdict in the body. Only auth (`401` / `403`) and the release lookup (`404`) use HTTP status for signalling. EnvManager never refuses a deployment or a release transition on the strength of this response; it is advisory, and the caller decides what to do with `ok: false`.
+
 ### Rotation and revocation guidance
 
 Treat keys as production secrets. Issue one per consumer so you can revoke a single integration without disrupting the rest, and audit the list quarterly — anything that has not authenticated in ninety days (check the *Last used* column) is a candidate for revocation. Set *Expires at* on short-lived projects so they self-retire.
@@ -1254,6 +1299,7 @@ These endpoints are **not** role-gated. They reject any request without a valid 
 |---|---|---|
 | `POST /api/v1/webhooks/deployment` | `webhooks:deployment` | `api/v1/webhooks/deployment.py` |
 | `GET /api/v1/webhooks/can-deploy` | `webhooks:deployment` | `api/v1/webhooks/can_deploy.py` |
+| `GET /api/v1/webhooks/release-ready` | `webhooks:release` | `api/v1/webhooks/release_ready.py` |
 
 API keys are issued and revoked per-tenant via the **API keys** row above (Admin only). See chapter 10 for scope details and the deployment webhook payload contract.
 
