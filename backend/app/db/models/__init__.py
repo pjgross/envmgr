@@ -84,6 +84,12 @@ from app.db.models.environment_lifecycle_policy import EnvironmentLifecyclePolic
 from app.db.models.gate_type import GateType  # noqa: F401
 from app.db.models.gate_evidence import GateEvidence  # noqa: F401
 from app.db.models.gate_waiver import GateWaiver  # noqa: F401
+from app.db.models.rollback import (  # noqa: F401
+    ReleaseRollbackPlan,
+    ReleaseRollbackAuthorisation,
+    RollbackRehearsal,
+    RollbackPolicy,
+)
 
 # This will be expanded as we add more models
 __all__ = [
