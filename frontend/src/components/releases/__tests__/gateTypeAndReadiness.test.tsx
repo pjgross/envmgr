@@ -316,6 +316,48 @@ describe('ReadinessBanner', () => {
     expect(screen.queryByText(/release cannot/i)).not.toBeInTheDocument();
   });
 
+  it('renders a rollback finding (no gate backs it) using its own detail, never the literal "null"', async () => {
+    // Phase 9 C4: release_readiness_service._add sets gate_name=None,
+    // gate_type=None on every rollback finding (ref_kind 'system') — this is
+    // not an edge case, it's 100% of rollback blockers/warnings. detail
+    // already names the system ("Payments has no rollback plan."), so the
+    // banner must render that alone rather than stringifying the missing
+    // gate name as the literal text "null".
+    vi.mocked(releaseService.getReadiness).mockResolvedValue({
+      ok: false,
+      release_id: 1,
+      checked_at: '2026-08-20T00:00:00Z',
+      blockers: [
+        {
+          type: 'rollback_plan_missing',
+          ref_kind: 'system',
+          ref_id: 42,
+          gate_name: null,
+          gate_type: null,
+          detail: 'Payments has no rollback plan.',
+        },
+      ],
+      warnings: [
+        {
+          type: 'rollback_irreversible',
+          ref_kind: 'system',
+          ref_id: 43,
+          gate_name: null,
+          gate_type: null,
+          detail: 'Billing cannot be rolled back — roll forward only.',
+        },
+      ],
+    });
+
+    render(<ReadinessBanner releaseId={1} />);
+
+    expect(await screen.findByText(/Payments has no rollback plan\./)).toBeInTheDocument();
+    expect(screen.getByText(/Billing cannot be rolled back/)).toBeInTheDocument();
+    // The literal string "null" must never leak into the rendered banner —
+    // this is what a gate-name-shaped template would have produced.
+    expect(screen.queryByText(/null/i)).not.toBeInTheDocument();
+  });
+
   it('renders nothing when the release has no blockers or warnings', async () => {
     vi.mocked(releaseService.getReadiness).mockResolvedValue({
       ok: true,

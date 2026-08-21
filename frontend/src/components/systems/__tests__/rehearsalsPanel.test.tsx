@@ -105,6 +105,22 @@ describe('RehearsalsPanel', () => {
     expect(await screen.findByTestId('rehearsal-current')).toBeInTheDocument();
   });
 
+  it('withholds the current/healthy marker for a PASSED rehearsal that has gone STALE', async () => {
+    // The discriminating case: outcome alone is not enough to earn the
+    // marker. The readiness verdict treats a stale rehearsal as "no
+    // successful rehearsal" the same as a failed one, so a green marker here
+    // — even for a rehearsal that genuinely passed — would contradict the
+    // release banner on the same screen. (STALE_PASSED is outcome: 'passed',
+    // state: 'stale' — this is the one combination the outcome-only half of
+    // "does not present a failed rehearsal as a pass" cannot exercise.)
+    vi.mocked(rollbackService.listRehearsals).mockResolvedValue([STALE_PASSED]);
+
+    renderPanel();
+
+    await waitFor(() => expect(rollbackService.listRehearsals).toHaveBeenCalled());
+    expect(screen.queryByTestId('rehearsal-current')).not.toBeInTheDocument();
+  });
+
   it('refetches when systemId changes, not just on mount', async () => {
     vi.mocked(rollbackService.listRehearsals).mockResolvedValue([]);
     const store = makeStore();

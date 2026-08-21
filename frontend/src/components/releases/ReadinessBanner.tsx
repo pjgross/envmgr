@@ -20,7 +20,18 @@ interface Props {
   releaseId: number;
 }
 
-const describeItem = (gateName: string, gateType: string | null, detail: string | null): string => {
+const describeItem = (
+  gateName: string | null,
+  gateType: string | null,
+  detail: string | null
+): string => {
+  // No gate backs this finding — a rollback finding (Phase 9 C4), ref_kind
+  // 'system', gate_name/gate_type both null at every construction site (see
+  // release_readiness_service._add). Its own detail already names what it's
+  // about ("Payments has no rollback plan."), so render that alone rather
+  // than falling through to the gate-shaped template below, which used to
+  // stringify the missing name as the literal text "null".
+  if (!gateName) return detail ?? 'No detail provided.';
   const typed = gateType ? `${gateName} (${gateType})` : gateName;
   return detail ? `${typed} — ${detail}` : typed;
 };
