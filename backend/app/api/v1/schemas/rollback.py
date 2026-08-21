@@ -93,3 +93,23 @@ class RollbackAuthorisationRead(BaseModel):
     rationale: str
     system_ids: list[int]
     system_names: list[str] = []
+
+
+class RollbackPolicyRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    require_rollback_plan: bool
+    require_current_rehearsal: bool
+    rehearsal_validity_days: int
+
+
+class RollbackPolicyUpdate(BaseModel):
+    # extra="forbid" — same reason as the Create schemas above: a typo'd key
+    # must be a 422, never a silent drop (the POST /projects class of bug).
+    model_config = ConfigDict(extra="forbid")
+
+    # All Optional: the service keys on "not None means set", so an omitted
+    # key must leave that setting alone rather than resetting it.
+    require_rollback_plan: Optional[bool] = None
+    require_current_rehearsal: Optional[bool] = None
+    rehearsal_validity_days: Optional[int] = Field(None, ge=1)
