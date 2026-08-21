@@ -1666,7 +1666,9 @@ async def agree_rollback_plan(
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    plan = await rollback_plan_service.agree_plan(db, plan_id, tenant_id, current_user.id)
+    plan = await rollback_plan_service.agree_plan(
+        db, release_id, plan_id, tenant_id, current_user.id
+    )
     reads = await rollback_plan_service.reads_for_plans(db, tenant_id, [plan])
     return reads[0]
 
@@ -1682,7 +1684,7 @@ async def delete_rollback_plan(
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
-    await rollback_plan_service.delete_plan(db, plan_id, tenant_id)
+    await rollback_plan_service.delete_plan(db, release_id, plan_id, tenant_id)
 
 
 # ── Rollback authorisations (Phase 9 C4 Task 6) ───────────────────────────────

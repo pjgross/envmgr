@@ -236,7 +236,19 @@ async def evaluate(
                  f"{system_name}'s last rollback rehearsal was "
                  f"{rehearsal.rehearsed_at.date()}.")
 
-    reversibility = rollback_plan_service.rollup(plans)
+    # Roll up over the SAME component set the findings above were computed
+    # over — plans_for_releases returns every LIVE plan on the release with
+    # no role filter, but a plan can legitimately outlive the release_system
+    # row it was written against (DELETE /release-systems/{id} hard-deletes
+    # the row and touches no plan). Feeding rollup() the unfiltered set means
+    # an orphaned plan keeps driving reversibility with zero findings to
+    # explain it — the single-verdict guarantee broken by an ordinary UI
+    # action, not just a hand-crafted API call. See
+    # tests/test_rollback_readiness.py::test_an_orphaned_plan_does_not_move_reversibility.
+    changing_ids = {system_id for system_id, _ in changing}
+    reversibility = rollback_plan_service.rollup(
+        [p for p in plans if p.system_id in changing_ids]
+    )
 
     return ReleaseReadinessResponse(
         # Derived in one expression, mirroring preflight_service. `ok` cannot

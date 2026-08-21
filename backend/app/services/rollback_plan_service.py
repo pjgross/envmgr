@@ -88,10 +88,17 @@ async def upsert_plan(
 
     Validates in order: the release is in the caller's tenant (404), then the
     system is on that release's release_system rows (404). Then it selects an
-    existing row for the pair with deleted_at IS NULL and updates it, or
-    creates one — the unique constraint on (release_id, system_id) exists as
-    a backstop, not as the thing this function relies on to avoid a second
-    row.
+    existing LIVE row for the pair and updates it; failing that it REVIVES a
+    soft-deleted row for the same pair rather than inserting a new one.
+
+    `uq_rollback_plan_release_system` is a whole-table unique constraint with
+    no `deleted_at` scoping (and a partial index to add that scoping would be
+    inert on SQLite — the dual-engine suite could not guard it). Without
+    revival, delete-then-recreate for the same component raises an uncaught
+    IntegrityError -> 500, PERMANENTLY: there is no un-delete path through the
+    product, and with `require_rollback_plan` on that leaves a blocker the
+    tenant can never clear. See
+    tests/test_rollback_plan.py::test_a_deleted_plan_can_be_recreated.
     """
     await _get_release(db, release_id, tenant_id)
     await _require_release_system(db, release_id, data.system_id)
@@ -108,6 +115,30 @@ async def upsert_plan(
     ).scalar_one_or_none()
 
     if existing is None:
+        revived = (
+            await db.execute(
+                select(ReleaseRollbackPlan).where(
+                    ReleaseRollbackPlan.release_id == release_id,
+                    ReleaseRollbackPlan.system_id == data.system_id,
+                    ReleaseRollbackPlan.tenant_id == tenant_id,
+                    ReleaseRollbackPlan.deleted_at.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if revived is not None:
+            revived.deleted_at = None
+            revived.steps = data.steps
+            revived.reversibility = data.reversibility
+            revived.estimated_minutes = data.estimated_minutes
+            revived.notes = data.notes
+            # A revived plan is NOT an agreed plan — whatever was agreed
+            # about the deleted row does not carry across a delete, even if
+            # the new content happens to be identical to the old.
+            revived.agreed_by_user_id = None
+            revived.agreed_at = None
+            await db.flush()
+            return revived
+
         plan = ReleaseRollbackPlan(
             tenant_id=tenant_id,
             release_id=release_id,
@@ -139,9 +170,18 @@ async def upsert_plan(
 
 
 async def agree_plan(
-    db: AsyncSession, plan_id: int, tenant_id: int, user_id: int
+    db: AsyncSession, release_id: int, plan_id: int, tenant_id: int, user_id: int
 ) -> ReleaseRollbackPlan:
-    """Record that `user_id` has agreed to a plan as it currently stands."""
+    """Record that `user_id` has agreed to a plan as it currently stands.
+
+    `release_id` must match the plan's own `release_id` — both routes live at
+    `/releases/{release_id}/rollback-plans/{plan_id}/...`, and prior to this
+    check the plan lookup ignored the URL's `release_id` entirely, so any
+    tenant member could agree (forge a sign-off on) or delete any plan in the
+    tenant by naming any release id they could see alongside a plan id that
+    belonged to a different one. Same shape as the release_id/rs_id checks
+    elsewhere in this router.
+    """
     plan = (
         await db.execute(
             select(ReleaseRollbackPlan).where(
@@ -151,7 +191,7 @@ async def agree_plan(
             )
         )
     ).scalar_one_or_none()
-    if plan is None:
+    if plan is None or plan.release_id != release_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Rollback plan not found")
     plan.agreed_by_user_id = user_id
     plan.agreed_at = datetime.now(timezone.utc)
@@ -159,7 +199,9 @@ async def agree_plan(
     return plan
 
 
-async def delete_plan(db: AsyncSession, plan_id: int, tenant_id: int) -> None:
+async def delete_plan(db: AsyncSession, release_id: int, plan_id: int, tenant_id: int) -> None:
+    """Delete one plan. `release_id` must match the plan's own `release_id`
+    — see agree_plan's docstring for why this check exists."""
     plan = (
         await db.execute(
             select(ReleaseRollbackPlan).where(
@@ -169,7 +211,7 @@ async def delete_plan(db: AsyncSession, plan_id: int, tenant_id: int) -> None:
             )
         )
     ).scalar_one_or_none()
-    if plan is None:
+    if plan is None or plan.release_id != release_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Rollback plan not found")
     plan.deleted_at = datetime.now(timezone.utc)
     await db.flush()

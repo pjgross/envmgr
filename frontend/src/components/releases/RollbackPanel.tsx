@@ -43,6 +43,7 @@ import { formatApiError } from '../../services/apiError';
 import { formatBookingDateTime } from '../../utils/datetime';
 import { useConfirm } from '../../hooks/useConfirm';
 import type { ReleaseSystemResponse } from '../../types/release';
+import type { ReleaseReadinessResponse } from '../../types/gateReadiness';
 import type { RollbackPlanResponse } from '../../types/rollback';
 import RollbackPlanDialog from './RollbackPlanDialog';
 import RecordRollbackDialog from './RecordRollbackDialog';
@@ -50,8 +51,6 @@ import RecordRollbackDialog from './RecordRollbackDialog';
 interface Props {
   releaseId: number;
 }
-
-const REVERSIBILITY_ORDER = ['reversible', 'lossy', 'irreversible'];
 
 const REVERSIBILITY_COLOR: Record<string, 'success' | 'warning' | 'error'> = {
   reversible: 'success',
@@ -65,21 +64,6 @@ const REVERSIBILITY_LABEL: Record<string, string> = {
   irreversible: 'Irreversible',
 };
 
-// The WORST reversibility among the given plans, or null for an empty set.
-// Mirrors rollback_plan_service.rollup: an unrecognised value sorts LAST
-// (worst) rather than first, so a bad row is loud rather than silently safe.
-function rollupReversibility(plans: { reversibility: string }[]): string | null {
-  if (plans.length === 0) return null;
-  const rank = (value: string) => {
-    const idx = REVERSIBILITY_ORDER.indexOf(value);
-    return idx === -1 ? REVERSIBILITY_ORDER.length : idx;
-  };
-  return plans.reduce(
-    (worst, p) => (rank(p.reversibility) > rank(worst) ? p.reversibility : worst),
-    plans[0].reversibility
-  );
-}
-
 export default function RollbackPanel({ releaseId }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const { plans, plansLoading, plansError, authorisations, authorisationsError } =
@@ -89,18 +73,50 @@ export default function RollbackPanel({ releaseId }: Props) {
   const [systems, setSystems] = useState<ReleaseSystemResponse[]>([]);
   const [systemsError, setSystemsError] = useState<string | null>(null);
 
+  // Findings 1+2: this used to be computed client-side (`rollupReversibility`
+  // over `visiblePlans`, filtered to changing/config_only components) — a
+  // SECOND computation of the same value the backend already ships on
+  // `readiness.reversibility`, and the backend's own field had ZERO
+  // consumers anywhere in the frontend. Removing a component from a release
+  // (DELETE /release-systems/{id}, an ordinary UI action) hard-deletes the
+  // release_system row but leaves its rollback plan live, so the two
+  // computations could disagree about whether the release was irreversible
+  // — the single-verdict guarantee broken by a plain UI action, not just a
+  // hand-crafted API call. There is now exactly ONE computation, on the
+  // server, on the route a pipeline obeys (GET /webhooks/release-ready calls
+  // the same release_readiness_service.evaluate()).
+  const [readiness, setReadiness] = useState<ReleaseReadinessResponse | null>(null);
+
   const [planDialogTarget, setPlanDialogTarget] = useState<{
     systemId: number;
     systemName: string | null;
     plan: RollbackPlanResponse | null;
   } | null>(null);
   const [recordOpen, setRecordOpen] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch(fetchRollbackPlans(releaseId));
     dispatch(fetchRollbackAuthorisations(releaseId));
   }, [dispatch, releaseId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReadiness(null);
+    releaseService
+      .getReadiness(releaseId)
+      .then((r) => {
+        if (!cancelled) setReadiness(r);
+      })
+      .catch(() => {
+        // Same rule as ReadinessBanner: a failed readiness check must not
+        // block rendering the rest of the panel.
+        if (!cancelled) setReadiness(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [releaseId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,22 +146,22 @@ export default function RollbackPanel({ releaseId }: Props) {
     return map;
   }, [plans]);
 
-  const visiblePlans = useMemo(
-    () => changingComponents.map((c) => planBySystemId.get(c.system_id)).filter(
-      (p): p is RollbackPlanResponse => Boolean(p)
-    ),
-    [changingComponents, planBySystemId]
-  );
-
-  const rollup = rollupReversibility(visiblePlans);
-
   const allSystemOptions = useMemo(
     () => systems.map((s) => ({ id: s.system_id, name: s.system_name ?? `#${s.system_id}` })),
     [systems]
   );
 
-  const handleAgree = (plan: RollbackPlanResponse) => {
-    dispatch(agreeRollbackPlan({ releaseId, planId: plan.id }));
+  // The backend's own answer, not a re-derivation of it. `readiness` is null
+  // until the fetch resolves (or if it fails) — render the "no plans"
+  // treatment rather than claiming a verdict nobody has confirmed yet.
+  const rollup = readiness?.reversibility ?? null;
+
+  const handleAgree = async (plan: RollbackPlanResponse) => {
+    setActionError(null);
+    const result = await dispatch(agreeRollbackPlan({ releaseId, planId: plan.id }));
+    if (agreeRollbackPlan.rejected.match(result)) {
+      setActionError(result.payload ?? 'Failed to record agreement');
+    }
   };
 
   const handleDelete = async (plan: RollbackPlanResponse) => {
@@ -156,10 +172,10 @@ export default function RollbackPanel({ releaseId }: Props) {
       confirmLabel: 'Delete',
     });
     if (!ok) return;
-    setDeleteError(null);
+    setActionError(null);
     const result = await dispatch(deleteRollbackPlan({ releaseId, planId: plan.id }));
     if (deleteRollbackPlan.rejected.match(result)) {
-      setDeleteError(result.payload ?? 'Failed to delete the rollback plan');
+      setActionError(result.payload ?? 'Failed to delete the rollback plan');
     }
   };
 
@@ -191,9 +207,9 @@ export default function RollbackPanel({ releaseId }: Props) {
           {systemsError}
         </Alert>
       )}
-      {deleteError && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>
-          {deleteError}
+      {actionError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
+          {actionError}
         </Alert>
       )}
 

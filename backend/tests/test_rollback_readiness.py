@@ -307,6 +307,108 @@ async def test_the_response_carries_the_reversibility_rollup(
 
 
 @pytest.mark.asyncio
+async def test_an_orphaned_plan_does_not_move_reversibility(
+    db_session, test_tenant, release_with_irreversible_plan, system_irreversible
+):
+    """Findings 1+2 (Defect B): DELETE /release-systems/{id} hard-deletes the
+    release_system row but touches no rollback plan, so the plan stays LIVE —
+    before this fix it kept driving `reversibility` to 'irreversible' with
+    ZERO findings in blockers/warnings to explain it, which is exactly the
+    shape that made ReadinessBanner render nothing while the pipeline route
+    reported irreversible. The rollup must be computed over the SAME
+    component set (changing_systems_for_release) the findings loop above
+    already uses."""
+    from sqlalchemy import delete as sa_delete
+
+    from app.db.models.release_system import ReleaseSystem
+
+    await db_session.execute(
+        sa_delete(ReleaseSystem).where(
+            ReleaseSystem.release_id == release_with_irreversible_plan.id,
+            ReleaseSystem.system_id == system_irreversible.id,
+        )
+    )
+    await db_session.flush()
+
+    result = await release_readiness_service.evaluate(
+        db_session, release_with_irreversible_plan.id, test_tenant.id
+    )
+    assert result.reversibility is None, (
+        "a plan whose component is no longer on the release must not move "
+        "the rollup"
+    )
+    rollback_types = [
+        f.type for f in [*result.blockers, *result.warnings]
+        if f.type.startswith("rollback_") or f.type.startswith("rehearsal_")
+    ]
+    assert rollback_types == []
+
+
+@pytest.mark.asyncio
+async def test_changing_systems_for_release_excludes_a_system_in_another_tenant(
+    db_session, test_tenant, test_user, second_tenant_factory
+):
+    """Q9 — the tenant-filter probe the comment on `changing_systems_for_
+    release`'s `System.tenant_id` filter cites ('see the mutation proof in
+    test_rollback_readiness.py's report'). release_system.release_id and
+    release_system.system_id are independent, uncross-checked fields (the
+    same shape B6's cross-tenant booking leak took), so a release genuinely
+    owned by test_tenant can point at a system belonging to a different
+    tenant — and that system's name must never reach the verdict."""
+    other_tenant, _other_admin = await second_tenant_factory(
+        "Other Org Q9", "other-org-rollback-q9"
+    )
+    foreign_system = System(tenant_id=other_tenant.id, name="Other Tenant's System")
+    db_session.add(foreign_system)
+    await db_session.flush()
+
+    release = await _make_release(db_session, test_tenant, test_user, name="R-q9")
+    db_session.add(ReleaseSystem(
+        tenant_id=test_tenant.id, release_id=release.id,
+        system_id=foreign_system.id, role="changing",
+    ))
+    await db_session.flush()
+
+    changing = await rollback_plan_service.changing_systems_for_release(
+        db_session, release.id, test_tenant.id
+    )
+    assert changing == [], "a system belonging to another tenant must not appear in the verdict"
+
+
+# ── Finding 6 — what a CURRENT 'partial' rehearsal means, pinned explicitly ──
+
+@pytest_asyncio.fixture
+async def current_partial_rehearsal(db_session, test_tenant, test_user, system_changing):
+    """A rehearsal recorded TODAY, outcome='partial' — current, but not a
+    clean pass. Before this fix, this exact combination was specified nowhere
+    (not the design spec, not the user guide, not CLAUDE.md) and tested
+    nowhere, and the frontend (RehearsalsPanel) disagreed with the backend
+    about it."""
+    rehearsal = await rollback_rehearsal_service.record_rehearsal(
+        db_session, system_changing.id, test_tenant.id, test_user.id,
+        RehearsalCreate(rehearsed_at=datetime.now(timezone.utc), outcome="partial"),
+    )
+    assert rehearsal.outcome == "partial", "fixture must honestly produce a PARTIAL rehearsal"
+    return rehearsal
+
+
+@pytest.mark.asyncio
+async def test_a_current_partial_rehearsal_satisfies_the_requirement(
+    db_session, test_tenant, release_with_changing_system, current_partial_rehearsal
+):
+    """PINNED: `evaluate()`'s rule is `rehearsal is None or outcome ==
+    'failed'` — a CURRENT rehearsal whose outcome is 'partial' produces NO
+    rehearsal finding at all, exactly like a current pass. RehearsalsPanel
+    must render this the same way (`latestIsHealthy`), not the reverse."""
+    result = await release_readiness_service.evaluate(
+        db_session, release_with_changing_system.id, test_tenant.id
+    )
+    types = [f.type for f in [*result.blockers, *result.warnings]]
+    assert "rehearsal_missing" not in types
+    assert "rehearsal_stale" not in types
+
+
+@pytest.mark.asyncio
 async def test_gate_findings_are_unaffected(
     db_session, test_tenant, release_with_failed_block_gate
 ):

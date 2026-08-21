@@ -66,6 +66,12 @@ const CURRENT_PASSED: RehearsalResponse = {
   outcome: 'passed',
 };
 
+const CURRENT_PARTIAL: RehearsalResponse = {
+  ...CURRENT_FAILED,
+  id: 4,
+  outcome: 'partial',
+};
+
 describe('RehearsalsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -99,6 +105,22 @@ describe('RehearsalsPanel', () => {
 
   it('marks a current, passed rehearsal honestly', async () => {
     vi.mocked(rollbackService.listRehearsals).mockResolvedValue([CURRENT_PASSED]);
+
+    renderPanel();
+
+    expect(await screen.findByTestId('rehearsal-current')).toBeInTheDocument();
+  });
+
+  it('marks a current, PARTIAL rehearsal as healthy too (Finding 6)', async () => {
+    // Pinned to agree with the backend: release_readiness_service.evaluate()
+    // raises a finding only when a rehearsal is missing or outcome ==
+    // 'failed' (backend/tests/test_rollback_readiness.py::
+    // test_a_current_partial_rehearsal_satisfies_the_requirement) — a
+    // CURRENT 'partial' rehearsal therefore satisfies the requirement
+    // exactly like a current 'passed' one. Before this fix, the panel
+    // required outcome === 'passed' and disagreed with the backend on this
+    // exact combination.
+    vi.mocked(rollbackService.listRehearsals).mockResolvedValue([CURRENT_PARTIAL]);
 
     renderPanel();
 

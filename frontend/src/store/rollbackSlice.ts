@@ -214,6 +214,20 @@ const rollbackSlice = createSlice({
         const idx = state.plans.findIndex((p) => p.id === action.payload.id);
         if (idx >= 0) state.plans[idx] = action.payload;
       })
+      // Finding 4: agreeRollbackPlan used to have no .rejected handling
+      // anywhere — no reducer here, and RollbackPanel.handleAgree never
+      // inspected the dispatch result either, so a refused agreement (404 on
+      // a plan deleted in another tab, 403, network failure) produced
+      // nothing: no alert, no state change, the Agree button just stayed
+      // there. Deliberately NOT adding an extraReducers case here — matching
+      // deleteRollbackPlan and upsertRollbackPlan immediately below/above,
+      // which have none either. `agreeRollbackPlan.rejected` still exists as
+      // an action (every createAsyncThunk produces one); the fix is entirely
+      // in the caller, which now awaits the dispatch and reads
+      // result.payload — see RollbackPanel.handleAgree. Setting `plansError`
+      // here as well would duplicate that same message in the ALREADY
+      // existing `{plansError && <Alert>}` block used for list-fetch
+      // failures, showing the same text in two banners at once.
       .addCase(deleteRollbackPlan.fulfilled, (state, action) => {
         state.plans = state.plans.filter((p) => p.id !== action.payload);
       })

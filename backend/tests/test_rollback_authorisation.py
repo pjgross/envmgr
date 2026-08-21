@@ -19,6 +19,7 @@ from app.core.security import get_password_hash
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_system import ReleaseSystem
+from app.db.models.rollback import ReleaseRollbackAuthorisation
 from app.db.models.system import System
 from app.db.models.user import Tenant, User
 from app.services import rollback_authorisation_service
@@ -228,3 +229,66 @@ async def test_listing_authorisations_for_another_tenants_release_is_refused(
             db_session, other_tenant_release.id, test_tenant.id
         )
     assert exc.value.status_code == 404
+
+
+# ── Finding 9 — tenant-filter probes committed as tests ──────────────────────
+# Committed versions of the probes the final review threw away after
+# confirming each was load-bearing by mutation.
+
+@pytest_asyncio.fixture
+async def other_tenant(db_session) -> Tenant:
+    t = Tenant(name="Other Org Q14", slug="other-org-rollback-auth-q14")
+    db_session.add(t)
+    await db_session.flush()
+    return t
+
+
+@pytest.mark.asyncio
+async def test_list_authorisations_excludes_a_row_whose_tenant_id_does_not_match_the_caller(
+    db_session, test_tenant, test_user, release, system, other_tenant
+):
+    """Q14: list_authorisations' auth.tenant_id filter. release_id alone
+    cannot leak an authorisation across tenants in normal operation (a
+    release belongs to exactly one tenant), so — following the same
+    construction as Q3/Q7 in test_rollback_plan.py — this builds the row
+    directly on the SAME release_id with a DIFFERENT tenant_id."""
+    await rollback_authorisation_service.record_authorisation(
+        db_session, release.id, test_tenant.id, test_user.id,
+        RollbackAuthorisationCreate(
+            decided_at=datetime.now(timezone.utc), trigger="t", rationale="r",
+            system_ids=[system.id],
+        ),
+    )
+    foreign = ReleaseRollbackAuthorisation(
+        tenant_id=other_tenant.id,
+        release_id=release.id,
+        decided_by_user_id=test_user.id,
+        decided_at=datetime.now(timezone.utc),
+        trigger="foreign trigger",
+        rationale="foreign rationale",
+        system_ids=[system.id],
+    )
+    db_session.add(foreign)
+    await db_session.flush()
+
+    authorisations = await rollback_authorisation_service.list_authorisations(
+        db_session, release.id, test_tenant.id
+    )
+    assert foreign.id not in [a.id for a in authorisations]
+
+
+@pytest.mark.asyncio
+async def test_get_system_names_excludes_a_system_in_another_tenant(
+    db_session, test_tenant, other_tenant
+):
+    """Q15: rollback_authorisation_service.get_system_names' System.tenant_id
+    filter — a system id belonging to another tenant must resolve to
+    nothing, not that tenant's real name."""
+    foreign_system = System(tenant_id=other_tenant.id, name="Other Tenant's System")
+    db_session.add(foreign_system)
+    await db_session.flush()
+
+    names = await rollback_authorisation_service.get_system_names(
+        db_session, {foreign_system.id}, test_tenant.id
+    )
+    assert foreign_system.id not in names

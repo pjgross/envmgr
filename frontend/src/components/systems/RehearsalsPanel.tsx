@@ -88,10 +88,16 @@ export default function RehearsalsPanel({ systemId }: Props) {
   // unshifted onto the front the same way — the first element is always the
   // latest.
   const latest = rehearsals[0] ?? null;
-  // Honest by construction: only a PASSED and CURRENT latest rehearsal gets
-  // this marker. A failed or stale one must never render it — see the
-  // module docstring.
-  const latestIsHealthy = latest?.outcome === 'passed' && latest?.state === 'current';
+  // Finding 6: this used to require outcome === 'passed', which disagreed
+  // with the backend the moment a CURRENT 'partial' rehearsal showed up —
+  // release_readiness_service.evaluate()'s rule is `rehearsal is None or
+  // outcome == "failed"`, so a current 'partial' satisfies the requirement
+  // exactly like a current 'passed' one (see
+  // backend/tests/test_rollback_readiness.py::test_a_current_partial_rehearsal_satisfies_the_requirement).
+  // Only a FAILED outcome — current or not — must never render this marker;
+  // a stale outcome of either kind is excluded by the `state === 'current'`
+  // half, unchanged from before.
+  const latestIsHealthy = latest?.outcome !== 'failed' && latest?.state === 'current';
 
   const handleSave = async () => {
     if (!rehearsedAt) return;
