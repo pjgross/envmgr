@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.schemas.rollback import RollbackPlanCreate
 from app.db.models.release import Release
 from app.db.models.release_system import ReleaseSystem
-from app.db.models.rollback import ReleaseRollbackPlan
+from app.db.models.rollback import ReleaseRollbackPlan, REVERSIBILITY_VALUES
 from app.db.models.system import System
 from app.db.models.user import User
 
@@ -268,3 +268,25 @@ async def reads_for_plans(
         to_read(p, system_names.get(p.system_id), usernames.get(p.agreed_by_user_id))
         for p in plans
     ]
+
+
+def rollup(plans) -> Optional[str]:
+    """The WORST reversibility across a release's plans, or None if there are none.
+
+    Computed, never stored: any component's plan can change at any time, and a
+    stored rollup would be falsified by the next edit. Same call C2 made for
+    evidence staleness and waiver state.
+
+    Returns None rather than "reversible" for an empty set — an unanswered
+    question must not render as a reassuring answer.
+
+    An unrecognised value sorts LAST (worst) rather than first, so a bad row is
+    loud rather than silently treated as safe.
+    """
+    if not plans:
+        return None
+    order = {value: index for index, value in enumerate(REVERSIBILITY_VALUES)}
+    return max(
+        (p.reversibility for p in plans),
+        key=lambda value: order.get(value, len(REVERSIBILITY_VALUES)),
+    )
