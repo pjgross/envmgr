@@ -285,7 +285,7 @@ async def test_tenant_isolation(db_session, tenant, user):
 # gates actually get created in practice.
 
 from app.db.models.gate_type import GateType
-from app.services import gate_readiness_service, gate_type_service
+from app.services import release_readiness_service, gate_type_service
 from app.api.v1.schemas.gate_type import GateTypeCreate
 
 
@@ -443,7 +443,7 @@ async def test_soft_deleted_gate_type_still_materialises(db_session, tenant, use
 async def test_strictness_ladder_end_to_end_via_readiness_evaluate(db_session, tenant, user):
     """The payoff: two gates typed by two gate types with different
     expected_evidence lists produce DIFFERENT verdicts from
-    gate_readiness_service.evaluate() — the strictness ladder actually
+    release_readiness_service.evaluate() — the strictness ladder actually
     working, materialised in bulk from one template."""
     await _seed_lifecycle(db_session, tenant.id, is_default=True)
     lax = await _make_gate_type(
@@ -485,7 +485,7 @@ async def test_strictness_ladder_end_to_end_via_readiness_evaluate(db_session, t
     assert sit_gate.gate_type_id == lax.id
     assert uat_gate.gate_type_id == strict.id
 
-    result = await gate_readiness_service.evaluate(db_session, release.id, tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, tenant.id)
 
     evidence_missing_gate_ids = {
         w.ref_id for w in result.warnings if w.type == "evidence_missing"

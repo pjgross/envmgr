@@ -42,7 +42,7 @@ from app.services import (
     release_system_service,
     project_service,
     gate_evidence_service,
-    gate_readiness_service,
+    release_readiness_service,
     rollback_plan_service,
 )
 from app.services.scope_window import compute_scope_window
@@ -664,7 +664,7 @@ async def get_release_readiness(
     current_user=Depends(get_current_user),
 ):
     """The UI half of C2's gate readiness verdict — calls the SAME
-    `gate_readiness_service.evaluate` as the pipeline-facing
+    `release_readiness_service.evaluate` as the pipeline-facing
     `GET /webhooks/release-ready`, so a gate chip here and the answer a
     pipeline obeys cannot disagree.
 
@@ -676,7 +676,7 @@ async def get_release_readiness(
     not by this reasoning alone.
     """
     tenant_id = current_user.active_tenant_id
-    return await gate_readiness_service.evaluate(db, release_id, tenant_id)
+    return await release_readiness_service.evaluate(db, release_id, tenant_id)
 
 
 # ── Phases ────────────────────────────────────────────────────────────────────

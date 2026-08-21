@@ -1,7 +1,7 @@
 """Schemas for the release gate readiness verdict.
 
 Mirrors `preflight.py` exactly, including `ok` — see
-`gate_readiness_service.evaluate` for the rules that populate these.
+`release_readiness_service.evaluate` for the rules that populate these.
 """
 from datetime import datetime
 from typing import Literal, Optional

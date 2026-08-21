@@ -10,7 +10,7 @@ deployment key can read to include governance detail (waiver reasons,
 approver names, evidence URLs). Always returns 200 OK with a structured body:
 HTTP status is not the gate, the same contract can_deploy.py states.
 
-This is one of the two surfaces that call `gate_readiness_service.evaluate` —
+This is one of the two surfaces that call `release_readiness_service.evaluate` —
 the other is `GET /releases/{release_id}/readiness` in releases.py. Both call
 the SAME function, so a gate chip and the answer a pipeline obeys cannot
 disagree.
@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.schemas.gate_readiness import ReleaseReadinessResponse
 from app.core.security import api_key_auth
 from app.db.base import get_db
-from app.services import gate_readiness_service
+from app.services import release_readiness_service
 
 router = APIRouter()
 
@@ -32,4 +32,4 @@ async def release_ready(
     db: AsyncSession = Depends(get_db),
     api_key=Depends(api_key_auth(required_scope="webhooks:release")),
 ):
-    return await gate_readiness_service.evaluate(db, release_id, api_key.tenant_id)
+    return await release_readiness_service.evaluate(db, release_id, api_key.tenant_id)
