@@ -44,6 +44,7 @@ import ReleaseSystemsTab from '../../components/releases/ReleaseSystemsTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
 import ReadinessBanner from '../../components/releases/ReadinessBanner';
+import RollbackPanel from '../../components/releases/RollbackPanel';
 import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
 import { EnterpriseMembershipTab } from './project/EnterpriseMembershipTab';
 import { useSnackbar } from '../../hooks/useSnackbar';
@@ -163,6 +164,7 @@ export default function ReleaseDetail() {
           <Tab label="Enterprise" />
           <Tab label="Deployments" />
           <Tab label="PIR" />
+          <Tab label="Rollback" />
         </Tabs>
       </Paper>
 
@@ -177,6 +179,7 @@ export default function ReleaseDetail() {
       {activeTab === 7 && <EnterpriseMembershipTab releaseId={releaseId} />}
       {activeTab === 8 && <ReleaseDeploymentsTab releaseId={releaseId} />}
       {activeTab === 9 && <ReleasePirTab releaseId={releaseId} />}
+      {activeTab === 10 && <RollbackPanel releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}

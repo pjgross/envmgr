@@ -35,6 +35,7 @@ import decommissionReducer from './decommissionSlice';
 import environmentLifecyclePolicyReducer from './environmentLifecyclePolicySlice';
 import contentionForecastReducer from './contentionForecastSlice';
 import gateTypeReducer from './gateTypeSlice';
+import rollbackReducer from './rollbackSlice';
 
 export const store = configureStore({
   reducer: {
@@ -74,6 +75,7 @@ export const store = configureStore({
     environmentLifecyclePolicy: environmentLifecyclePolicyReducer,
     contentionForecast: contentionForecastReducer,
     gateType: gateTypeReducer,
+    rollback: rollbackReducer,
   },
 });
 

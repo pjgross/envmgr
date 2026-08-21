@@ -1,0 +1,354 @@
+/**
+ * RollbackPanel — Phase 9 C4's rollback tab on the release detail page.
+ *
+ * Renders the release-level reversibility rollup, one row per CHANGING
+ * component (role 'changing' or 'config_only' — a 'regression' component has
+ * nothing to roll back, the same exclusion release_readiness_service's
+ * findings make), and the authorisation history below.
+ *
+ * C4 RECORDS; IT NEVER REFUSES. "Record a rollback" must stay enabled no
+ * matter what plans exist or don't — see RecordRollbackDialog and
+ * backend/tests/test_c4_records_never_refuses.py. Nothing on this panel
+ * disables a control on the strength of plan or rehearsal state; that
+ * distinction belongs to the readiness verdict (ReadinessBanner), which
+ * needs no change here — it already renders whatever the verdict returns.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+
+import type { AppDispatch, RootState } from '../../store';
+import {
+  fetchRollbackPlans,
+  fetchRollbackAuthorisations,
+  agreeRollbackPlan,
+  deleteRollbackPlan,
+} from '../../store/rollbackSlice';
+import { releaseService } from '../../services/releaseService';
+import { formatApiError } from '../../services/apiError';
+import { formatBookingDateTime } from '../../utils/datetime';
+import { useConfirm } from '../../hooks/useConfirm';
+import type { ReleaseSystemResponse } from '../../types/release';
+import type { RollbackPlanResponse } from '../../types/rollback';
+import RollbackPlanDialog from './RollbackPlanDialog';
+import RecordRollbackDialog from './RecordRollbackDialog';
+
+interface Props {
+  releaseId: number;
+}
+
+const REVERSIBILITY_ORDER = ['reversible', 'lossy', 'irreversible'];
+
+const REVERSIBILITY_COLOR: Record<string, 'success' | 'warning' | 'error'> = {
+  reversible: 'success',
+  lossy: 'warning',
+  irreversible: 'error',
+};
+
+const REVERSIBILITY_LABEL: Record<string, string> = {
+  reversible: 'Reversible',
+  lossy: 'Lossy',
+  irreversible: 'Irreversible',
+};
+
+// The WORST reversibility among the given plans, or null for an empty set.
+// Mirrors rollback_plan_service.rollup: an unrecognised value sorts LAST
+// (worst) rather than first, so a bad row is loud rather than silently safe.
+function rollupReversibility(plans: { reversibility: string }[]): string | null {
+  if (plans.length === 0) return null;
+  const rank = (value: string) => {
+    const idx = REVERSIBILITY_ORDER.indexOf(value);
+    return idx === -1 ? REVERSIBILITY_ORDER.length : idx;
+  };
+  return plans.reduce(
+    (worst, p) => (rank(p.reversibility) > rank(worst) ? p.reversibility : worst),
+    plans[0].reversibility
+  );
+}
+
+export default function RollbackPanel({ releaseId }: Props) {
+  const dispatch = useDispatch<AppDispatch>();
+  const { plans, plansLoading, plansError, authorisations, authorisationsError } =
+    useSelector((s: RootState) => s.rollback);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+
+  const [systems, setSystems] = useState<ReleaseSystemResponse[]>([]);
+  const [systemsError, setSystemsError] = useState<string | null>(null);
+
+  const [planDialogTarget, setPlanDialogTarget] = useState<{
+    systemId: number;
+    systemName: string | null;
+    plan: RollbackPlanResponse | null;
+  } | null>(null);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    dispatch(fetchRollbackPlans(releaseId));
+    dispatch(fetchRollbackAuthorisations(releaseId));
+  }, [dispatch, releaseId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSystems([]);
+    setSystemsError(null);
+    releaseService
+      .listSystems(releaseId)
+      .then((rows) => {
+        if (!cancelled) setSystems(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setSystemsError(formatApiError(err, 'Failed to load this release’s systems'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [releaseId]);
+
+  const changingComponents = useMemo(
+    () => systems.filter((s) => s.role === 'changing' || s.role === 'config_only'),
+    [systems]
+  );
+
+  const planBySystemId = useMemo(() => {
+    const map = new Map<number, RollbackPlanResponse>();
+    for (const p of plans) map.set(p.system_id, p);
+    return map;
+  }, [plans]);
+
+  const visiblePlans = useMemo(
+    () => changingComponents.map((c) => planBySystemId.get(c.system_id)).filter(
+      (p): p is RollbackPlanResponse => Boolean(p)
+    ),
+    [changingComponents, planBySystemId]
+  );
+
+  const rollup = rollupReversibility(visiblePlans);
+
+  const allSystemOptions = useMemo(
+    () => systems.map((s) => ({ id: s.system_id, name: s.system_name ?? `#${s.system_id}` })),
+    [systems]
+  );
+
+  const handleAgree = (plan: RollbackPlanResponse) => {
+    dispatch(agreeRollbackPlan({ releaseId, planId: plan.id }));
+  };
+
+  const handleDelete = async (plan: RollbackPlanResponse) => {
+    const ok = await confirm({
+      title: 'Delete Rollback Plan',
+      message: `Delete the rollback plan for ${plan.system_name ?? 'this component'}? This does not affect any recorded rollback history.`,
+      destructive: true,
+      confirmLabel: 'Delete',
+    });
+    if (!ok) return;
+    setDeleteError(null);
+    const result = await dispatch(deleteRollbackPlan({ releaseId, planId: plan.id }));
+    if (deleteRollbackPlan.rejected.match(result)) {
+      setDeleteError(result.payload ?? 'Failed to delete the rollback plan');
+    }
+  };
+
+  return (
+    <Box>
+      <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+        <Chip
+          label={
+            rollup
+              ? `Rollback readiness: ${REVERSIBILITY_LABEL[rollup] ?? rollup}`
+              : 'No rollback plans yet'
+          }
+          color={rollup ? REVERSIBILITY_COLOR[rollup] : 'default'}
+          variant={rollup ? 'filled' : 'outlined'}
+        />
+        <Box sx={{ flexGrow: 1 }} />
+        <Button variant="contained" onClick={() => setRecordOpen(true)}>
+          Record a rollback
+        </Button>
+      </Stack>
+
+      {plansError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {plansError}
+        </Alert>
+      )}
+      {systemsError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {systemsError}
+        </Alert>
+      )}
+      {deleteError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
+
+      <Typography variant="h6" gutterBottom>
+        Rollback Plans
+      </Typography>
+      <Typography color="text.secondary" sx={{ mb: 2 }}>
+        One plan per changing component. A plan is advisory — see the tenant's Rollback
+        Policy for whether a missing plan or rehearsal is a warning or a blocker in the
+        readiness verdict.
+      </Typography>
+
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Component</TableCell>
+            <TableCell>Reversibility</TableCell>
+            <TableCell>Est. time</TableCell>
+            <TableCell>Steps</TableCell>
+            <TableCell>Agreement</TableCell>
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {changingComponents.map((c) => {
+            const plan = planBySystemId.get(c.system_id) ?? null;
+            return (
+              <TableRow key={c.id}>
+                <TableCell>{c.system_name ?? `#${c.system_id}`}</TableCell>
+                <TableCell>
+                  {plan ? (
+                    <Chip
+                      size="small"
+                      label={REVERSIBILITY_LABEL[plan.reversibility] ?? plan.reversibility}
+                      color={REVERSIBILITY_COLOR[plan.reversibility]}
+                    />
+                  ) : (
+                    <Chip size="small" label="No plan" variant="outlined" />
+                  )}
+                </TableCell>
+                <TableCell>
+                  {plan?.estimated_minutes != null ? `${plan.estimated_minutes} min` : '—'}
+                </TableCell>
+                <TableCell sx={{ maxWidth: 320, whiteSpace: 'pre-wrap' }}>
+                  {plan?.steps ?? '—'}
+                </TableCell>
+                <TableCell>
+                  {plan?.agreed_by_username ? (
+                    <Typography variant="body2">Agreed by {plan.agreed_by_username}</Typography>
+                  ) : plan ? (
+                    <Button size="small" onClick={() => handleAgree(plan)}>
+                      Agree
+                    </Button>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      —
+                    </Typography>
+                  )}
+                </TableCell>
+                <TableCell align="right">
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      setPlanDialogTarget({
+                        systemId: c.system_id,
+                        systemName: c.system_name,
+                        plan,
+                      })
+                    }
+                  >
+                    {plan ? 'Edit' : 'Create plan'}
+                  </Button>
+                  {plan && (
+                    <IconButton
+                      size="small"
+                      color="error"
+                      aria-label={`Delete rollback plan for ${c.system_name ?? c.system_id}`}
+                      onClick={() => handleDelete(plan)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+          {changingComponents.length === 0 && !plansLoading && (
+            <TableRow>
+              <TableCell colSpan={6}>
+                <Typography color="text.secondary">
+                  This release has no changing components yet.
+                </Typography>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+
+      <Typography variant="h6" sx={{ mt: 4 }} gutterBottom>
+        Rollback History
+      </Typography>
+      {authorisationsError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {authorisationsError}
+        </Alert>
+      )}
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>When</TableCell>
+            <TableCell>Trigger</TableCell>
+            <TableCell>Rationale</TableCell>
+            <TableCell>Systems</TableCell>
+            <TableCell>Recorded by</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {authorisations.map((a) => (
+            <TableRow key={a.id}>
+              <TableCell>{formatBookingDateTime(a.decided_at)}</TableCell>
+              <TableCell>{a.trigger}</TableCell>
+              <TableCell>{a.rationale}</TableCell>
+              <TableCell>{a.system_names.join(', ') || '—'}</TableCell>
+              <TableCell>{a.decided_by_username ?? '—'}</TableCell>
+            </TableRow>
+          ))}
+          {authorisations.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={5}>
+                <Typography color="text.secondary">No rollbacks recorded yet.</Typography>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+
+      {planDialogTarget && (
+        <RollbackPlanDialog
+          releaseId={releaseId}
+          systemId={planDialogTarget.systemId}
+          systemName={planDialogTarget.systemName}
+          plan={planDialogTarget.plan}
+          open={Boolean(planDialogTarget)}
+          onClose={() => setPlanDialogTarget(null)}
+        />
+      )}
+
+      <RecordRollbackDialog
+        releaseId={releaseId}
+        open={recordOpen}
+        onClose={() => setRecordOpen(false)}
+        systems={allSystemOptions}
+      />
+
+      {confirmDialog}
+    </Box>
+  );
+}
