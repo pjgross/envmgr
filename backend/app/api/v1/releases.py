@@ -43,6 +43,7 @@ from app.services import (
     project_service,
     gate_evidence_service,
     gate_readiness_service,
+    rollback_plan_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -92,6 +93,7 @@ from app.api.v1.schemas.release_bulk_booking import (
 from app.api.v1.schemas.scope_churn_analytics import ScopeChurnAnalyticsRead
 from app.api.v1.schemas.gate_evidence import GateEvidenceCreate, GateEvidenceRead
 from app.api.v1.schemas.gate_readiness import ReleaseReadinessResponse
+from app.api.v1.schemas.rollback import RollbackPlanCreate, RollbackPlanRead
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -1606,3 +1608,72 @@ async def unlink_cr_from_release(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Change request not found or not linked to this release")
     cr.release_id = None
     await db.flush()
+
+
+# ── Rollback plans (Phase 9 C4 Task 2) ────────────────────────────────────────
+#
+# Registered after every `/{release_id}` and `/{release_id}/...` route already
+# in this file. None of these paths share a segment count and a leading
+# literal with any pre-existing `/{release_id}/{something}` catch-all in this
+# router (there is none), so there is no B6-style "literal segment swallowed
+# by a catch-all" hazard here — verified by the HTTP round-trip test, not by
+# reasoning about FastAPI's route-matching rules alone.
+#
+# No pagination() on either route below: this is a per-release collection
+# bounded by the release's own component count (release_system rows), the
+# same reasoning as /{release_id}/systems before it needed a page.
+
+@router.get("/{release_id}/rollback-plans", response_model=list[RollbackPlanRead])
+async def list_rollback_plans(
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    plans = await rollback_plan_service.list_plans(db, release_id, tenant_id)
+    return await rollback_plan_service.reads_for_plans(db, tenant_id, plans)
+
+
+@router.put("/{release_id}/rollback-plans", response_model=RollbackPlanRead)
+async def upsert_rollback_plan(
+    release_id: int,
+    data: RollbackPlanCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    plan = await rollback_plan_service.upsert_plan(
+        db, release_id, tenant_id, current_user.id, data
+    )
+    reads = await rollback_plan_service.reads_for_plans(db, tenant_id, [plan])
+    return reads[0]
+
+
+@router.post(
+    "/{release_id}/rollback-plans/{plan_id}/agree", response_model=RollbackPlanRead
+)
+async def agree_rollback_plan(
+    release_id: int,
+    plan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    plan = await rollback_plan_service.agree_plan(db, plan_id, tenant_id, current_user.id)
+    reads = await rollback_plan_service.reads_for_plans(db, tenant_id, [plan])
+    return reads[0]
+
+
+@router.delete(
+    "/{release_id}/rollback-plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_rollback_plan(
+    release_id: int,
+    plan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    await rollback_plan_service.delete_plan(db, plan_id, tenant_id)
