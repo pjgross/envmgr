@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { useDispatch } from 'react-redux';
 import { AppDispatch } from '../../store';
-import { passGate, failGate, overrideGate } from '../../store/releaseSlice';
+import { passGate, failGate } from '../../store/releaseSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import type { ReleaseGateResponse } from '../../types/release';
 
@@ -22,11 +22,19 @@ interface Props {
   onClose: () => void;
   releaseId: number;
   gate: ReleaseGateResponse | null;
+  /**
+   * 'override' used to be a third decision here, behind a bare notes field.
+   * Task 10b replaced it with WaiverDialog (reason/approver/expiry/
+   * remediation) — this button closes this dialog and hands off to it,
+   * rather than adding a fourth always-visible control to GatesTable's
+   * already-dense row.
+   */
+  onWaiveInstead: () => void;
 }
 
-type Decision = 'pass' | 'fail' | 'override';
+type Decision = 'pass' | 'fail';
 
-export default function GateDecisionDialog({ open, onClose, releaseId, gate }: Props) {
+export default function GateDecisionDialog({ open, onClose, releaseId, gate, onWaiveInstead }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
   const [notes, setNotes] = useState('');
@@ -40,10 +48,8 @@ export default function GateDecisionDialog({ open, onClose, releaseId, gate }: P
       const payload = { notes: notes.trim() || undefined };
       if (decision === 'pass') {
         await dispatch(passGate({ releaseId, gateId: gate.id, data: payload })).unwrap();
-      } else if (decision === 'fail') {
-        await dispatch(failGate({ releaseId, gateId: gate.id, data: payload })).unwrap();
       } else {
-        await dispatch(overrideGate({ releaseId, gateId: gate.id, data: payload })).unwrap();
+        await dispatch(failGate({ releaseId, gateId: gate.id, data: payload })).unwrap();
       }
       snackbar.success(`Gate ${decision}ed`);
       setNotes('');
@@ -59,6 +65,13 @@ export default function GateDecisionDialog({ open, onClose, releaseId, gate }: P
     if (submitting) return;
     setNotes('');
     onClose();
+  };
+
+  const handleWaiveInstead = () => {
+    if (submitting) return;
+    setNotes('');
+    onClose();
+    onWaiveInstead();
   };
 
   return (
@@ -83,18 +96,18 @@ export default function GateDecisionDialog({ open, onClose, releaseId, gate }: P
           Cancel
         </Button>
         <Button
+          color="warning"
+          disabled={submitting}
+          onClick={handleWaiveInstead}
+        >
+          Waive instead
+        </Button>
+        <Button
           color="error"
           disabled={submitting}
           onClick={() => handleDecision('fail')}
         >
           Fail
-        </Button>
-        <Button
-          color="warning"
-          disabled={submitting}
-          onClick={() => handleDecision('override')}
-        >
-          Override
         </Button>
         <Button
           color="success"

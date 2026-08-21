@@ -1,4 +1,5 @@
 import type { GateCriterion } from './gateCriterion';
+import type { GateWaiverResponse } from './gateWaiver';
 
 export type ReleaseStatus = string;
 export type ReleaseKind = 'project' | 'enterprise';
@@ -75,8 +76,20 @@ export interface ReleaseGateResponse {
   decided_by: number | null;
   decided_at: string | null;
   decision_notes: string | null;
+  /** Phase 9 C2 — which GateType (tenant vocabulary) this gate is typed as, or null for untyped. */
+  gate_type_id: number | null;
+  test_phase_id: number | null;
   criteria: GateCriterion[];
   overdue_criterion_count: number;
+  /**
+   * Task 10c. Populated only for an `overridden` gate — the current waiver
+   * for it, or null (no waiver record at all: a pending/passed/failed gate,
+   * or a gate overridden before C2 shipped waiver tracking). Required, no
+   * default — a fixture or construction site that forgets it is a compile
+   * error, not a silently-null field (see GateWaiverRead's own docstring on
+   * the backend for the construction-site trap this guards against).
+   */
+  waiver: GateWaiverResponse | null;
 }
 
 export interface ReleaseSystemResponse {
@@ -191,10 +204,21 @@ export interface ReleaseGateCreatePayload {
 export interface ReleaseGateUpdatePayload {
   name?: string;
   due_date?: string;
+  // PUT /gates/{id} is extra="forbid" and keys on model_fields_set: an
+  // OMITTED key means "leave alone", only an explicit null clears it.
+  gate_type_id?: number | null;
+  test_phase_id?: number | null;
 }
 
 export interface ReleaseGateDecisionPayload {
   notes?: string | null;
+  // The three fields below only apply to POST /gates/{id}/override (a
+  // waiver) — pass/fail ignore them if sent. expires_at: null (or omitted)
+  // means a permanent waiver, a legitimate state, mirroring the backend's
+  // ReleaseGateDecision.
+  expires_at?: string | null;
+  remediation?: string | null;
+  approved_by_user_id?: number | null;
 }
 
 export interface ReleaseSystemCreatePayload {

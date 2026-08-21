@@ -24,6 +24,7 @@ import type {
   GateCriterionCreatePayload,
   GateCriterionUpdatePayload,
 } from '../types/gateCriterion';
+import type { GateEvidenceResponse, GateEvidenceCreatePayload } from '../types/gateEvidence';
 import type { ReleaseEventResponse, ReleaseEventCreatePayload } from '../types/releaseEvent';
 import type {
   ReleaseChangeResponse,
@@ -34,6 +35,7 @@ import type {
   ReleaseChangeStatusHistoryResponse,
 } from '../types/releaseChange';
 import { releaseService } from '../services/releaseService';
+import { formatApiError } from '../services/apiError';
 
 interface ReleaseState {
   list: ReleaseListItemResponse[];
@@ -50,6 +52,10 @@ interface ReleaseState {
   filters: ReleaseListFilters;
   phases: TestPhaseResponse[];
   gates: ReleaseGateResponse[];
+  // Phase 9 C2, task 10b. Keyed by gate id; a gate absent from this map has
+  // simply never been fetched (lazily loaded on row expand in GatesTable),
+  // not "no evidence" — an empty array means the fetch resolved empty.
+  gateEvidenceByGate: Record<number, GateEvidenceResponse[]>;
   dependencies: ReleaseDependencyResponse[];
   dependencyAlerts: ReleaseDependencyAlert[];
   events: ReleaseEventResponse[];
@@ -72,6 +78,7 @@ const initialState: ReleaseState = {
   filters: {},
   phases: [],
   gates: [],
+  gateEvidenceByGate: {},
   dependencies: [],
   dependencyAlerts: [],
   events: [],
@@ -163,11 +170,22 @@ export const createGate = createAsyncThunk(
     releaseService.createGate(releaseId, data)
 );
 
-export const updateGate = createAsyncThunk(
-  'release/updateGate',
-  ({ releaseId, gateId, data }: { releaseId: number; gateId: number; data: ReleaseGateUpdatePayload }) =>
-    releaseService.updateGate(releaseId, gateId, data)
-);
+// updateGate had zero callers before the gate-type edit affordance (Phase 9
+// C2, task 10). It rejects with formatApiError(err) — not the RTK default
+// (name/message/stack/code only, which drops response.data.detail) — because
+// its first caller needs the server's refusal reason, not "Request failed
+// with status code 422".
+export const updateGate = createAsyncThunk<
+  ReleaseGateResponse,
+  { releaseId: number; gateId: number; data: ReleaseGateUpdatePayload },
+  { rejectValue: string }
+>('release/updateGate', async ({ releaseId, gateId, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.updateGate(releaseId, gateId, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update gate'));
+  }
+});
 
 export const deleteGate = createAsyncThunk(
   'release/deleteGate',
@@ -189,11 +207,61 @@ export const failGate = createAsyncThunk(
     releaseService.failGate(releaseId, gateId, data)
 );
 
-export const overrideGate = createAsyncThunk(
-  'release/overrideGate',
-  ({ releaseId, gateId, data }: { releaseId: number; gateId: number; data?: ReleaseGateDecisionPayload }) =>
-    releaseService.overrideGate(releaseId, gateId, data)
-);
+// Upgraded to rejectWithValue(formatApiError(err)) for task 10b's
+// WaiverDialog, which needs the server's 422 reason ("notes are required
+// when overriding a gate") rather than the RTK default serializer's
+// name/message/stack/code, which drops response.data.detail — the same
+// trap updateGate's docstring above warns about.
+export const overrideGate = createAsyncThunk<
+  ReleaseGateResponse,
+  { releaseId: number; gateId: number; data?: ReleaseGateDecisionPayload },
+  { rejectValue: string }
+>('release/overrideGate', async ({ releaseId, gateId, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.overrideGate(releaseId, gateId, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to record the waiver'));
+  }
+});
+
+// --- Gate evidence (Phase 9 C2, task 10b) ---
+export const fetchGateEvidence = createAsyncThunk<
+  { gateId: number; rows: GateEvidenceResponse[] },
+  number,
+  { rejectValue: string }
+>('release/fetchGateEvidence', async (gateId, { rejectWithValue }) => {
+  try {
+    const rows = await releaseService.listGateEvidence(gateId);
+    return { gateId, rows };
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to load evidence'));
+  }
+});
+
+export const addGateEvidence = createAsyncThunk<
+  GateEvidenceResponse,
+  { gateId: number; data: GateEvidenceCreatePayload },
+  { rejectValue: string }
+>('release/addGateEvidence', async ({ gateId, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.addGateEvidence(gateId, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to add evidence'));
+  }
+});
+
+export const deleteGateEvidence = createAsyncThunk<
+  { gateId: number; evidenceId: number },
+  { gateId: number; evidenceId: number },
+  { rejectValue: string }
+>('release/deleteGateEvidence', async ({ gateId, evidenceId }, { rejectWithValue }) => {
+  try {
+    await releaseService.deleteGateEvidence(evidenceId);
+    return { gateId, evidenceId };
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to delete evidence'));
+  }
+});
 
 // --- Gate Criteria ---
 export const createCriterion = createAsyncThunk(
@@ -444,6 +512,23 @@ const releaseSlice = createSlice({
       .addCase(overrideGate.fulfilled, (state, action) => {
         const idx = state.gates.findIndex((g) => g.id === action.payload.id);
         if (idx !== -1) state.gates[idx] = action.payload;
+      })
+
+      // gate evidence
+      .addCase(fetchGateEvidence.fulfilled, (state, action) => {
+        state.gateEvidenceByGate[action.payload.gateId] = action.payload.rows;
+      })
+      .addCase(addGateEvidence.fulfilled, (state, action) => {
+        const row = action.payload;
+        const existing = state.gateEvidenceByGate[row.gate_id] ?? [];
+        state.gateEvidenceByGate[row.gate_id] = [...existing, row];
+      })
+      .addCase(deleteGateEvidence.fulfilled, (state, action) => {
+        const { gateId, evidenceId } = action.payload;
+        const existing = state.gateEvidenceByGate[gateId];
+        if (existing) {
+          state.gateEvidenceByGate[gateId] = existing.filter((e) => e.id !== evidenceId);
+        }
       })
 
       // criteria

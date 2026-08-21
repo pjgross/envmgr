@@ -9,6 +9,7 @@ import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPane
 import EnvironmentTiersPanel from '../../components/admin/EnvironmentTiersPanel';
 import EnvironmentNamingPolicyPanel from '../../components/admin/EnvironmentNamingPolicyPanel';
 import EnvironmentLifecyclePanel from '../../components/admin/EnvironmentLifecyclePanel';
+import GateTypesPanel from '../../components/admin/GateTypesPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -54,6 +55,11 @@ const LIFECYCLE_SUPPORTED: EntityType[] = [
 // Entities that have event types config.
 const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];
 
+// Entities that have a release-gate type vocabulary (Phase 9 C2). Gates
+// belong to releases, the same way event types do, so it sits next to that
+// tab rather than needing its own top-level admin page.
+const GATE_TYPES_SUPPORTED: EntityType[] = ['release'];
+
 // Entities that have a tier vocabulary.
 const TIERS_SUPPORTED: EntityType[] = ['environment'];
 
@@ -94,10 +100,12 @@ export default function EntityConfig() {
   const label = ENTITY_LABELS[entityType];
   const hasLifecycle = LIFECYCLE_SUPPORTED.includes(et);
   const hasEventTypes = EVENT_TYPES_SUPPORTED.includes(et);
+  const hasGateTypes = GATE_TYPES_SUPPORTED.includes(et);
   const hasTiers = TIERS_SUPPORTED.includes(et);
   const hasNamingPolicy = NAMING_POLICY_SUPPORTED.includes(et);
   const hasLifecyclePolicy = LIFECYCLE_POLICY_SUPPORTED.includes(et);
-  const tiersTabIndex = 1 + (hasLifecycle ? 1 : 0) + (hasEventTypes ? 1 : 0);
+  const gateTypesTabIndex = 1 + (hasLifecycle ? 1 : 0) + (hasEventTypes ? 1 : 0);
+  const tiersTabIndex = gateTypesTabIndex + (hasGateTypes ? 1 : 0);
   const namingPolicyTabIndex = tiersTabIndex + (hasTiers ? 1 : 0);
   const lifecyclePolicyTabIndex = namingPolicyTabIndex + (hasNamingPolicy ? 1 : 0);
 
@@ -115,6 +123,7 @@ export default function EntityConfig() {
           <Tab label="Custom Fields" />
           {hasLifecycle && <Tab label="Lifecycle" />}
           {hasEventTypes && <Tab label="Event Types" />}
+          {hasGateTypes && <Tab label="Gate Types" />}
           {hasTiers && <Tab label="Tiers" />}
           {hasNamingPolicy && <Tab label="Naming Policy" />}
           {hasLifecyclePolicy && <Tab label="Lifecycle & Decommissioning" />}
@@ -138,6 +147,8 @@ export default function EntityConfig() {
       {hasEventTypes && tab === (hasLifecycle ? 2 : 1) && (
         <ReleaseEventTypesPanel />
       )}
+
+      {hasGateTypes && tab === gateTypesTabIndex && <GateTypesPanel />}
 
       {hasTiers && tab === tiersTabIndex && <EnvironmentTiersPanel />}
 

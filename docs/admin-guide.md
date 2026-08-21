@@ -819,7 +819,7 @@ Hosts get attached to instances on the *Components* tab of an environment — se
 
 A **change kind** is a tenant-configurable category of work that flows through a release — `story`, `defect`, `task`, `spike`, plus anything you add yourself. Kinds drive which scope items show up on a release's *Scope* tab, and whether a particular kind *counts as a scope change* for the rolled-up scope-churn metric. They also discriminate custom-field definitions, so you can attach (say) a `severity` field that only appears on items of kind `defect`.
 
-A **gate** is a checkpoint on a single release that must be cleared before the release advances — *UAT sign-off*, *Security review*, *CAB approval*. Each gate carries a required `due_date` (an absolute timestamp, not a relative offset) and a list of *criteria*. Gates block release transitions until cleared, and the `due_date` renders as a status-coloured diamond on the release timeline.
+A **gate** is a checkpoint on a single release — *UAT sign-off*, *Security review*, *CAB approval*. Each gate carries a required `due_date` (an absolute timestamp, not a relative offset) and a list of *criteria*. **Gates do not block release transitions** — see the note at the end of the next section — but the `due_date` renders as a status-coloured diamond on the release timeline, and since Phase 9 sub-project C2 a gate can also carry a tenant-configured *type*, structured *evidence*, and a *waiver* in place of an informal override; see *Gate Types* below.
 
 ### Walkthrough: managing change kinds
 
@@ -849,7 +849,36 @@ There is **no tenant-level gate library**. Gates exist in two places only:
 - **On a release template** — the template's `gates` JSON array carries a skeleton that is materialised into real gate rows when a release is created from the template. Edit the skeleton from the *Release Templates* admin page — see ch. 9.
 - **On a release** — the *Plan* tab on any release has a *Gates* section. Click *Add Gate*, fill *Name* (e.g. *UAT Sign-off*) and *Due date* (a calendar picker — required, stored as an absolute UTC timestamp), then *Create*. Each gate can carry one or more *criteria*, each assignable to a user and toggleable as *open* or *done*.
 
-A release cannot advance while any gate is pending or has open criteria past `due_date`. Gate dates render on the release Gantt as coloured diamonds — slate pending, green passed, red failed, amber overridden — so missed milestones jump out.
+Gate dates render on the release Gantt as coloured diamonds — slate pending, green passed, red failed, amber overridden — so missed milestones jump out. **A release is never blocked by gate state**: `lifecycle_service` does not reference `release_gate` at all, and a release can be transitioned, including to a terminal status, with every gate still pending and every criterion still open. Gates and their overdue badges are read entirely as a checklist for humans, not as a backend precondition — see user guide ch. 8 for the same statement from the release-detail side, and *What C2 established* in [phase-9.md](phases/phase-9.md) for the guarding test.
+
+### Gate Types
+
+*Administration → Releases → Gate Types* (`/admin/config/release`, tab *Gate Types*, Admin only) is where your tenant declares the **vocabulary** a gate can be typed against — a `functional` gate reads differently from a `security` one, and each type declares what a failure *should* mean and what evidence is expected. Every tenant is seeded with the eight standard types from [requirements.md §2.11](../requirements.md): *Functional*, *NFR / Performance*, *Integration*, *Security*, *License*, *Accessibility*, *Business*, and *Ops Readiness*. You can edit any of them, deactivate ones you don't use, and add tenant-specific types alongside them — a tenant-added type shows no *Standard category*, since that column is only populated for the eight seeded types.
+
+Each type has:
+
+- **Verdict behaviour** — `Blocks (advisory)`, `Warns`, or `Accept with exception`. This is a **label for the readiness verdict only** — see *What `failure_behaviour` does, and does not do* below.
+- **Expected evidence** — a free-form list of evidence *kind* names (e.g. *Test execution report*, *Defect summary*). These are offered as suggestions in the *Add Evidence* dialog's *Kind* field, not a closed list — evidence of an unlisted kind is still accepted, it simply satisfies no expectation and the readiness verdict will list it as missing.
+- **Requires a deployment link** — whether evidence of this type is expected to name the deployment it vouches for. Also a hint, not an enforced rule: the *Add Evidence* dialog shows an explanatory note when this is on and no deployment has been picked, but the save proceeds regardless.
+- **Display order** and **Status** (*Active*/*Inactive*) — an inactive type is hidden from the type picker on gates and templates but still renders correctly on any gate already using it; deactivating a type does not retype the gates that used it.
+
+Name uniqueness (per tenant) is enforced by the service, not a database constraint — same as `environment_tier` and `user_group`.
+
+**Assigning a type to a gate** happens on the gate itself: the *Type* select inline on each row of a release's *Gates & Test Phases* tab. The *Release Templates* admin page (ch. 9) also has a *Gate Type* field on each gate skeleton, so a release created from a typed template starts typed too — this is how the SIT → UAT → Pre-Prod → Production strictness ladder from §2.11 is meant to be expressed: a "UAT Sign-off" type that expects more evidence kinds than a "SIT Sign-off" type, materialised onto the right phase by the template at instantiation (the gate also records which phase it was matched to, via `test_phase_id`, though nothing reads that column back today). There is no second policy engine matching (type, tier) pairs; strictness is only ever what the type itself declares.
+
+#### What `failure_behaviour` does, and does not do
+
+**It does not block anything, ever.** No `failure_behaviour` value — not even `Blocks (advisory)` — refuses a release transition, a deployment, or a booking. What it controls is a single thing: whether a pending gate of that type appears as a **blocker** or a **warning** in the readiness verdict (the banner on the release page, and the `release-ready` webhook response described in ch. 10). `Blocks (advisory)` produces a blocker entry in that response; `Warns` and `Accept with exception` both produce a warning entry, and today there is no behavioural difference between the two — the distinction is for the reader (and for a future consumer, such as a connected pipeline, that might treat them differently). A gate with no type set at all is always a warning, never a blocker — every existing gate in every tenant is untyped until someone assigns it a type, and treating "nobody has said" as "block" would turn on a wall of blockers nobody configured on the day this shipped.
+
+The readiness verdict is advisory end to end. It exists so a **connected deployment pipeline can choose to act on it** — refuse a promotion, post a warning to a chat channel, whatever your pipeline is built to do — not so that EnvManager enforces anything itself. See ch. 10, *Preflight: release-ready*.
+
+#### Seeding gate types: normally automatic
+
+The migration that introduced gate types (`gatetypes`) backfills the eight standard types for every tenant that exists at migration time — this happened automatically for `demo` and `system` on this deployment — and `tenant_service.create_tenant` seeds every tenant created afterwards. **In the ordinary case there is no deploy step to run.**
+
+The one case that still needs `seed_gate_type_defaults_for_tenant` run by hand is **a tenant restored from a backup taken before the migration**. The seeder is idempotent, so running it against an already-seeded tenant is harmless.
+
+A tenant with no seeded types is worth recognising, because there is no error — just an empty vocabulary: the *Gate Types* tab shows an empty table and the type selector on every gate offers nothing but *Untyped*, so the feature reads as **broken** rather than unconfigured. Check this first if a tenant reports "gate types don't work."
 
 ### Tips
 
@@ -899,7 +928,7 @@ A *release template* is a reusable skeleton for releases. It bundles a release t
    - *Release Type* — one of `project`, `hotfix`, `patch`, `major`, `minor`. This becomes the type on every release built from the template.
    - *Description* (multi-line).
 4. In the *Phases* panel, add one row per phase. Each phase has *Phase Name* (required), *Default Duration (days)* (used to back-compute phase dates from the release's target date — the last phase ends on the target date), and *Activities* (a comma-separated list of free-text labels). Use the up/down arrows to reorder; phase order is renumbered on save.
-5. In the *Gates* panel, add one row per gate. Each gate skeleton holds *Gate Name*, *Attach to Phase* (a phase name from the list above, or "Release-level (no phase)"), and *Acceptance Criteria* (free text). At instantiation each gate becomes a *ReleaseGate* with status `pending`; the acceptance-criteria text, if present, seeds a single criterion titled *Acceptance criteria*.
+5. In the *Gates* panel, add one row per gate. Each gate skeleton holds *Gate Name*, *Attach to Phase* (a phase name from the list above, or "Release-level (no phase)"), *Acceptance Criteria* (free text), and *Gate Type* (§8's gate-type vocabulary — pick an active type, or leave it untyped). At instantiation each gate becomes a *ReleaseGate* with status `pending`; the acceptance-criteria text, if present, seeds a single criterion titled *Acceptance criteria*, and the chosen gate type carries across so the gate reads with the same failure behaviour and expected evidence it would have if typed by hand.
 6. Click *Save*.
 
 ### Walkthrough: editing and deleting
@@ -920,7 +949,7 @@ Templates earn their keep when releases follow a predictable cadence: a monthly 
 
 API keys are tenant-scoped, scope-restricted credentials that let external systems — typically your CI/CD pipelines — write to EnvManager. A key belongs to one tenant, carries one or more named scopes, and is presented in the `X-Api-Key` header. Keys are stored as a SHA-256 hash; the plaintext is shown **once**, on the screen that follows creation. EnvManager has no way to recover a lost plaintext — if you lose it, revoke and re-issue.
 
-Today the only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 9.
+The only write endpoint covered by API keys is the deployment webhook, which registers a build, a deployment, and (on first call) an auto-generated change request in one round trip. The corresponding read views are described in user guide ch. 9. Two further endpoints are read-only advisory queries a pipeline can call before or after that write: the deployment scope's *can-deploy* preflight, and the release scope's *release-ready* gate check (see *Available scopes* below) — neither refuses anything; both hand back a structured verdict for the caller to act on.
 
 ### Walkthrough: creating an API key
 
@@ -930,7 +959,7 @@ API keys are managed by **Tenant Admins** at `/tenant/api-keys` (left nav: *API 
 2. Click *New key* (top right).
 3. Fill the *New API key* dialog:
    - *Name* — required, max 120 chars; pick something that identifies the consumer (for example `gitlab-ci-deploy`).
-   - *Scopes* — at least one must be selected. Today the only scope on offer is *CI/CD deployment webhook* (`webhooks:deployment`).
+   - *Scopes* — at least one must be selected. Two are on offer: *CI/CD deployment webhook* (`webhooks:deployment`) and *Release gate readiness webhook* (`webhooks:release`). Grant only what a consumer needs — a deployment key is deliberately unable to read gate governance detail (waiver reasons, approver names, evidence URLs) unless it also carries `webhooks:release`.
    - *Expires at (optional)* — calendar field; leave blank for a non-expiring key.
 4. Click *Create*. The dialog closes and the *API key created* dialog opens with a one-time read-only field containing the plaintext. Use the copy icon to drop it into your CI secrets store **now**.
 5. Click *I've copied it*. The plaintext is gone — only its hash, plus the metadata you entered, remain on the *API keys* page.
@@ -948,6 +977,7 @@ Each handler declares the scope it requires; a key passes auth only if its scope
 | Scope | What it grants | Example use |
 |-------|----------------|-------------|
 | `webhooks:deployment` | `POST /api/v1/webhooks/deployment` — register a build and deployment, auto-create a `code_deployment` change request on first call. **Also** `GET /api/v1/webhooks/can-deploy` — preflight gate (see *Preflight: can-deploy* below). | GitLab/Jenkins/GitHub Actions: step that fires before deploying (preflight) and step that fires after a successful deploy (ingest). |
+| `webhooks:release` | `GET /api/v1/webhooks/release-ready` — release gate readiness (see *Preflight: release-ready* below). Deliberately **not** granted by `webhooks:deployment`: reusing that scope would silently widen what every existing deployment key can read to include gate governance detail (waiver reasons, approver names, evidence URLs). | A release pipeline step that asks "are this release's gates satisfied?" before promoting a build, independent of any single environment's deploy preflight. |
 
 Future phases will extend this list.
 
@@ -1118,6 +1148,50 @@ The minimum two are the slugs. If your pipeline knows what release or what booki
 - **Direct claim:** pass `booking_id` if the CI job has been issued the booking's id (e.g. via a CI variable populated when the booking was approved). This is the strongest unlock and the right pattern when `release_id` doesn't apply.
 - **Neither known:** the call still works, but exclusive bookings are unconditional blockers.
 
+### Preflight: release-ready
+
+A separate advisory query from *can-deploy* above: this asks "are this release's typed gates satisfied?" rather than "is this specific environment reservable right now?" A pipeline that promotes a build through a release can call it before doing so.
+
+The same evaluator backs a UI element too — the release detail page's gate readiness panel calls `GET /api/v1/releases/{release_id}/readiness` (JWT-authenticated), which runs the identical rule set. **The two can never disagree**: both call the same `gate_readiness_service.evaluate` function; only the auth layer and the source of the tenant id (the caller's active tenant vs. the API key's own tenant) differ.
+
+**Endpoint** `GET /api/v1/webhooks/release-ready`
+**Required scope** `webhooks:release`
+**Auth header** `X-Api-Key: <plaintext key>`
+
+Query parameters:
+
+| Param | Required | Notes |
+|-------|----------|-------|
+| `release_id` | yes | Resolved against the tenant the API key belongs to. `404` if unknown or in a different tenant. |
+
+```bash
+curl "http://localhost:8000/api/v1/webhooks/release-ready?release_id=42" \
+  -H "X-Api-Key: $YOUR_KEY"
+```
+
+Response (a gate is pending and typed to block):
+
+```json
+{
+  "ok": false,
+  "release_id": 42,
+  "checked_at": "2026-08-20T09:00:00Z",
+  "blockers": [
+    {
+      "type": "gate_pending",
+      "ref_kind": "gate",
+      "ref_id": 7,
+      "gate_name": "Go/No-Go",
+      "gate_type": "Go/No-Go",
+      "detail": "The gate has not been decided."
+    }
+  ],
+  "warnings": []
+}
+```
+
+`ok` is the field a pipeline reads; treat `false` as "gates are not satisfied." As with *can-deploy*, **HTTP status is not the gate** — a blocked release still returns `200 OK` with the verdict in the body. Only auth (`401` / `403`) and the release lookup (`404`) use HTTP status for signalling. EnvManager never refuses a deployment or a release transition on the strength of this response; it is advisory, and the caller decides what to do with `ok: false`.
+
 ### Rotation and revocation guidance
 
 Treat keys as production secrets. Issue one per consumer so you can revoke a single integration without disrupting the rest, and audit the list quarterly — anything that has not authenticated in ninety days (check the *Last used* column) is a candidate for revocation. Set *Expires at* on short-lived projects so they self-retire.
@@ -1254,6 +1328,7 @@ These endpoints are **not** role-gated. They reject any request without a valid 
 |---|---|---|
 | `POST /api/v1/webhooks/deployment` | `webhooks:deployment` | `api/v1/webhooks/deployment.py` |
 | `GET /api/v1/webhooks/can-deploy` | `webhooks:deployment` | `api/v1/webhooks/can_deploy.py` |
+| `GET /api/v1/webhooks/release-ready` | `webhooks:release` | `api/v1/webhooks/release_ready.py` |
 
 API keys are issued and revoked per-tenant via the **API keys** row above (Admin only). See chapter 10 for scope details and the deployment webhook payload contract.
 

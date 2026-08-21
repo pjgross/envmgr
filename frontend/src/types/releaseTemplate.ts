@@ -9,6 +9,15 @@ export interface ReleaseTemplateGate {
   name: string;
   phase_name: string | null;
   acceptance_criteria: string | null;
+  /**
+   * The gate type (Phase 9 C2) this gate skeleton materialises onto a
+   * created release's gate. Optional — a gate with no type is legitimate
+   * and back-compat: a template saved before this field existed has no
+   * key for it at all, and setGates(detail.gates) preserves that (the
+   * value reads as `undefined`, treated identically to `null` everywhere
+   * this is read). See backend/app/api/v1/schemas/release_template.py.
+   */
+  gate_type_id?: number | null;
 }
 
 export interface ReleaseTemplateResponse {

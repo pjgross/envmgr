@@ -43,6 +43,7 @@ import ReleasePirTab from '../../components/releases/ReleasePirTab';
 import ReleaseSystemsTab from '../../components/releases/ReleaseSystemsTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
+import ReadinessBanner from '../../components/releases/ReadinessBanner';
 import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
 import { EnterpriseMembershipTab } from './project/EnterpriseMembershipTab';
 import { useSnackbar } from '../../hooks/useSnackbar';
@@ -142,6 +143,8 @@ export default function ReleaseDetail() {
           <DeleteOutlineIcon />
         </IconButton>
       </Box>
+
+      <ReadinessBanner releaseId={releaseId} />
 
       {/* Tab strip */}
       <Paper sx={{ mb: 2 }}>

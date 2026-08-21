@@ -2,7 +2,7 @@
  * GatesTable — expandable list of release gates with per-gate criteria.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
   Button,
@@ -14,7 +14,9 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   TextField,
   Tooltip,
@@ -28,6 +30,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import type { AppDispatch } from '../../store';
 import {
   createGate,
+  updateGate,
   deleteGate,
   fetchGates,
   createCriterion,
@@ -35,15 +38,24 @@ import {
   completeCriterion,
   reopenCriterion,
   deleteCriterion,
+  fetchGateEvidence,
+  deleteGateEvidence,
 } from '../../store/releaseSlice';
+import { fetchGateTypes, selectActiveGateTypes } from '../../store/gateTypeSlice';
+import type { RootState } from '../../store';
 import api from '../../services/api';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import GateDecisionDialog from './GateDecisionDialog';
+import WaiverDialog from './WaiverDialog';
+import WaiverChip from './WaiverChip';
+import GateEvidenceList from './GateEvidenceList';
+import AddEvidenceDialog from './AddEvidenceDialog';
 import CriterionRow from './CriterionRow';
 import CriterionDialog from './CriterionDialog';
 import type { ReleaseGateResponse } from '../../types/release';
 import type { GateCriterion, GateCriterionCreatePayload, GateCriterionUpdatePayload } from '../../types/gateCriterion';
+import type { GateEvidenceResponse } from '../../types/gateEvidence';
 
 interface Props {
   releaseId: number;
@@ -74,6 +86,35 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
       .catch(() => setUsers([])); // assignee select stays empty on failure
   }, []);
 
+  // Gate type vocabulary (Phase 9 C2, reusing Task 9's gateTypeSlice rather
+  // than a second client). GET /gate-types is open to any tenant member and
+  // returns every type regardless of is_active — needed here to resolve the
+  // NAME of a gate already assigned to a type that has since been retired.
+  const gateTypes = useSelector((s: RootState) => s.gateType.gateTypes);
+  const activeGateTypes = selectActiveGateTypes(gateTypes);
+  useEffect(() => {
+    dispatch(fetchGateTypes());
+  }, [dispatch]);
+
+  const gateTypeById = useMemo(
+    () => new Map(gateTypes.map((t) => [t.id, t])),
+    [gateTypes]
+  );
+  // A gate may point at a type that's since been deactivated — keep it
+  // selectable (rendered, not silently dropped) so its current value doesn't
+  // vanish from the control, mirroring the owner/soft-deleted-group carve-out
+  // elsewhere in this codebase.
+  const assignedTypeIds = useMemo(
+    () => new Set(gates.map((g) => g.gate_type_id).filter((id): id is number => id != null)),
+    [gates]
+  );
+  const selectableGateTypes = useMemo(() => {
+    const retiredButAssigned = gateTypes.filter(
+      (t) => !t.is_active && assignedTypeIds.has(t.id)
+    );
+    return [...activeGateTypes, ...retiredButAssigned];
+  }, [activeGateTypes, gateTypes, assignedTypeIds]);
+
   // Gate create dialog
   const [createOpen, setCreateOpen] = useState(false);
   const [gateName, setGateName] = useState('');
@@ -83,8 +124,33 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
   const [selectedGate, setSelectedGate] = useState<ReleaseGateResponse | null>(null);
   const [decisionOpen, setDecisionOpen] = useState(false);
 
+  // Waiver dialog (task 10b) — opened either from the "Waive" action on a
+  // pending gate or by clicking an already-"overridden" gate's status chip.
+  const [waiverGate, setWaiverGate] = useState<ReleaseGateResponse | null>(null);
+  const [waiverOpen, setWaiverOpen] = useState(false);
+
+  // Evidence (task 10b). Lazily fetched per gate on first expand — see the
+  // effect below — and keyed by gate id in the store, not held locally, so
+  // a fulfilled add/delete re-renders GateEvidenceList without a manual
+  // refetch.
+  const gateEvidenceByGate = useSelector((s: RootState) => s.release.gateEvidenceByGate);
+  const [evidenceDialogGateId, setEvidenceDialogGateId] = useState<number | null>(null);
+
   // Expandable rows — set of gate ids that are open
   const [expandedGateIds, setExpandedGateIds] = useState<Set<number>>(new Set());
+
+  // Fetch a gate's evidence the first time its row is expanded. Absence
+  // from `gateEvidenceByGate` means "never fetched", not "no evidence" —
+  // see the slice's own comment — so this only fires once per gate per
+  // mount, not on every expand/collapse toggle.
+  useEffect(() => {
+    expandedGateIds.forEach((gateId) => {
+      if (gateEvidenceByGate[gateId] === undefined) {
+        dispatch(fetchGateEvidence(gateId));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedGateIds]);
 
   // Criterion dialog state
   const [criterionDialogOpen, setCriterionDialogOpen] = useState(false);
@@ -138,6 +204,27 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
         ? detail
         : err instanceof Error ? err.message : 'Failed to delete gate';
       snackbar.error(msg);
+    }
+  };
+
+  const handleGateTypeChange = async (gate: ReleaseGateResponse, gateTypeId: number | null) => {
+    const result = await dispatch(
+      updateGate({ releaseId, gateId: gate.id, data: { gate_type_id: gateTypeId } })
+    );
+    if (updateGate.fulfilled.match(result)) {
+      snackbar.success('Gate type updated');
+    } else {
+      snackbar.error(result.payload ?? 'Failed to update gate type');
+    }
+  };
+
+  const handleDeleteEvidence = async (gateId: number, evidence: GateEvidenceResponse) => {
+    if (!(await confirm({ message: `Delete evidence "${evidence.label}"?`, destructive: true }))) return;
+    const result = await dispatch(deleteGateEvidence({ gateId, evidenceId: evidence.id }));
+    if (deleteGateEvidence.fulfilled.match(result)) {
+      snackbar.success('Evidence deleted');
+    } else {
+      snackbar.error(result.payload ?? 'Failed to delete evidence');
     }
   };
 
@@ -254,17 +341,89 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                   {gate.name}
                 </Typography>
 
+                {/* Gate type — shown and settable inline; the first edit
+                    affordance updateGate has ever had a caller for. Click
+                    stops propagation so opening it doesn't toggle the row. */}
+                <Box
+                  sx={{ minWidth: 150 }}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <Select<string>
+                    size="small"
+                    displayEmpty
+                    fullWidth
+                    inputProps={{ 'aria-label': `Type for gate ${gate.name}` }}
+                    value={gate.gate_type_id != null ? String(gate.gate_type_id) : ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      handleGateTypeChange(gate, v === '' ? null : Number(v));
+                    }}
+                    renderValue={(value) => {
+                      if (value === '') {
+                        return (
+                          <Typography variant="body2" color="text.secondary">
+                            Untyped
+                          </Typography>
+                        );
+                      }
+                      const t = gateTypeById.get(Number(value));
+                      return (
+                        <Typography variant="body2">
+                          {t ? t.name : `Type #${value}`}
+                        </Typography>
+                      );
+                    }}
+                  >
+                    <MenuItem value="">
+                      <em>Untyped</em>
+                    </MenuItem>
+                    {selectableGateTypes.map((t) => (
+                      <MenuItem key={t.id} value={String(t.id)}>
+                        {t.name}
+                        {!t.is_active ? ' (inactive)' : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </Box>
+
                 <Chip
                   size="small"
                   variant="outlined"
                   label={`Due ${gate.due_date.slice(0, 10)}`}
                 />
 
-                <Chip
-                  size="small"
-                  label={gate.status}
-                  color={STATUS_COLORS[gate.status] ?? 'default'}
-                />
+                {gate.status === 'overridden' ? (
+                  // An expired waiver must read as visibly distinct from a
+                  // live one — the readiness verdict treats it as a BLOCKER
+                  // again (waiver_expired), so a chip that still just says
+                  // "overridden" in the same info colour would contradict
+                  // the verdict right next to it.
+                  <Tooltip
+                    title={
+                      gate.waiver?.state === 'expired'
+                        ? 'Waiver expired — view the waiver'
+                        : 'View the waiver'
+                    }
+                  >
+                    <Chip
+                      size="small"
+                      label={gate.waiver?.state === 'expired' ? 'overridden (expired)' : gate.status}
+                      color={gate.waiver?.state === 'expired' ? 'error' : STATUS_COLORS[gate.status] ?? 'default'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setWaiverGate(gate);
+                        setWaiverOpen(true);
+                      }}
+                    />
+                  </Tooltip>
+                ) : (
+                  <Chip
+                    size="small"
+                    label={gate.status}
+                    color={STATUS_COLORS[gate.status] ?? 'default'}
+                  />
+                )}
 
                 {total > 0 && (
                   <Tooltip title={`${done} of ${total} criteria complete`}>
@@ -343,6 +502,80 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                       Add criterion
                     </Button>
                   </Box>
+
+                  {/* Waiver (task 10c) — same placement rule task 10b set
+                      for Evidence: inside the expand panel, not a seventh
+                      always-visible header control. Only rendered for an
+                      overridden gate; clicking through re-opens the same
+                      WaiverDialog the status chip already opens. */}
+                  {gate.status === 'overridden' && (
+                    <>
+                      <Divider />
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pl: 4, pr: 2, pt: 1, pb: 1 }}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
+                            Waiver
+                          </Typography>
+                          {gate.waiver ? (
+                            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                              <Typography variant="body2">
+                                Approved by{' '}
+                                {gate.waiver.approved_by_username ?? `user #${gate.waiver.approved_by_user_id}`}
+                                {`: "${gate.waiver.reason}"`}
+                              </Typography>
+                              <Box>
+                                <WaiverChip expiresAt={gate.waiver.expires_at} state={gate.waiver.state} />
+                              </Box>
+                              {gate.waiver.remediation && (
+                                <Typography variant="body2">
+                                  <strong>Remediation:</strong> {gate.waiver.remediation}
+                                </Typography>
+                              )}
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                              No waiver record (overridden before waiver tracking).
+                            </Typography>
+                          )}
+                        </Box>
+                        <Button
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setWaiverGate(gate);
+                            setWaiverOpen(true);
+                          }}
+                        >
+                          View waiver
+                        </Button>
+                      </Box>
+                    </>
+                  )}
+
+                  {/* Evidence (task 10b) — kept inside the expand panel
+                      rather than the header row, which was already dense
+                      before this task. */}
+                  <Divider />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pl: 4, pr: 2, pt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
+                      Evidence
+                    </Typography>
+                    <Button
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEvidenceDialogGateId(gate.id);
+                      }}
+                    >
+                      Add evidence
+                    </Button>
+                  </Box>
+                  <GateEvidenceList
+                    releaseId={releaseId}
+                    evidence={gateEvidenceByGate[gate.id] ?? []}
+                    onDelete={(evidence) => handleDeleteEvidence(gate.id, evidence)}
+                  />
                 </Box>
               </Collapse>
             </Paper>
@@ -400,7 +633,36 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
         onClose={() => setDecisionOpen(false)}
         releaseId={releaseId}
         gate={selectedGate}
+        onWaiveInstead={() => {
+          setWaiverGate(selectedGate);
+          setWaiverOpen(true);
+        }}
       />
+
+      <WaiverDialog
+        open={waiverOpen}
+        onClose={() => setWaiverOpen(false)}
+        releaseId={releaseId}
+        gate={waiverGate}
+        users={userList}
+      />
+
+      {evidenceDialogGateId !== null && (() => {
+        const evidenceGate = gates.find((g) => g.id === evidenceDialogGateId);
+        const evidenceGateType = evidenceGate?.gate_type_id != null
+          ? gateTypeById.get(evidenceGate.gate_type_id)
+          : undefined;
+        return (
+          <AddEvidenceDialog
+            open
+            onClose={() => setEvidenceDialogGateId(null)}
+            releaseId={releaseId}
+            gateId={evidenceDialogGateId}
+            expectedEvidence={evidenceGateType?.expected_evidence ?? []}
+            requiresDeploymentLink={evidenceGateType?.requires_deployment_link ?? false}
+          />
+        );
+      })()}
     </Box>
   );
 }

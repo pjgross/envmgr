@@ -3,7 +3,7 @@
  * Metadata + phases editor (reorderable via up/down buttons) + gates editor.
  * Route: /admin/release-templates/new  and  /admin/release-templates/:id
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -29,6 +29,7 @@ import {
   updateReleaseTemplate,
   clearDetail,
 } from '../../../store/releaseTemplateSlice';
+import { fetchGateTypes, selectActiveGateTypes } from '../../../store/gateTypeSlice';
 import type {
   ReleaseTemplatePhase,
   ReleaseTemplateGate,
@@ -43,7 +44,7 @@ function emptyPhase(): ReleaseTemplatePhase {
 }
 
 function emptyGate(): ReleaseTemplateGate {
-  return { name: '', phase_name: null, acceptance_criteria: null };
+  return { name: '', phase_name: null, acceptance_criteria: null, gate_type_id: null };
 }
 
 export default function ReleaseTemplateForm() {
@@ -83,6 +84,38 @@ export default function ReleaseTemplateForm() {
       setGates(detail.gates);
     }
   }, [detail]);
+
+  // Gate type vocabulary (Phase 9 C2, task 12), reusing Task 9's
+  // gateTypeSlice — the same client GatesTable's inline type picker
+  // (task 10) already consumes. GET /gate-types is open to any tenant
+  // member and returns every type regardless of is_active; that's needed
+  // here too, to resolve the NAME of a gate skeleton already pointed at a
+  // type that has since been archived.
+  const gateTypes = useSelector((s: RootState) => s.gateType.gateTypes);
+  const activeGateTypes = selectActiveGateTypes(gateTypes);
+  useEffect(() => {
+    dispatch(fetchGateTypes());
+  }, [dispatch]);
+
+  const gateTypeById = useMemo(
+    () => new Map(gateTypes.map((t) => [t.id, t])),
+    [gateTypes]
+  );
+  // A gate skeleton may point at a type that's since been deactivated (or,
+  // per Task 6c's grandfathering, one long deleted) — keep it selectable
+  // and rendered rather than silently dropped, mirroring GatesTable and
+  // the owner/soft-deleted-group carve-out elsewhere in this codebase.
+  const assignedTypeIds = useMemo(
+    () => new Set(gates.map((g) => g.gate_type_id).filter((id): id is number => id != null)),
+    [gates]
+  );
+  const selectableGateTypes = useMemo(() => {
+    const retiredButAssigned = gateTypes.filter(
+      (t) => !t.is_active && assignedTypeIds.has(t.id)
+    );
+    return [...activeGateTypes, ...retiredButAssigned];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGateTypes, gateTypes, assignedTypeIds]);
 
   // --- phases helpers ---
   const updatePhase = (idx: number, field: keyof ReleaseTemplatePhase, value: unknown) => {
@@ -333,6 +366,36 @@ export default function ReleaseTemplateForm() {
                 {phaseNames.map((pn) => (
                   <MenuItem key={pn} value={pn}>
                     {pn}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Gate Type"
+                size="small"
+                sx={{ flex: '1 1 180px' }}
+                value={gate.gate_type_id != null ? String(gate.gate_type_id) : ''}
+                onChange={(e) =>
+                  updateGate(
+                    idx,
+                    'gate_type_id',
+                    e.target.value === '' ? null : Number(e.target.value)
+                  )
+                }
+                SelectProps={{
+                  displayEmpty: true,
+                  renderValue: (value) => {
+                    if (value === '') return 'Untyped';
+                    const t = gateTypeById.get(Number(value));
+                    return t ? t.name : `Type #${value}`;
+                  },
+                }}
+              >
+                <MenuItem value="">Untyped</MenuItem>
+                {selectableGateTypes.map((t) => (
+                  <MenuItem key={t.id} value={String(t.id)}>
+                    {t.name}
+                    {!t.is_active ? ' (inactive)' : ''}
                   </MenuItem>
                 ))}
               </TextField>

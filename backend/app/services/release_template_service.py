@@ -11,6 +11,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
+from app.db.models.gate_type import GateType
 from app.db.models.release import Release, ReleaseStatusHistory
 from app.db.models.release_gate import ReleaseGate
 from app.db.models.release_template import ReleaseTemplate
@@ -18,6 +19,7 @@ from app.db.models.test_phase import TestPhase
 from app.api.v1.schemas.gate_criterion import GateCriterionCreate
 from app.api.v1.schemas.release_template import (
     ReleaseTemplateCreate,
+    ReleaseTemplateGate,
     ReleaseTemplateInstantiate,
     ReleaseTemplateUpdate,
 )
@@ -43,6 +45,61 @@ async def _get_template(
     return tpl
 
 
+async def _validate_template_gate_types(
+    db: AsyncSession,
+    tenant_id: int,
+    gates: list[ReleaseTemplateGate],
+    *,
+    grandfathered_ids: frozenset[int] = frozenset(),
+) -> None:
+    """Every gate config naming a NEW gate_type_id must resolve to a live,
+    in-tenant GateType at SAVE time — a cross-tenant (or unknown) id is a
+    404 here, not a surprise the day a release is created from the template.
+
+    `grandfathered_ids` is the set-based carve-out (Task 6b's
+    _validate_gate_type_id "unchanged value" rule, generalised to a whole
+    list rather than one field): any id already present anywhere in the
+    template's STORED gates before this save is accepted even if it has
+    since been archived, regardless of which gate config it appears on now,
+    what order the list is in, or whether unrelated fields (a due date, a
+    name) are the only thing actually changing. The caller (update_template)
+    computes it from `tpl.gates` BEFORE the incoming data overwrites it.
+    Deliberately set-based, not positional — the sibling single-gate path
+    can key an "unchanged" comparison on one field because it has one
+    stored value to compare against; a template's gate list has no stable
+    per-gate identity (no id, no key) to match old-position to new-position
+    by, and ReleaseTemplateForm.tsx sends the WHOLE gates array on every
+    save with no dirty-tracking, so a positional or "did this exact index
+    change" comparison would misfire the moment an admin reorders gates.
+
+    Only a genuinely NEW id (introduced now, not seen in the stored gates
+    before this save) must resolve to a live, in-tenant type. Materialisation
+    (instantiate(), below) does not repeat either check: a type that was
+    live when the template was saved and has since been archived must still
+    materialise, per the design's read-rendering rule (an archived gate type
+    still renders its name).
+    """
+    ids = {g.gate_type_id for g in gates if g.gate_type_id is not None}
+    new_ids = ids - grandfathered_ids
+    if not new_ids:
+        return
+    found = (
+        await db.execute(
+            select(GateType.id).where(
+                GateType.id.in_(new_ids),
+                GateType.tenant_id == tenant_id,
+                GateType.deleted_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    missing = new_ids - set(found)
+    if missing:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Gate type not found: {sorted(missing)}",
+        )
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def create_template(
@@ -50,6 +107,8 @@ async def create_template(
     data: ReleaseTemplateCreate,
     tenant_id: int,
 ) -> ReleaseTemplate:
+    await _validate_template_gate_types(db, tenant_id, data.gates)
+
     tpl = ReleaseTemplate(
         tenant_id=tenant_id,
         name=data.name,
@@ -104,6 +163,22 @@ async def update_template(
     tenant_id: int,
 ) -> ReleaseTemplate:
     tpl = await _get_template(db, template_id, tenant_id)
+
+    if data.gates is not None:
+        # Grandfather set: every gate_type_id already sitting in the STORED
+        # gates, read BEFORE the incoming data overwrites tpl.gates below.
+        # tpl.gates holds plain dicts (serialised at the last save), so
+        # .get() — a pre-6c-stored template's gate configs have no key at
+        # all. See _validate_template_gate_types' docstring for why this is
+        # set-based rather than positional.
+        stored_ids = frozenset(
+            gc.get("gate_type_id")
+            for gc in (tpl.gates or [])
+            if isinstance(gc, dict) and gc.get("gate_type_id") is not None
+        )
+        await _validate_template_gate_types(
+            db, tenant_id, data.gates, grandfathered_ids=stored_ids,
+        )
 
     update_data = data.model_dump(exclude_unset=True)
     # Serialise nested schemas to plain dicts if present
@@ -239,10 +314,16 @@ async def instantiate(
             gate_name = gate_cfg.get("name", "Gate")
             phase_name = gate_cfg.get("phase_name")
             acceptance_criteria = gate_cfg.get("acceptance_criteria")
+            # .get(), not indexing: a template stored before this field
+            # existed has no "gate_type_id" key at all, and must keep
+            # materialising untyped exactly as before. No deleted_at check
+            # here — see _validate_template_gate_types' docstring.
+            gate_type_id = gate_cfg.get("gate_type_id")
         else:
             gate_name = gate_cfg.name
             phase_name = gate_cfg.phase_name
             acceptance_criteria = gate_cfg.acceptance_criteria
+            gate_type_id = gate_cfg.gate_type_id
 
         matched_phase = phase_objects.get(phase_name) if phase_name else None
         # Derive due_date: phase end_date → release target_date → release created_at
@@ -258,6 +339,14 @@ async def instantiate(
             name=gate_name,
             status="pending",
             due_date=gate_due_date,
+            gate_type_id=gate_type_id,
+            # I5 in the C2 final review: this is the one place in the
+            # codebase that knows which phase a template gate belongs to
+            # (matched by name, just above, to compute gate_due_date) and,
+            # until now, was the one place that didn't write it down. None
+            # for a release-level gate (matched_phase is None), same as
+            # every other field on that gate.
+            test_phase_id=matched_phase.id if matched_phase else None,
         )
         db.add(gate)
         await db.flush()

@@ -767,6 +767,67 @@ Gate completion is **not** an enforced precondition for advancing — you can ma
 ### Gates and scope
 
 - **Gates** live on the *Gates & Test Phases* tab. Click *Add Gate* to create one with a name and an absolute *due_date* (a timestamp, not a relative offset). Add criteria from the expanded row; each criterion has its own due date that drives the gate's *overdue* badge. To move a gate off *pending*, click *Decide* and pick *passed*, *failed*, or *overridden*. Gates render as status-coloured diamonds on the timeline.
+- **Typing a gate.** The *Type* select on each gate row picks from your tenant's gate types (admin guide ch. 8) — *Functional*, *Security*, *NFR / Performance*, and so on, or a tenant-specific type. Choosing a type does two things: it declares what evidence is expected (see below), and it decides whether a pending or waived gate of this type shows up as a **blocker** or a **warning** in the readiness check described below. A gate with no type set is always a warning — nobody has declared how it should behave, so the readiness check doesn't invent an answer.
+- **Adding evidence.** Expand a gate and use *Add evidence* to record a *Kind* (pick one of the type's expected kinds, or type your own — evidence of an unlisted kind is still accepted, it just won't satisfy an expectation), a *Label*, an optional *URL*, and — where relevant — the *Deployment* it vouches for, searched by environment or build. Linking a deployment is what makes a piece of evidence more than a bookmark: EnvManager already knows which build of which component that deployment put where and when. Evidence with no deployment link is still accepted even when the gate's type expects one; the dialog just tells you so.
+- **Evidence going stale.** If evidence names a deployment, and a **later, successful** deployment of the same component into the same environment happens afterwards, the evidence is marked **Superseded** — the sign-off you recorded described a version that has since moved on. A **failed** redeploy does not do this: only a genuinely successful later deployment supersedes earlier evidence. Staleness is computed every time the page loads, not stored, so it always reflects the current state of deployments.
+- **Waiving a gate.** Click a pending gate's *Decide* control and choose *Waive instead* (or, on a gate that's already overridden, click its status chip) to open the waiver dialog: a required *Reason*, an optional *Approver* (defaults to you), an optional *Expiry* (leave blank for a permanent waiver — a chip tells you how many days out the date you pick falls), and an optional *Remediation* note. Submitting records the waiver and moves the gate to *overridden*. **A waived gate is overridden, not passed** — it still reads as unmet work, just recorded rather than resolved, and the readiness check still shows it as a warning naming who approved it and until when. Re-opening the dialog on an already-waived gate shows the current waiver's reason, approver, expiry and remediation, and records a **new** waiver on submit — the old one is kept as history, not overwritten. Once an expiry passes, the waiver stops covering the gate and it reads as a **blocker** again (the status chip turns red and reads "overridden (expired)") — the day the expiry falls on is still covered; it lapses the day after.
+
+### Release readiness (typed gates, evidence and waivers)
+
+The banner at the top of a release's detail page — and the identical check a connected deployment pipeline can call directly (see admin guide ch. 10, *Preflight: release-ready*) — answers one question: **are this release's typed gates satisfied?** It is entirely **advisory**: nothing it says blocks a release transition, a deployment, or a booking, and the banner says so in its own first line. It exists so a human reviewing the release, and a pipeline that has chosen to consult it, see the same picture.
+
+The banner has two sections when there's anything to show, and shows nothing at all when a release has no gates:
+
+- **"N in the verdict"** — things this release's *typed* gates flag as blockers: a `Blocks (advisory)` gate still pending, a failed gate, or a waiver that has expired.
+- **"N advisory"** — everything else worth knowing but not flagged as a blocker: a `Warns` or `Accept with exception` gate pending, an untyped gate (nobody has declared its behaviour), a live waiver (naming the approver and the expiry), a passed gate missing expected evidence, and stale evidence (naming both the deployment the evidence cites and the one that superseded it).
+
+The word "in the verdict" is deliberate, not "blocked" — even where a `Blocks (advisory)` gate is pending, the release itself remains fully transitionable, exactly as it always has. A connected pipeline is what might choose to treat that line as a real blocker; EnvManager itself never does.
+
+A pipeline can ask the same question directly with an API key carrying the `webhooks:release` scope (admin guide ch. 10 — a **different** scope from the deployment webhook's `webhooks:deployment`, granted separately):
+
+```bash
+curl -s "http://localhost:8000/api/v1/webhooks/release-ready?release_id=7" \
+  -H "X-Api-Key: $YOUR_KEY"
+```
+
+Real output against a release with one typed, waived gate whose evidence has since gone stale:
+
+```json
+{
+  "ok": true,
+  "release_id": 7,
+  "checked_at": "2026-08-20T22:04:57.127755Z",
+  "blockers": [],
+  "warnings": [
+    {
+      "type": "gate_waived",
+      "ref_kind": "gate",
+      "ref_id": 5,
+      "gate_name": "Deployment Evidence Test Gate",
+      "gate_type": "Functional",
+      "detail": "Waived by peter, expires 2026-08-20."
+    },
+    {
+      "type": "evidence_missing",
+      "ref_kind": "gate",
+      "ref_id": 5,
+      "gate_name": "Deployment Evidence Test Gate",
+      "gate_type": "Functional",
+      "detail": "Expected but not supplied: Defect summary, Smoke test log"
+    },
+    {
+      "type": "evidence_stale",
+      "ref_kind": "evidence",
+      "ref_id": 3,
+      "gate_name": "Deployment Evidence Test Gate",
+      "gate_type": "Functional",
+      "detail": "'DORA build dora-5 sign-off' cites dora-5 deployed 2026-07-18 to Mortgage SIT, superseded by dora-3 deployed 2026-07-20."
+    }
+  ]
+}
+```
+
+`ok` is `true` here because none of the three findings is a **blocker** — the waiver is still live on the day it expires (a deadline is a day: it lapses the day *after*), so it reads as a warning naming the approver and the expiry, not a block. A pipeline reads `ok`; a human reads the `warnings`/`blockers` arrays for the detail. HTTP status is not the verdict — this call still returns `200 OK` even when `ok` is `false`.
 - **Scope items** live on the *Scope* tab. Click *Add Item* to set a *title*, *change_kind* (story / defect / task / spike), an optional **project code** and **project name** (the source project a requirement comes from — so its project manager can see when it's in flight), and any release custom fields. Late edits — adding or removing a scope item after the release leaves *draft* — count as a *scope change* per tenant rules (admin guide ch. 8) and surface on the *Scope Changes* column on the list view. Use the *Project* filter on the Scope tab to narrow to one project's items.
 - **Bulk import scope from a spreadsheet.** Click *Import from spreadsheet* on the Scope tab. Download the template first — its columns are `external_key`, `title`, `description`, `change_kind`, `external_status`, `project_code`, `project_name` (`title` and `change_kind` are required). On import, a row whose `external_key` already exists on this release is **updated in place** rather than duplicated; rows with a blank `external_key` are always added. The result dialog reports how many items were created, how many updated, and lists any per-row errors. (Direct Jira / GitLab / GitHub import is a later addition; today scope items come from manual entry or spreadsheet.)
 

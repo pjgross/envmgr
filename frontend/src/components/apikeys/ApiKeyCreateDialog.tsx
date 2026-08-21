@@ -7,6 +7,7 @@ import type { ApiKeyCreatePayload } from '../../types/apiKey';
 
 const AVAILABLE_SCOPES = [
   { key: 'webhooks:deployment', label: 'CI/CD deployment webhook' },
+  { key: 'webhooks:release', label: 'Release gate readiness webhook' },
 ] as const;
 
 interface Props {
