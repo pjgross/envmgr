@@ -254,19 +254,27 @@ async def test_listing_bookings_with_contention_changes_no_row(
 async def test_b6_adds_no_migration():
     """STRUCTURAL, and a SMOKE ALARM rather than a proof: `envdecommission`
     — B5's own migration and the revision `alembic heads` reported before any
-    B6 commit landed — has exactly one migration on top of it,
-    Phase 9 sub-project C2's `gatetypes` (typed gates, evidence and waivers).
-    That is the FIRST migration to land since B6, which is what proves B6
-    itself introduced no schema change: if B6 had added one, `envdecommission`
-    would have two children, or `gatetypes`' own `down_revision` would not be
-    `envdecommission`. Reads the migration chain directly (no database
-    connection needed), so it runs identically on the SQLite-only leg and the
-    PostgreSQL leg.
+    B6 commit landed — is the root of everything that has landed since, and
+    what proves B6 itself introduced no schema change is that the chain from
+    `envdecommission` forward is *exactly* the migrations that legitimately
+    followed it, each chaining directly onto the last with no branch: if B6
+    had added one, `envdecommission` would have two children, or one of the
+    links below would not hold. Reads the migration chain directly (no
+    database connection needed), so it runs identically on the SQLite-only
+    leg and the PostgreSQL leg.
 
     Updated 2026-08-20 when `gatetypes` landed: the original assertion pinned
     the literal head to `envdecommission`, which was only ever going to hold
     until the next legitimate migration — B6 does not own the migration chain
     forever, only the claim that IT added nothing to it.
+
+    Updated again 2026-08-21 when Phase 9 sub-project C4's `rollbackgov`
+    (rollback governance schema) chained onto `gatetypes`, moving the head
+    again. Rather than re-pin a single literal a third time, this now asserts
+    the whole post-`envdecommission` chain's SHAPE — each known revision's
+    `down_revision` in order — so the next legitimate migration only needs
+    its own link appended here, and any change that inserts, reorders or
+    branches a revision without updating this list still fails loudly.
 
     THIS IS A SMOKE ALARM, NOT A PROOF: it is a bounded check on the
     migration CHAIN alone. It would not catch a raw DDL statement executed at
@@ -279,17 +287,20 @@ async def test_b6_adds_no_migration():
     cfg.set_main_option("script_location", str(backend_dir / "app" / "db" / "migrations"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["gatetypes"], (
+    assert heads == ["rollbackgov"], (
         "the Alembic head is not the expected single migration on top of "
         "envdecommission — either B6 has started adding schema changes, or "
         "an unrelated migration landed without updating this pin"
     )
-    assert script.get_revision("gatetypes").down_revision == "envdecommission", (
-        "gatetypes must chain directly onto envdecommission — B5's own "
-        "migration and the revision in place before any B6 commit landed — "
-        "or B6 (or something else) added an undocumented migration between "
-        "the two"
-    )
+    # The chain from B5's envdecommission forward, each entry's own
+    # down_revision naming the one before it. Root first.
+    expected_chain = ["envdecommission", "gatetypes", "rollbackgov"]
+    for child, parent in zip(expected_chain[1:], expected_chain[:-1]):
+        assert script.get_revision(child).down_revision == parent, (
+            f"{child} must chain directly onto {parent} — B6 (or something "
+            "else) added an undocumented migration between the two, or the "
+            "chain was reordered"
+        )
 
 
 @pytest.mark.asyncio
