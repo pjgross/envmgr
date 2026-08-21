@@ -114,7 +114,6 @@ export default function ReleaseTemplateForm() {
       (t) => !t.is_active && assignedTypeIds.has(t.id)
     );
     return [...activeGateTypes, ...retiredButAssigned];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGateTypes, gateTypes, assignedTypeIds]);
 
   // --- phases helpers ---
