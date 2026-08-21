@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db, AsyncSessionLocal
 from app.core.security import get_current_user, require_tenant_admin
 from app.db.models.system import System
-from app.services import system_service, tenant_secret_service
+from app.services import rollback_rehearsal_service, system_service, tenant_secret_service
 from app.services.github_client import (
     GitHubAuthError,
     GitHubNotFound,
@@ -26,6 +26,7 @@ from app.api.v1.schemas.system import (
     SubSystemUpdate,
     SubSystemResponse,
 )
+from app.api.v1.schemas.rollback import RehearsalCreate, RehearsalRead
 
 router = APIRouter()
 
@@ -272,3 +273,48 @@ async def delete_subsystem(
     await system_service.delete_subsystem(
         db, sub_id, system_id, current_user.active_tenant_id
     )
+
+
+# ---------------------------------------------------------------------------
+# Rollback rehearsal endpoints (Phase 9 C4 Task 4)
+# ---------------------------------------------------------------------------
+# Registered after every existing `/{system_id}` and `/{system_id}/...` route
+# in this file. `GET/PATCH/DELETE /{system_id}` has no trailing path segment,
+# so it cannot swallow a literal segment the way B6's `/{booking_id}`
+# catch-all swallowed `/contention-horizon` (same segment count, competing
+# for the same slot) — the routes below add an extra segment, which is a
+# different match entirely. Verified by the HTTP round-trip test in
+# tests/integration/test_rollback_rehearsal_api.py, not by this reasoning
+# alone.
+
+
+@router.get(
+    "/{system_id}/rollback-rehearsals", response_model=list[RehearsalRead]
+)
+async def list_rollback_rehearsals(
+    system_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    rehearsals = await rollback_rehearsal_service.list_rehearsals(db, system_id, tenant_id)
+    return await rollback_rehearsal_service.reads_for_rehearsals(db, tenant_id, rehearsals)
+
+
+@router.post(
+    "/{system_id}/rollback-rehearsals",
+    response_model=RehearsalRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def record_rollback_rehearsal(
+    system_id: int,
+    data: RehearsalCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    rehearsal = await rollback_rehearsal_service.record_rehearsal(
+        db, system_id, tenant_id, current_user.id, data
+    )
+    reads = await rollback_rehearsal_service.reads_for_rehearsals(db, tenant_id, [rehearsal])
+    return reads[0]
