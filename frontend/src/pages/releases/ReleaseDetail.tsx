@@ -152,6 +152,8 @@ export default function ReleaseDetail() {
         <Tabs
           value={activeTab}
           onChange={(_, v) => setActiveTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
           sx={{ px: 2 }}
         >
           <Tab label="Main" />
