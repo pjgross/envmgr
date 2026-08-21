@@ -80,7 +80,7 @@ async def booking_type(db_session, test_tenant) -> BookingType:
 async def release_with_failed_block_gate(db_session, test_tenant, test_user) -> Release:
     """A release, reachable via draft -> in_progress, carrying one FAILED
     gate whose type's failure_behaviour is 'block' — a genuine blocker
-    gate_readiness_service.evaluate() will report, not a fabricated one."""
+    release_readiness_service.evaluate() will report, not a fabricated one."""
     template = LifecycleTemplate(
         tenant_id=test_tenant.id,
         entity_type="release",

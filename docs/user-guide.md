@@ -828,8 +828,38 @@ Real output against a release with one typed, waived gate whose evidence has sin
 ```
 
 `ok` is `true` here because none of the three findings is a **blocker** — the waiver is still live on the day it expires (a deadline is a day: it lapses the day *after*), so it reads as a warning naming the approver and the expiry, not a block. A pipeline reads `ok`; a human reads the `warnings`/`blockers` arrays for the detail. HTTP status is not the verdict — this call still returns `200 OK` even when `ok` is `false`.
+
+Since Phase 9 sub-project C4, the same banner and the same `release-ready` call also carry **rollback governance** findings — see *Rollback plans and rehearsals* below. They fold into the identical `blockers`/`warnings` arrays (a rollback finding's `gate_name`/`gate_type` are both `null`, since it names a system, not a gate), so a pipeline has exactly one place to look either way.
 - **Scope items** live on the *Scope* tab. Click *Add Item* to set a *title*, *change_kind* (story / defect / task / spike), an optional **project code** and **project name** (the source project a requirement comes from — so its project manager can see when it's in flight), and any release custom fields. Late edits — adding or removing a scope item after the release leaves *draft* — count as a *scope change* per tenant rules (admin guide ch. 8) and surface on the *Scope Changes* column on the list view. Use the *Project* filter on the Scope tab to narrow to one project's items.
 - **Bulk import scope from a spreadsheet.** Click *Import from spreadsheet* on the Scope tab. Download the template first — its columns are `external_key`, `title`, `description`, `change_kind`, `external_status`, `project_code`, `project_name` (`title` and `change_kind` are required). On import, a row whose `external_key` already exists on this release is **updated in place** rather than duplicated; rows with a blank `external_key` are always added. The result dialog reports how many items were created, how many updated, and lists any per-row errors. (Direct Jira / GitLab / GitHub import is a later addition; today scope items come from manual entry or spreadsheet.)
+
+### Rollback plans and rehearsals
+
+Every release with **changing** (or **config-only**) systems attached has a *Rollback* tab on its detail page — Phase 9 sub-project C4. It answers three separate questions, and it is worth keeping them apart because the product treats them very differently: *if this goes wrong, what do we do?* (the plan), *have we actually tried it?* (the rehearsal), and *what did we actually do?* (the recorded rollback, which needs neither of the first two to exist).
+
+**Writing a plan.** On the *Rollback* tab, each changing component gets one row in the *Rollback Plans* table. Click *Create plan* (or *Edit*, if one already exists) and fill in:
+
+- **Steps** — what to actually do, in order, to roll this component back. Free text; this is the runbook someone follows at 2am, so write it as one.
+- **Reversibility** — one of three:
+  - **Reversible** — rolling back genuinely undoes the change, no data or work is lost.
+  - **Lossy** — the component *can* be rolled back, but anything written since the deploy is lost (a schema migration that dropped a column, a queue that's been draining). This is **not the same as reversible** — a lossy rollback is still a rollback you can perform, it just costs something.
+  - **Irreversible** — this component cannot be rolled back at all; the only way forward is forward. A component marked this way always shows as a warning on the release readiness banner ("cannot be rolled back — roll forward only"), whatever your tenant's rollback policy says (admin guide ch. 8) — this is a fact about the component, not something a policy setting can turn into a hard stop or silence.
+- **Estimated time (minutes)** — how long the rollback is expected to take, optional.
+- **Notes** — anything else worth recording, optional.
+
+The release-level chip at the top of the tab (*Rollback readiness: …*) shows the **worst** reversibility across the release's plans — one irreversible component is enough to colour the whole release irreversible.
+
+**Agreeing a plan.** Once a plan exists, click *Agree* to record that you (the reviewer, the on-call lead, whoever is signing off) have looked at it and are satisfied it's the right runbook. This is separate from writing it — someone can draft a plan and a different person agree it. **Editing an agreed plan's steps or reversibility clears the agreement.** This is deliberate, not a bug: the plan someone agreed to is what it *said*, not whatever it later becomes, so a rewritten plan goes back to needing a fresh sign-off. The edit dialog says this before you save. Changing only the estimated time or the notes does **not** clear an agreement — only the steps or the reversibility value do, because those are the parts someone actually agreed *to*.
+
+**Rehearsing a rollback.** Rehearsals live on the **system**, not the release — open *System detail → Rollback* for the component in question and click *Record a rehearsal*. Set:
+
+- **Rehearsed at** — may be in the past; record a rehearsal exactly as it happened, whenever that was.
+- **Outcome** — *Passed*, *Failed*, or *Partial*. Record a failed or partial rehearsal exactly as faithfully as a passed one — it's still evidence that rolling this back was actually tried, and a governance record that only ever shows successes isn't a useful one.
+- **Notes** — optional.
+
+Every rehearsal you've ever recorded for a system stays visible in its history, but only the **latest** one decides freshness on the release readiness banner: **current** (a passed rehearsal within your tenant's rehearsal validity period, admin guide ch. 8) or **stale** (older than that). A **failed rehearsal is never current** — it is not "a rehearsal that happens to be marked failed", it is the readiness verdict's way of saying no successful rehearsal has been done recently, and it reads that way on the banner ("No successful rollback rehearsal recorded") even though a rehearsal genuinely exists and is right there in the table below.
+
+**Recording a rollback.** Click *Record a rollback* on the *Rollback* tab at any time — before or after the fact — to add a row to *Rollback History*: *when* it happened (or is about to), the *trigger* (a failed smoke test, an incident, a customer report — what set it off), the *rationale*, and which *systems* it actually touched. **This never checks whether a plan exists, was agreed, or whether a rehearsal is current, and it never refuses.** A rollback with no plan at all is exactly the case worth keeping a record of — the dialog says so — and recording one changes nothing else about the release: no transition is gated, no gate is affected, nothing is locked. Rollback History is a permanent audit trail; there is no edit or delete on a recorded rollback.
 
 ### RAID log
 

@@ -247,3 +247,13 @@ from app.api.v1 import gate_types as gate_types_router
 app.include_router(
     gate_types_router.router, prefix="/api/v1/gate-types", tags=["Gate Types"]
 )
+
+from app.api.v1 import rollback_policy as rollback_policy_router
+
+app.include_router(
+    # Its own tag, not "Tenant Admin": GET is open to any tenant member (see
+    # app/api/v1/rollback_policy.py), only PUT is admin-only.
+    rollback_policy_router.router,
+    prefix="/api/v1/tenant",
+    tags=["Rollback policy"],
+)

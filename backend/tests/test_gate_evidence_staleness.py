@@ -370,7 +370,7 @@ async def test_the_evidence_deployment_lookup_is_tenant_scoped(
 
 # ── I2: ONE predicate — stale_evidence_ids is a thin wrapper over
 # stale_evidence_details, so every case above (all seven) now exercises the
-# SAME query gate_readiness_service.evaluate() uses for both public routes. ──
+# SAME query release_readiness_service.evaluate() uses for both public routes. ──
 
 @pytest.mark.asyncio
 async def test_stale_evidence_ids_is_exactly_the_key_set_of_stale_evidence_details(

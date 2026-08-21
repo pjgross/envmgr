@@ -42,7 +42,9 @@ from app.services import (
     release_system_service,
     project_service,
     gate_evidence_service,
-    gate_readiness_service,
+    release_readiness_service,
+    rollback_authorisation_service,
+    rollback_plan_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -92,6 +94,12 @@ from app.api.v1.schemas.release_bulk_booking import (
 from app.api.v1.schemas.scope_churn_analytics import ScopeChurnAnalyticsRead
 from app.api.v1.schemas.gate_evidence import GateEvidenceCreate, GateEvidenceRead
 from app.api.v1.schemas.gate_readiness import ReleaseReadinessResponse
+from app.api.v1.schemas.rollback import (
+    RollbackAuthorisationCreate,
+    RollbackAuthorisationRead,
+    RollbackPlanCreate,
+    RollbackPlanRead,
+)
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 
@@ -662,7 +670,7 @@ async def get_release_readiness(
     current_user=Depends(get_current_user),
 ):
     """The UI half of C2's gate readiness verdict — calls the SAME
-    `gate_readiness_service.evaluate` as the pipeline-facing
+    `release_readiness_service.evaluate` as the pipeline-facing
     `GET /webhooks/release-ready`, so a gate chip here and the answer a
     pipeline obeys cannot disagree.
 
@@ -674,7 +682,7 @@ async def get_release_readiness(
     not by this reasoning alone.
     """
     tenant_id = current_user.active_tenant_id
-    return await gate_readiness_service.evaluate(db, release_id, tenant_id)
+    return await release_readiness_service.evaluate(db, release_id, tenant_id)
 
 
 # ── Phases ────────────────────────────────────────────────────────────────────
@@ -1606,3 +1614,129 @@ async def unlink_cr_from_release(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Change request not found or not linked to this release")
     cr.release_id = None
     await db.flush()
+
+
+# ── Rollback plans (Phase 9 C4 Task 2) ────────────────────────────────────────
+#
+# Registered after every `/{release_id}` and `/{release_id}/...` route already
+# in this file. None of these paths share a segment count and a leading
+# literal with any pre-existing `/{release_id}/{something}` catch-all in this
+# router (there is none), so there is no B6-style "literal segment swallowed
+# by a catch-all" hazard here — verified by the HTTP round-trip test, not by
+# reasoning about FastAPI's route-matching rules alone.
+#
+# No pagination() on either route below: this is a per-release collection
+# bounded by the release's own component count (release_system rows), the
+# same reasoning as /{release_id}/systems before it needed a page.
+
+@router.get("/{release_id}/rollback-plans", response_model=list[RollbackPlanRead])
+async def list_rollback_plans(
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    plans = await rollback_plan_service.list_plans(db, release_id, tenant_id)
+    return await rollback_plan_service.reads_for_plans(db, tenant_id, plans)
+
+
+@router.put("/{release_id}/rollback-plans", response_model=RollbackPlanRead)
+async def upsert_rollback_plan(
+    release_id: int,
+    data: RollbackPlanCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    plan = await rollback_plan_service.upsert_plan(
+        db, release_id, tenant_id, current_user.id, data
+    )
+    reads = await rollback_plan_service.reads_for_plans(db, tenant_id, [plan])
+    return reads[0]
+
+
+@router.post(
+    "/{release_id}/rollback-plans/{plan_id}/agree", response_model=RollbackPlanRead
+)
+async def agree_rollback_plan(
+    release_id: int,
+    plan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    plan = await rollback_plan_service.agree_plan(
+        db, release_id, plan_id, tenant_id, current_user.id
+    )
+    reads = await rollback_plan_service.reads_for_plans(db, tenant_id, [plan])
+    return reads[0]
+
+
+@router.delete(
+    "/{release_id}/rollback-plans/{plan_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_rollback_plan(
+    release_id: int,
+    plan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    await rollback_plan_service.delete_plan(db, release_id, plan_id, tenant_id)
+
+
+# ── Rollback authorisations (Phase 9 C4 Task 6) ───────────────────────────────
+#
+# Registered after every `/{release_id}` and `/{release_id}/...` route already
+# in this file, and its own segment shape — `/{release_id}/rollback-
+# authorisations` — starts with the int-typed release_id segment exactly like
+# every route above it, so there is no B6-style "literal segment swallowed by
+# a bare `/{release_id}` catch-all" hazard: this router has no such catch-all
+# ahead of a literal second segment. Verified by the HTTP round-trip test, not
+# by reasoning about FastAPI's route-matching rules alone.
+#
+# NO PAGINATION: a per-release collection bounded by how many times a release
+# is actually rolled back, the same reasoning as the rollback-plans routes
+# above. C4 MUST NEVER STAND BETWEEN A TEAM AND A 2AM RECOVERY — this is an
+# audit trail, not a gate: it never inspects plan state, rehearsal state or
+# the readiness verdict, and it never touches the Deployment status machine.
+
+@router.get(
+    "/{release_id}/rollback-authorisations",
+    response_model=list[RollbackAuthorisationRead],
+)
+async def list_rollback_authorisations(
+    release_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    authorisations = await rollback_authorisation_service.list_authorisations(
+        db, release_id, tenant_id
+    )
+    return await rollback_authorisation_service.reads_for_authorisations(
+        db, tenant_id, authorisations
+    )
+
+
+@router.post(
+    "/{release_id}/rollback-authorisations",
+    response_model=RollbackAuthorisationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_rollback_authorisation(
+    release_id: int,
+    data: RollbackAuthorisationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    auth = await rollback_authorisation_service.record_authorisation(
+        db, release_id, tenant_id, current_user.id, data
+    )
+    reads = await rollback_authorisation_service.reads_for_authorisations(
+        db, tenant_id, [auth]
+    )
+    return reads[0]

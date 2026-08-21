@@ -22,7 +22,7 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.test_phase import TestPhase
 from app.db.models.user import User
-from app.services import gate_readiness_service, release_gate_service
+from app.services import release_readiness_service, release_gate_service
 
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ async def test_typing_a_gate_block_turns_gate_untyped_into_a_blocker(
         ReleaseGateCreate(name="Untyped Gate", due_date=datetime.now(timezone.utc) + timedelta(days=7)),
         test_tenant.id,
     )
-    before = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    before = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert any(w.type == "gate_untyped" and w.ref_id == untyped_gate.id for w in before.warnings)
     assert not any(b.ref_id == untyped_gate.id for b in before.blockers)
 
@@ -423,7 +423,7 @@ async def test_typing_a_gate_block_turns_gate_untyped_into_a_blocker(
     )
     assert typed_gate.gate_type_id == block_type.id
 
-    after = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    after = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert not any(w.type == "gate_untyped" and w.ref_id == untyped_gate.id for w in after.warnings)
     assert any(
         b.type == "gate_pending" and b.ref_id == untyped_gate.id and b.gate_type == "Go/No-Go"

@@ -1,11 +1,14 @@
-"""The ONE place the gate rules live.
+"""The ONE place the gate rules — and, since Phase 9 C4, rollback governance
+rules — live.
 
 The release detail panel and GET /api/v1/webhooks/release-ready both call
 evaluate(), so they cannot disagree. A gate chip contradicting the endpoint a
-pipeline obeys would be worse than neither.
+pipeline obeys would be worse than neither. C4's rollback findings JOIN this
+verdict rather than getting a second endpoint, for the same reason.
 
-NOTHING HERE REFUSES ANYTHING. A "block" behaviour makes a gate a blocker in
-this response; it does not stop a transition, a booking or a deployment.
+NOTHING HERE REFUSES ANYTHING. A "block" behaviour makes a gate — or a
+rollback finding — a blocker in this response; it does not stop a
+transition, a booking or a deployment.
 """
 from datetime import datetime, timezone
 from typing import Optional
@@ -22,7 +25,13 @@ from app.api.v1.schemas.gate_readiness import (
 from app.db.models.gate_type import GateType
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
-from app.services import gate_evidence_service, gate_waiver_service
+from app.services import (
+    gate_evidence_service,
+    gate_waiver_service,
+    rollback_plan_service,
+    rollback_policy_service,
+    rollback_rehearsal_service,
+)
 
 
 async def evaluate(
@@ -163,6 +172,84 @@ async def evaluate(
                     ref_id=item.id,
                 )
 
+    # ── Rollback governance (C4) ─────────────────────────────────────────
+    #
+    # Joins THIS verdict rather than a second endpoint, so a pipeline has one
+    # thing to ask and there is never a second definition of "ready". Uses
+    # the SAME `now` resolved above — one clock decides every freshness
+    # comparison in this response, gate and rollback alike.
+    def _add(kind: str, is_blocker: bool, system_id: int, system_name: str, detail: str) -> None:
+        if is_blocker:
+            blockers.append(ReadinessBlocker(
+                type=kind, ref_kind="system", ref_id=system_id,
+                gate_name=None, gate_type=None, detail=detail,
+            ))
+        else:
+            warnings.append(ReadinessWarning(
+                type=kind, ref_kind="system", ref_id=system_id,
+                gate_name=None, gate_type=None, detail=detail,
+            ))
+
+    policy = await rollback_policy_service.get_or_create_policy(db, tenant_id)
+
+    # Only components actually being CHANGED can be rolled back. A regression
+    # component is not being changed and produces no findings at all.
+    changing = await rollback_plan_service.changing_systems_for_release(
+        db, release_id, tenant_id
+    )  # -> list[(system_id, system_name)]
+    plans = (await rollback_plan_service.plans_for_releases(
+        db, tenant_id, [release_id]
+    )).get(release_id, [])
+    rehearsals = await rollback_rehearsal_service.latest_rehearsals_for_systems(
+        db, tenant_id, [s_id for s_id, _ in changing]
+    )
+    by_system = {p.system_id: p for p in plans}
+
+    for system_id, system_name in changing:
+        plan = by_system.get(system_id)
+        if plan is None:
+            _add("rollback_plan_missing", policy.require_rollback_plan, system_id,
+                 system_name, f"{system_name} has no rollback plan.")
+        else:
+            if plan.agreed_at is None:
+                _add("rollback_plan_unagreed", policy.require_rollback_plan, system_id,
+                     system_name, f"{system_name}'s rollback plan has not been agreed.")
+            if plan.reversibility == "irreversible":
+                # ALWAYS a warning, whatever the policy says.
+                _add("rollback_irreversible", False, system_id, system_name,
+                     f"{system_name} cannot be rolled back — roll forward only.")
+            elif plan.reversibility == "lossy":
+                _add("rollback_lossy", False, system_id, system_name,
+                     f"{system_name} can be rolled back, but data written since "
+                     f"deploy is lost.")
+
+        rehearsal = rehearsals.get(system_id)
+        # A FAILED rehearsal is not a current rehearsal — it proves the opposite.
+        if rehearsal is None or rehearsal.outcome == "failed":
+            _add("rehearsal_missing", policy.require_current_rehearsal, system_id,
+                 system_name, f"No successful rollback rehearsal recorded for {system_name}.")
+        elif rollback_rehearsal_service.rehearsal_state(
+            rehearsal, policy.rehearsal_validity_days, now
+        ) == "stale":
+            _add("rehearsal_stale", policy.require_current_rehearsal, system_id,
+                 system_name,
+                 f"{system_name}'s last rollback rehearsal was "
+                 f"{rehearsal.rehearsed_at.date()}.")
+
+    # Roll up over the SAME component set the findings above were computed
+    # over — plans_for_releases returns every LIVE plan on the release with
+    # no role filter, but a plan can legitimately outlive the release_system
+    # row it was written against (DELETE /release-systems/{id} hard-deletes
+    # the row and touches no plan). Feeding rollup() the unfiltered set means
+    # an orphaned plan keeps driving reversibility with zero findings to
+    # explain it — the single-verdict guarantee broken by an ordinary UI
+    # action, not just a hand-crafted API call. See
+    # tests/test_rollback_readiness.py::test_an_orphaned_plan_does_not_move_reversibility.
+    changing_ids = {system_id for system_id, _ in changing}
+    reversibility = rollback_plan_service.rollup(
+        [p for p in plans if p.system_id in changing_ids]
+    )
+
     return ReleaseReadinessResponse(
         # Derived in one expression, mirroring preflight_service. `ok` cannot
         # drift from `blockers` because it IS `blockers`.
@@ -171,4 +258,5 @@ async def evaluate(
         checked_at=now,
         blockers=blockers,
         warnings=warnings,
+        reversibility=reversibility,
     )

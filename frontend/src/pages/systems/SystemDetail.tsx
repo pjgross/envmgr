@@ -72,6 +72,7 @@ import SystemTopologyDiagram from './SystemTopologyDiagram';
 import ScanRepositoryDialog from '../../components/systems/ScanRepositoryDialog';
 import DriftDialog from '../../components/systems/DriftDialog';
 import ScopeWindowsTable from '../../components/releases/ScopeWindowsTable';
+import RehearsalsPanel from '../../components/systems/RehearsalsPanel';
 import type {
   DependencyType,
   DependencyDirection,
@@ -795,6 +796,7 @@ export default function SystemDetail() {
         <Tab label="Component Deps" />
         <Tab label="Topology" />
         <Tab label="Scope Windows" />
+        <Tab label="Rollback" />
       </Tabs>
 
       {/* Overview Tab */}
@@ -1187,6 +1189,12 @@ export default function SystemDetail() {
       {tab === 5 && (
         <Paper sx={{ p: 3 }}>
           <ScopeWindowsTable systemId={Number(id)} />
+        </Paper>
+      )}
+
+      {tab === 6 && (
+        <Paper sx={{ p: 3 }}>
+          <RehearsalsPanel systemId={Number(id)} />
         </Paper>
       )}
 

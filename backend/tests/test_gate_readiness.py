@@ -12,7 +12,7 @@ from app.db.models.gate_waiver import GateWaiver
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
-from app.services import gate_evidence_service, gate_readiness_service, release_gate_service
+from app.services import gate_evidence_service, release_readiness_service, release_gate_service
 from tests.factories import ensure_deployment, ensure_environment
 
 
@@ -240,7 +240,7 @@ async def passed_gate_with_stale_evidence(db_session, test_tenant, test_user, re
 
 @pytest.mark.asyncio
 async def test_a_pending_block_gate_is_a_blocker(db_session, test_tenant, release, pending_block_gate):
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is False
     assert [b.type for b in result.blockers] == ["gate_pending"]
     assert result.blockers[0].ref_id == pending_block_gate.id
@@ -249,7 +249,7 @@ async def test_a_pending_block_gate_is_a_blocker(db_session, test_tenant, releas
 @pytest.mark.asyncio
 async def test_a_failed_gate_is_a_blocker(db_session, test_tenant, release, failed_gate):
     """A failure is not waived, it is failed. To waive it you override it."""
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert [b.type for b in result.blockers] == ["gate_failed"]
 
 
@@ -257,7 +257,7 @@ async def test_a_failed_gate_is_a_blocker(db_session, test_tenant, release, fail
 async def test_an_overridden_gate_with_a_live_waiver_is_only_a_warning(
     db_session, test_tenant, test_user, release, overridden_gate_with_live_waiver
 ):
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is True
     assert [w.type for w in result.warnings] == ["gate_waived"]
     # Naming the approver by USERNAME, not the raw id, and naming the expiry
@@ -272,7 +272,7 @@ async def test_an_overridden_gate_with_a_live_waiver_is_only_a_warning(
 async def test_a_permanent_waiver_names_the_approver_and_says_no_expiry(
     db_session, test_tenant, test_user, release, overridden_gate_with_permanent_waiver
 ):
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is True
     assert [w.type for w in result.warnings] == ["gate_waived"]
     detail = result.warnings[0].detail
@@ -285,7 +285,7 @@ async def test_a_permanent_waiver_names_the_approver_and_says_no_expiry(
 async def test_an_expired_waiver_makes_the_gate_unmet_again(
     db_session, test_tenant, release, overridden_gate_with_expired_waiver
 ):
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is False
     assert [b.type for b in result.blockers] == ["waiver_expired"]
 
@@ -296,7 +296,7 @@ async def test_a_legacy_override_with_no_waiver_row_warns(
 ):
     """Gates overridden before C2 keep their status and have no waiver row.
     They must not become blockers on the day this ships."""
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is True
     assert [w.type for w in result.warnings] == ["gate_waived_no_record"]
 
@@ -308,7 +308,7 @@ async def test_an_untyped_gate_warns_and_never_blocks(
     """gate_type_id ships nullable with no backfill, so EVERY gate in EVERY
     existing tenant is untyped until someone types it. Inventing 'block' would
     turn on a wall of blockers nobody configured."""
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is True
     assert [w.type for w in result.warnings] == ["gate_untyped"]
 
@@ -317,7 +317,7 @@ async def test_an_untyped_gate_warns_and_never_blocks(
 async def test_a_passed_gate_missing_expected_evidence_warns(
     db_session, test_tenant, release, passed_gate_expecting_two_kinds_with_one
 ):
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok is True
     warning = next(w for w in result.warnings if w.type == "evidence_missing")
     assert "Defect summary" in warning.detail
@@ -335,7 +335,7 @@ async def test_stale_evidence_warns_and_names_both_deployments(
         await db_session.execute(select(Build).where(Build.id == later.build_id))
     ).scalar_one()
 
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     warning = next(w for w in result.warnings if w.type == "evidence_stale")
     assert warning.ref_id is not None
     assert result.ok is True
@@ -353,7 +353,7 @@ async def test_ok_is_exactly_the_absence_of_blockers(
     """ok is derived in one expression, mirroring preflight_service's
     `ok=len(blockers) == 0`. It cannot drift from blockers because it IS
     blockers."""
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.ok == (len(result.blockers) == 0)
 
 
@@ -368,7 +368,7 @@ async def test_evaluate_404s_a_release_from_another_tenant(
     other_tenant, _ = await second_tenant_factory()
 
     with pytest.raises(HTTPException) as exc:
-        await gate_readiness_service.evaluate(db_session, release.id, other_tenant.id)
+        await release_readiness_service.evaluate(db_session, release.id, other_tenant.id)
     assert exc.value.status_code == 404
 
 
@@ -397,6 +397,6 @@ async def test_evaluate_ignores_a_gate_row_whose_tenant_id_is_mismatched(
     db_session.add(mismatched)
     await db_session.commit()
 
-    result = await gate_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+    result = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
     assert result.blockers == []
     assert result.ok is True

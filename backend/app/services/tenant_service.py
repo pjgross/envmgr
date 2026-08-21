@@ -18,6 +18,7 @@ from app.services.environment_decommission_defaults import (
     seed_decommission_steps_for_tenant,
 )
 from app.services.gate_type_defaults import seed_gate_type_defaults_for_tenant
+from app.services.rollback_policy_service import get_or_create_policy as get_or_create_rollback_policy
 
 
 async def list_tenants(
@@ -62,6 +63,8 @@ async def create_tenant(db: AsyncSession, data: TenantCreate) -> Tenant:
     await seed_decommission_steps_for_tenant(db, tenant.id)
     # Seed the eight standard release-gate types.
     await seed_gate_type_defaults_for_tenant(db, tenant.id)
+    # Seed the default rollback policy (both requirements off).
+    await get_or_create_rollback_policy(db, tenant.id)
     await db.commit()
     await db.refresh(tenant)
     return tenant

@@ -10,6 +10,7 @@ import EnvironmentTiersPanel from '../../components/admin/EnvironmentTiersPanel'
 import EnvironmentNamingPolicyPanel from '../../components/admin/EnvironmentNamingPolicyPanel';
 import EnvironmentLifecyclePanel from '../../components/admin/EnvironmentLifecyclePanel';
 import GateTypesPanel from '../../components/admin/GateTypesPanel';
+import RollbackPolicyPanel from '../../components/admin/RollbackPolicyPanel';
 import type { EntityType } from '../../types/customField';
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -60,6 +61,11 @@ const EVENT_TYPES_SUPPORTED: EntityType[] = ['release'];
 // tab rather than needing its own top-level admin page.
 const GATE_TYPES_SUPPORTED: EntityType[] = ['release'];
 
+// Entities that have a rollback policy (Phase 9 C4). Rollback plans belong
+// to releases, the same way gates and event types do, so this sits next to
+// Gate Types rather than needing its own top-level admin page.
+const ROLLBACK_POLICY_SUPPORTED: EntityType[] = ['release'];
+
 // Entities that have a tier vocabulary.
 const TIERS_SUPPORTED: EntityType[] = ['environment'];
 
@@ -101,11 +107,13 @@ export default function EntityConfig() {
   const hasLifecycle = LIFECYCLE_SUPPORTED.includes(et);
   const hasEventTypes = EVENT_TYPES_SUPPORTED.includes(et);
   const hasGateTypes = GATE_TYPES_SUPPORTED.includes(et);
+  const hasRollbackPolicy = ROLLBACK_POLICY_SUPPORTED.includes(et);
   const hasTiers = TIERS_SUPPORTED.includes(et);
   const hasNamingPolicy = NAMING_POLICY_SUPPORTED.includes(et);
   const hasLifecyclePolicy = LIFECYCLE_POLICY_SUPPORTED.includes(et);
   const gateTypesTabIndex = 1 + (hasLifecycle ? 1 : 0) + (hasEventTypes ? 1 : 0);
-  const tiersTabIndex = gateTypesTabIndex + (hasGateTypes ? 1 : 0);
+  const rollbackPolicyTabIndex = gateTypesTabIndex + (hasGateTypes ? 1 : 0);
+  const tiersTabIndex = rollbackPolicyTabIndex + (hasRollbackPolicy ? 1 : 0);
   const namingPolicyTabIndex = tiersTabIndex + (hasTiers ? 1 : 0);
   const lifecyclePolicyTabIndex = namingPolicyTabIndex + (hasNamingPolicy ? 1 : 0);
 
@@ -124,6 +132,7 @@ export default function EntityConfig() {
           {hasLifecycle && <Tab label="Lifecycle" />}
           {hasEventTypes && <Tab label="Event Types" />}
           {hasGateTypes && <Tab label="Gate Types" />}
+          {hasRollbackPolicy && <Tab label="Rollback Policy" />}
           {hasTiers && <Tab label="Tiers" />}
           {hasNamingPolicy && <Tab label="Naming Policy" />}
           {hasLifecyclePolicy && <Tab label="Lifecycle & Decommissioning" />}
@@ -149,6 +158,8 @@ export default function EntityConfig() {
       )}
 
       {hasGateTypes && tab === gateTypesTabIndex && <GateTypesPanel />}
+
+      {hasRollbackPolicy && tab === rollbackPolicyTabIndex && <RollbackPolicyPanel />}
 
       {hasTiers && tab === tiersTabIndex && <EnvironmentTiersPanel />}
 

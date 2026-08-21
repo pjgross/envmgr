@@ -1,7 +1,7 @@
 """GET /api/v1/webhooks/release-ready (API-key) and
 GET /api/v1/releases/{release_id}/readiness (JWT) — HTTP integration tests.
 
-Both routes are thin wrappers around `gate_readiness_service.evaluate`, so
+Both routes are thin wrappers around `release_readiness_service.evaluate`, so
 these tests exercise the AUTH and ROUTING layer C2 Task 7 adds, not the gate
 rules themselves (Task 6's `tests/test_gate_readiness.py` owns those).
 """

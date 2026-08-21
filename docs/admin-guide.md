@@ -880,6 +880,22 @@ The one case that still needs `seed_gate_type_defaults_for_tenant` run by hand i
 
 A tenant with no seeded types is worth recognising, because there is no error — just an empty vocabulary: the *Gate Types* tab shows an empty table and the type selector on every gate offers nothing but *Untyped*, so the feature reads as **broken** rather than unconfigured. Check this first if a tenant reports "gate types don't work."
 
+### Rollback Policy
+
+*Administration → Releases → Rollback Policy* (`/admin/config/release`, tab *Rollback Policy*, Admin only) is where your tenant decides whether a missing rollback plan, an unagreed one, or a missing/stale rollback rehearsal is a **warning** or a **blocker** in a release's readiness verdict — the same verdict *Gate Types* above feeds, so a connected pipeline reading `GET /api/v1/webhooks/release-ready` sees rollback gaps and gate gaps in one response (ch. 10). The panel's own copy states the scope of the two toggles plainly, and it is worth repeating here because it is easy to over-read: **this is advisory configuration only**. Neither setting stops a deployment, a release transition, or a rollback itself — a rollback can always be recorded (see the release detail page's *Rollback* tab → *Rollback History*) whether or not a plan exists at all, and nothing on this panel is enforced by this product.
+
+Two toggles, **both off by default**:
+
+- **Require a rollback plan.** On: a changing (or config-only) component with no *agreed* rollback plan becomes a **blocker** instead of a warning. Off: it's a warning only, same as today.
+- **Require a current rehearsal.** On: a changing (or config-only) component whose system has no *current, passed* rehearsal — missing, stale, or its most recent attempt failed — becomes a **blocker** instead of a warning. Off: warning only.
+- **Rehearsal validity period (days).** How long a passed rehearsal counts as current before it goes stale. Applies regardless of whether the toggle above is on — it decides the wording (*current* vs *stale*) either way, only the on/off toggle decides whether staleness escalates to a blocker.
+
+One reversibility finding is **never** affected by either toggle: a component whose plan is marked *irreversible* always renders as a warning ("cannot be rolled back — roll forward only"), whatever the policy says. A component that genuinely cannot be rolled back is a fact about the component, not a governance gap a tenant can turn into a hard stop by flipping a switch.
+
+**No deploy step is required.** The policy row is created lazily, with both flags off, the first time any endpoint reads or writes it for a tenant — the same lazy-seed pattern `environment_tier` and B2's naming policy use. A tenant that has never opened this tab still gets correct (off/off) behaviour from every read of the readiness verdict.
+
+A worked example, verified end to end on this deployment: with both flags off, a release with an irreversible, unagreed plan and no rehearsal read as **3 advisory** findings — none of them blockers, and `ok: true`. Turning *Require a rollback plan* on and re-checking the same release moved only the *unagreed plan* finding into a **1 in the verdict** (blocker) section; the irreversible-reversibility and missing-rehearsal findings stayed advisory, and `ok` became `false` — but the release itself remained fully transitionable, bookable and deployable throughout, exactly as the panel's copy promises.
+
 ### Tips
 
 Keep the change-kind list short — three to six is plenty. Use kind-scoped custom fields rather than free-text fields for any value you'll later filter or report on. Pre-define gates on release templates so each new release starts with the same readiness checklist, and override only when a release genuinely deviates.
@@ -959,7 +975,7 @@ API keys are managed by **Tenant Admins** at `/tenant/api-keys` (left nav: *API 
 2. Click *New key* (top right).
 3. Fill the *New API key* dialog:
    - *Name* — required, max 120 chars; pick something that identifies the consumer (for example `gitlab-ci-deploy`).
-   - *Scopes* — at least one must be selected. Two are on offer: *CI/CD deployment webhook* (`webhooks:deployment`) and *Release gate readiness webhook* (`webhooks:release`). Grant only what a consumer needs — a deployment key is deliberately unable to read gate governance detail (waiver reasons, approver names, evidence URLs) unless it also carries `webhooks:release`.
+   - *Scopes* — at least one must be selected. Two are on offer: *CI/CD deployment webhook* (`webhooks:deployment`) and *Release gate readiness webhook* (`webhooks:release`). Grant only what a consumer needs — a deployment key is deliberately unable to read release-readiness detail (gate waiver reasons and approver names, evidence URLs, and — since Phase 9 C4 — rollback plan/rehearsal gaps and the reversibility rollup) unless it also carries `webhooks:release`.
    - *Expires at (optional)* — calendar field; leave blank for a non-expiring key.
 4. Click *Create*. The dialog closes and the *API key created* dialog opens with a one-time read-only field containing the plaintext. Use the copy icon to drop it into your CI secrets store **now**.
 5. Click *I've copied it*. The plaintext is gone — only its hash, plus the metadata you entered, remain on the *API keys* page.
@@ -977,7 +993,7 @@ Each handler declares the scope it requires; a key passes auth only if its scope
 | Scope | What it grants | Example use |
 |-------|----------------|-------------|
 | `webhooks:deployment` | `POST /api/v1/webhooks/deployment` — register a build and deployment, auto-create a `code_deployment` change request on first call. **Also** `GET /api/v1/webhooks/can-deploy` — preflight gate (see *Preflight: can-deploy* below). | GitLab/Jenkins/GitHub Actions: step that fires before deploying (preflight) and step that fires after a successful deploy (ingest). |
-| `webhooks:release` | `GET /api/v1/webhooks/release-ready` — release gate readiness (see *Preflight: release-ready* below). Deliberately **not** granted by `webhooks:deployment`: reusing that scope would silently widen what every existing deployment key can read to include gate governance detail (waiver reasons, approver names, evidence URLs). | A release pipeline step that asks "are this release's gates satisfied?" before promoting a build, independent of any single environment's deploy preflight. |
+| `webhooks:release` | `GET /api/v1/webhooks/release-ready` — release readiness: typed gates *and*, since Phase 9 C4, rollback governance, in one response (see *Preflight: release-ready* below). Deliberately **not** granted by `webhooks:deployment`: reusing that scope would silently widen what every existing deployment key can read to include release-readiness detail (waiver reasons, approver names, evidence URLs, rollback plan/rehearsal gaps and the reversibility rollup). | A release pipeline step that asks "is this release ready?" before promoting a build, independent of any single environment's deploy preflight. |
 
 Future phases will extend this list.
 
@@ -1150,9 +1166,11 @@ The minimum two are the slugs. If your pipeline knows what release or what booki
 
 ### Preflight: release-ready
 
-A separate advisory query from *can-deploy* above: this asks "are this release's typed gates satisfied?" rather than "is this specific environment reservable right now?" A pipeline that promotes a build through a release can call it before doing so.
+A separate advisory query from *can-deploy* above: this asks "is this release ready — gates, and since Phase 9 C4, rollback governance — rather than "is this specific environment reservable right now?" A pipeline that promotes a build through a release can call it before doing so.
 
-The same evaluator backs a UI element too — the release detail page's gate readiness panel calls `GET /api/v1/releases/{release_id}/readiness` (JWT-authenticated), which runs the identical rule set. **The two can never disagree**: both call the same `gate_readiness_service.evaluate` function; only the auth layer and the source of the tenant id (the caller's active tenant vs. the API key's own tenant) differ.
+The same evaluator backs a UI element too — the release detail page's readiness banner calls `GET /api/v1/releases/{release_id}/readiness` (JWT-authenticated), which runs the identical rule set. **The two can never disagree**: both call the same `release_readiness_service.evaluate` function (renamed from `gate_readiness_service` when C4 folded rollback findings into it, rather than shipping a second endpoint); only the auth layer and the source of the tenant id (the caller's active tenant vs. the API key's own tenant) differ. Confirmed on this deployment: the same release read identical blocker/warning wording and the same `reversibility` value from both routes.
+
+Since C4, `blockers`/`warnings` can also contain rollback findings — `rollback_plan_missing`, `rollback_plan_unagreed`, `rollback_irreversible`, `rollback_lossy`, `rehearsal_missing`, `rehearsal_stale` — each `ref_kind: "system"` rather than `"gate"`, with `gate_name`/`gate_type` both `null` (a rollback finding names a system, not a gate; the `detail` text always names the component by name). A top-level `reversibility` field — `"reversible"` / `"lossy"` / `"irreversible"` / `null` if there are no rollback plans on the release at all — reports the worst reversibility across the release's plans, independent of `ok`/`blockers`/`warnings`.
 
 **Endpoint** `GET /api/v1/webhooks/release-ready`
 **Required scope** `webhooks:release`
@@ -1169,28 +1187,56 @@ curl "http://localhost:8000/api/v1/webhooks/release-ready?release_id=42" \
   -H "X-Api-Key: $YOUR_KEY"
 ```
 
-Response (a gate is pending and typed to block):
+Response (a real capture from this deployment — a rollback plan exists but hasn't been agreed, one gate is untyped, and the component's plan is irreversible with no rehearsal recorded):
 
 ```json
 {
   "ok": false,
-  "release_id": 42,
-  "checked_at": "2026-08-20T09:00:00Z",
+  "release_id": 5,
+  "checked_at": "2026-08-21T09:11:35.951514Z",
   "blockers": [
     {
-      "type": "gate_pending",
-      "ref_kind": "gate",
-      "ref_id": 7,
-      "gate_name": "Go/No-Go",
-      "gate_type": "Go/No-Go",
-      "detail": "The gate has not been decided."
+      "type": "rollback_plan_unagreed",
+      "ref_kind": "system",
+      "ref_id": 1,
+      "gate_name": null,
+      "gate_type": null,
+      "detail": "Mortgage's rollback plan has not been agreed."
     }
   ],
-  "warnings": []
+  "warnings": [
+    {
+      "type": "gate_untyped",
+      "ref_kind": "gate",
+      "ref_id": 4,
+      "gate_name": "Scope Sign-off",
+      "gate_type": null,
+      "detail": "No gate type set, so no behaviour was declared."
+    },
+    {
+      "type": "rollback_irreversible",
+      "ref_kind": "system",
+      "ref_id": 1,
+      "gate_name": null,
+      "gate_type": null,
+      "detail": "Mortgage cannot be rolled back — roll forward only."
+    },
+    {
+      "type": "rehearsal_missing",
+      "ref_kind": "system",
+      "ref_id": 1,
+      "gate_name": null,
+      "gate_type": null,
+      "detail": "No successful rollback rehearsal recorded for Mortgage."
+    }
+  ],
+  "reversibility": "irreversible"
 }
 ```
 
-`ok` is the field a pipeline reads; treat `false` as "gates are not satisfied." As with *can-deploy*, **HTTP status is not the gate** — a blocked release still returns `200 OK` with the verdict in the body. Only auth (`401` / `403`) and the release lookup (`404`) use HTTP status for signalling. EnvManager never refuses a deployment or a release transition on the strength of this response; it is advisory, and the caller decides what to do with `ok: false`.
+This response was produced with the tenant's `require_rollback_plan` policy flag **on** — that's what turned the unagreed-plan finding into a blocker; with the flag at its default (off), the same release returns the same four findings but all as warnings, `blockers: []`, and `ok: true`. `rollback_irreversible` stays a warning either way (see *Rollback Policy*, ch. 8) — it never moves into `blockers`.
+
+`ok` is the field a pipeline reads; treat `false` as "not ready — gates or rollback governance." As with *can-deploy*, **HTTP status is not the gate** — a not-ready release still returns `200 OK` with the verdict in the body. Only auth (`401` / `403`) and the release lookup (`404`) use HTTP status for signalling. EnvManager never refuses a deployment or a release transition on the strength of this response; it is advisory, and the caller decides what to do with `ok: false`.
 
 ### Rotation and revocation guidance
 
