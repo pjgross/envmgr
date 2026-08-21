@@ -312,6 +312,84 @@ describe('RollbackPanel', () => {
     // And the release-level rollup names the THIRD, different value.
     expect(screen.getByText(/Rollback readiness: Lossy/i)).toBeInTheDocument();
   });
+
+  // ── Staleness regression (post-51223542) ──────────────────────────────
+  // readiness now comes ONLY from GET /releases/{id}/readiness, and the
+  // effect that fetches it used to depend on [releaseId] alone — so nothing
+  // ever re-fetched it after a plan was created, edited, agreed to or
+  // deleted. These tests fail on the pre-fix effect (getReadiness called
+  // once, chip never updates) and must keep passing without ever
+  // reintroducing a client-side computation of `reversibility`.
+
+  it('refetches readiness after creating the release\'s first plan (the primary journey)', async () => {
+    // Starts with NO plans and NO rollup — the exact "No rollback plans
+    // yet" state the bug report names. Creating one plan must flip the
+    // chip without a reload.
+    vi.mocked(rollbackService.listPlans).mockResolvedValue([]);
+    vi.mocked(releaseService.getReadiness).mockResolvedValueOnce(readinessFixture());
+    vi.mocked(rollbackService.upsertPlan).mockResolvedValue(PLAN_PAYMENTS);
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('No rollback plans yet')).toBeInTheDocument());
+    expect(releaseService.getReadiness).toHaveBeenCalledTimes(1);
+
+    // Once the plan is created, a fresh readiness fetch would report the
+    // new irreversible verdict — arm the mock for the NEXT call before
+    // triggering the save.
+    vi.mocked(releaseService.getReadiness).mockResolvedValueOnce(
+      readinessFixture({ reversibility: 'irreversible' })
+    );
+
+    await userEvent.click(screen.getAllByRole('button', { name: /create plan/i })[0]);
+    await userEvent.type(await screen.findByLabelText(/steps/i), 'Restore from backup');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Rollback readiness: Irreversible/i)).toBeInTheDocument();
+    });
+    // Exactly one extra fetch for the one mutation — not zero (the bug) and
+    // not runaway-many (a fetch loop from depending on the Redux `plans`
+    // reference, which itself changes twice per mutation: once on the
+    // thunk's pending, once on fulfilled).
+    expect(releaseService.getReadiness).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches readiness after agreeing to a plan, and does not loop', async () => {
+    vi.mocked(rollbackService.listPlans).mockResolvedValue([PLAN_PAYMENTS]);
+    vi.mocked(releaseService.getReadiness).mockResolvedValueOnce(
+      readinessFixture({ reversibility: 'irreversible' })
+    );
+    vi.mocked(rollbackService.agreePlan).mockResolvedValue({
+      ...PLAN_PAYMENTS,
+      agreed_by_user_id: 5,
+      agreed_by_username: 'alice',
+      agreed_at: '2026-08-21T00:00:00Z',
+    });
+
+    renderPanel();
+
+    const agreeButton = await screen.findByRole('button', { name: /^agree$/i });
+    expect(releaseService.getReadiness).toHaveBeenCalledTimes(1);
+
+    // Readiness verdict itself is unchanged by agreement, but the fetch
+    // must still fire — the whole point is "a mutation happened", not
+    // "the rendered value changed".
+    vi.mocked(releaseService.getReadiness).mockResolvedValueOnce(
+      readinessFixture({ reversibility: 'irreversible' })
+    );
+
+    await userEvent.click(agreeButton);
+
+    await waitFor(() => expect(screen.getByText(/agreed by alice/i)).toBeInTheDocument());
+    // Give any runaway effect a chance to fire more than once before
+    // asserting the ceiling.
+    await waitFor(() => expect(releaseService.getReadiness).toHaveBeenCalledTimes(2));
+    // Hold the count steady across a further tick — a fetch loop would keep
+    // climbing past 2.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(releaseService.getReadiness).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('RollbackPlanDialog', () => {

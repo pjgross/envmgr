@@ -32,6 +32,13 @@ interface Props {
   plan?: RollbackPlanResponse | null;
   open: boolean;
   onClose: () => void;
+  /**
+   * Called once the save has actually succeeded server-side, before onClose.
+   * Distinct from onClose (which also fires on Cancel) — the caller uses
+   * this to know a plan mutation really happened, e.g. to refetch the
+   * release's readiness verdict, which recomputes reversibility server-side.
+   */
+  onSaved?: () => void;
 }
 
 const REVERSIBILITY_OPTIONS: { value: Reversibility; label: string }[] = [
@@ -47,6 +54,7 @@ export default function RollbackPlanDialog({
   plan,
   open,
   onClose,
+  onSaved,
 }: Props) {
   const dispatch = useDispatch<AppDispatch>();
 
@@ -96,6 +104,7 @@ export default function RollbackPlanDialog({
       setError(result.payload ?? 'Failed to save the rollback plan');
       return;
     }
+    onSaved?.();
     onClose();
   };
 

@@ -87,6 +87,17 @@ export default function RollbackPanel({ releaseId }: Props) {
   // the same release_readiness_service.evaluate()).
   const [readiness, setReadiness] = useState<ReleaseReadinessResponse | null>(null);
 
+  // Bumped once per confirmed plan mutation (create, edit, agree, delete) —
+  // never on every Redux `plans` reference change, which fires twice per
+  // mutation (once on the thunk's pending, once on fulfilled) and would
+  // still fire on the initial mount's own fetch. A readiness re-fetch is
+  // wanted exactly once per mutation that actually landed server-side, so
+  // this is bumped from the handlers below and from RollbackPlanDialog's
+  // onSaved callback — never from an effect watching `plans` itself, which
+  // would tie this fetch's cadence to that state's own churn rather than to
+  // "a mutation happened".
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [planDialogTarget, setPlanDialogTarget] = useState<{
     systemId: number;
     systemName: string | null;
@@ -116,7 +127,7 @@ export default function RollbackPanel({ releaseId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [releaseId]);
+  }, [releaseId, refreshKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +172,13 @@ export default function RollbackPanel({ releaseId }: Props) {
     const result = await dispatch(agreeRollbackPlan({ releaseId, planId: plan.id }));
     if (agreeRollbackPlan.rejected.match(result)) {
       setActionError(result.payload ?? 'Failed to record agreement');
+      return;
     }
+    // Agreement doesn't change a plan's reversibility, but it is still a
+    // plan mutation the readiness verdict may care about (e.g. a policy
+    // that treats an unagreed plan as equivalent to no plan at all) — so it
+    // refreshes the same way create/edit/delete do.
+    setRefreshKey((k) => k + 1);
   };
 
   const handleDelete = async (plan: RollbackPlanResponse) => {
@@ -176,7 +193,9 @@ export default function RollbackPanel({ releaseId }: Props) {
     const result = await dispatch(deleteRollbackPlan({ releaseId, planId: plan.id }));
     if (deleteRollbackPlan.rejected.match(result)) {
       setActionError(result.payload ?? 'Failed to delete the rollback plan');
+      return;
     }
+    setRefreshKey((k) => k + 1);
   };
 
   return (
@@ -354,6 +373,7 @@ export default function RollbackPanel({ releaseId }: Props) {
           plan={planDialogTarget.plan}
           open={Boolean(planDialogTarget)}
           onClose={() => setPlanDialogTarget(null)}
+          onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}
 
