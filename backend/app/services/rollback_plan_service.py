@@ -197,6 +197,41 @@ async def plans_for_releases(
     return by_release
 
 
+async def changing_systems_for_release(
+    db: AsyncSession, release_id: int, tenant_id: int
+) -> list[tuple[int, str]]:
+    """The (system_id, system_name) pairs a release can actually roll back —
+    its release_system rows whose role is 'changing' or 'config_only'. A
+    'regression' component is not being changed and has nothing to roll
+    back, so it is deliberately excluded here rather than filtered out by
+    every caller. ONE query; tenant-filtered on the release side (release_
+    system carries no deleted_at of its own, so nothing to filter there)."""
+    rows = (
+        await db.execute(
+            select(System.id, System.name)
+            .join(ReleaseSystem, ReleaseSystem.system_id == System.id)
+            .join(Release, Release.id == ReleaseSystem.release_id)
+            .where(
+                ReleaseSystem.release_id == release_id,
+                ReleaseSystem.role.in_(("changing", "config_only")),
+                Release.tenant_id == tenant_id,
+                Release.deleted_at.is_(None),
+                # Defence in depth on the entity actually rendered (its
+                # NAME) — same call get_system_names makes below. release_id
+                # already ties every release_system row to one tenant via
+                # the Release join; this is a second lock on that door, and
+                # it is NOT merely defensive: constructing a release_system
+                # row whose system_id belongs to another tenant (independent
+                # of release_id, the same shape B6's cross-tenant leak took)
+                # makes it load-bearing — see the mutation proof in
+                # test_rollback_readiness.py's report.
+                System.tenant_id == tenant_id,
+            )
+        )
+    ).all()
+    return [(sid, name) for sid, name in rows]
+
+
 async def get_system_names(
     db: AsyncSession, system_ids: set[Optional[int]], tenant_id: int
 ) -> dict[int, str]:

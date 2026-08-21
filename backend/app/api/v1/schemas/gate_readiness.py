@@ -10,10 +10,21 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ReadinessBlocker(BaseModel):
-    type: Literal["gate_pending", "gate_failed", "waiver_expired"]
-    ref_kind: Literal["gate"]
+    type: Literal[
+        "gate_pending",
+        "gate_failed",
+        "waiver_expired",
+        "rollback_plan_missing",
+        "rollback_plan_unagreed",
+        "rehearsal_missing",
+        "rehearsal_stale",
+    ]
+    ref_kind: Literal["gate", "system"]
     ref_id: int
-    gate_name: str
+    # No gate backs a rollback finding — set explicitly (None) at every
+    # rollback construction site rather than relying on this default, which
+    # is how C2 shipped a field permanently wrong at a site that forgot it.
+    gate_name: Optional[str] = None
     gate_type: Optional[str] = None
     detail: Optional[str] = None
 
@@ -27,10 +38,16 @@ class ReadinessWarning(BaseModel):
         "gate_failed",
         "evidence_missing",
         "evidence_stale",
+        "rollback_plan_missing",
+        "rollback_plan_unagreed",
+        "rehearsal_missing",
+        "rehearsal_stale",
+        "rollback_irreversible",
+        "rollback_lossy",
     ]
-    ref_kind: Literal["gate", "evidence"]
+    ref_kind: Literal["gate", "evidence", "system"]
     ref_id: int
-    gate_name: str
+    gate_name: Optional[str] = None
     gate_type: Optional[str] = None
     detail: Optional[str] = None
 
@@ -43,3 +60,6 @@ class ReleaseReadinessResponse(BaseModel):
     checked_at: datetime
     blockers: list[ReadinessBlocker]
     warnings: list[ReadinessWarning]
+    # The worst reversibility across the release's rollback plans, or None if
+    # there are none. Computed by rollback_plan_service.rollup — see there.
+    reversibility: Optional[str] = None
