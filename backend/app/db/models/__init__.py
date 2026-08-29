@@ -62,6 +62,11 @@ from app.db.models.incident import Incident, IncidentStatusHistory  # noqa: F401
 from app.db.models.environment_health import EnvironmentHealthStatus  # noqa: F401
 from app.db.models.environment_operating_hours import EnvironmentOperatingHours  # noqa: F401
 from app.db.models.pir import PIR  # noqa: F401
+from app.db.models.pir_finding import (  # noqa: F401
+    PirAction,
+    PirFinding,
+    PirFindingIncident,
+)
 from app.db.models.release_membership import ReleaseMembership  # noqa: F401
 from app.db.models.refresh_token import LoginAttempt, RefreshToken  # noqa: F401
 from app.db.models.tenant_secret import TenantSecret  # noqa: F401
