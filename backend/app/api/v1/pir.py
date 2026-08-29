@@ -2,6 +2,8 @@
 
 Routes: /releases/{release_id}/pir  (GET / POST / PATCH / DELETE)
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,9 @@ from app.core.security import get_current_user
 from app.services import pir_service, pir_finding_service
 from app.api.v1.schemas.pir import PIRCreate, PIRUpdate, PIRResponse
 from app.api.v1.schemas.pir_finding import (
+    PirActionCreate,
+    PirActionResponse,
+    PirActionUpdate,
     PirFindingCreate,
     PirFindingResponse,
     PirFindingUpdate,
@@ -19,14 +24,32 @@ router = APIRouter(prefix="/releases", tags=["pir"])
 
 
 async def _hydrate(db: AsyncSession, tenant_id: int, pir):
-    """One PIR with its findings, built once so every route returns the same shape."""
+    """One PIR with its findings and their actions, built once so every route
+    returns the same shape. Batched: two queries for the whole PIR's actions and
+    owner names, never one per finding."""
     if pir is None:
         return None
+    now = datetime.now(timezone.utc)
+    findings = await pir_finding_service.findings_for_pir(db, tenant_id, pir.id)
+    actions = await pir_finding_service.actions_for_findings(
+        db, tenant_id, [f.id for f in findings])
+    names = await pir_finding_service.usernames_for(
+        db, [a.owner_id for rows in actions.values() for a in rows])
+
     body = PIRResponse.model_validate(pir).model_dump()
-    body["findings"] = [
-        PirFindingResponse.model_validate(f).model_dump()
-        for f in await pir_finding_service.findings_for_pir(db, tenant_id, pir.id)
-    ]
+    body["findings"] = []
+    for finding in findings:
+        item = PirFindingResponse.model_validate(finding).model_dump()
+        item["actions"] = [
+            {
+                **PirActionResponse.model_validate(a).model_dump(
+                    exclude={"owner_username", "is_overdue"}),
+                "owner_username": names.get(a.owner_id),
+                "is_overdue": pir_finding_service.is_overdue(a, now),
+            }
+            for a in actions[finding.id]
+        ]
+        body["findings"].append(item)
     return body
 
 
@@ -94,7 +117,8 @@ async def update_finding(
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
-    await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
     return await pir_finding_service.update_finding(db, tenant_id, finding_id, data)
 
 
@@ -106,6 +130,70 @@ async def delete_finding(
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
-    await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
     await pir_finding_service.delete_finding(db, tenant_id, finding_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{release_id}/pir/findings/{finding_id}/actions",
+             response_model=PirActionResponse, status_code=status.HTTP_201_CREATED)
+async def create_action(
+    release_id: int,
+    finding_id: int,
+    data: PirActionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    finding = await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
+    action = await pir_finding_service.create_action(db, tenant_id, finding, data, current_user.id)
+    return await _action_response(db, action)
+
+
+@router.patch("/{release_id}/pir/findings/{finding_id}/actions/{action_id}",
+              response_model=PirActionResponse)
+async def update_action(
+    release_id: int,
+    finding_id: int,
+    action_id: int,
+    data: PirActionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    finding = await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
+    await pir_finding_service.get_action_in_finding(db, tenant_id, finding, action_id)
+    return await _action_response(
+        db, await pir_finding_service.update_action(db, tenant_id, action_id, data))
+
+
+@router.delete("/{release_id}/pir/findings/{finding_id}/actions/{action_id}",
+               status_code=status.HTTP_204_NO_CONTENT)
+async def delete_action(
+    release_id: int,
+    finding_id: int,
+    action_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    finding = await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
+    await pir_finding_service.get_action_in_finding(db, tenant_id, finding, action_id)
+    await pir_finding_service.delete_action(db, tenant_id, action_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _action_response(db: AsyncSession, action) -> dict:
+    """One action rendered the same way `_hydrate` renders it — one definition of
+    the row shape, so a POST's response and a later GET's cannot disagree."""
+    names = await pir_finding_service.usernames_for(db, [action.owner_id])
+    return {
+        **PirActionResponse.model_validate(action).model_dump(
+            exclude={"owner_username", "is_overdue"}),
+        "owner_username": names.get(action.owner_id),
+        "is_overdue": pir_finding_service.is_overdue(action, datetime.now(timezone.utc)),
+    }

@@ -132,3 +132,146 @@ async def test_patch_and_delete_a_finding(authed_client, demo_release_id):
         f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}")).status_code == 204
     assert (await authed_client.get(
         f"/api/v1/releases/{demo_release_id}/pir")).json()["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_an_action_round_trips_on_the_pir_read(authed_client, demo_release_id):
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "No load test"})).json()["id"]
+    created = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "Add a perf gate", "due_date": "2026-09-30T00:00:00Z"})
+    assert created.status_code == 201, created.text
+    assert created.json()["status"] == "open"
+    assert created.json()["is_overdue"] is False
+
+    body = (await authed_client.get(f"/api/v1/releases/{demo_release_id}/pir")).json()
+    assert [a["title"] for a in body["findings"][0]["actions"]] == ["Add a perf gate"]
+
+
+@pytest.mark.asyncio
+async def test_closing_an_action_names_when_it_closed(authed_client, demo_release_id):
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+    aid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "T"})).json()["id"]
+    resp = await authed_client.patch(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions/{aid}",
+        json={"status": "done", "closure_note": "gate added"})
+    assert resp.status_code == 200
+    assert resp.json()["closed_at"] is not None
+    assert resp.json()["closure_note"] == "gate added"
+
+
+@pytest.mark.asyncio
+async def test_an_owner_from_another_tenant_is_a_422(authed_client, demo_release_id, db_session):
+    """The FK validation, proved by pointing at a user id that exists but is not
+    ours — not at an id nobody has."""
+    from app.db.models.user import Tenant, User
+    from app.core.security import get_password_hash
+    other = Tenant(name="Other Org PIR", slug="other-org-pir")
+    db_session.add(other)
+    await db_session.flush()
+    stranger = User(tenant_id=other.id, username="stranger-pir", email="s@x.test",
+                    password_hash=get_password_hash("password123"), role="Developer")
+    db_session.add(stranger)
+    await db_session.flush()
+
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+    resp = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "T", "owner_id": stranger.id})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_action_status_is_a_422_on_the_route(authed_client, demo_release_id):
+    """Companion to the schema-level
+    test_an_unknown_status_is_refused_by_the_schema in
+    test_pir_action_service.py: that one pins the ValueError at construction,
+    this one pins the HTTP contract an API caller actually sees."""
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+    aid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "T"})).json()["id"]
+    resp = await authed_client.patch(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions/{aid}",
+        json={"status": "nearly"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_finding_from_another_release_pir_is_a_422_on_this_release(
+    authed_client, demo_release_id, db_session, tenant, user
+):
+    """The release_id in the URL must not be decorative: a finding id that is
+    real, and in the caller's own tenant, but belongs to a DIFFERENT release's
+    PIR is refused rather than silently read or mutated."""
+    tpl = LifecycleTemplate(
+        tenant_id=tenant.id, entity_type="release", name="PIR X-PIR Test",
+        is_default=False,
+        definition={"states": [{"key": "draft", "label": "Draft", "is_initial": True,
+                                "is_terminal": False}], "transitions": [], "field_permissions": {}},
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    other_release = Release(
+        tenant_id=tenant.id, name="Other Release", release_type="Major", release_kind="project",
+        lifecycle_template_id=tpl.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(other_release)
+    await db_session.flush()
+    await db_session.commit()
+
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    await authed_client.post(f"/api/v1/releases/{other_release.id}/pir", json={"summary": "s2"})
+    other_fid = (await authed_client.post(
+        f"/api/v1/releases/{other_release.id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+
+    patch_resp = await authed_client.patch(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{other_fid}", json={"detail": "x"})
+    assert patch_resp.status_code == 422
+
+    delete_resp = await authed_client.delete(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{other_fid}")
+    assert delete_resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_action_from_another_finding_is_a_422_on_this_finding(
+    authed_client, demo_release_id
+):
+    """The finding_id in the URL must not be decorative either: an action id
+    that is real, and on the same PIR, but hangs off a DIFFERENT finding is
+    refused rather than silently read or mutated."""
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid_a = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "A"})).json()["id"]
+    fid_b = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "B"})).json()["id"]
+    action_b = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid_b}/actions",
+        json={"title": "T"})).json()["id"]
+
+    patch_resp = await authed_client.patch(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid_a}/actions/{action_b}",
+        json={"status": "done"})
+    assert patch_resp.status_code == 422
+
+    delete_resp = await authed_client.delete(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid_a}/actions/{action_b}")
+    assert delete_resp.status_code == 422
