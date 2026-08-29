@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.api.v1.schemas.pir_finding import PirFindingResponse
+
 PIR_STATUSES = {"draft", "complete"}
 
 
@@ -50,4 +52,5 @@ class PIRResponse(BaseModel):
     action_plan: Optional[str]
     status: str
     completed_at: Optional[datetime]
+    findings: list[PirFindingResponse] = []
     model_config = ConfigDict(from_attributes=True)
