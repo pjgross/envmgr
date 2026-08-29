@@ -287,14 +287,14 @@ async def test_b6_adds_no_migration():
     cfg.set_main_option("script_location", str(backend_dir / "app" / "db" / "migrations"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["rollbackgov"], (
+    assert heads == ["pirfindings"], (
         "the Alembic head is not the expected single migration on top of "
         "envdecommission — either B6 has started adding schema changes, or "
         "an unrelated migration landed without updating this pin"
     )
     # The chain from B5's envdecommission forward, each entry's own
     # down_revision naming the one before it. Root first.
-    expected_chain = ["envdecommission", "gatetypes", "rollbackgov"]
+    expected_chain = ["envdecommission", "gatetypes", "rollbackgov", "pirfindings"]
     for child, parent in zip(expected_chain[1:], expected_chain[:-1]):
         assert script.get_revision(child).down_revision == parent, (
             f"{child} must chain directly onto {parent} — B6 (or something "
