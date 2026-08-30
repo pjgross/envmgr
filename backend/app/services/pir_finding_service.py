@@ -450,3 +450,134 @@ async def review_status_for_incidents(
         if out.get(incident_id) != "complete":
             out[incident_id] = pir_status
     return out
+
+
+from app.core.pagination import Page, Sort, apply_sort, fetch_page_rows
+
+
+def worklist_query(
+    tenant_id: int,
+    *,
+    now: datetime,
+    status: Optional[str] = None,
+    owner_id: Optional[int] = None,
+    overdue: Optional[bool] = None,
+    release_id: Optional[int] = None,
+    incident_id: Optional[int] = None,
+    sort: Optional[Sort] = None,
+):
+    """The worklist query, EXPOSED so its ORDER BY can be asserted directly —
+    the seam `contention_service.worklist_query`,
+    `environment_decommission_service.worklist_query` and
+    `environment_health_service.history_query` all exist for. Dropping the
+    tiebreaker here changes nothing observable on EITHER engine (checked: six
+    rows sharing one due date page identically with and without it, on SQLite
+    and PostgreSQL), so a behavioural test cannot guard it and this is the
+    documented exception to the don't-assert-emitted-SQL rule.
+
+    Every filter is in SQL, before the window, so `X-Total-Count` describes the
+    filtered set rather than the page. `overdue` is expressed with the same day
+    boundary `is_overdue` uses, resolved to ONE instant per request and injected
+    as a literal — never as dialect date arithmetic, which SQLite and PostgreSQL
+    do not agree on closely enough to trust in a query.
+
+    The `User` join is OUTER: sorting by owner must not drop the unowned
+    actions, which are exactly the rows a worklist exists to surface.
+    """
+    boundary = expiry_boundary(now)
+    query = (
+        select(PirAction, PirFinding.id, PirFinding.title, PIR.release_id, Release.name,
+               PIR.status)
+        .join(PirFinding, PirFinding.id == PirAction.finding_id)
+        .join(PIR, PIR.id == PirFinding.pir_id)
+        .join(Release, Release.id == PIR.release_id)
+        .outerjoin(User, User.id == PirAction.owner_id)
+        .where(
+            PirAction.tenant_id == tenant_id,
+            PirAction.deleted_at.is_(None),
+            PirFinding.deleted_at.is_(None),
+            PIR.deleted_at.is_(None),
+        )
+    )
+    if status is not None:
+        query = query.where(PirAction.status == status)
+    if owner_id is not None:
+        query = query.where(PirAction.owner_id == owner_id)
+    if release_id is not None:
+        query = query.where(PIR.release_id == release_id)
+    if incident_id is not None:
+        query = query.where(
+            select(PirFindingIncident.id)
+            .where(
+                PirFindingIncident.finding_id == PirFinding.id,
+                PirFindingIncident.incident_id == incident_id,
+            )
+            .exists()
+        )
+    if overdue is True:
+        query = query.where(
+            PirAction.due_date.is_not(None),
+            PirAction.due_date < boundary,
+            PirAction.status.in_(sorted(LIVE_ACTION_STATUSES)),
+        )
+    elif overdue is False:
+        # The exact complement, so true and false PARTITION the set rather than
+        # leaving undated and closed actions invisible to both.
+        query = query.where(
+            (PirAction.due_date.is_(None))
+            | (PirAction.due_date >= boundary)
+            | (PirAction.status.not_in(sorted(LIVE_ACTION_STATUSES)))
+        )
+
+    # apply_sort BEFORE the tiebreaker, never instead of it: due dates and
+    # statuses tie constantly, and LIMIT/OFFSET over a partial order duplicates
+    # and drops rows across pages.
+    return apply_sort(query, sort).order_by(PirAction.id)
+
+
+async def list_actions(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    now: datetime,
+    status: Optional[str] = None,
+    owner_id: Optional[int] = None,
+    overdue: Optional[bool] = None,
+    release_id: Optional[int] = None,
+    incident_id: Optional[int] = None,
+    page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
+) -> tuple[list[dict], int]:
+    """The tenant-wide action worklist: rows plus the unwindowed total.
+
+    `is_overdue` on the row and the `overdue` filter inside the query are given
+    the SAME `now`, so a row cannot be selected as overdue and then render as
+    not — one clock per request, not one per decision.
+    """
+    query = worklist_query(
+        tenant_id, now=now, status=status, owner_id=owner_id, overdue=overdue,
+        release_id=release_id, incident_id=incident_id, sort=sort,
+    )
+    rows, total = await fetch_page_rows(db, query, page)
+
+    names = await usernames_for(db, [row[0].owner_id for row in rows])
+    return [
+        {
+            "id": action.id,
+            "finding_id": finding_id,
+            "finding_title": finding_title,
+            "release_id": release_id_,
+            "release_name": release_name,
+            "pir_status": pir_status,
+            "title": action.title,
+            "detail": action.detail,
+            "owner_id": action.owner_id,
+            "owner_username": names.get(action.owner_id),
+            "due_date": action.due_date,
+            "status": action.status,
+            "closed_at": action.closed_at,
+            "closure_note": action.closure_note,
+            "is_overdue": is_overdue(action, now),
+        }
+        for action, finding_id, finding_title, release_id_, release_name, pir_status in rows
+    ], total

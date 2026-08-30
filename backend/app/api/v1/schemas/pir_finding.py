@@ -125,3 +125,24 @@ class PirCitationResponse(BaseModel):
 
 
 PirFindingResponse.model_rebuild()
+
+
+class PirActionRow(BaseModel):
+    """One worklist row. Every name travels WITH the row — a worklist is a list of
+    things the reader has never seen, so an id identifies nothing."""
+
+    id: int
+    finding_id: int
+    finding_title: str
+    release_id: int
+    release_name: str
+    pir_status: str
+    title: str
+    detail: Optional[str]
+    owner_id: Optional[int]
+    owner_username: Optional[str]
+    due_date: Optional[datetime]
+    status: str
+    closed_at: Optional[datetime]
+    closure_note: Optional[str]
+    is_overdue: bool
