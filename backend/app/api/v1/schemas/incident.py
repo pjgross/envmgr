@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.api.v1.schemas.pir_finding import PirActionCreate
 
 SEVERITIES = {"P1", "P2", "P3", "P4"}
 
@@ -150,3 +152,36 @@ class IncidentDetail(BaseModel):
     # several releases, and by more than one finding within one review.
     pir_citations: list[IncidentPirCitation] = []
     model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentPirNewFinding(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    detail: Optional[str] = None
+    root_cause: Optional[str] = None
+    actions: list[PirActionCreate] = []
+    model_config = ConfigDict(extra="forbid")
+
+
+class IncidentPirCitationRequest(BaseModel):
+    """Cite this incident on a release's PIR.
+
+    Exactly one of `finding_id` / `new_finding`. Both, or neither, is a 422 —
+    a request that says two things is a bug in the caller, and guessing which one
+    it meant is how a citation lands on the wrong review.
+
+    The finding kind is not a parameter: an incident is evidence that something
+    went WRONG, so a created finding is always `went_wrong` and an existing one
+    must be.
+    """
+
+    release_id: int
+    finding_id: Optional[int] = None
+    new_finding: Optional[IncidentPirNewFinding] = None
+    note: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.finding_id is None) == (self.new_finding is None):
+            raise ValueError("supply exactly one of finding_id or new_finding")
+        return self

@@ -1195,3 +1195,96 @@ async def test_list_releases_sort_by_created_at_both_directions(
 async def test_list_releases_unknown_sort_by_is_422(client: AsyncClient, auth_headers):
     resp = await client.get("/api/v1/releases?sort_by=nonexistent", headers=auth_headers)
     assert resp.status_code == 422
+
+
+# ── ?implemented= (PIR findings task 7) ───────────────────────────────────────
+
+
+async def _dated_release(db_session, tenant_id, lifecycle_id, raised_by, *, name,
+                         target_date=None, actual_date=None) -> Release:
+    r = await _direct_release(db_session, tenant_id, lifecycle_id, raised_by,
+                              name=name, target_date=target_date)
+    if actual_date is not None:
+        r.actual_date = actual_date
+        await db_session.flush()
+    return r
+
+
+@pytest.mark.asyncio
+async def test_implemented_filter_offers_only_releases_that_have_gone_live(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    """A release that has not gone live cannot have caused a production incident,
+    so the incident page's release picker never offers one.
+
+    COALESCE(actual_date, target_date): plenty of releases here never get an
+    actual date recorded, and excluding those would leave the picker empty on
+    real data. A release with neither date is excluded — nothing says it shipped.
+    """
+    past = datetime.now(timezone.utc) - timedelta(days=3)
+    future = datetime.now(timezone.utc) + timedelta(days=30)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="shipped", target_date=future, actual_date=past)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="planned-past", target_date=past)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="future", target_date=future)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="undated")
+
+    resp = await client.get("/api/v1/releases?implemented=true", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    names = {r["name"] for r in resp.json()}
+    assert names == {"shipped", "planned-past"}
+    # The total describes the FILTERED set, so a picker can tell it is truncated.
+    assert resp.headers["X-Total-Count"] == "2"
+
+    # `shipped` proves the COALESCE reads the ACTUAL date first: its target date
+    # is in the future, so a filter keying on target_date alone would drop it.
+    assert "shipped" in names
+
+
+@pytest.mark.asyncio
+async def test_implemented_false_is_the_exact_complement(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    """True and false must PARTITION the estate — an undated release belongs to
+    exactly one of the two answers, not to neither."""
+    past = datetime.now(timezone.utc) - timedelta(days=3)
+    future = datetime.now(timezone.utc) + timedelta(days=30)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="shipped", target_date=past)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="future", target_date=future)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="undated")
+
+    yes = {r["name"] for r in (await client.get(
+        "/api/v1/releases?implemented=true", headers=auth_headers)).json()}
+    no = {r["name"] for r in (await client.get(
+        "/api/v1/releases?implemented=false", headers=auth_headers)).json()}
+    everything = {r["name"] for r in (await client.get(
+        "/api/v1/releases", headers=auth_headers)).json()}
+
+    assert yes == {"shipped"}
+    assert yes | no == everything
+    assert yes & no == set()
+    assert "undated" in no
+
+
+@pytest.mark.asyncio
+async def test_omitting_implemented_filters_nothing(
+    client: AsyncClient, auth_headers, lifecycle, db_session: AsyncSession, test_tenant, test_user,
+):
+    """No selection is an OMITTED KEY. `?implemented=` is a 422, never an ignored
+    param — FastAPI drops unknown params silently and this codebase has shipped
+    that bug three times."""
+    future = datetime.now(timezone.utc) + timedelta(days=30)
+    await _dated_release(db_session, test_tenant.id, lifecycle.id, test_user.id,
+                         name="future", target_date=future)
+
+    all_names = {r["name"] for r in (await client.get(
+        "/api/v1/releases", headers=auth_headers)).json()}
+    assert "future" in all_names
+    assert (await client.get("/api/v1/releases?implemented=",
+                             headers=auth_headers)).status_code == 422

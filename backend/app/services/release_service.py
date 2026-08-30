@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import publish_event
@@ -259,6 +259,7 @@ async def list_releases(
     system_id: Optional[int] = None,
     project_id: Optional[int] = None,
     scope_window: Optional[str] = None,
+    implemented: Optional[bool] = None,
     has_target_date: bool = False,
     date_overlaps_range: bool = False,
     now: Optional[datetime] = None,
@@ -318,6 +319,19 @@ async def list_releases(
         base_where.append(Release.raised_by == owner_id)
     if search is not None:
         base_where.append(Release.name.ilike(f"%{search}%"))
+    if implemented is not None:
+        # "Past its implementation date": the actual date if one was recorded,
+        # otherwise the planned one. A release with neither is excluded from
+        # `true` — nothing about it says it shipped — and included in `false`,
+        # so the two answers PARTITION the estate rather than leaving undated
+        # releases invisible to both. `now` is resolved once per request and
+        # compared as a literal, never through dialect date arithmetic.
+        moment = now if now is not None else datetime.now(timezone.utc)
+        went_live = func.coalesce(Release.actual_date, Release.target_date)
+        base_where.append(
+            went_live <= moment if implemented
+            else or_(went_live > moment, went_live.is_(None))
+        )
     if scope_window == "actionable":
         # `open` or `closing_soon` — both mean the cutoff has not passed.
         # `closed` is now >= scope_deadline; `shipped` and `no_cutoff` are

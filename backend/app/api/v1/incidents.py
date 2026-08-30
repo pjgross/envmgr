@@ -6,11 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.db.models.incident import Incident
-from app.services import incident_service, pir_finding_service
+from app.services import incident_service, pir_finding_service, pir_service
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.api.v1.schemas.incident import (
     IncidentCreate, IncidentUpdate, IncidentTransition, IncidentDetail, IncidentListRow,
+    IncidentPirCitation, IncidentPirCitationRequest,
 )
+from app.api.v1.schemas.pir import PIRCreate
+from app.api.v1.schemas.pir_finding import PirFindingCreate
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
@@ -150,3 +153,71 @@ async def delete_incident(
     current_user=Depends(get_current_user),
 ):
     await incident_service.delete_incident(db, incident_id, current_user.active_tenant_id)
+
+
+@router.post("/{incident_id}/pir-citation", response_model=list[IncidentPirCitation],
+             status_code=status.HTTP_201_CREATED)
+async def cite_incident_on_a_pir(
+    incident_id: int,
+    data: IncidentPirCitationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Cite this incident as evidence on a release's PIR, creating what is missing.
+
+    ONE TRANSACTION, deliberately. The dialog would otherwise make up to three
+    calls, and `get_db` commits per request: a failure on call two leaves a PIR
+    behind that nobody asked for, with no citation on it.
+
+    `release_id` is validated as a live release in this tenant, by the same
+    `create_for_release` the PIR routes use. It is NOT validated as implemented —
+    `?implemented=true` is a picker filter, a helper for choosing well, not a
+    rule about what a PIR may be attached to. A release whose actual date nobody
+    recorded must not become unreviewable.
+    """
+    tenant_id = current_user.active_tenant_id
+    incident = await incident_service.get_incident(db, incident_id, tenant_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    pir = await pir_service.get_for_release(db, tenant_id, data.release_id)
+
+    if data.finding_id is not None:
+        # Validate BEFORE creating anything. `get_db` rolls back on an
+        # HTTPException, so a PIR created here would not survive a refusal in
+        # production — but relying on that would leave the guarantee resting on
+        # a transaction boundary no test using the shared-session `client`
+        # fixture can observe. Creating nothing until the request is known to be
+        # valid holds either way. A finding id cannot belong to a PIR that does
+        # not exist yet, so that case is refused rather than creating one.
+        if pir is None:
+            raise HTTPException(
+                status_code=422, detail="finding_id does not belong to that release's PIR")
+        finding = await pir_finding_service.get_finding_in_pir(
+            db, tenant_id, pir, data.finding_id)
+        if finding.kind != "went_wrong":
+            raise HTTPException(
+                status_code=422,
+                detail="an incident is evidence of something going wrong; "
+                       "cite it against a went_wrong finding",
+            )
+    else:
+        if pir is None:
+            pir = await pir_service.create_for_release(
+                db, tenant_id, data.release_id, PIRCreate(), current_user.id)
+        finding = await pir_finding_service.create_finding(
+            db, tenant_id, pir,
+            PirFindingCreate(
+                kind="went_wrong",
+                title=data.new_finding.title,
+                detail=data.new_finding.detail,
+                root_cause=data.new_finding.root_cause,
+            ),
+            current_user.id,
+        )
+        for action in data.new_finding.actions:
+            await pir_finding_service.create_action(
+                db, tenant_id, finding, action, current_user.id)
+
+    await pir_finding_service.add_citation(db, tenant_id, finding, incident.id, data.note)
+    return await pir_finding_service.citations_for_incident(db, tenant_id, incident.id)
