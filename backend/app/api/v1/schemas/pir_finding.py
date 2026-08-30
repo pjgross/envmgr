@@ -41,6 +41,10 @@ class PirFindingResponse(BaseModel):
     root_cause: Optional[str]
     created_at: datetime
     actions: list["PirActionResponse"] = []
+    # The incidents this finding cites as evidence. Defaulted so `model_validate`
+    # can build straight off the ORM row (which has no such attribute) before the
+    # route layer fills it in — no caller is meant to see the default itself.
+    incidents: list["PirCitationResponse"] = []
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -97,6 +101,27 @@ class PirActionResponse(BaseModel):
     closure_note: Optional[str]
     is_overdue: bool = False
     model_config = ConfigDict(from_attributes=True)
+
+
+class PirCitationCreate(BaseModel):
+    incident_id: int
+    note: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+
+class PirCitationResponse(BaseModel):
+    """A cited incident rendered for the finding it is evidence for.
+
+    The incident's title, severity and status travel WITH the citation: a chip
+    reading `#41` identifies nothing, and resolving the id client-side against a
+    capped collection loses the incident rather than merely shortening a list.
+    """
+
+    incident_id: int
+    incident_title: str
+    severity: str
+    status: str
+    note: Optional[str]
 
 
 PirFindingResponse.model_rebuild()

@@ -285,3 +285,168 @@ async def usernames_for(db: AsyncSession, user_ids) -> dict[int, str]:
         return {}
     rows = (await db.execute(select(User.id, User.username).where(User.id.in_(ids)))).all()
     return {uid: username for uid, username in rows}
+
+
+from app.db.models.incident import Incident
+from app.db.models.pir_finding import PirFindingIncident
+from app.db.models.release import Release
+
+
+async def add_citation(
+    db: AsyncSession, tenant_id: int, finding: PirFinding, incident_id: int, note
+) -> PirFindingIncident:
+    """Cite an incident as evidence for a finding.
+
+    Idempotent on (finding, incident): the citation is a fact, not a counter, so
+    citing twice updates the note and returns the same row rather than surfacing
+    `uq_pir_finding_incident` to the browser as a bare 500 — the shape C4's
+    rollback-plan revive bug took.
+    """
+    incident = (await db.execute(select(Incident).where(
+        Incident.id == incident_id,
+        Incident.tenant_id == tenant_id,
+        Incident.deleted_at.is_(None),
+    ))).scalar_one_or_none()
+    if incident is None:
+        raise HTTPException(
+            status_code=422,
+            detail="incident_id does not reference a valid incident for this tenant",
+        )
+    existing = (await db.execute(select(PirFindingIncident).where(
+        PirFindingIncident.finding_id == finding.id,
+        PirFindingIncident.incident_id == incident_id,
+    ))).scalar_one_or_none()
+    if existing is not None:
+        existing.note = note
+        await db.flush()
+        return existing
+    citation = PirFindingIncident(
+        tenant_id=tenant_id, finding_id=finding.id, incident_id=incident_id, note=note)
+    db.add(citation)
+    await db.flush()
+    return citation
+
+
+async def remove_citation(
+    db: AsyncSession, tenant_id: int, finding_id: int, incident_id: int
+) -> None:
+    """Hard delete — removing a citation is a correction, not history."""
+    citation = (await db.execute(select(PirFindingIncident).where(
+        PirFindingIncident.finding_id == finding_id,
+        PirFindingIncident.incident_id == incident_id,
+        PirFindingIncident.tenant_id == tenant_id,
+    ))).scalar_one_or_none()
+    if citation is None:
+        raise HTTPException(status_code=404, detail="Citation not found")
+    await db.delete(citation)
+    await db.flush()
+
+
+async def citations_for_findings(
+    db: AsyncSession, tenant_id: int, finding_ids: list[int]
+) -> dict[int, list[dict]]:
+    """One query for a whole PIR. The incident's title, severity and status travel
+    with the citation — a chip reading `#41` identifies nothing."""
+    by_finding: dict[int, list[dict]] = {fid: [] for fid in finding_ids}
+    if not finding_ids:
+        return by_finding
+    rows = (await db.execute(
+        select(PirFindingIncident.finding_id, Incident.id, Incident.title, Incident.severity,
+               Incident.status, PirFindingIncident.note)
+        .join(Incident, Incident.id == PirFindingIncident.incident_id)
+        .where(
+            PirFindingIncident.finding_id.in_(finding_ids),
+            PirFindingIncident.tenant_id == tenant_id,
+        )
+        .order_by(PirFindingIncident.finding_id, Incident.detected_at.desc(), Incident.id)
+    )).all()
+    for finding_id, inc_id, title, severity, inc_status, note in rows:
+        by_finding[finding_id].append({
+            "incident_id": inc_id, "incident_title": title, "severity": severity,
+            "status": inc_status, "note": note,
+        })
+    return by_finding
+
+
+async def citations_for_incident(
+    db: AsyncSession, tenant_id: int, incident_id: int
+) -> list[dict]:
+    """Everything the incident page renders about the reviews citing it.
+
+    The joins filter `deleted_at` on the finding and the PIR: a review someone
+    withdrew is not evidence of anything. The RELEASE join deliberately does not
+    — an archived release still renders its name on the citation that references
+    it, the read-rendering rule A1 and A2 both settled.
+    """
+    rows = (await db.execute(
+        select(PIR.id, PIR.release_id, Release.name, PIR.status, PirFinding.id,
+               PirFinding.title, PirFinding.root_cause, PirFindingIncident.note)
+        .join(PirFinding, PirFinding.id == PirFindingIncident.finding_id)
+        .join(PIR, PIR.id == PirFinding.pir_id)
+        .join(Release, Release.id == PIR.release_id)
+        .where(
+            PirFindingIncident.incident_id == incident_id,
+            PirFindingIncident.tenant_id == tenant_id,
+            PirFinding.deleted_at.is_(None),
+            PIR.deleted_at.is_(None),
+        )
+        .order_by(PIR.release_id, PirFinding.seq)
+    )).all()
+    if not rows:
+        return []
+
+    finding_ids = [r[4] for r in rows]
+    counts = (await db.execute(
+        select(PirAction.finding_id, PirAction.status, func.count())
+        .where(PirAction.finding_id.in_(finding_ids), PirAction.deleted_at.is_(None))
+        .group_by(PirAction.finding_id, PirAction.status)
+    )).all()
+    total: dict[int, int] = {}
+    open_: dict[int, int] = {}
+    for finding_id, action_status, count in counts:
+        total[finding_id] = total.get(finding_id, 0) + count
+        if action_status in LIVE_ACTION_STATUSES:
+            open_[finding_id] = open_.get(finding_id, 0) + count
+
+    return [
+        {
+            "pir_id": pir_id, "release_id": release_id, "release_name": release_name,
+            "pir_status": pir_status, "finding_id": finding_id, "finding_title": finding_title,
+            "root_cause": root_cause, "note": note,
+            "action_count": total.get(finding_id, 0),
+            "open_action_count": open_.get(finding_id, 0),
+        }
+        for (pir_id, release_id, release_name, pir_status, finding_id, finding_title,
+             root_cause, note) in rows
+    ]
+
+
+async def review_status_for_incidents(
+    db: AsyncSession, tenant_id: int, incident_ids
+) -> dict[int, str]:
+    """Batched `{incident_id: 'draft' | 'complete'}` for the incident list column.
+
+    An uncited incident is ABSENT rather than 'none', so the caller decides what
+    an unreviewed incident is called and there is one such decision, not two.
+    One query for the page — a per-row lookup on a 50-row grid is 50 queries.
+    """
+    ids = [i for i in incident_ids if i is not None]
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(PirFindingIncident.incident_id, PIR.status)
+        .join(PirFinding, PirFinding.id == PirFindingIncident.finding_id)
+        .join(PIR, PIR.id == PirFinding.pir_id)
+        .where(
+            PirFindingIncident.incident_id.in_(ids),
+            PirFindingIncident.tenant_id == tenant_id,
+            PirFinding.deleted_at.is_(None),
+            PIR.deleted_at.is_(None),
+        )
+    )).all()
+    out: dict[int, str] = {}
+    for incident_id, pir_status in rows:
+        # complete wins: an incident reviewed to completion anywhere is reviewed.
+        if out.get(incident_id) != "complete":
+            out[incident_id] = pir_status
+    return out

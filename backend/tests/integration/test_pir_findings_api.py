@@ -275,3 +275,103 @@ async def test_an_action_from_another_finding_is_a_422_on_this_finding(
     delete_resp = await authed_client.delete(
         f"/api/v1/releases/{demo_release_id}/pir/findings/{fid_a}/actions/{action_b}")
     assert delete_resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_citing_an_incident_shows_it_on_the_finding_by_name(authed_client, demo_release_id,
+                                                                  db_session, tenant):
+    from datetime import datetime, timezone
+    from app.db.models.incident import Incident
+    inc = Incident(tenant_id=tenant.id, title="Checkout 500s", severity="P1", status="open",
+                   detected_at=datetime(2026, 8, 1, tzinfo=timezone.utc), source="manual")
+    db_session.add(inc)
+    await db_session.flush()
+
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "No load test"})).json()["id"]
+    resp = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents",
+        json={"incident_id": inc.id, "note": "root incident"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["incident_title"] == "Checkout 500s"
+
+    body = (await authed_client.get(f"/api/v1/releases/{demo_release_id}/pir")).json()
+    assert body["findings"][0]["incidents"][0]["severity"] == "P1"
+
+    assert (await authed_client.delete(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents/{inc.id}"
+    )).status_code == 204
+    body = (await authed_client.get(f"/api/v1/releases/{demo_release_id}/pir")).json()
+    assert body["findings"][0]["incidents"] == []
+
+
+@pytest.mark.asyncio
+async def test_citing_through_another_releases_path_is_a_422(
+    authed_client, demo_release_id, db_session, tenant, user
+):
+    """The containment rule the finding and action routes already follow, on the
+    citation routes too: a real finding id reached through the wrong release's
+    path is refused, not silently cited."""
+    from datetime import datetime, timezone
+    from app.db.models.incident import Incident
+    inc = Incident(tenant_id=tenant.id, title="Checkout 500s", severity="P1", status="open",
+                   detected_at=datetime(2026, 8, 1, tzinfo=timezone.utc), source="manual")
+    db_session.add(inc)
+    tpl = LifecycleTemplate(
+        tenant_id=tenant.id, entity_type="release", name="PIR Citation Other Release",
+        is_default=False,
+        definition={"states": [{"key": "draft", "label": "Draft", "is_initial": True,
+                                "is_terminal": False}], "transitions": [], "field_permissions": {}},
+    )
+    db_session.add(tpl)
+    await db_session.flush()
+    other_release = Release(
+        tenant_id=tenant.id, name="Other Citation Release", release_type="Major",
+        release_kind="project", lifecycle_template_id=tpl.id, status="draft", raised_by=user.id,
+    )
+    db_session.add(other_release)
+    await db_session.flush()
+    await db_session.commit()
+
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    await authed_client.post(f"/api/v1/releases/{other_release.id}/pir", json={"summary": "s2"})
+    other_fid = (await authed_client.post(
+        f"/api/v1/releases/{other_release.id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+
+    post_resp = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{other_fid}/incidents",
+        json={"incident_id": inc.id})
+    assert post_resp.status_code == 422
+
+    delete_resp = await authed_client.delete(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{other_fid}/incidents/{inc.id}")
+    assert delete_resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_incident_from_another_tenant_is_a_422_on_the_route(
+    authed_client, demo_release_id, db_session
+):
+    from datetime import datetime, timezone
+    from app.db.models.incident import Incident
+    from app.db.models.user import Tenant
+    other = Tenant(name="Other Org PIR Citation API", slug="other-org-pir-citation-api")
+    db_session.add(other)
+    await db_session.flush()
+    theirs = Incident(tenant_id=other.id, title="Theirs", severity="P2", status="open",
+                      detected_at=datetime(2026, 8, 1, tzinfo=timezone.utc), source="manual")
+    db_session.add(theirs)
+    await db_session.flush()
+    await db_session.commit()
+
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+    resp = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents",
+        json={"incident_id": theirs.id})
+    assert resp.status_code == 422

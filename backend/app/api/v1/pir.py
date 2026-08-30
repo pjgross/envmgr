@@ -15,6 +15,8 @@ from app.api.v1.schemas.pir_finding import (
     PirActionCreate,
     PirActionResponse,
     PirActionUpdate,
+    PirCitationCreate,
+    PirCitationResponse,
     PirFindingCreate,
     PirFindingResponse,
     PirFindingUpdate,
@@ -24,9 +26,9 @@ router = APIRouter(prefix="/releases", tags=["pir"])
 
 
 async def _hydrate(db: AsyncSession, tenant_id: int, pir):
-    """One PIR with its findings and their actions, built once so every route
-    returns the same shape. Batched: two queries for the whole PIR's actions and
-    owner names, never one per finding."""
+    """One PIR with its findings, their actions and the incidents they cite,
+    built once so every route returns the same shape. Batched: a fixed number of
+    queries for the whole PIR, never one per finding."""
     if pir is None:
         return None
     now = datetime.now(timezone.utc)
@@ -35,6 +37,8 @@ async def _hydrate(db: AsyncSession, tenant_id: int, pir):
         db, tenant_id, [f.id for f in findings])
     names = await pir_finding_service.usernames_for(
         db, [a.owner_id for rows in actions.values() for a in rows])
+    citations = await pir_finding_service.citations_for_findings(
+        db, tenant_id, [f.id for f in findings])
 
     body = PIRResponse.model_validate(pir).model_dump()
     body["findings"] = []
@@ -49,6 +53,7 @@ async def _hydrate(db: AsyncSession, tenant_id: int, pir):
             }
             for a in actions[finding.id]
         ]
+        item["incidents"] = citations[finding.id]
         body["findings"].append(item)
     return body
 
@@ -184,6 +189,45 @@ async def delete_action(
     finding = await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
     await pir_finding_service.get_action_in_finding(db, tenant_id, finding, action_id)
     await pir_finding_service.delete_action(db, tenant_id, action_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{release_id}/pir/findings/{finding_id}/incidents",
+             response_model=list[PirCitationResponse], status_code=status.HTTP_201_CREATED)
+async def cite_incident(
+    release_id: int,
+    finding_id: int,
+    data: PirCitationCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Cite an incident as evidence for a finding.
+
+    Returns the finding's whole citation list, not just the new row: the caller
+    is rendering a list, and re-citing an incident updates a row rather than
+    adding one, so a single-row response would leave the page guessing which.
+    """
+    tenant_id = current_user.active_tenant_id
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    finding = await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
+    await pir_finding_service.add_citation(db, tenant_id, finding, data.incident_id, data.note)
+    return (await pir_finding_service.citations_for_findings(
+        db, tenant_id, [finding_id]))[finding_id]
+
+
+@router.delete("/{release_id}/pir/findings/{finding_id}/incidents/{incident_id}",
+               status_code=status.HTTP_204_NO_CONTENT)
+async def uncite_incident(
+    release_id: int,
+    finding_id: int,
+    incident_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tenant_id = current_user.active_tenant_id
+    pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
+    await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
+    await pir_finding_service.remove_citation(db, tenant_id, finding_id, incident_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
