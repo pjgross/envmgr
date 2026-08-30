@@ -290,3 +290,25 @@ async def test_a_deleted_action_is_counted_in_neither_total(db_session, tenant, 
     row = (await pir_finding_service.citations_for_incident(db_session, tenant.id, inc.id))[0]
     assert (row["action_count"], row["open_action_count"]) == (1, 1)
     assert kept.deleted_at is None
+
+
+@pytest.mark.asyncio
+async def test_the_status_map_answers_only_for_cited_incidents(db_session, tenant, user):
+    """The batched form: one query for a whole page of incidents, answering for
+    the ones a review cites and staying silent about the rest — including an id
+    that does not exist at all, which must not raise or invent an entry.
+
+    (Inherited from `test_pir_service.test_pir_status_for_incidents_bulk`, whose
+    subject moved here when `pirbackfill` retired `PIR.incident_id`.)
+    """
+    cited = await _incident(db_session, tenant.id, title="Cited")
+    uncited = await _incident(db_session, tenant.id, title="Uncited")
+    pir = await _pir(db_session, tenant.id, user.id)
+    pir.status = "complete"
+    f = await pir_finding_service.create_finding(
+        db_session, tenant.id, pir, PirFindingCreate(kind="went_wrong", title="T"), user.id)
+    await pir_finding_service.add_citation(db_session, tenant.id, f, cited.id, None)
+    await db_session.flush()
+
+    assert await pir_finding_service.review_status_for_incidents(
+        db_session, tenant.id, [cited.id, uncited.id, 999999]) == {cited.id: "complete"}

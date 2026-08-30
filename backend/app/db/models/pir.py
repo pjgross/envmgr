@@ -8,16 +8,21 @@ from app.db.base import Base
 
 
 class PIR(Base):
+    """One review per release: a summary and a status, and nothing else.
+
+    The five free-text columns (`root_cause`, `what_went_well`,
+    `what_went_wrong`, `action_plan`) and the single `incident_id` were
+    retired by the `pirbackfill` revision. A review that found six things could
+    not say which root cause belonged to which failure, and the incident link
+    was 1:1 in both directions when one incident routinely exposes two distinct
+    process failures. Both now live in `pir_finding.py`.
+    """
+
     __tablename__ = "pir"
 
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), nullable=False, index=True)
     release_id: Mapped[int] = mapped_column(ForeignKey("release.id"), nullable=False, index=True)
-    incident_id: Mapped[Optional[int]] = mapped_column(ForeignKey("incident.id"), nullable=True, index=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    root_cause: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    what_went_well: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    what_went_wrong: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    action_plan: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="draft")  # draft | complete
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
@@ -25,5 +30,4 @@ class PIR(Base):
 
     __table_args__ = (
         Index("ix_pir_tenant_release", "tenant_id", "release_id"),
-        Index("ix_pir_tenant_incident", "tenant_id", "incident_id"),
     )

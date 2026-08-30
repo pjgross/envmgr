@@ -13,7 +13,7 @@ from app.db.models.release import Release
 from app.db.models.release_change import ReleaseChange
 from app.db.models.system import System, SubSystem
 from app.api.v1.schemas.incident import IncidentCreate, IncidentUpdate
-from app.services import custom_field_service, lifecycle_service, pir_service
+from app.services import custom_field_service, lifecycle_service, pir_finding_service
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 
 _FK_MODELS = {
@@ -259,19 +259,5 @@ async def get_incident_detail(
         "custom_fields": inc.custom_fields,
         "allowed_transitions": [{"to_state": t["to_state"], "label": t["label"]} for t in transitions],
         "status_history": await get_status_history(db, inc.id, tenant_id),
-        "pir": await _pir_ref(db, inc.id, tenant_id),
-    }
-
-
-async def _pir_ref(db: AsyncSession, incident_id: int, tenant_id: int) -> Optional[dict]:
-    """Return a lightweight PIR dict for the IncidentPirRef schema shape, or None."""
-    pir = await pir_service.get_for_incident(db, tenant_id, incident_id)
-    if pir is None:
-        return None
-    return {
-        "release_id": pir.release_id,
-        "status": pir.status,
-        "root_cause": pir.root_cause,
-        "action_plan": pir.action_plan,
-        "summary": pir.summary,
+        "pir_citations": await pir_finding_service.citations_for_incident(db, tenant_id, inc.id),
     }

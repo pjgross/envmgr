@@ -78,10 +78,18 @@ async def test_pir_crud_flow(authed_client, demo_release_id):
     # create
     r = await authed_client.post(
         f"/api/v1/releases/{demo_release_id}/pir",
-        json={"summary": "went ok", "root_cause": "n/a"},
+        json={"summary": "went ok"},
     )
     assert r.status_code == 201, r.text
     assert r.json()["status"] == "draft"
+    # Create returns the same hydrated shape a GET does, so a page that renders
+    # the response of its own POST cannot disagree with the next read.
+    assert r.json()["findings"] == []
+    # The retired free-text fields are REFUSED, not silently dropped: a client
+    # still sending them is told they are gone.
+    assert (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir", json={"root_cause": "n/a"}
+    )).status_code == 422
     # duplicate -> 409
     assert (
         await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={})

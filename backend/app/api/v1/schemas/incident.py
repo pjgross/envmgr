@@ -83,13 +83,24 @@ class StatusHistoryRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class IncidentPirRef(BaseModel):
+class IncidentPirCitation(BaseModel):
+    """One review that cites this incident as evidence.
+
+    The PIR fixes the process that let the incident reach production; it does
+    not fix the incident. `open_action_count` is here so the reader can see
+    whether the process fix is still outstanding without opening the release.
+    """
+
+    pir_id: int
     release_id: int
-    status: str
+    release_name: str
+    pir_status: str
+    finding_id: int
+    finding_title: str
     root_cause: Optional[str] = None
-    action_plan: Optional[str] = None
-    summary: Optional[str] = None
-    model_config = ConfigDict(from_attributes=True)
+    note: Optional[str] = None
+    action_count: int
+    open_action_count: int
 
 
 class IncidentListRow(BaseModel):
@@ -135,5 +146,7 @@ class IncidentDetail(BaseModel):
     custom_fields: Optional[dict]
     allowed_transitions: list[TransitionOption] = []
     status_history: list[StatusHistoryRow] = []
-    pir: Optional[IncidentPirRef] = None
+    # A list, not a single ref: one incident can be cited by the reviews of
+    # several releases, and by more than one finding within one review.
+    pir_citations: list[IncidentPirCitation] = []
     model_config = ConfigDict(from_attributes=True)

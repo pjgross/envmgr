@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.core.security import get_current_user
 from app.db.models.incident import Incident
-from app.services import incident_service, pir_service
+from app.services import incident_service, pir_finding_service
 from app.core.pagination import Page, Sort, pagination, set_total_count, sorting
 from app.api.v1.schemas.incident import (
     IncidentCreate, IncidentUpdate, IncidentTransition, IncidentDetail, IncidentListRow,
@@ -81,8 +81,10 @@ async def list_incidents(
         db, current_user.active_tenant_id, filters, page=page, sort=sort
     )
     set_total_count(response, total)
-    # Bulk-fetch PIR statuses for all incidents in one query
-    status_map = await pir_service.pir_status_for_incidents(
+    # Bulk-fetch PIR review statuses for all incidents in one query. "none" is
+    # decided here, at the one call site, because the service returns an
+    # uncited incident as ABSENT rather than naming it.
+    status_map = await pir_finding_service.review_status_for_incidents(
         db, current_user.active_tenant_id, [r.id for r in rows]
     )
     return [await _row(db, r, current_user.active_tenant_id, status_map.get(r.id, "none")) for r in rows]

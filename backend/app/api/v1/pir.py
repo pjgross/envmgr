@@ -75,9 +75,9 @@ async def create_pir(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await pir_service.create_for_release(
-        db, current_user.active_tenant_id, release_id, data, current_user.id
-    )
+    tenant_id = current_user.active_tenant_id
+    return await _hydrate(db, tenant_id, await pir_service.create_for_release(
+        db, tenant_id, release_id, data, current_user.id))
 
 
 @router.patch("/{release_id}/pir", response_model=PIRResponse)
@@ -87,7 +87,9 @@ async def update_pir(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return await pir_service.update(db, current_user.active_tenant_id, release_id, data)
+    tenant_id = current_user.active_tenant_id
+    return await _hydrate(db, tenant_id, await pir_service.update(
+        db, tenant_id, release_id, data))
 
 
 @router.delete("/{release_id}/pir", status_code=status.HTTP_204_NO_CONTENT)

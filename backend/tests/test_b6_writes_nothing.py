@@ -268,6 +268,11 @@ async def test_b6_adds_no_migration():
     until the next legitimate migration — B6 does not own the migration chain
     forever, only the claim that IT added nothing to it.
 
+    Updated 2026-08-29/30 as the PIR findings work added `pirfindings` (the
+    three new tables) and then `pirbackfill` (the free-text backfill and column
+    drop). Repinning is what this test is FOR — each repin is a deliberate
+    statement that the new link was expected.
+
     Updated again 2026-08-21 when Phase 9 sub-project C4's `rollbackgov`
     (rollback governance schema) chained onto `gatetypes`, moving the head
     again. Rather than re-pin a single literal a third time, this now asserts
@@ -287,14 +292,15 @@ async def test_b6_adds_no_migration():
     cfg.set_main_option("script_location", str(backend_dir / "app" / "db" / "migrations"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["pirfindings"], (
+    assert heads == ["pirbackfill"], (
         "the Alembic head is not the expected single migration on top of "
         "envdecommission — either B6 has started adding schema changes, or "
         "an unrelated migration landed without updating this pin"
     )
     # The chain from B5's envdecommission forward, each entry's own
     # down_revision naming the one before it. Root first.
-    expected_chain = ["envdecommission", "gatetypes", "rollbackgov", "pirfindings"]
+    expected_chain = ["envdecommission", "gatetypes", "rollbackgov", "pirfindings",
+                      "pirbackfill"]
     for child, parent in zip(expected_chain[1:], expected_chain[:-1]):
         assert script.get_revision(child).down_revision == parent, (
             f"{child} must chain directly onto {parent} — B6 (or something "
