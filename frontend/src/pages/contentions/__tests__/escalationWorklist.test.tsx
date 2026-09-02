@@ -572,12 +572,12 @@ describe('reachability', () => {
     // projectDetailGapLink.test.tsx uses, and deliberately not `node:fs`, which
     // works at runtime but fails `tsc --noEmit` in this package.
     const { default: appSource } = await import('../../../App.tsx?raw');
-    const { navGroups } = await import('../../../components/navConfig');
+    const { appNav, isNavGroup } = await import('../../../components/navConfig');
 
     expect(appSource).toContain('path="/contentions"');
     expect(appSource).toContain('pages/contentions/EscalationWorklist');
 
-    const paths = navGroups.flatMap((g) => (g.children ?? []).map((c) => c.path));
+    const paths = appNav.flatMap((entry) => (isNavGroup(entry) ? entry.children.map((c) => c.path) : [entry.path]));
     expect(paths).toContain('/contentions');
   });
 });

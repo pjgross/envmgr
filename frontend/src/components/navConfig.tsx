@@ -12,22 +12,17 @@ import ListIcon from '@mui/icons-material/List';
 import BuildIcon from '@mui/icons-material/Build';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import TimelineIcon from '@mui/icons-material/Timeline';
-import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
-import SettingsIcon from '@mui/icons-material/Settings';
-import TuneIcon from '@mui/icons-material/Tune';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InsightsIcon from '@mui/icons-material/Insights';
 import BugReportIcon from '@mui/icons-material/BugReport';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
-import GitHubIcon from '@mui/icons-material/GitHub';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import GavelIcon from '@mui/icons-material/Gavel';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import FolderIcon from '@mui/icons-material/Folder';
+import WorkspacesIcon from '@mui/icons-material/Workspaces';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -35,114 +30,122 @@ export interface NavUser {
   is_master_admin?: boolean;
 }
 
-export type NavRole = 'admin' | 'masterAdmin';
+export type NavRole = 'admin' | 'masterAdmin' | 'adminOrMaster';
 
 export interface NavItem {
   label: string;
-  path?: string; // group headers have no path
-  icon: ReactNode;
-  comingSoon?: boolean;
+  path: string;
+  icon?: ReactNode;
   requires?: NavRole;
-  defaultOpen?: boolean; // group starts expanded
-  children?: NavItem[];
+  /** One line for the /admin hub cards. Unused in the app tree. */
+  description?: string;
 }
 
-/** The full, unfiltered menu. Order here is the render order. */
-export const navGroups: NavItem[] = [
+export interface NavGroup {
+  label: string;
+  icon: ReactNode;
+  requires?: NavRole;
+  children: NavItem[];
+}
+
+export type NavEntry = NavItem | NavGroup;
+
+export function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return 'children' in entry;
+}
+
+export const ADMIN_ROOT = '/admin';
+
+export function userSatisfies(user: NavUser | null, requires?: NavRole): boolean {
+  if (!requires) return true;
+  const isAdmin = user?.role === 'Admin';
+  const isMaster = user?.is_master_admin === true;
+  if (requires === 'admin') return isAdmin;
+  if (requires === 'masterAdmin') return isMaster;
+  return isAdmin || isMaster;
+}
+
+/**
+ * The app tree. Order here is the render order. Labels are sentence case and
+ * never repeat their group's name — the group header already says it.
+ *
+ * Deliberately absent: "My work" (PR 3 — a nav entry with no route behind it
+ * is the "connected to nothing" class) and "Release templates" (admin
+ * configuration, see adminNavConfig).
+ */
+export const appNav: NavEntry[] = [
+  { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
   {
-    label: 'Insights',
-    icon: <QueryStatsIcon />,
-    defaultOpen: true,
-    children: [
-      { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-      { label: 'DORA Metrics', path: '/insights/dora', icon: <QueryStatsIcon /> },
-      { label: 'Environment Health', path: '/insights/health', icon: <HealthAndSafetyIcon /> },
-    ],
-  },
-  {
-    label: 'Environment Definition',
+    label: 'Catalogue',
     icon: <AccountTreeIcon />,
     children: [
       { label: 'Systems', path: '/systems', icon: <AccountTreeIcon /> },
       { label: 'Environments', path: '/environments', icon: <ComputerIcon /> },
-      { label: 'Compare Environments', path: '/environments/compare', icon: <CompareArrowsIcon /> },
       { label: 'Hosts', path: '/infrastructure/hosts', icon: <StorageIcon /> },
+      { label: 'Compare environments', path: '/environments/compare', icon: <CompareArrowsIcon /> },
       { label: 'Import', path: '/import', icon: <UploadIcon /> },
     ],
   },
   {
-    label: 'Environment Management',
+    label: 'Bookings',
     icon: <EventAvailableIcon />,
     children: [
-      { label: 'Bookings — Calendar', path: '/bookings/calendar', icon: <CalendarMonthIcon /> },
-      { label: 'Bookings — List', path: '/bookings/list', icon: <ListIcon /> },
-      { label: 'Change Requests', path: '/change-requests', icon: <BuildIcon /> },
-      { label: 'Environment Requests', path: '/environment-requests', icon: <AssignmentIcon /> },
-      // Readable by any tenant member, deliberately: a decider needs to see
-      // the queue they are in, and everyone else needs to see that a clash they
-      // are party to has been put to someone. Who may ANSWER one is settled on
-      // the row, not by hiding the page.
-      { label: 'Contention Escalations', path: '/contentions', icon: <GavelIcon /> },
-      // Same readability rule as Contention Escalations: any tenant member
-      // may see which decommissions need action across the whole estate —
-      // acting on one (extend, sign, tear down, cancel) stays gated on the
-      // environment's own DecommissionPanel.
+      { label: 'Calendar', path: '/bookings/calendar', icon: <CalendarMonthIcon /> },
+      { label: 'List', path: '/bookings/list', icon: <ListIcon /> },
+      { label: 'Environment requests', path: '/environment-requests', icon: <AssignmentIcon /> },
+      { label: 'Change requests', path: '/change-requests', icon: <BuildIcon /> },
+      // Readable by any tenant member; writes stay Admin-gated on the page.
+      { label: 'Projects', path: '/projects', icon: <FolderIcon /> },
+      { label: 'Environment groups', path: '/environment-groups', icon: <WorkspacesIcon /> },
+      // Worklists readable by any tenant member: who may ACT on a row is
+      // settled on the row, not by hiding the page.
+      { label: 'Contentions', path: '/contentions', icon: <GavelIcon /> },
       { label: 'Decommissions', path: '/decommissions', icon: <DeleteSweepIcon /> },
     ],
   },
   {
-    label: 'Release Management',
+    label: 'Releases',
     icon: <RocketLaunchIcon />,
     children: [
-      { label: 'Releases — List', path: '/releases', icon: <ListIcon /> },
-      { label: 'Releases — Calendar', path: '/releases/calendar', icon: <CalendarMonthIcon /> },
-      { label: 'Releases — Timeline', path: '/releases/timeline', icon: <TimelineIcon /> },
-      { label: 'Releases — Scope Windows', path: '/releases/scope-windows', icon: <ScheduleIcon /> },
-      { label: 'Releases — Analytics', path: '/releases/analytics', icon: <InsightsIcon /> },
-      {
-        label: 'Release Templates',
-        path: '/admin/release-templates',
-        icon: <LibraryBooksIcon />,
-        requires: 'admin',
-      },
+      { label: 'List', path: '/releases', icon: <ListIcon /> },
+      { label: 'Calendar', path: '/releases/calendar', icon: <CalendarMonthIcon /> },
+      { label: 'Timeline', path: '/releases/timeline', icon: <TimelineIcon /> },
+      { label: 'Scope windows', path: '/releases/scope-windows', icon: <ScheduleIcon /> },
+      { label: 'Analytics', path: '/releases/analytics', icon: <InsightsIcon /> },
       { label: 'Builds', path: '/builds', icon: <BuildIcon /> },
       { label: 'Deployments', path: '/deployments', icon: <RocketLaunchIcon /> },
       { label: 'Incidents', path: '/incidents', icon: <BugReportIcon /> },
-      // Readable by any tenant member, the same call Contention Escalations and
-      // Decommissions made: a process fix nobody can see is a process fix nobody
-      // does. Who may EDIT an action is settled on the release's PIR tab.
-      { label: 'PIR Actions', path: '/pir-actions', icon: <FactCheckIcon /> },
+      { label: 'PIR actions', path: '/pir-actions', icon: <FactCheckIcon /> },
+    ],
+  },
+  {
+    label: 'Insights',
+    icon: <QueryStatsIcon />,
+    children: [
+      { label: 'DORA metrics', path: '/insights/dora', icon: <QueryStatsIcon /> },
+      { label: 'Environment health', path: '/insights/health', icon: <HealthAndSafetyIcon /> },
     ],
   },
   {
     label: 'Administration',
+    path: ADMIN_ROOT,
     icon: <AdminPanelSettingsIcon />,
-    // No `requires` — visible whenever it has >=1 visible child, so a
-    // master-admin who is not role 'Admin' still sees Platform Admin.
-    children: [
-      { label: 'Users', path: '/tenant/users', icon: <ManageAccountsIcon />, requires: 'admin' },
-      { label: 'Tenant Settings', path: '/tenant/settings', icon: <SettingsIcon />, requires: 'admin' },
-      { label: 'Change Config', path: '/admin/config/booking', icon: <TuneIcon />, requires: 'admin' },
-      { label: 'RAID Settings', path: '/tenant/raid-settings', icon: <WarningAmberIcon />, requires: 'admin' },
-      { label: 'API Keys', path: '/tenant/api-keys', icon: <VpnKeyIcon />, requires: 'admin' },
-      { label: 'GitHub Integration', path: '/admin/github', icon: <GitHubIcon />, requires: 'admin' },
-      { label: 'Platform Admin', path: '/admin/tenants', icon: <AdminPanelSettingsIcon />, requires: 'masterAdmin' },
-    ],
+    // A master admin who is not role Admin still needs the Platform section.
+    requires: 'adminOrMaster',
   },
 ];
 
-export function userSatisfies(user: NavUser | null, requires?: NavRole): boolean {
-  if (!requires) return true;
-  if (requires === 'admin') return user?.role === 'Admin';
-  return user?.is_master_admin === true;
-}
-
-/** Filter groups + children by role. Drops any group left with no children. */
-export function visibleNavGroups(user: NavUser | null): NavItem[] {
-  return navGroups
-    .map((group) => ({
-      ...group,
-      children: (group.children ?? []).filter((child) => userSatisfies(user, child.requires)),
-    }))
-    .filter((group) => userSatisfies(user, group.requires) && group.children.length > 0);
+/** Filter by role; drop any group left with no children. */
+export function visibleAppNav(user: NavUser | null): NavEntry[] {
+  const out: NavEntry[] = [];
+  for (const entry of appNav) {
+    if (!userSatisfies(user, entry.requires)) continue;
+    if (isNavGroup(entry)) {
+      const children = entry.children.filter((c) => userSatisfies(user, c.requires));
+      if (children.length > 0) out.push({ ...entry, children });
+    } else {
+      out.push(entry);
+    }
+  }
+  return out;
 }

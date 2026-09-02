@@ -1,22 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { useNavigate, useLocation, Outlet, Link as RouterLink } from 'react-router-dom';
 import {
   AppBar,
   Box,
-  Chip,
-  Collapse,
   Divider,
   Drawer,
   IconButton,
-  List,
+  Link,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
   Toolbar,
-  Tooltip,
   Typography,
   Avatar,
   useMediaQuery,
@@ -25,17 +22,18 @@ import {
 import { ErrorBoundary } from 'react-error-boundary';
 import MenuIcon from '@mui/icons-material/Menu';
 import LogoutIcon from '@mui/icons-material/Logout';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness';
 import { RootState } from '../store';
 import { authService } from '../services/authService';
 import { logout } from '../store/authSlice';
-import { setThemeMode, type ThemeModePreference } from '../store/uiSlice';
+import { setLastAppRoute, setNavGroupOpen, setThemeMode, type ThemeModePreference } from '../store/uiSlice';
 import ErrorFallback from './ErrorFallback';
-import { visibleNavGroups, type NavItem } from './navConfig';
+import { ADMIN_ROOT, visibleAppNav } from './navConfig';
+import { visibleAdminNav } from './adminNavConfig';
+import NavDrawer, { groupContaining } from './NavDrawer';
 
 const DRAWER_WIDTH = 240;
 
@@ -45,22 +43,21 @@ export default function AppLayout() {
   const location = useLocation();
   const user = useSelector((state: RootState) => state.auth.user);
   const themeMode = useSelector((state: RootState) => state.ui.themeMode);
+  const navOpenGroups = useSelector((state: RootState) => state.ui.navOpenGroups);
+  const lastAppRoute = useSelector((state: RootState) => state.ui.lastAppRoute);
   const muiTheme = useTheme();
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const navGroups = visibleNavGroups(user);
-  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    for (const group of navGroups) {
-      initial[group.label] =
-        group.defaultOpen === true ||
-        (group.children ?? []).some(
-          (child) => child.path !== undefined && location.pathname.startsWith(child.path)
-        );
-    }
-    return initial;
-  });
+
+  const adminMode =
+    location.pathname === ADMIN_ROOT || location.pathname.startsWith(ADMIN_ROOT + '/');
+  const mode = adminMode ? 'admin' : 'app';
+  const entries = adminMode ? visibleAdminNav(user) : visibleAppNav(user);
+  const groupKey = (label: string) => `${mode}:${label}`;
+  const isGroupOpen = (label: string) => navOpenGroups[groupKey(label)] ?? true;
+  const toggleGroup = (label: string) =>
+    dispatch(setNavGroupOpen({ key: groupKey(label), open: !isGroupOpen(label) }));
 
   const closeMobileDrawer = () => {
     if (!isDesktop) setMobileOpen(false);
@@ -70,6 +67,18 @@ export default function AppLayout() {
     navigate(path);
     closeMobileDrawer();
   };
+
+  // Open the group holding the current route on EVERY navigation, and remember
+  // the last non-admin route so "Back to EnvManager" has somewhere to go.
+  useEffect(() => {
+    if (!adminMode) dispatch(setLastAppRoute(location.pathname + location.search));
+    const holder = groupContaining(entries, location.pathname);
+    if (holder !== undefined && navOpenGroups[groupKey(holder)] === false) {
+      dispatch(setNavGroupOpen({ key: groupKey(holder), open: true }));
+    }
+    // entries/navOpenGroups are derived from user + store; pathname is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, location.search, adminMode]);
 
   const handleLogout = async () => {
     setMenuAnchor(null);
@@ -102,6 +111,18 @@ export default function AppLayout() {
   const themeLabel =
     themeMode === 'light' ? 'Light mode' : themeMode === 'dark' ? 'Dark mode' : 'System theme';
 
+  const adminHeader = (
+    <>
+      <ListItemButton onClick={() => navigateAndClose(lastAppRoute)} sx={{ borderRadius: 1, mx: 1, mt: 0.5 }}>
+        <ListItemIcon sx={{ minWidth: 36 }}><ArrowBackIcon fontSize="small" /></ListItemIcon>
+        <ListItemText primary="Back to EnvManager" />
+      </ListItemButton>
+      <Typography variant="overline" color="text.secondary" sx={{ px: 2, display: 'block' }}>
+        Administration
+      </Typography>
+    </>
+  );
+
   return (
     <Box sx={{ display: 'flex' }}>
       {/* Top AppBar */}
@@ -118,14 +139,16 @@ export default function AppLayout() {
               <MenuIcon />
             </IconButton>
           )}
-          <Typography
+          <Link
+            component={RouterLink}
+            to="/dashboard"
+            color="inherit"
+            underline="none"
             variant="h6"
-            component="div"
-            sx={{ flexGrow: 1, cursor: 'pointer' }}
-            onClick={() => navigate('/dashboard')}
+            sx={{ flexGrow: 1 }}
           >
             EnvManager
-          </Typography>
+          </Link>
           <IconButton color="inherit" aria-label="Account menu" onClick={(e) => setMenuAnchor(e.currentTarget)}>
             <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.dark', fontSize: 14 }}>
               {user?.username?.[0]?.toUpperCase()}
@@ -184,64 +207,14 @@ export default function AppLayout() {
         {/* Offset for AppBar height */}
         <Toolbar />
         <Box sx={{ overflow: 'auto', mt: 1 }}>
-          <List dense>
-            {navGroups.map((group) => {
-              const isOpen = groupOpen[group.label] ?? false;
-              return (
-                <div key={group.label}>
-                  <ListItemButton
-                    selected={false}
-                    onClick={() =>
-                      setGroupOpen((prev) => ({ ...prev, [group.label]: !prev[group.label] }))
-                    }
-                    sx={{ borderRadius: 1, mx: 1, mb: 0.5 }}
-                  >
-                    <ListItemIcon sx={{ minWidth: 36 }}>{group.icon}</ListItemIcon>
-                    <ListItemText primary={group.label} />
-                    {isOpen ? (
-                      <ExpandLessIcon fontSize="small" />
-                    ) : (
-                      <ExpandMoreIcon fontSize="small" />
-                    )}
-                  </ListItemButton>
-                  <Collapse in={isOpen} timeout="auto" unmountOnExit>
-                    <List dense disablePadding>
-                      {(group.children ?? []).map((child: NavItem) => {
-                        const isChildActive =
-                          child.path !== undefined &&
-                          (location.pathname === child.path ||
-                            location.pathname.startsWith(child.path + '/'));
-                        return (
-                          <Tooltip
-                            key={child.label}
-                            title={child.comingSoon ? 'Coming soon' : ''}
-                            placement="right"
-                          >
-                            <span>
-                              <ListItemButton
-                                selected={isChildActive}
-                                disabled={child.comingSoon}
-                                onClick={() =>
-                                  !child.comingSoon && child.path && navigateAndClose(child.path)
-                                }
-                                sx={{ borderRadius: 1, mx: 1, mb: 0.5, pl: 4 }}
-                              >
-                                <ListItemIcon sx={{ minWidth: 36 }}>{child.icon}</ListItemIcon>
-                                <ListItemText primary={child.label} />
-                                {child.comingSoon && (
-                                  <Chip label="Soon" size="small" sx={{ height: 18, fontSize: 10 }} />
-                                )}
-                              </ListItemButton>
-                            </span>
-                          </Tooltip>
-                        );
-                      })}
-                    </List>
-                  </Collapse>
-                </div>
-              );
-            })}
-          </List>
+          <NavDrawer
+            entries={entries}
+            currentPath={location.pathname}
+            isGroupOpen={isGroupOpen}
+            onToggleGroup={toggleGroup}
+            onNavigate={navigateAndClose}
+            header={adminMode ? adminHeader : undefined}
+          />
         </Box>
       </Drawer>
 
