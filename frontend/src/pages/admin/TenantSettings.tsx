@@ -1,6 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Typography, Button, CircularProgress, Alert, Paper, TextField } from '@mui/material';
+import {
+  Box,
+  Typography,
+  Button,
+  CircularProgress,
+  Alert,
+  Paper,
+  TextField,
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Stack,
+} from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { fetchTenantSettings, updateTenantSettings } from '../../store/tenantAdminSlice';
 import type { RootState, AppDispatch } from '../../store';
 
@@ -43,57 +56,53 @@ export default function TenantSettings() {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h5" gutterBottom>
-        Tenant Settings
+        Tenant settings
       </Typography>
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {saved && <Alert severity="success" sx={{ mb: 2 }}>Settings saved</Alert>}
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-      {saved && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Settings saved successfully
-        </Alert>
-      )}
-
-      {settings && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="body1">
-            <strong>Name:</strong> {settings.name}
-          </Typography>
-          <Typography variant="body1">
-            <strong>Slug:</strong> {settings.slug}
-          </Typography>
-        </Paper>
-      )}
-
-      {loading ? (
+      {loading && !settings ? (
         <CircularProgress />
       ) : (
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Custom Settings (JSON)
-          </Typography>
-          {jsonError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {jsonError}
-            </Alert>
-          )}
-          <TextField
-            multiline
-            fullWidth
-            minRows={10}
-            value={settingsJson}
-            onChange={(e) => setSettingsJson(e.target.value)}
-            inputProps={{ style: { fontFamily: 'monospace', fontSize: '14px' } }}
-          />
-          <Box sx={{ mt: 2 }}>
-            <Button variant="contained" onClick={handleSave} disabled={loading}>
-              Save Settings
-            </Button>
-          </Box>
-        </Paper>
+        <>
+          <Paper sx={{ p: 3, mb: 2 }}>
+            <Stack spacing={2} sx={{ maxWidth: 480 }}>
+              <TextField
+                label="Name"
+                value={settings?.name ?? ''}
+                InputProps={{ readOnly: true }}
+                helperText="Set when the tenant was provisioned; a master admin can change it under Platform → Tenants."
+              />
+              <TextField label="Slug" value={settings?.slug ?? ''} InputProps={{ readOnly: true }} />
+            </Stack>
+          </Paper>
+
+          <Accordion variant="outlined" disableGutters TransitionProps={{ unmountOnExit: true }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography>Advanced</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                A free-form JSON document downstream features may read. Nothing on this page changes billing, identity or routing.
+              </Typography>
+              {jsonError && <Alert severity="error" sx={{ mb: 2 }}>{jsonError}</Alert>}
+              <TextField
+                label="Custom settings (JSON)"
+                multiline
+                fullWidth
+                minRows={10}
+                value={settingsJson}
+                onChange={(e) => setSettingsJson(e.target.value)}
+                inputProps={{ style: { fontFamily: 'monospace', fontSize: '14px' } }}
+              />
+              <Box sx={{ mt: 2 }}>
+                <Button variant="contained" onClick={handleSave} disabled={loading}>
+                  Save settings
+                </Button>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        </>
       )}
     </Box>
   );
