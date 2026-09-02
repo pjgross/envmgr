@@ -32,7 +32,7 @@ ROUTE. Rather than assert on the advertised transition list of a nearby one,
 these tests PERFORM the transition and assert it succeeds — which is the claim
 anyway, and is what the temporary refusal above actually breaks.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -219,6 +219,46 @@ async def deployable(db_session, test_tenant):
     db_session.add_all([sub, env])
     await db_session.commit()
     return sub, env
+
+
+@pytest.mark.asyncio
+async def test_a_booking_can_still_be_made_while_an_overdue_action_exists(
+    client, auth_headers, db_session, test_tenant, test_user, test_booking_type, bad_pir
+):
+    """The docstring at the top of this file promises bookings too, and until
+    this test it promised something nothing here checked.
+
+    A PIR action is raised after a release has gone live, about a delivery
+    already considered finished — it cannot reach back and make an environment
+    unbookable. `booking_request_service.create_request` is the modern path and
+    the one B4/B5 guard the same way.
+    """
+    from app.services import booking_request_service
+    from tests.factories import ensure_environment
+
+    # conftest's `test_booking_type` — a booking type needs a lifecycle template
+    # with an initial state, and building one by hand here would be a second,
+    # drifting copy of that fixture.
+    environment = await ensure_environment(db_session, test_tenant.id)
+
+    start = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
+    # The second element is the CONFLICTS map, not the bookings — an empty dict
+    # is the ordinary case, so asserting on it would prove nothing either way.
+    request, _conflicts = await booking_request_service.create_request(
+        db_session,
+        {
+            "project_name": "Booked despite an overdue PIR action",
+            "booking_type_id": test_booking_type.id,
+            "start_date": start,
+            "end_date": start + timedelta(days=2),
+            "environment_ids": [environment.id],
+        },
+        test_user,
+        test_tenant.id,
+        now=datetime.now(UTC),
+    )
+    assert request.id is not None
+    assert [b.environment_id for b in request.bookings] == [environment.id]
 
 
 @pytest.mark.asyncio

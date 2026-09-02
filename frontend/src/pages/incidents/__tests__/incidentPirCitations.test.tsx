@@ -40,6 +40,25 @@ describe('LinkIncidentToPirDialog', () => {
       expect.objectContaining({ implemented: true })));
   });
 
+  it('does not claim a release has no findings before one is chosen', async () => {
+    // Two different absences. With no release selected there is no review to
+    // have findings, and asserting "this release's review has none" is a claim
+    // about a release the user has not picked. The radio is disabled either
+    // way, so only the COPY distinguishes them.
+    releases.list.mockResolvedValue({ rows: [{ id: 8, name: 'Release 24.2' }], total: 1 });
+    open({ defaultReleaseId: null });
+    expect(await screen.findByText(/choose a release to cite/i)).toBeInTheDocument();
+    expect(screen.queryByText(/this release's review has no went-wrong findings/i))
+      .not.toBeInTheDocument();
+  });
+
+  it('says the release has no findings once one IS chosen and it has none', async () => {
+    open();
+    await screen.findByDisplayValue('Release 24.3');
+    expect(await screen.findByText(/this release's review has no went-wrong findings/i))
+      .toBeInTheDocument();
+  });
+
   it('never offers to create a release, and never mentions a fix release', async () => {
     open();
     await screen.findByLabelText(/release/i);
@@ -185,7 +204,14 @@ describe('IncidentDetail — the PIR panel', () => {
     // The whole point: NO fix release, and the control is still live.
     fix_release_id: null, fix_release: null, fix_release_changes_by_epic: {},
     system_id: null, system_name: null, subsystem_id: null, subsystem_name: null,
-    custom_fields: null, allowed_transitions: [], status_history: [],
+    custom_fields: null,
+    // NON-EMPTY, deliberately. A fixture with no allowed transitions makes
+    // future gating undetectable: gate the page's controls on
+    // `pir_citations.length` and every test still passes, because there was
+    // nothing on the page for the gating to disable. That is the A3 trap in
+    // CLAUDE.md, verbatim.
+    allowed_transitions: [{ to_state: 'investigating', label: 'Investigate' }],
+    status_history: [],
     pir_citations: [citation],
     ...overrides,
   });
@@ -239,6 +265,18 @@ describe('IncidentDetail — the PIR panel', () => {
     // The old dead end, in both its parts.
     expect(screen.queryByRole('button', { name: /create pir/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/link a fix release/i)).not.toBeInTheDocument();
+  });
+
+  it('leaves every other control on the page alone while a citation exists', async () => {
+    // The page half of "this work refuses nothing". A cited incident is still a
+    // fully usable incident: its transitions, its edit and its delete are
+    // untouched. Needs a fixture that HAS transitions — with an empty list
+    // there is nothing for a future gate to disable, and the test would pass
+    // while the page was broken.
+    await renderDetail(detail());
+    expect(await screen.findByRole('button', { name: /investigate/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /edit/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /delete/i })).toBeEnabled();
   });
 
   it('says plainly that no review cites this incident yet, without calling it a gap',

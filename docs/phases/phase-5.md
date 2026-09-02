@@ -1,5 +1,25 @@
 # Phase 5: DORA Metrics, Health Dashboard & PIR
 
+> **SP4 (PIR) was superseded on 2026-09-02 — read this before trusting anything below about PIRs.**
+> Phase 5 shipped a PIR as five free-text columns on `pir` (`root_cause`, `what_went_well`,
+> `what_went_wrong`, `action_plan`, plus a summary) and a single nullable `PIR.incident_id`. That
+> shape could not say which root cause belonged to which failure, gave a review's actions no owner,
+> due date or status, and made the incident relationship 1:1 in both directions when one incident
+> routinely exposes two distinct process failures.
+>
+> **All five columns and `PIR.incident_id` are gone.** A PIR is now a summary plus **findings**
+> (went-well / went-wrong, each with a root cause), each carrying trackable **actions** (owner, due
+> date, status) and citing **incidents** many-to-many as evidence. The incident page's *Create PIR*
+> button — which was disabled until the incident had a fix release, and then anchored the review to
+> that fix rather than to the delivery whose process failed — is replaced by *Link to a PIR*, which
+> has no precondition. There is also a tenant-wide action worklist at `/pir-actions`.
+>
+> Migrations `pirfindings` (additive) and `pirbackfill` (backfills, then drops the five columns).
+> Spec: [../superpowers/specs/2026-08-29-pir-findings-actions-design.md](../superpowers/specs/2026-08-29-pir-findings-actions-design.md).
+> The original SP4 text is left below unedited, as the record of what was actually built at the
+> time — the lines about `PIR.incident_id`, the `pir` panel shape, the *Create PIR* button and the
+> *PIR Status* column (now *Reviewed*) all describe the superseded design.
+
 > Status: ⏳ **Planned** | Roadmap: [../plan.md](../plan.md)
 > Duration: 4–6 weeks | Starts after Phase 4 completion
 

@@ -23,10 +23,18 @@ for the decomposition as originally recorded.
 | C3 | Go/No-Go decision record | nothing | C2, C4 | Not started |
 | C4 | **Rollback governance** | nothing | C2 (folds into the same verdict) | ✅ Complete |
 | C5 | Deployment execution records | Phase 4 tracking, `can-deploy` | C2 (pre-deploy checklist is a gate) | Not started |
-| C6 | Hyper-care + closeout | Phase 5 SP4 PIR is the retro half | C3 | Not started |
+| C6 | Hyper-care + closeout | The **PIR findings/actions/citations** work (2026-09-02) is the retro half — findings, trackable actions, a tenant-wide action worklist, incidents cited as evidence. Supersedes Phase 5 SP4. | C3 | Not started |
 | C7 | Scope freeze completion | `scope_deadline`, Scope Windows, churn analytics — most of it already ships | — | Not started |
 | C8 | Feature-flag governance | nothing | — | Not started |
 | C9 | Stable Windows | `can-deploy` to extend | — | Not started |
+
+**What C6 still owns, and this work deliberately did not build:** requirements.md §2.5's
+*configurable "PIR complete" gate before a release is formally closed*. The PIR work refuses
+nothing — no release transition, no deployment, no readiness verdict entry — and
+`backend/tests/test_pir_records_never_refuses.py` is the named guard that fails the day someone
+adds such a gate by accident. Building it on purpose is C6's job, and it will mean deleting or
+amending that guard consciously rather than tripping over it.
+
 
 ## C2 — Typed gates, evidence and waivers — ✅ COMPLETE 2026-08-20
 

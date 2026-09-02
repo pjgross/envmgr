@@ -4,7 +4,6 @@
  * The root cause is shown only for a went-wrong finding — a "keep doing this"
  * item has no failure to analyse.
  */
-import { useState } from 'react';
 import {
   Box, Button, Card, CardContent, IconButton, Stack, Tooltip, Typography,
 } from '@mui/material';
@@ -27,7 +26,6 @@ interface Props {
 export default function PirFindingCard({
   finding, onEdit, onDelete, onAddAction, onEditAction, onDeleteAction, onRemoveCitation,
 }: Props) {
-  const [showActions] = useState(true);
   return (
     <Card variant="outlined" sx={{ mb: 2 }}>
       <CardContent>
@@ -62,13 +60,11 @@ export default function PirFindingCard({
           </Box>
         )}
 
-        {showActions && (
-          <PirActionsTable
-            actions={finding.actions}
-            onEdit={(a) => onEditAction(finding, a)}
-            onDelete={(a) => onDeleteAction(finding, a)}
-          />
-        )}
+        <PirActionsTable
+          actions={finding.actions}
+          onEdit={(a) => onEditAction(finding, a)}
+          onDelete={(a) => onDeleteAction(finding, a)}
+        />
 
         <PirIncidentCitations
           citations={finding.incidents}

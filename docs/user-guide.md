@@ -877,6 +877,47 @@ The *RAID* tab tracks the four things a release manager watches: **Risks**, **As
 
 On an **enterprise release**, the *RAID Rollup* tab aggregates RAID across every accepted member release: counts by type and RAG, open-issue and overdue totals, and a top-risks-by-severity table.
 
+### Post-implementation reviews
+
+The *PIR* tab is where a release is reviewed after it has gone live. A review is a **summary** plus
+two lists: **what went well** (things worth keeping) and **what went wrong**.
+
+**A finding is one thing the review found.** A went-wrong finding carries its **root cause** and the
+**actions** that answer it; a went-well finding is usually just a note, though it can carry actions
+too — "codify this in the release template" is a real outcome of a review that went well. Which list
+a finding is in is fixed when you raise it and cannot be changed afterwards: moving one across would
+drag its root cause and its actions from "this failed" to "keep doing this". If you filed something
+in the wrong list, delete it and raise it in the other one.
+
+**An action is a process fix, not an incident fix.** It has an owner, a due date and a status
+(`open → in progress → done`, or `cancelled`), and it is tracked to closure. Closing an action asks
+for a closure note; reopening one clears the closing date, because a reopened action has no closure.
+An action is **overdue** the day *after* its due date — due today is not overdue — and that verdict
+is the server's, so everybody looking at the same action sees the same answer regardless of their
+computer's clock.
+
+**Citing an incident.** On an incident's page, *Link to a PIR* attaches that incident to a release's
+review as **evidence** for a went-wrong finding. The dialog offers only releases that have already
+gone live, since a release that has not shipped cannot have caused a production incident, and it
+creates the review, the finding and its first action in one go if they do not exist yet. You can
+cite the same incident on more than one release's review, and cite several incidents against one
+finding.
+
+**The review fixes the process; it does not fix the incident.** The incident is its own record —
+raised by your incident process or by monitoring — and citing it here neither closes it, changes it,
+nor takes ownership of it. Removing a citation removes the link and nothing else.
+
+**Where the actions live.** *Release Management → PIR Actions* lists every PIR action in the tenant,
+across every release, with filters for status, owner and overdue. That page is the point of the
+feature: an action that lives only inside the release tab it was raised in is exactly the action
+nobody does. Every filter runs on the server, so the count in the footer describes the whole
+filtered set, not the page you are looking at.
+
+**None of this blocks anything.** An incomplete review, a went-wrong finding, an overdue action, a
+cited incident — none of them stops a release transitioning, a deployment landing, a booking being
+made, or the readiness verdict a pipeline reads. A PIR is written after the fact, about a release
+people already consider finished. It records and it never refuses.
+
 ### Enterprise membership
 
 A project release joins one enterprise release at a time (the live FK is `parent_release_id`); the membership table records every admission request and decision as an append-only audit log. The *Enterprise* tab on a project release shows the current bundle (if any) plus a *History* list of past requests — *pending_request*, *accepted*, *rejected*, *withdrawn*, or *removed*. Why bother: enterprise releases give you cross-project rollups and one shared schedule when several teams' work must ship together.

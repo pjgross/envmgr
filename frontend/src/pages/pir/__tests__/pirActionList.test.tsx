@@ -92,6 +92,17 @@ describe('PirActionList', () => {
         expect.objectContaining({ status: 'open', overdue: true })));
     });
 
+  it('sends overdue=false as a real filter, not as no filter at all', async () => {
+    // `'false'` falling through to `{}` made *Not overdue* byte-identical to
+    // *Any*: the grid refetched and returned overdue rows under a dropdown
+    // saying it had excluded them. True and false PARTITION the set on the
+    // server; a UI that forwards only one half breaks that in the one place a
+    // user can see it.
+    renderPage('/pir-actions?overdue=false');
+    await waitFor(() => expect(mocked.listActions).toHaveBeenCalledWith(
+      expect.objectContaining({ overdue: false })));
+  });
+
   it('takes the overdue flag from the server rather than comparing dates', async () => {
     mocked.listActions.mockResolvedValue({
       rows: [row({ due_date: '2099-01-01T00:00:00Z', is_overdue: true })], total: 1,

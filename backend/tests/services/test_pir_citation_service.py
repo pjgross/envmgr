@@ -312,3 +312,30 @@ async def test_the_status_map_answers_only_for_cited_incidents(db_session, tenan
 
     assert await pir_finding_service.review_status_for_incidents(
         db_session, tenant.id, [cited.id, uncited.id, 999999]) == {cited.id: "complete"}
+
+
+@pytest.mark.asyncio
+async def test_a_soft_deleted_release_still_names_itself_on_its_citations(db_session, tenant,
+                                                                          user):
+    """The read-rendering rule, and the half of `citations_for_incident`'s own
+    comment that had no test: the finding and PIR joins filter `deleted_at`
+    because a withdrawn review is not evidence, but the RELEASE join deliberately
+    does not — an archived release still renders its name on the citation that
+    references it. Without this, adding `Release.deleted_at.is_(None)` to that
+    join passes every other test in the file.
+    """
+    from sqlalchemy import update as sa_update
+    from app.db.models.release import Release as ReleaseModel
+
+    pir = await _pir(db_session, tenant.id, user.id, name="Archived Release")
+    f = await pir_finding_service.create_finding(
+        db_session, tenant.id, pir, PirFindingCreate(kind="went_wrong", title="T"), user.id)
+    inc = await _incident(db_session, tenant.id)
+    await pir_finding_service.add_citation(db_session, tenant.id, f, inc.id, None)
+    await db_session.execute(sa_update(ReleaseModel)
+                             .where(ReleaseModel.id == pir.release_id)
+                             .values(deleted_at=datetime(2026, 8, 2, tzinfo=UTC)))
+    await db_session.flush()
+
+    rows = await pir_finding_service.citations_for_incident(db_session, tenant.id, inc.id)
+    assert [r["release_name"] for r in rows] == ["Archived Release"]

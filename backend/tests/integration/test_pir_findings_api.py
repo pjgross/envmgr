@@ -375,3 +375,82 @@ async def test_an_incident_from_another_tenant_is_a_422_on_the_route(
         f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents",
         json={"incident_id": theirs.id})
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_action_can_be_created_already_closed_with_its_reason(authed_client,
+                                                                      demo_release_id):
+    """`status` is settable at create, so the note explaining a closure must be
+    too — "we did this during the incident" is an ordinary thing for a review to
+    record.
+
+    Found in the browser, not by any test: `PirActionCreate` declared
+    `extra="forbid"` without `closure_note`, and the create dialog sends that key
+    on every save, so EVERY action created through the UI 422'd. The component
+    tests mock the service, so the payload never met the schema; the API tests
+    never sent the key. This is that seam, pinned.
+    """
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "T"})).json()["id"]
+
+    resp = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "Restarted the pool", "status": "done",
+              "closure_note": "Done during the incident"})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["closure_note"] == "Done during the incident"
+    assert body["closed_at"] is not None
+
+    # And the ordinary case still round-trips: an open action carrying the key
+    # as null is accepted rather than refused, which is what the dialog sends.
+    open_resp = await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "Still to do", "status": "open", "closure_note": None})
+    assert open_resp.status_code == 201, open_resp.text
+    assert open_resp.json()["closure_note"] is None
+    assert open_resp.json()["closed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_patching_a_finding_returns_its_actions_and_evidence(authed_client,
+                                                                   demo_release_id,
+                                                                   db_session, tenant):
+    """A PATCH must answer with the same shape a GET does.
+
+    `PirFindingResponse.actions` and `.incidents` are defaulted, and the ORM row
+    carries neither attribute, so returning the bare model emitted `[]` for both
+    — a caller trusting the response would erase a finding's actions and its
+    evidence. The release tab survived it only because it re-reads the whole PIR
+    afterwards, which is the page's habit rather than this route's contract.
+    """
+    from datetime import datetime, timezone
+    from app.db.models.incident import Incident
+    inc = Incident(tenant_id=tenant.id, title="Checkout 500s", severity="P1", status="open",
+                   detected_at=datetime(2026, 8, 1, tzinfo=timezone.utc), source="manual")
+    db_session.add(inc)
+    await db_session.flush()
+
+    await authed_client.post(f"/api/v1/releases/{demo_release_id}/pir", json={"summary": "s"})
+    created = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "No load test"})).json()
+    # A new finding has neither, and says so honestly rather than by default.
+    assert created["actions"] == [] and created["incidents"] == []
+    fid = created["id"]
+
+    await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "Make the gate mandatory"})
+    await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents",
+        json={"incident_id": inc.id})
+
+    patched = (await authed_client.patch(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}",
+        json={"detail": "Perf suite is opt-in"})).json()
+    assert patched["detail"] == "Perf suite is opt-in"
+    assert [a["title"] for a in patched["actions"]] == ["Make the gate mandatory"]
+    assert [c["incident_id"] for c in patched["incidents"]] == [inc.id]

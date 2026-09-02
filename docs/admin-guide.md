@@ -880,6 +880,38 @@ The one case that still needs `seed_gate_type_defaults_for_tenant` run by hand i
 
 A tenant with no seeded types is worth recognising, because there is no error — just an empty vocabulary: the *Gate Types* tab shows an empty table and the type selector on every gate offers nothing but *Untyped*, so the feature reads as **broken** rather than unconfigured. Check this first if a tenant reports "gate types don't work."
 
+### Post-implementation reviews: the two migrations
+
+The PIR findings work ships **two** Alembic revisions, and the second is the only destructive
+migration in it.
+
+- **`pirfindings`** is additive: three new tables (`pir_finding`, `pir_action`,
+  `pir_finding_incident`), no change to any existing table, no backfill. There is no deploy step.
+- **`pirbackfill`** moves each PIR's free text into those tables and **then drops five columns**
+  from `pir`: `incident_id`, `root_cause`, `what_went_well`, `what_went_wrong` and `action_plan`.
+
+**What the backfill does with existing reviews.** `what_went_well` becomes a went-well finding
+titled *What went well (migrated)*, with the original text as its detail. `what_went_wrong`,
+`root_cause` and `action_plan` become a single went-wrong finding — *What went wrong (migrated)* —
+carrying the root cause, with the action plan as its first action. A PIR that had only an
+`incident_id` gets a went-wrong finding titled *Incident (migrated)* so the citation has something
+to hang from. Titles are **fixed strings, never a truncation of the body**: `pir_finding.title` is
+500 characters and the old text was unbounded, so slicing it in would have silently lost the tail of
+a long review. The body always goes to `detail`, which has no cap.
+
+Three things it deliberately skips: a PIR that only ever had a summary migrates to nothing; a column
+holding only whitespace counts as empty (a blank finding is worse than no finding — someone has to
+read it to discover it says nothing); and a soft-deleted PIR is not migrated at all, because a
+withdrawn review is not evidence.
+
+**The downgrade re-adds the five columns as nullable and DOES NOT reconstruct the text.** The
+findings, actions and citations survive a downgrade; the original free text does not come back. If
+you need to be able to return to the old shape with its data, take a backup before upgrading — the
+downgrade is a schema reversal, not a data one.
+
+**Nothing else to run.** No seeding, no per-tenant step, no standing deploy task — unlike
+`envrequests` (ch. 6) or `gatetypes` above.
+
 ### Rollback Policy
 
 *Administration → Releases → Rollback Policy* (`/admin/config/release`, tab *Rollback Policy*, Admin only) is where your tenant decides whether a missing rollback plan, an unagreed one, or a missing/stale rollback rehearsal is a **warning** or a **blocker** in a release's readiness verdict — the same verdict *Gate Types* above feeds, so a connected pipeline reading `GET /api/v1/webhooks/release-ready` sees rollback gaps and gate gaps in one response (ch. 10). The panel's own copy states the scope of the two toggles plainly, and it is worth repeating here because it is easy to over-read: **this is advisory configuration only**. Neither setting stops a deployment, a release transition, or a rollback itself — a rollback can always be recorded (see the release detail page's *Rollback* tab → *Rollback History*) whether or not a plan exists at all, and nothing on this panel is enforced by this product.

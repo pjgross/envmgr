@@ -54,6 +54,13 @@ class PirActionCreate(BaseModel):
     owner_id: Optional[int] = None
     due_date: Optional[datetime] = None
     status: str = "open"
+    # An action may be created ALREADY CLOSED — "we did this during the
+    # incident" is an ordinary thing for a review to record — and `status` is
+    # settable here, so the note explaining the closure has to be settable too.
+    # Without it the create form's own Closure note field is a 422 (found in the
+    # browser: every action created from the UI failed, because the dialog sends
+    # this key on every save).
+    closure_note: Optional[str] = None
     model_config = ConfigDict(extra="forbid")
 
     @field_validator("status")

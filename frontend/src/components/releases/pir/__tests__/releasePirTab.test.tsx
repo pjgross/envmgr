@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ReleasePirTab from '../ReleasePirTab';
+import api from '../../../../services/api';
 import { pirService } from '../../../../services/pirService';
 import type { PIR } from '../../../../types/pir';
 
@@ -17,11 +18,10 @@ vi.mock('../../../../services/pirService', () => ({
 
 // The owner picker reads GET /tenant/users/lite straight through `api`, the
 // same way GatesTable and ContentionVerdict do.
-vi.mock('../../../../services/api', () => ({
-  default: { get: vi.fn().mockResolvedValue({ data: [{ id: 5, username: 'alice' }] }) },
-}));
+vi.mock('../../../../services/api', () => ({ default: { get: vi.fn() } }));
 
 const mocked = pirService as unknown as Record<string, ReturnType<typeof vi.fn>>;
+const mockedApi = api as unknown as { get: ReturnType<typeof vi.fn> };
 
 const pir = (overrides: Partial<PIR> = {}): PIR => ({
   id: 1, release_id: 3, summary: 'Went out late', status: 'draft', completed_at: null,
@@ -51,7 +51,14 @@ const pir = (overrides: Partial<PIR> = {}): PIR => ({
 const renderTab = () =>
   render(<MemoryRouter><ReleasePirTab releaseId={3} /></MemoryRouter>);
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  // Re-armed AFTER the reset: `vi.resetAllMocks()` clears implementations, and
+  // the owner picker's `api.get(...).then(...)` throws on an unarmed mock — a
+  // trap only the tests that open the action dialog ever reach.
+  (mockedApi.get as ReturnType<typeof vi.fn>)
+    .mockResolvedValue({ data: [{ id: 5, username: 'alice' }] });
+});
 
 describe('ReleasePirTab', () => {
   it('renders went-well findings before went-wrong ones', async () => {
@@ -104,6 +111,33 @@ describe('ReleasePirTab', () => {
     expect(link).toHaveAttribute('href', '/incidents/41');
   });
 
+  it('offers a real, named button to remove a citation', async () => {
+    // Was a `<Chip onDelete>`, whose delete affordance MUI renders as a bare
+    // <svg> with no role, no tabindex and no accessible name — unreachable by
+    // keyboard, unannounced by a screen reader, and invisible to this query.
+    // Found in the browser pass, not by any test.
+    mocked.getForRelease.mockResolvedValue(pir());
+    mocked.unciteIncident.mockResolvedValue({});
+    renderTab();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /remove evidence checkout 500s/i }));
+    await waitFor(() => expect(mocked.unciteIncident).toHaveBeenCalledWith(3, 11, 41));
+  });
+
+  it('names the citation link after the incident, not after the note', async () => {
+    // The chip's `title` landed on the root element, so the link's accessible
+    // name became the note — and varied depending on whether anyone typed one.
+    const body = pir();
+    body.findings[1].incidents[0].note = 'root incident';
+    mocked.getForRelease.mockResolvedValue(body);
+    renderTab();
+    expect(await screen.findByRole('link', { name: /Checkout 500s/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'root incident' })).not.toBeInTheDocument();
+    // The note is still shown — as text, not as a tooltip no touch or keyboard
+    // user can reach.
+    expect(screen.getByText(/root incident/)).toBeInTheDocument();
+  });
+
   it('offers to create a PIR when the release has none, and creates it', async () => {
     mocked.getForRelease.mockResolvedValue(null);
     mocked.create.mockResolvedValue(pir({ findings: [] }));
@@ -151,6 +185,61 @@ describe('ReleasePirTab', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(mocked.updateFinding).toHaveBeenCalled());
     expect(mocked.updateFinding.mock.calls[0][2]).not.toHaveProperty('kind');
+  });
+
+  it('sends a create payload the create endpoint actually accepts', async () => {
+    // The component tests mock the service, so a payload the API refuses looks
+    // identical to one it accepts. This pins the KEY SET instead: `PirActionCreate`
+    // declares extra="forbid", and an unexpected key is a 422 on every save — which
+    // is exactly what shipped, and was found only by opening the page.
+    mocked.getForRelease.mockResolvedValue(pir());
+    mocked.createAction.mockResolvedValue({});
+    renderTab();
+    await screen.findByText('Canary caught it');
+    await userEvent.click(screen.getAllByRole('button', { name: /add action/i })[0]);
+    await userEvent.type(await screen.findByLabelText(/title/i), 'A new action');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(mocked.createAction).toHaveBeenCalled());
+    // createAction(releaseId, findingId, data) — the payload is the third arg.
+    const payload = mocked.createAction.mock.calls[0][2];
+    expect(Object.keys(payload).sort()).toEqual(
+      ['closure_note', 'detail', 'due_date', 'owner_id', 'status', 'title']);
+  });
+
+  it.each([
+    ['editing a finding', async () => {
+      mocked.updateFinding.mockResolvedValue({});
+      await userEvent.click(screen.getAllByRole('button', { name: /edit finding/i })[0]);
+      await userEvent.click(await screen.findByRole('button', { name: /^save$/i }));
+    }],
+    ['adding an action', async () => {
+      mocked.createAction.mockResolvedValue({});
+      await userEvent.click(screen.getAllByRole('button', { name: /add action/i })[0]);
+      await userEvent.type(await screen.findByLabelText(/title/i), 'A');
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    }],
+    ['editing an action', async () => {
+      mocked.updateAction.mockResolvedValue({});
+      await userEvent.click(screen.getAllByRole('button', { name: /edit action/i })[0]);
+      await userEvent.click(await screen.findByRole('button', { name: /^save$/i }));
+    }],
+    ['removing a citation', async () => {
+      mocked.unciteIncident.mockResolvedValue({});
+      await userEvent.click(
+        screen.getByRole('button', { name: /remove evidence checkout 500s/i }));
+    }],
+  ])('re-reads the PIR after %s', async (_label, act) => {
+    // "Every mutation re-reads the whole PIR rather than patching local state"
+    // is the rule that stops a locally-patched row disagreeing with the
+    // server's seq numbers, overdue verdicts and action counts — and it was
+    // pinned on the create-a-finding path only. A patch-in-place on any of
+    // these four would wipe that finding's actions and evidence with the suite
+    // green.
+    mocked.getForRelease.mockResolvedValue(pir());
+    renderTab();
+    await screen.findByText('Canary caught it');
+    await act();
+    await waitFor(() => expect(mocked.getForRelease).toHaveBeenCalledTimes(2));
   });
 
   it('shows the server error text, not an HTTP status', async () => {

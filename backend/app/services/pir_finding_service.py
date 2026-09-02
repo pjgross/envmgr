@@ -190,16 +190,23 @@ async def _next_action_seq(db: AsyncSession, finding_id: int) -> int:
 async def _validate_owner(db: AsyncSession, tenant_id: int, owner_id: Optional[int]) -> None:
     """An owner must be a live user in this tenant.
 
-    Deliberately does NOT check `is_active`: an action assigned to someone who
-    has since been deactivated still names them, the way A4's contention owners
-    do. And this is a validation on a WRITE, so a full-form save that re-sends an
-    unchanged owner who has since been archived would 404 — hence the
-    unchanged-value carve-out in `update_action`.
+    `deleted_at` IS checked and `is_active` is NOT, and the two are different
+    retirement states (A1's rule). A deactivated user is still a person in the
+    tenant who can legitimately own an action — the way A4's contention owners
+    do — but a DELETED one is gone, and handing them new work makes the action
+    unassignable-looking to everyone. The UI cannot reach that case (the
+    `/tenant/users/lite` picker filters deleted users), so the gap was API-only;
+    it is closed here rather than left as an unstated omission.
+
+    This is a validation on a WRITE, so a full-form save re-sending an unchanged
+    owner who has since been deleted would 404 — which is what the
+    unchanged-value carve-out in `update_action` exists for, and what makes that
+    carve-out load-bearing rather than theoretical.
     """
     if owner_id is None:
         return
     exists = (await db.execute(select(User.id).where(
-        User.id == owner_id, User.tenant_id == tenant_id,
+        User.id == owner_id, User.tenant_id == tenant_id, User.deleted_at.is_(None),
     ))).scalar_one_or_none()
     if exists is None:
         raise HTTPException(
@@ -219,6 +226,7 @@ async def create_action(
         owner_id=data.owner_id,
         due_date=data.due_date,
         status=data.status,
+        closure_note=data.closure_note,
         created_by=user_id,
     )
     if action.status in CLOSED_ACTION_STATUSES:

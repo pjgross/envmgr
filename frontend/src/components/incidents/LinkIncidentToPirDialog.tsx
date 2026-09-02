@@ -166,11 +166,21 @@ export default function LinkIncidentToPirDialog({
                 disabled={wrongFindings.length === 0}
               />
             </RadioGroup>
-            {wrongFindings.length === 0 && (
+            {/* Two different absences, and saying the wrong one is worse than
+                saying nothing: before a release is chosen there is no review to
+                have findings, and the original copy asserted a fact about "this
+                release" when none was selected. Found in the browser — the
+                radio's disabled state is identical either way, so no test that
+                asserts on it can see the difference. */}
+            {releaseId === null ? (
+              <Typography variant="caption" color="text.secondary">
+                Choose a release to cite one of its existing findings.
+              </Typography>
+            ) : wrongFindings.length === 0 ? (
               <Typography variant="caption" color="text.secondary">
                 This release&apos;s review has no went-wrong findings to cite yet.
               </Typography>
-            )}
+            ) : null}
           </FormControl>
 
           {mode === 'existing' ? (

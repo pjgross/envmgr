@@ -72,9 +72,19 @@ function ownerParam(
   return value === 'me' && userId !== undefined ? { owner_id: userId } : {};
 }
 
-/** The URL carries strings; the API takes a boolean, and only when asked. */
+/**
+ * The URL carries strings; the API takes a boolean, and only when asked.
+ *
+ * BOTH values are forwarded. `'false'` falling through to `{}` was a dead
+ * control: the request became byte-identical to "Any", so *Not overdue* refetched
+ * and returned the whole set, overdue rows and all, under a dropdown saying
+ * otherwise. The backend implements the exact complement — undated and closed
+ * actions belong to `false` — so the two answers partition the set.
+ */
 function overdueParam(value: string | number | undefined): { overdue?: boolean } {
-  return value === 'true' ? { overdue: true } : {};
+  if (value === 'true') return { overdue: true };
+  if (value === 'false') return { overdue: false };
+  return {};
 }
 
 function formatDue(due: string | null): string {

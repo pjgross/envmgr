@@ -7,6 +7,7 @@ from app.api.v1.schemas.pir_finding import PirActionCreate, PirActionUpdate, Pir
 from app.core.security import get_password_hash
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.pir import PIR
+from app.db.models.pir_finding import PirAction
 from app.db.models.release import Release
 from app.db.models.user import Tenant, User
 from app.services import pir_finding_service
@@ -176,3 +177,89 @@ async def test_an_action_in_another_tenant_is_a_404(db_session, tenant, other_te
         await pir_finding_service.update_action(
             db_session, tenant.id, theirs.id, PirActionUpdate(status="done"))
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_user_cannot_be_given_new_work(db_session, tenant, user, finding):
+    """`deleted_at` and `is_active` are different retirement states. A deactivated
+    user may still own an action; a DELETED one is gone, and assigning them new
+    work makes it look owned to a queue and unowned to a human."""
+    gone = User(
+        tenant_id=tenant.id, username="departed", email="departed@test.com",
+        password_hash=get_password_hash("password123"), role="Developer", is_active=True,
+        deleted_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    db_session.add(gone)
+    await db_session.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await pir_finding_service.create_action(
+            db_session, tenant.id, finding, PirActionCreate(title="T", owner_id=gone.id), user.id)
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_deactivated_owner_is_still_a_valid_owner(db_session, tenant, user, finding):
+    """The complement, and the one that stops the rule above being over-applied:
+    deactivating someone does not invalidate the actions they own, nor stop them
+    being assigned — A4's contention owners follow the same rule."""
+    dormant = User(
+        tenant_id=tenant.id, username="dormant", email="dormant@test.com",
+        password_hash=get_password_hash("password123"), role="Developer", is_active=False,
+    )
+    db_session.add(dormant)
+    await db_session.flush()
+
+    action = await pir_finding_service.create_action(
+        db_session, tenant.id, finding, PirActionCreate(title="T", owner_id=dormant.id), user.id)
+    assert action.owner_id == dormant.id
+
+
+@pytest.mark.asyncio
+async def test_resending_an_unchanged_owner_survives_that_user_being_deleted(
+    db_session, tenant, user, finding
+):
+    """The unchanged-value carve-out, now that `_validate_owner` filters
+    `deleted_at` and it is reachable: a full-form save that re-sends the owner
+    the row already has must not 422 because that user has since been deleted.
+    Changing to a deleted owner still is."""
+    owner = User(
+        tenant_id=tenant.id, username="leaver", email="leaver@test.com",
+        password_hash=get_password_hash("password123"), role="Developer", is_active=True,
+    )
+    db_session.add(owner)
+    await db_session.flush()
+    action = await pir_finding_service.create_action(
+        db_session, tenant.id, finding, PirActionCreate(title="T", owner_id=owner.id), user.id)
+
+    owner.deleted_at = datetime(2026, 8, 1, tzinfo=UTC)
+    await db_session.flush()
+
+    saved = await pir_finding_service.update_action(
+        db_session, tenant.id, action.id,
+        PirActionUpdate(title="T2", owner_id=owner.id))
+    assert saved.title == "T2"
+    assert saved.owner_id == owner.id
+
+
+@pytest.mark.asyncio
+async def test_actions_are_not_read_across_tenants(db_session, tenant, other_tenant, other_user,
+                                                   user, finding):
+    """`actions_for_findings` filters `tenant_id` as well as `finding_id`. The
+    finding ids reaching it are already tenant-scoped, so this guards the
+    ANSWER's correctness rather than isolation — but the module claims everything
+    here is tenant-scoped on the way in, and without a test the filter could be
+    deleted with the whole suite green.
+    """
+    await pir_finding_service.create_action(
+        db_session, tenant.id, finding, PirActionCreate(title="Mine"), user.id)
+    # A row that could only exist through cross-tenant corruption — which is
+    # exactly what the filter is defence against.
+    stray = PirAction(tenant_id=other_tenant.id, finding_id=finding.id, seq=99,
+                      title="Not mine", status="open", created_by=other_user.id)
+    db_session.add(stray)
+    await db_session.flush()
+
+    by_finding = await pir_finding_service.actions_for_findings(
+        db_session, tenant.id, [finding.id])
+    assert [a.title for a in by_finding[finding.id]] == ["Mine"]

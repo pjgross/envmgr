@@ -44,6 +44,7 @@ export default function PirActionDialog({
   const [status, setStatus] = useState<PirActionStatus>('open');
   const [closureNote, setClosureNote] = useState('');
   const [users, setUsers] = useState<UserLite[]>([]);
+  const [usersFailed, setUsersFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -64,9 +65,11 @@ export default function PirActionDialog({
     if (!open) return;
     // The lite endpoint is tenant-member-accessible and carries its own larger
     // contract (default 1000) precisely because every consumer is a picker.
+    // A failed lookup and an empty tenant are NOT the same thing, and rendering
+    // both as an empty picker tells the user their colleagues do not exist.
     api.get<UserLite[]>('/tenant/users/lite')
-      .then((r) => setUsers(r.data))
-      .catch(() => setUsers([]));
+      .then((r) => { setUsers(r.data); setUsersFailed(false); })
+      .catch(() => { setUsers([]); setUsersFailed(true); });
   }, [open]);
 
   const handleSave = async () => {
@@ -110,7 +113,13 @@ export default function PirActionDialog({
             getOptionLabel={(u) => u.username}
             value={users.find((u) => u.id === ownerId) ?? null}
             onChange={(_, v) => setOwnerId(v ? v.id : null)}
-            renderInput={(params) => <TextField {...params} label="Owner" />}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Owner"
+                helperText={usersFailed ? 'Could not load the user list' : undefined}
+              />
+            )}
           />
           <TextField label="Due date" type="date" value={dueDate}
                      onChange={(e) => setDueDate(e.target.value)}

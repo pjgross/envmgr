@@ -112,7 +112,8 @@ async def create_finding(
 ):
     tenant_id = current_user.active_tenant_id
     pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
-    return await pir_finding_service.create_finding(db, tenant_id, pir, data, current_user.id)
+    return await _finding_response(db, tenant_id, await pir_finding_service.create_finding(
+        db, tenant_id, pir, data, current_user.id))
 
 
 @router.patch("/{release_id}/pir/findings/{finding_id}", response_model=PirFindingResponse)
@@ -126,7 +127,8 @@ async def update_finding(
     tenant_id = current_user.active_tenant_id
     pir = await pir_finding_service.get_pir_or_404(db, tenant_id, release_id)
     await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
-    return await pir_finding_service.update_finding(db, tenant_id, finding_id, data)
+    return await _finding_response(db, tenant_id, await pir_finding_service.update_finding(
+        db, tenant_id, finding_id, data))
 
 
 @router.delete("/{release_id}/pir/findings/{finding_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -231,6 +233,35 @@ async def uncite_incident(
     await pir_finding_service.get_finding_in_pir(db, tenant_id, pir, finding_id)
     await pir_finding_service.remove_citation(db, tenant_id, finding_id, incident_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _finding_response(db: AsyncSession, tenant_id: int, finding) -> dict:
+    """One finding rendered the way `_hydrate` renders it — with its actions and
+    its cited incidents.
+
+    `PirFindingResponse.actions` and `.incidents` are DEFAULTED, so returning the
+    bare ORM row against that response model silently emits `[]` for both: the
+    ORM object has no such attributes and `model_validate` takes the defaults. A
+    caller trusting a PATCH response would therefore erase a finding's actions
+    and its evidence. The release tab happens to survive it by re-reading the
+    whole PIR, but that is the page's habit, not a property of this route.
+    """
+    now = datetime.now(timezone.utc)
+    actions = await pir_finding_service.actions_for_findings(db, tenant_id, [finding.id])
+    citations = await pir_finding_service.citations_for_findings(db, tenant_id, [finding.id])
+    names = await pir_finding_service.usernames_for(db, [a.owner_id for a in actions[finding.id]])
+    item = PirFindingResponse.model_validate(finding).model_dump()
+    item["actions"] = [
+        {
+            **PirActionResponse.model_validate(a).model_dump(
+                exclude={"owner_username", "is_overdue"}),
+            "owner_username": names.get(a.owner_id),
+            "is_overdue": pir_finding_service.is_overdue(a, now),
+        }
+        for a in actions[finding.id]
+    ]
+    item["incidents"] = citations[finding.id]
+    return item
 
 
 async def _action_response(db: AsyncSession, action) -> dict:
