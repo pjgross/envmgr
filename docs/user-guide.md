@@ -67,7 +67,7 @@ The sidebar is the same for every authenticated user. *Dashboard* is a single en
 | *Catalogue → Systems* | `/systems` | System and subsystem catalogue. | [ch. 4](#4-browsing-systems-and-environments) |
 | *Catalogue → Environments* | `/environments` | Environment inventory and detail. | [ch. 4](#4-browsing-systems-and-environments) |
 | *Catalogue → Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 7](admin-guide.md#7-modelling-infrastructure-hosts) |
-| *Catalogue → Compare environments* | `/environments/compare` | Side-by-side diff of two environments. | [ch. 4](#4-browsing-systems-and-environments) |
+| *Catalogue → Compare environments* | `/environments/compare` | Side-by-side diff of two environments. | not detailed in this guide |
 | *Catalogue → Import* | `/import` | Bulk Excel import (Admin write — readable nav for everyone). | [`admin-guide.md` ch. 12](admin-guide.md#12-importexport) |
 | *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | [ch. 5](#5-booking-environments) |
 | *Bookings → List* | `/bookings/list` | Tabular view of reservations. | [ch. 5](#5-booking-environments) |

@@ -153,7 +153,7 @@ The sidebar is the same for every authenticated user. *Catalogue*, *Bookings*, *
 | *Catalogue → Systems* | `/systems` | System and subsystem catalogue. | ch. 5 |
 | *Catalogue → Environments* | `/environments` | Environment inventory and detail. | ch. 6 |
 | *Catalogue → Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | ch. 7 |
-| *Catalogue → Compare environments* | `/environments/compare` | Side-by-side diff of two environments. | `user-guide.md` ch. 4 |
+| *Catalogue → Compare environments* | `/environments/compare` | Side-by-side diff of two environments. | not detailed in this guide |
 | *Catalogue → Import* | `/import` | Bulk Excel import. | ch. 12 |
 | *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | `user-guide.md` ch. 5 |
 | *Bookings → List* | `/bookings/list` | Tabular view of reservations. | `user-guide.md` ch. 5 |
@@ -171,7 +171,7 @@ The sidebar is the same for every authenticated user. *Catalogue*, *Bookings*, *
 | *Releases → PIR actions* | `/pir-actions` | Post-implementation-review action worklist. | `user-guide.md` ch. 8 |
 | *Insights → DORA metrics* | `/insights/dora` | DORA four-key dashboard. | not detailed in this guide |
 | *Insights → Environment health* | `/insights/health` | Health dashboard. | not detailed in this guide |
-| *Administration* (Admin / master admin) | `/admin` | Admin mode: a hub page and its own sidebar — Organisation, Environments, Bookings, Releases, Delivery, Integrations, Platform. Click *Back to EnvManager* to leave. | ch. 3–12 |
+| *Administration* (Admin / master admin) | `/admin` | Admin mode: a hub page and its own sidebar — Organisation, Environments, Bookings, Releases, Delivery, Integrations, Platform. Click *Back to EnvManager* to leave. | scattered through this guide; not all sections have dedicated coverage |
 
 ### Suggested setup order
 
@@ -414,7 +414,7 @@ Modelling both layers is what makes EnvManager useful: business-level rollups (t
    - *Name* — required, e.g. `Payments`.
    - *Description* — free text, multi-line.
    - *GitHub Repository URL* — optional, e.g. `https://github.com/org/payments`. Surfaces as a *GitHub* chip on the catalog row.
-   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured under tenant settings (see [ch. 11](#11-tenant-settings)).
+   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured at *Administration → Delivery → Systems* (`/admin/systems/fields`).
 4. Click *Create*. The system appears in the catalog. Click its row to open `/systems/:id`.
 
 There is no slug field — the system is referenced by its numeric id in the URL.
@@ -455,9 +455,9 @@ Edges are component dependencies. The arrow points from dependent to dependency 
 - Keep the System/Subsystem split honest: one System per shippable product. Resist the urge to model an internal library as its own System.
 - Each Subsystem should map 1:1 to a CI build target — *payments-api* corresponds to one build pipeline. This pairing matters for the deployment webhook (see [ch. 10](#10-api-keys-and-webhooks)).
 
-> **Not yet available:** DORA metrics dashboards (deployment frequency, lead time, change failure rate, mean time to restore) are planned for Phase 5+. EnvManager currently captures the underlying events (Builds, Deployments, Change Requests) so the data is there when the dashboards land.
+> **Now available:** DORA metrics dashboards (deployment frequency, lead time, change failure rate, mean time to restore) shipped in Phase 5, built from the underlying events (Builds, Deployments, Change Requests). Find them at *Insights → DORA metrics* (`/insights/dora`); this guide does not walk through reading them in detail.
 
-> **Not yet available:** GitHub-driven infrastructure discovery enrichment (auto-detecting subsystems, dependencies, IaC links from a repo) beyond the manual *GitHub Repository URL* field on a System is deferred. The current `/api/v1/import/terraform` and `/api/v1/import/docker-compose` endpoints (see [ch. 12](#12-importexport)) populate subsystems and component dependencies but stop short of full enrichment.
+> **Now available:** GitHub-driven infrastructure discovery shipped in Phase 6. Connect a tenant's GitHub App at *Administration → Integrations → GitHub* (`/admin/github`), then use *Scan repository* on a System's detail page to auto-detect subsystems and component dependencies from its `docker-compose.yml` or Terraform state (the same detectors the manual `/api/v1/import/terraform` and `/api/v1/import/docker-compose` endpoints use, see [ch. 12](#12-importexport)), and *Check drift* to compare the repository against the catalogue, read-only. This guide does not walk through that workflow in detail.
 
 ## 6. Modelling environments
 
@@ -509,7 +509,7 @@ inactive ◄──► decommissioned
    - **Operations Group** (optional) — the team responsible for this environment day-to-day, picked from *Administration → Organisation → User groups* (see [ch. 4](#4-managing-users-and-roles)). Shown on the list and detail pages; leaving it unset counts toward the same governance gap as a missing owner.
    - **Expires** (optional) — the date this environment is expected to retire. Leave blank for "no expiry planned" — that is a legitimate state, not a missing value, and does not count as a governance gap. Use the *expiring within N days* filter on the list page to find environments approaching their expiry.
    - **Status** — defaults to *active*.
-   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured in *Administration → Environments → Custom fields*; see [ch. 11](#11-tenant-settings)).
+   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured at *Administration → Environments → Custom fields*, `/admin/environments/fields`).
 3. Click *Create*. The environment is created with no systems attached.
 4. Open the new row to land on the detail page, then move to the *Systems* tab to attach systems.
 
