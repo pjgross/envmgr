@@ -27,7 +27,25 @@ export interface IncidentDetail {
   custom_fields: Record<string, unknown> | null;
   allowed_transitions: TransitionOption[];
   status_history: StatusHistoryRow[];
-  pir: { release_id: number; status: string; root_cause: string | null; action_plan: string | null; summary: string | null } | null;
+  /** The reviews that CITE this incident as evidence. A list, not a single
+   *  ref: one incident can be cited by several releases' reviews, and by more
+   *  than one finding within one review. */
+  pir_citations: IncidentPirCitation[];
+}
+
+export interface IncidentPirCitation {
+  pir_id: number;
+  release_id: number;
+  release_name: string;
+  pir_status: 'draft' | 'complete';
+  finding_id: number;
+  finding_title: string;
+  root_cause: string | null;
+  note: string | null;
+  action_count: number;
+  /** Why this is on the incident page at all: the reader sees whether the
+   *  process fix is still outstanding without opening the release. */
+  open_action_count: number;
 }
 
 export interface IncidentCreate {

@@ -2,17 +2,18 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.api.v1.schemas.pir_finding import PirFindingResponse
+
 PIR_STATUSES = {"draft", "complete"}
 
 
 class PIRCreate(BaseModel):
-    incident_id: Optional[int] = None
     summary: Optional[str] = None
-    root_cause: Optional[str] = None
-    what_went_well: Optional[str] = None
-    what_went_wrong: Optional[str] = None
-    action_plan: Optional[str] = None
     status: Optional[str] = "draft"
+    # `extra="forbid"` so a client still sending `what_went_wrong` is told the
+    # field is gone rather than watching it be silently dropped — the
+    # `POST /tenant/lifecycle-templates` failure shape.
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("status")
     @classmethod
@@ -23,13 +24,9 @@ class PIRCreate(BaseModel):
 
 
 class PIRUpdate(BaseModel):
-    incident_id: Optional[int] = None
     summary: Optional[str] = None
-    root_cause: Optional[str] = None
-    what_went_well: Optional[str] = None
-    what_went_wrong: Optional[str] = None
-    action_plan: Optional[str] = None
     status: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("status")
     @classmethod
@@ -42,12 +39,8 @@ class PIRUpdate(BaseModel):
 class PIRResponse(BaseModel):
     id: int
     release_id: int
-    incident_id: Optional[int]
     summary: Optional[str]
-    root_cause: Optional[str]
-    what_went_well: Optional[str]
-    what_went_wrong: Optional[str]
-    action_plan: Optional[str]
     status: str
     completed_at: Optional[datetime]
+    findings: list[PirFindingResponse] = []
     model_config = ConfigDict(from_attributes=True)

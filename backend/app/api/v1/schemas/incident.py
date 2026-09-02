@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.api.v1.schemas.pir_finding import PirActionCreate
 
 SEVERITIES = {"P1", "P2", "P3", "P4"}
 
@@ -83,13 +85,24 @@ class StatusHistoryRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class IncidentPirRef(BaseModel):
+class IncidentPirCitation(BaseModel):
+    """One review that cites this incident as evidence.
+
+    The PIR fixes the process that let the incident reach production; it does
+    not fix the incident. `open_action_count` is here so the reader can see
+    whether the process fix is still outstanding without opening the release.
+    """
+
+    pir_id: int
     release_id: int
-    status: str
+    release_name: str
+    pir_status: str
+    finding_id: int
+    finding_title: str
     root_cause: Optional[str] = None
-    action_plan: Optional[str] = None
-    summary: Optional[str] = None
-    model_config = ConfigDict(from_attributes=True)
+    note: Optional[str] = None
+    action_count: int
+    open_action_count: int
 
 
 class IncidentListRow(BaseModel):
@@ -135,5 +148,40 @@ class IncidentDetail(BaseModel):
     custom_fields: Optional[dict]
     allowed_transitions: list[TransitionOption] = []
     status_history: list[StatusHistoryRow] = []
-    pir: Optional[IncidentPirRef] = None
+    # A list, not a single ref: one incident can be cited by the reviews of
+    # several releases, and by more than one finding within one review.
+    pir_citations: list[IncidentPirCitation] = []
     model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentPirNewFinding(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    detail: Optional[str] = None
+    root_cause: Optional[str] = None
+    actions: list[PirActionCreate] = []
+    model_config = ConfigDict(extra="forbid")
+
+
+class IncidentPirCitationRequest(BaseModel):
+    """Cite this incident on a release's PIR.
+
+    Exactly one of `finding_id` / `new_finding`. Both, or neither, is a 422 —
+    a request that says two things is a bug in the caller, and guessing which one
+    it meant is how a citation lands on the wrong review.
+
+    The finding kind is not a parameter: an incident is evidence that something
+    went WRONG, so a created finding is always `went_wrong` and an existing one
+    must be.
+    """
+
+    release_id: int
+    finding_id: Optional[int] = None
+    new_finding: Optional[IncidentPirNewFinding] = None
+    note: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.finding_id is None) == (self.new_finding is None):
+            raise ValueError("supply exactly one of finding_id or new_finding")
+        return self

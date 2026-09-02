@@ -22,6 +22,7 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import InsightsIcon from '@mui/icons-material/Insights';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import HealthAndSafetyIcon from '@mui/icons-material/HealthAndSafety';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import AssignmentIcon from '@mui/icons-material/Assignment';
@@ -107,6 +108,10 @@ export const navGroups: NavItem[] = [
       { label: 'Builds', path: '/builds', icon: <BuildIcon /> },
       { label: 'Deployments', path: '/deployments', icon: <RocketLaunchIcon /> },
       { label: 'Incidents', path: '/incidents', icon: <BugReportIcon /> },
+      // Readable by any tenant member, the same call Contention Escalations and
+      // Decommissions made: a process fix nobody can see is a process fix nobody
+      // does. Who may EDIT an action is settled on the release's PIR tab.
+      { label: 'PIR Actions', path: '/pir-actions', icon: <FactCheckIcon /> },
     ],
   },
   {

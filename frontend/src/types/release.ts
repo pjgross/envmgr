@@ -174,6 +174,12 @@ export interface ReleaseListFilters {
    * soon. `all` (and omitting it) applies no window filter.
    */
   scope_window?: 'actionable' | 'all';
+  /**
+   * Only releases past their implementation date
+   * (COALESCE(actual_date, target_date) <= now). Omit for no filter — an empty
+   * value is a 422, never an ignored param.
+   */
+  implemented?: boolean;
   limit?: number;
   offset?: number;
   sort_by?: string;

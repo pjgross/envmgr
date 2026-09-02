@@ -106,41 +106,57 @@ async def demo_release_id(db_session, tenant, user) -> int:
 
 @pytest.mark.asyncio
 async def test_incident_detail_has_pir(authed_client, demo_release_id):
-    """GET /incidents/{id} includes a `pir` object when a PIR is linked to the incident."""
+    """GET /incidents/{id} lists the reviews that CITE this incident.
+
+    Rewritten when `pirbackfill` retired `PIR.incident_id`: the link is now a
+    citation from a went-wrong finding, so the incident carries a LIST (one
+    incident can be cited by several reviews) and each entry names the release
+    and the finding rather than repeating the PIR's own prose.
+    """
     # Create incident
     r = await authed_client.post("/api/v1/incidents", json={"title": "PIR Test Outage", "severity": "P2"})
     assert r.status_code == 201, r.text
     iid = r.json()["id"]
 
-    # Detail before PIR — pir should be null
+    # Detail before any review — an empty list, never a null
     r = await authed_client.get(f"/api/v1/incidents/{iid}")
     assert r.status_code == 200
-    assert r.json()["pir"] is None
+    assert r.json()["pir_citations"] == []
 
-    # Create a complete PIR on demo_release, linked to the incident
+    # A complete PIR on demo_release, whose went-wrong finding cites the incident
     r = await authed_client.post(
         f"/api/v1/releases/{demo_release_id}/pir",
-        json={
-            "incident_id": iid,
-            "status": "complete",
-            "summary": "All good",
-            "root_cause": "Config drift",
-            "action_plan": "Add alerting",
-        },
+        json={"status": "complete", "summary": "All good"},
     )
     assert r.status_code == 201, r.text
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "No alerting on config drift",
+              "root_cause": "Config drift"})).json()["id"]
+    assert (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
+        json={"title": "Add alerting"})).status_code == 201
+    assert (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents",
+        json={"incident_id": iid, "note": "the incident this came from"}
+    )).status_code == 201
 
-    # Detail after PIR — pir key should be populated
+    # Detail after the review — one citation, naming the release and the finding
     r = await authed_client.get(f"/api/v1/incidents/{iid}")
     assert r.status_code == 200, r.text
     body = r.json()
-    pir = body.get("pir")
-    assert pir is not None, f"Expected 'pir' in detail, got: {body}"
-    assert pir["status"] == "complete"
-    assert pir["release_id"] == demo_release_id
-    assert pir["root_cause"] == "Config drift"
-    assert pir["action_plan"] == "Add alerting"
-    assert pir["summary"] == "All good"
+    citations = body.get("pir_citations")
+    assert citations, f"Expected 'pir_citations' in detail, got: {body}"
+    citation = citations[0]
+    assert citation["pir_status"] == "complete"
+    assert citation["release_id"] == demo_release_id
+    assert citation["release_name"] == "Incident PIR Integration Test Release"
+    assert citation["finding_title"] == "No alerting on config drift"
+    assert citation["root_cause"] == "Config drift"
+    assert citation["note"] == "the incident this came from"
+    # The open-action count is why this is on the incident page at all: the
+    # reader sees the process fix is still outstanding without opening it.
+    assert (citation["action_count"], citation["open_action_count"]) == (1, 1)
 
 
 @pytest.mark.asyncio
@@ -158,12 +174,16 @@ async def test_incident_list_has_pir_status(authed_client, demo_release_id):
     assert row is not None
     assert row["pir_status"] == "none"
 
-    # Create a complete PIR linked to this incident
+    # A complete PIR whose finding cites this incident
     r = await authed_client.post(
-        f"/api/v1/releases/{demo_release_id}/pir",
-        json={"incident_id": iid, "status": "complete"},
-    )
+        f"/api/v1/releases/{demo_release_id}/pir", json={"status": "complete"})
     assert r.status_code == 201, r.text
+    fid = (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings",
+        json={"kind": "went_wrong", "title": "F"})).json()["id"]
+    assert (await authed_client.post(
+        f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/incidents",
+        json={"incident_id": iid})).status_code == 201
 
     # List after PIR — pir_status should be "complete"
     r = await authed_client.get("/api/v1/incidents")

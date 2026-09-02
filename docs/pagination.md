@@ -1793,6 +1793,79 @@ Already total, no tiebreaker needed: `GET /release-changes` (the flat scope/back
 `tenant_service.list_tenants` appends `Tenant.id` as a tiebreaker anyway, so it isn't
 relying on that uniqueness in practice.
 
+## What the PIR findings work adds
+
+`GET /pir-actions` — the tenant-wide PIR action worklist — is bounded on `pagination()` +
+`sorting(PIR_ACTION_SORTS, default="due_date")`, emits `X-Total-Count`, and orders by
+`apply_sort(...)` then `PirAction.id`.
+
+**Its tiebreaker has a structural assertion, not a behavioural one.** The plan expected a missing
+`.order_by(PirAction.id)` to fail a paging test on PostgreSQL, as several endpoints here do. It
+does not: six rows sharing one due date page identically with and without it, on **both** engines,
+and all the endpoint's tests stay green. So the query lives in an exposed
+`pir_finding_service.worklist_query` and `test_the_worklist_order_by_ends_in_a_unique_key`
+asserts its `ORDER BY` *ends* in `pir_action.id` — the same seam, and the same documented
+exception to the don't-assert-emitted-SQL rule, as `contention_service.worklist_query` and
+`environment_health_service.history_query`.
+
+Two of the grid's columns are **permanently unsortable**, continuing the set:
+
+- **`finding_title`** — joined from `pir_finding`, not a column on `pir_action`.
+  `PIR_ACTION_SORTS` does not carry it and a sortable header on it would 422 on click. It is
+  rendered because a worklist is a list of things the reader has never seen; being renderable is
+  not the same as being sortable.
+- **`is_overdue`** — computed per response from one clock per request, through
+  `expiry_boundary`. No column backs it. Its *filter* (`?overdue=true|false`) is applied in SQL
+  against the same boundary the rendered flag uses, so a row cannot be selected as overdue and
+  rendered as not, and `true`/`false` **partition** the set rather than leaving undated and closed
+  actions invisible to both.
+
+`release` and `owner` sort by the NAME the row renders (`Release.name`, `User.username`), never by
+the id — sorting a column of names by an integer nobody can see is indistinguishable from no sort
+at all. The `User` join is an **OUTER** join: an inner one drops every unowned action the moment
+somebody clicks the Owner header, and unowned actions are exactly the rows a worklist exists to
+surface.
+
+Every filter (`status`, `owner_id`, `overdue`, `release_id`, `incident_id`) runs in SQL, before the
+window, so `X-Total-Count` describes the filtered set. "No selection" is an **omitted key**, spelled
+`any`/`anyone` in the URL and never `all` — `buildParams`' own sentinel, which would build
+byte-identical params for two different states and never refetch. The API agrees from its side: an
+empty `?status=` is a 422, not an ignored filter.
+
+**Deliberately unwindowed, and this is the exemption stated rather than left implicit:**
+`GET /releases/{id}/pir` returns a PIR with its `findings`, each carrying its `actions` and the
+`incidents` it cites. None of those nested lists takes a page. They are bounded by one entity's own
+structure — a review holds tens of findings, a finding holds a handful of actions and a citation or
+two — the same class as the seventeen endpoints bounded "in practice by a single entity's own
+structure or history" listed above. The reads behind them are still batched (`actions_for_findings`,
+`citations_for_findings`, `usernames_for` are one query each for the whole PIR, never one per
+finding), so the shape is a fixed number of queries, not an N+1.
+
+### Two open defects the whole-branch review found here
+
+Both are recorded rather than fixed, because both need a change this branch did not scope.
+
+**The citation dialog's release picker reads a paged slice, at the endpoint's ceiling.**
+`LinkIncidentToPirDialog` calls `releaseService.list({ implemented: true, limit: 200 })`, and
+`GET /releases` is `pagination(default_limit=50, max_limit=200)` — so 200 is the most the endpoint
+will serve, over a set that only grows. Past 200 implemented releases, three things follow: the
+Autocomplete matches substrings client-side and the endpoint has no `search` parameter, so an older
+release cannot be found by typing; `total` is fetched and discarded, so the picker cannot say it is
+truncated; and an incident whose causal release is older than the 200 newest gets no preselection
+**and no way to select it**. This is the "a picker must not read a paged slice" rule, applied to a
+picker that was written after the rule. The fix is a `search` parameter on `GET /releases`
+(`ENVIRONMENT_SORTS`-style, the same shape `environments` and `systems` already have) plus a
+debounced server-side lookup in the dialog — not a bigger `limit`.
+
+**`GET /pir-actions` supports `release_id` and `incident_id`; nothing sends them.** Both filters are
+implemented, tested and documented above, but `PirActionList` declares
+`filterKeys: ['status', 'action_owner', 'overdue']` and never forwards the other two — so
+`/pir-actions?incident_id=41` renders every action in the tenant while the URL claims a filter. They
+were built for two affordances that do not exist yet: "what is being done about this incident" on
+the incident page, and "every action on this release" on the PIR tab. Either wire them up or drop
+them; a filter the URL accepts and the page ignores is worse than no filter, because it looks like
+it worked.
+
 ## Known gap: calendar and timeline silently truncate
 
 `GET /releases/calendar` and `GET /releases/timeline` call `release_service.list_releases` with

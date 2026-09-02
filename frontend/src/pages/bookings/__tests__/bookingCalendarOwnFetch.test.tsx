@@ -2,7 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
 import authReducer from '../../../store/authSlice';
 import adminReducer from '../../../store/adminSlice';
 import apiKeyReducer from '../../../store/apiKeySlice';
@@ -140,6 +140,20 @@ function renderCalendarWithSliceBookings(sliceBookings: BookingResponse[]) {
     </Provider>
   );
 }
+
+// The fixtures below are dated August 2026, and FullCalendar renders the month
+// the CLOCK says it is — showing nothing outside the visible range, silently.
+// Both tests in this file passed for as long as "now" was in August and went red
+// the day the month rolled over, testing the calendar's default month rather
+// than the behaviour they name. Freezing the clock is what makes them assert
+// what they claim to. (Same family as the /releases/calendar range defect in
+// CLAUDE.md: FullCalendar hiding out-of-range events looks like an empty page,
+// never like an error.)
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-08-15T09:00:00Z'));
+});
+afterAll(() => vi.useRealTimers());
 
 describe('BookingCalendar own fetch', () => {
   it('renders bookings the shared slice does not contain', async () => {

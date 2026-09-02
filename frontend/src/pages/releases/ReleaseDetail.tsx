@@ -39,7 +39,7 @@ import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedReq
 import ReleaseScopeTab from '../../components/releases/ReleaseScopeTab';
 import RaidTab from '../../components/releases/raid/RaidTab';
 import ReleaseDeploymentsTab from '../../components/releases/ReleaseDeploymentsTab';
-import ReleasePirTab from '../../components/releases/ReleasePirTab';
+import ReleasePirTab from '../../components/releases/pir/ReleasePirTab';
 import ReleaseSystemsTab from '../../components/releases/ReleaseSystemsTab';
 import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusHistoryDrawer';
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';

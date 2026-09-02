@@ -58,5 +58,10 @@
     "sortable": ["scheduled_teardown_at", "warned_at", "environment"],
     "default": "scheduled_teardown_at",
     "default_dir": "asc"
+  },
+  "pir-actions": {
+    "sortable": ["title", "status", "due_date", "created_at", "release", "owner"],
+    "default": "due_date",
+    "default_dir": "asc"
   }
 }

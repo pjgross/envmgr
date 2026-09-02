@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
 
 import BookingCalendar, { renderEventContent } from '../BookingCalendar';
 import authReducer from '../../../store/authSlice';
@@ -218,6 +218,20 @@ function renderCalendar() {
     </Provider>
   );
 }
+
+// The fixtures below are dated August 2026, and FullCalendar renders the month
+// the CLOCK says it is — showing nothing outside the visible range, silently.
+// Both tests in this file passed for as long as "now" was in August and went red
+// the day the month rolled over, testing the calendar's default month rather
+// than the behaviour they name. Freezing the clock is what makes them assert
+// what they claim to. (Same family as the /releases/calendar range defect in
+// CLAUDE.md: FullCalendar hiding out-of-range events looks like an empty page,
+// never like an error.)
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-08-15T09:00:00Z'));
+});
+afterAll(() => vi.useRealTimers());
 
 describe('renderEventContent — the marker function handed to FullCalendar', () => {
   it('renders the contention marker for a contended booking', () => {

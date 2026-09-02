@@ -200,6 +200,11 @@ async def list_releases(
     system_id: Optional[int] = Query(None),
     project_id: Optional[int] = Query(None),
     scope_window: Optional[str] = Query(None, pattern="^(actionable|all)$"),
+    implemented: Optional[bool] = Query(
+        None,
+        description="Only releases past their implementation date "
+                    "(COALESCE(actual_date, target_date) <= now). Omit for no filter.",
+    ),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
@@ -220,6 +225,7 @@ async def list_releases(
         system_id=system_id,
         project_id=project_id,
         scope_window=scope_window,
+        implemented=implemented,
         now=now,
         limit=page.limit,
         offset=page.offset,
