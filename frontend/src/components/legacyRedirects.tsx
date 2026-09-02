@@ -46,7 +46,7 @@ export const LEGACY_REDIRECTS: LegacyRedirect[] = [
   { from: '/admin/release-templates/:id', to: '/admin/releases/templates/:id' },
 ];
 
-export function LegacyRedirect({ to }: { to: string }) {
+export function LegacyRedirectRoute({ to }: { to: string }) {
   const params = useParams();
   return <Navigate replace to={generatePath(to, params)} />;
 }

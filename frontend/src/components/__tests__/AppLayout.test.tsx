@@ -5,7 +5,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppLayout from '../AppLayout';
-import authReducer from '../../store/authSlice';
+import authReducer, { setCredentials } from '../../store/authSlice';
 import uiReducer from '../../store/uiSlice';
 
 vi.mock('../../services/authService', () => ({ authService: { logout: vi.fn() } }));
@@ -97,6 +97,15 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('path')).toHaveTextContent('/projects');
   });
 
+  it('lets the Administration heading navigate back to the admin hub, by keyboard', async () => {
+    renderAt('/admin/users');
+    const heading = screen.getByRole('link', { name: 'Administration' });
+    heading.focus();
+    expect(heading).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByTestId('path')).toHaveTextContent('/admin');
+  });
+
   it('shows a master-only admin just the Platform section', async () => {
     renderAt('/admin', 'Viewer', true);
     expect(await screen.findByRole('button', { name: 'Platform', expanded: true })).toBeInTheDocument();
@@ -106,5 +115,59 @@ describe('AppLayout', () => {
   it('makes the app title a link to the dashboard', () => {
     renderAt('/projects');
     expect(screen.getByRole('link', { name: 'EnvManager' })).toHaveAttribute('href', '/dashboard');
+  });
+
+  it('opens a pre-collapsed group on an admin deep link once the user arrives after mount', async () => {
+    // On a hard reload the store hydrates with user: null while auth resolves
+    // (authInitialized: false). entries — and so which group holds the current
+    // route — depends on `user`; visibleAdminNav(null) has no Releases group at
+    // all, so the first pass of the group-opening effect cannot open anything.
+    // It must re-run once the real user lands, or a group the admin had
+    // collapsed earlier stays collapsed forever on this route.
+    //
+    // The collapsed state is seeded directly into the store's preloadedState,
+    // not via localStorage — uiSlice's initialState is built once at module
+    // load (see uiSlice.test.ts), so writing localStorage from inside a test
+    // body never reaches a reducer whose initial state was already computed.
+    const store = configureStore({
+      reducer: { auth: authReducer, ui: uiReducer },
+      preloadedState: {
+        auth: {
+          user: null,
+          token: 't',
+          isAuthenticated: true,
+          authInitialized: false,
+          impersonationMode: false,
+          impersonatingTenant: null,
+          originalToken: null,
+        },
+        ui: {
+          themeMode: 'system' as const,
+          navOpenGroups: { 'admin:Releases': false },
+          lastAppRoute: '/dashboard',
+        },
+      },
+    });
+    render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={['/admin/releases/gate-types']}>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route path="*" element={<Probe />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </Provider>
+    );
+    expect(screen.queryByRole('button', { name: 'Gate types' })).not.toBeInTheDocument();
+
+    store.dispatch(
+      setCredentials({
+        user: { id: 1, username: 'admin', email: 'a@x', role: 'Admin', tenant_id: 1, is_master_admin: false },
+        token: 't',
+      })
+    );
+
+    expect(await screen.findByRole('button', { name: 'Gate types' })).toBeInTheDocument();
   });
 });

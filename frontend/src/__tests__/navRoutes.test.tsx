@@ -83,6 +83,15 @@ vi.mock('../services/api', () => {
 
 const appPaths = appNav.flatMap((e) => (isNavGroup(e) ? e.children : [e])).map((i) => i.path);
 const adminPaths = adminNav.flatMap((s) => s.children).map((c) => c.path);
+// The main admin loop below runs as { role: 'Admin', is_master_admin: true },
+// so it cannot detect a `requireMasterAdmin` guard accidentally applied to a
+// non-Platform admin route — a master admin satisfies both checks at once.
+// This one runs the same paths as a plain Admin who is NOT a master admin, to
+// prove every non-Platform admin route is reachable on the role gate alone.
+const nonPlatformAdminPaths = adminNav
+  .filter((section) => section.label !== 'Platform')
+  .flatMap((section) => section.children)
+  .map((c) => c.path);
 
 describe('every nav item resolves to a real route', () => {
   afterEach(() => document.body.replaceChildren());
@@ -113,6 +122,17 @@ describe('every nav item resolves to a real route', () => {
     expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
     expect(window.location.pathname).toBe(path);
   });
+
+  it.each(nonPlatformAdminPaths)(
+    'admin path %s renders inside the admin shell for a plain Admin (not master)',
+    async (path) => {
+      renderAppAt(path, { role: 'Admin', is_master_admin: false });
+      expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
+      expect(window.location.pathname).toBe(path);
+    }
+  );
 
   it('a Developer can still open a user group page, inside the admin shell', async () => {
     renderAppAt('/admin/user-groups/3', { role: 'Developer' });

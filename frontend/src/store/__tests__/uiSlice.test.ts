@@ -23,10 +23,15 @@ describe('uiSlice nav state', () => {
     expect(JSON.parse(localStorage.getItem(NAV_KEY) ?? '{}')).toEqual({ 'app:Bookings': false });
   });
 
-  it('survives corrupt localStorage', () => {
+  it('survives corrupt localStorage', async () => {
+    // initialState is built once at module load (see the sibling test below),
+    // so the corrupt value must be in place BEFORE the module is (re-)imported
+    // or readNavGroups() never sees it.
     localStorage.setItem(NAV_KEY, '{not json');
-    const state = reducer(undefined, setNavGroupOpen({ key: 'app:Releases', open: true }));
-    expect(state.navOpenGroups).toEqual({ 'app:Releases': true });
+    vi.resetModules();
+    const fresh = (await import('../uiSlice')).default;
+    const state = fresh(undefined, { type: 'init' });
+    expect(state.navOpenGroups).toEqual({});
   });
 
   it('restores collapsed groups from localStorage on a fresh module load', async () => {

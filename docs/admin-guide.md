@@ -1294,13 +1294,14 @@ The header card shows two read-only fields: *Name* (the display label that appea
 ### Walkthrough: editing
 
 1. Open `/admin/settings`.
-2. Edit the JSON in the *Custom Settings (JSON)* textarea.
-3. Click *Save Settings*.
-4. A green *Settings saved successfully* banner confirms the write; the textarea then reflects the persisted value.
+2. Expand *Advanced* — the JSON editor is collapsed there by default.
+3. Edit the JSON in the *Custom settings (JSON)* textarea.
+4. Click *Save settings*.
+5. A green *Settings saved* banner confirms the write; the textarea then reflects the persisted value.
 
 ### Validation
 
-The textarea is parsed client-side before the request leaves the browser. Anything that is not valid JSON triggers an inline *Invalid JSON* alert and the *Save Settings* call is suppressed. The payload must parse to a JSON object — top-level arrays, strings, or numbers are rejected. Server-side errors (auth, network) surface in the same alert region with the backend message.
+The textarea is parsed client-side before the request leaves the browser. Anything that is not valid JSON triggers an inline *Invalid JSON* alert and the *Save settings* call is suppressed. The payload must parse to a JSON object — top-level arrays, strings, or numbers are rejected. Server-side errors (auth, network) surface in the same alert region with the backend message.
 
 ## 12. Import/export
 

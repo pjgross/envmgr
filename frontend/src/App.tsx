@@ -10,7 +10,7 @@ import Login from './pages/Login';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
-import { LEGACY_REDIRECTS, LegacyRedirect } from './components/legacyRedirects';
+import { LEGACY_REDIRECTS, LegacyRedirectRoute } from './components/legacyRedirects';
 
 // Route components are code-split: the app shipped as a single 3.4 MB chunk,
 // so every visitor downloaded every page — including the ELK layout engine and
@@ -214,7 +214,7 @@ function App() {
 
             {/* One release of bookmark compatibility. */}
             {LEGACY_REDIRECTS.map((r) => (
-              <Route key={r.from} path={r.from} element={<LegacyRedirect to={r.to} />} />
+              <Route key={r.from} path={r.from} element={<LegacyRedirectRoute to={r.to} />} />
             ))}
           </Route>
           <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />

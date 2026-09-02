@@ -76,9 +76,13 @@ export default function AppLayout() {
     if (holder !== undefined && navOpenGroups[groupKey(holder)] === false) {
       dispatch(setNavGroupOpen({ key: groupKey(holder), open: true }));
     }
-    // entries/navOpenGroups are derived from user + store; pathname is the trigger.
+    // navOpenGroups is derived from the store and read fresh on every call, so
+    // it's deliberately left out of the deps; `user` IS a dep because `entries`
+    // is computed from it — on a hard reload straight onto an admin deep link,
+    // the first run sees a null user (so visibleAdminNav(null) has almost
+    // nothing in it) and must re-run once the real user arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, location.search, adminMode]);
+  }, [location.pathname, location.search, adminMode, user]);
 
   const handleLogout = async () => {
     setMenuAnchor(null);
@@ -117,9 +121,17 @@ export default function AppLayout() {
         <ListItemIcon sx={{ minWidth: 36 }}><ArrowBackIcon fontSize="small" /></ListItemIcon>
         <ListItemText primary="Back to EnvManager" />
       </ListItemButton>
-      <Typography variant="overline" color="text.secondary" sx={{ px: 2, display: 'block' }}>
+      <Link
+        component={RouterLink}
+        to={ADMIN_ROOT}
+        onClick={closeMobileDrawer}
+        color="text.secondary"
+        underline="none"
+        variant="overline"
+        sx={{ px: 2, display: 'block' }}
+      >
         Administration
-      </Typography>
+      </Link>
     </>
   );
 

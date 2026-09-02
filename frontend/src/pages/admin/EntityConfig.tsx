@@ -33,6 +33,10 @@ function Panel({ panel, entityType }: { panel: EntityPanel; entityType: EntityTy
       return <EnvironmentNamingPolicyPanel />;
     case 'lifecycle-policy':
       return <EnvironmentLifecyclePanel />;
+    default: {
+      const _exhaustive: never = panel;
+      return _exhaustive;
+    }
   }
 }
 

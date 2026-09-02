@@ -12,7 +12,7 @@ interface UserGroupState {
   groups: UserGroupResponse[];
   total: number;
   // The single group backing the detail page. Kept separate from `groups`
-  // (a server-paged slice) so a deep link or refresh on /tenant/groups/:id
+  // (a server-paged slice) so a deep link or refresh on /admin/user-groups/:id
   // doesn't depend on the list having been fetched first.
   currentGroup: UserGroupResponse | null;
   members: UserGroupMemberResponse[];

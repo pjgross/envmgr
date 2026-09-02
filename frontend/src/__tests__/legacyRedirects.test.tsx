@@ -47,6 +47,11 @@ describe('legacy paths redirect', () => {
   });
 
   it('no source file navigates to a legacy path', () => {
+    // Deliberately `.tsx` only, not `.ts` — some legacy UI paths and live
+    // backend API paths are the same string (e.g. `services/tenantAdminService.ts`
+    // holds '/tenant/settings' and '/tenant/users' as endpoints, and
+    // `services/userGroupService.ts` holds '/tenant/groups'). Widening this to
+    // `.ts` would flag those real API calls as offenders.
     const files = import.meta.glob('../**/*.tsx', { as: 'raw', eager: true }) as Record<string, string>;
     const offenders: string[] = [];
     for (const [file, src] of Object.entries(files)) {
