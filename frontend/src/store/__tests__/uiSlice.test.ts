@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import reducer, { setLastAppRoute, setNavGroupOpen } from '../uiSlice';
 
 const NAV_KEY = 'ui.navOpenGroups';
@@ -27,5 +27,16 @@ describe('uiSlice nav state', () => {
     localStorage.setItem(NAV_KEY, '{not json');
     const state = reducer(undefined, setNavGroupOpen({ key: 'app:Releases', open: true }));
     expect(state.navOpenGroups).toEqual({ 'app:Releases': true });
+  });
+
+  it('restores collapsed groups from localStorage on a fresh module load', async () => {
+    // initialState is built once at module load, so a second configureStore in
+    // the same module instance would reuse it rather than re-reading storage —
+    // vi.resetModules() forces the initializer to run again against what's there.
+    localStorage.setItem('ui.navOpenGroups', JSON.stringify({ 'app:Catalogue': false }));
+    vi.resetModules();
+    const fresh = (await import('../uiSlice')).default;
+    const state = fresh(undefined, { type: 'init' });
+    expect(state.navOpenGroups).toEqual({ 'app:Catalogue': false });
   });
 });

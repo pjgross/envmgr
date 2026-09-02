@@ -80,7 +80,7 @@ describe('AppLayout', () => {
     expect(await within(releasesGroup).findByRole('button', { name: 'Calendar' })).toHaveClass('Mui-selected');
   });
 
-  it('remembers a collapsed group across a remount', async () => {
+  it('persists a collapsed group to localStorage', async () => {
     renderAt('/dashboard');
     await userEvent.click(screen.getByRole('button', { name: 'Catalogue', expanded: true }));
     expect(localStorage.getItem('ui.navOpenGroups')).toContain('"app:Catalogue":false');
@@ -91,7 +91,7 @@ describe('AppLayout', () => {
     expect(screen.queryByText('Back to EnvManager')).not.toBeInTheDocument();
     await userEvent.click(screen.getByText('go admin users'));
     expect(await screen.findByText('Back to EnvManager')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Catalogue', expanded: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Catalogue' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Users' })).toHaveClass('Mui-selected');
     await userEvent.click(screen.getByText('Back to EnvManager'));
     expect(screen.getByTestId('path')).toHaveTextContent('/projects');
@@ -100,7 +100,7 @@ describe('AppLayout', () => {
   it('shows a master-only admin just the Platform section', async () => {
     renderAt('/admin', 'Viewer', true);
     expect(await screen.findByRole('button', { name: 'Platform', expanded: true })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Organisation', expanded: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Organisation' })).not.toBeInTheDocument();
   });
 
   it('makes the app title a link to the dashboard', () => {

@@ -64,7 +64,14 @@ describe('NavDrawer', () => {
     );
     const calendar = screen.getByRole('button', { name: 'Calendar' });
     expect(calendar).toHaveClass('Mui-selected');
-    expect(screen.getByRole('button', { name: 'Releases', expanded: true })).not.toHaveClass('Mui-selected');
+    // Two buttons are named "Releases": the group header (carries aria-expanded)
+    // and the sibling child item at /releases (does not) — the latter is the one
+    // this assertion is about: proving the longest-match rule keeps it unselected
+    // while /releases/calendar is active.
+    const releasesButtons = screen.getAllByRole('button', { name: 'Releases' });
+    const releasesChild = releasesButtons.find((b) => !b.hasAttribute('aria-expanded'));
+    expect(releasesChild).toBeDefined();
+    expect(releasesChild).not.toHaveClass('Mui-selected');
     await userEvent.click(calendar);
     expect(onNavigate).toHaveBeenCalledWith('/releases/calendar');
   });
