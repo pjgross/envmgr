@@ -59,31 +59,36 @@ The dashboard is a four-card landing pad above a welcome panel — a quick orien
 
 ### The left navigation
 
-The sidebar is the same for every authenticated user. *Bookings* and *Releases* are expandable groups; everything else is a single entry.
+The sidebar is the same for every authenticated user. *Dashboard* is a single entry; *Catalogue*, *Bookings*, *Releases* and *Insights* are collapsible groups (the sidebar remembers which you have collapsed, and opens a group automatically when you navigate into it). Admins and master admins also see *Administration*, which switches the sidebar into admin mode — see the admin guide.
 
-| Nav entry | Route | What's there | Covered in |
-|-----------|-------|--------------|------------|
-| *Dashboard* | `/dashboard` | Summary cards and welcome panel. | this chapter |
-| *Systems* | `/systems` | System and subsystem catalogue. | [ch. 4](#4-browsing-systems-and-environments) |
-| *Environments* | `/environments` | Environment inventory and detail. | [ch. 4](#4-browsing-systems-and-environments) |
+| Group → entry | Route | What's there | Covered in |
+|---|---|---|---|
+| *Dashboard* | `/dashboard` | Landing page. | this chapter |
+| *Catalogue → Systems* | `/systems` | System and subsystem catalogue. | [ch. 4](#4-browsing-systems-and-environments) |
+| *Catalogue → Environments* | `/environments` | Environment inventory and detail. | [ch. 4](#4-browsing-systems-and-environments) |
+| *Catalogue → Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 7](admin-guide.md#7-modelling-infrastructure-hosts) |
+| *Catalogue → Compare environments* | `/environments/compare` | Side-by-side diff of two environments. | [ch. 4](#4-browsing-systems-and-environments) |
+| *Catalogue → Import* | `/import` | Bulk Excel import (Admin write — readable nav for everyone). | [`admin-guide.md` ch. 12](admin-guide.md#12-importexport) |
 | *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | [ch. 5](#5-booking-environments) |
 | *Bookings → List* | `/bookings/list` | Tabular view of reservations. | [ch. 5](#5-booking-environments) |
-| *Builds* | `/builds` | CI build feed per subsystem. | [ch. 9](#9-builds-and-deployments) |
-| *Change Requests* | `/change-requests` | Change-request inbox. | [ch. 7](#7-raising-change-requests) |
-| *Environment Requests* | `/environment-requests` | Request access to an environment, or a new one; track and action requests. | [ch. 6](#6-requesting-environments) |
-| *Deployments* | `/deployments` | Deployment feed per environment. | [ch. 9](#9-builds-and-deployments) |
+| *Bookings → Environment requests* | `/environment-requests` | Request access to an environment, or a new one. | [ch. 6](#6-requesting-environments) |
+| *Bookings → Change requests* | `/change-requests` | Change-request inbox. | [ch. 7](#7-raising-change-requests) |
+| *Bookings → Projects* | `/projects` | Projects, their teams, priority rank and usage agreements. | [ch. 5](#5-booking-environments) |
+| *Bookings → Environment groups* | `/environment-groups` | Named sets of environments bookable as one unit. | [ch. 5](#5-booking-environments) |
+| *Bookings → Contentions* | `/contentions` | Contention escalations worklist. | [ch. 5](#5-booking-environments) |
+| *Bookings → Decommissions* | `/decommissions` | Decommission worklist. | [ch. 4](#4-browsing-systems-and-environments) |
 | *Releases → List* | `/releases` | Release inventory. | [ch. 8](#8-working-with-releases) |
-| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | [ch. 8](#8-working-with-releases) |
-| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | [ch. 8](#8-working-with-releases) |
-| *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints (read-only for non-Admins). | [`admin-guide.md` ch. 10](admin-guide.md#9-release-templates) |
-| *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 8](admin-guide.md#7-modelling-infrastructure-hosts) |
-| *Import* | `/import` | Bulk Excel import (Admin write — readable nav for everyone). | [`admin-guide.md` ch. 12](admin-guide.md#12-importexport) |
-
-Admin-only pages — user management and tenant configuration — appear under an extra *Admin* sidebar entry that's hidden unless your role is *Admin*.
+| *Releases → Calendar / Timeline / Scope windows / Analytics* | `/releases/…` | The other release views. | [ch. 8](#8-working-with-releases) |
+| *Releases → Builds* | `/builds` | CI build feed per subsystem. | [ch. 9](#9-builds-and-deployments) |
+| *Releases → Deployments* | `/deployments` | Deployment feed per environment. | [ch. 9](#9-builds-and-deployments) |
+| *Releases → Incidents* | `/incidents` | Incident register. | not detailed in this guide |
+| *Releases → PIR actions* | `/pir-actions` | Post-implementation-review action worklist. | [ch. 8](#8-working-with-releases) |
+| *Insights → DORA metrics* | `/insights/dora` | DORA four-key dashboard. | not detailed in this guide |
+| *Insights → Environment health* | `/insights/health` | Health dashboard. | not detailed in this guide |
 
 ### The top bar
 
-The top bar carries the EnvManager logo (click to return to the dashboard) and your avatar on the right. Click the avatar to open the user menu:
+The top bar carries the EnvManager logo (a link back to the dashboard) and your avatar on the right. Click the avatar to open the user menu:
 
 - Header — your username, email, and role (master admins also see *Master Admin*).
 - *Light mode* / *Dark mode* / *System theme* — click to cycle.
@@ -224,7 +229,7 @@ happens on the environment's own page, not from the grid.
 - **Decommission state** — if an environment is going through the retirement workflow below, this
   shows where it stands: *Warned*, *Extension requested*, *Due*, *Torn down*, or *Cancelled*. It's
   display-only here; to filter or search across every decommission in progress, use
-  *Environment Management → Decommissions* (`/decommissions`), which lists all of them with the
+  *Bookings → Decommissions* (`/decommissions`), which lists all of them with the
   same states.
 
 **What a decommission warning means for you.** An environment moving to *Warned* means someone has
@@ -415,7 +420,7 @@ owner and a different clock — and it will not reassign the owner or reset the 
 edit or withdraw; if the wrong person was named, or that person has left, an Admin can answer it
 instead.
 
-Every escalation, and its answer, is listed at **Environment Management → Contention Escalations**
+Every escalation, and its answer, is listed at **Bookings → Contentions**
 (`/contentions`). Any tenant member can read the page; the *Decide* button appears only for the
 named owner and for Admins. Each row shows both sides by project and environment, who must decide,
 who raised it, the deadline, and one of three states.
@@ -907,7 +912,7 @@ finding.
 raised by your incident process or by monitoring — and citing it here neither closes it, changes it,
 nor takes ownership of it. Removing a citation removes the link and nothing else.
 
-**Where the actions live.** *Release Management → PIR Actions* lists every PIR action in the tenant,
+**Where the actions live.** *Releases → PIR actions* lists every PIR action in the tenant,
 across every release, with filters for status, owner and overdue. That page is the point of the
 feature: an action that lives only inside the release tab it was raised in is exactly the action
 nobody does. Every filter runs on the server, so the count in the footer describes the whole
