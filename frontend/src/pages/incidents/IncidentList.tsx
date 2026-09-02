@@ -133,10 +133,10 @@ export const incidentColumns: GridColDef<IncidentListRow>[] = [
   },
   {
     field: 'pir_status',
-    headerName: 'PIR Status',
+    headerName: 'Reviewed',
     width: 130,
     sortable: false,
-    renderHeader: () => <ComputedColumnHeader label="PIR Status" />,
+    renderHeader: () => <ComputedColumnHeader label="Reviewed" />,
     renderCell: (params) => {
       const s = params.row.pir_status;
       if (s === 'complete') return <Chip label="Complete" color="success" size="small" />;

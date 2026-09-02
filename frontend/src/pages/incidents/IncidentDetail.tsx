@@ -36,7 +36,7 @@ import { fetchIncident, transitionIncident, deleteIncident, clearDetail } from '
 import { SEVERITY_COLOR } from '../../utils/incidentSeverity';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
-import { pirService } from '../../services/pirService';
+import LinkIncidentToPirDialog from '../../components/incidents/LinkIncidentToPirDialog';
 
 export default function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -45,7 +45,7 @@ export default function IncidentDetail() {
   const navigate = useNavigate();
   const snackbar = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const [pirCreating, setPirCreating] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
 
   const detail = useSelector((s: RootState) => s.incident.detail);
   const loading = useSelector((s: RootState) => s.incident.loading);
@@ -85,19 +85,6 @@ export default function IncidentDetail() {
     }
   };
 
-  const handleCreatePir = async () => {
-    if (!detail?.fix_release_id) return;
-    setPirCreating(true);
-    try {
-      await pirService.create(detail.fix_release_id, { incident_id: detail.id });
-      dispatch(fetchIncident(incidentId));
-      snackbar.success('PIR created');
-    } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Failed to create PIR');
-    } finally {
-      setPirCreating(false);
-    }
-  };
 
   if (loading && !detail) {
     return (
@@ -338,95 +325,55 @@ export default function IncidentDetail() {
         </Paper>
       )}
 
-      {/* ── PIR panel ──────────────────────────────────────────────────── */}
+      {/* ── Post-implementation reviews ─────────────────────────────────── */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 1 }}>
-          Post-Implementation Review
-        </Typography>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+          <Typography variant="h6">Post-Implementation Reviews</Typography>
+          {/* Never disabled. There is no precondition on citing an incident —
+              the old button waited for a fix release and then anchored the
+              review to the fix rather than to the delivery that failed. */}
+          <Button variant="outlined" size="small" onClick={() => setLinkOpen(true)}>
+            Link to a PIR
+          </Button>
+        </Stack>
         <Divider sx={{ mb: 1.5 }} />
 
-        {detail.pir ? (
-          <Stack spacing={0.75}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
-                Status
-              </Typography>
-              <Chip
-                label={detail.pir.status === 'complete' ? 'Complete' : 'Draft'}
-                color={detail.pir.status === 'complete' ? 'success' : 'warning'}
-                size="small"
-              />
-            </Stack>
-
-            {detail.pir.summary && (
-              <Stack direction="row" spacing={2}>
-                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
-                  Summary
-                </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {detail.pir.summary}
-                </Typography>
-              </Stack>
-            )}
-
-            {detail.pir.root_cause && (
-              <Stack direction="row" spacing={2}>
-                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
-                  Root Cause
-                </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {detail.pir.root_cause}
-                </Typography>
-              </Stack>
-            )}
-
-            {detail.pir.action_plan && (
-              <Stack direction="row" spacing={2}>
-                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
-                  Action Plan
-                </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {detail.pir.action_plan}
-                </Typography>
-              </Stack>
-            )}
-
-            <Stack direction="row" spacing={2}>
-              <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
-                Release
-              </Typography>
-              <Typography
-                variant="body2"
-                component={RouterLink}
-                to={`/releases/${detail.pir.release_id}`}
-                sx={{ color: 'primary.main', textDecoration: 'none' }}
-              >
-                {detail.fix_release_id === detail.pir.release_id && detail.fix_release
-                  ? detail.fix_release.name
-                  : 'View release'}
-              </Typography>
-            </Stack>
-          </Stack>
+        {detail.pir_citations.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No review cites this incident yet.
+          </Typography>
         ) : (
-          <Stack spacing={1}>
-            <Box>
-              <Button
-                variant="outlined"
-                size="small"
-                disabled={!detail.fix_release_id || pirCreating}
-                onClick={handleCreatePir}
-              >
-                {pirCreating ? 'Creating…' : 'Create PIR'}
-              </Button>
-            </Box>
-            {!detail.fix_release_id && (
-              <Typography variant="caption" color="text.secondary">
-                Link a fix release to create a PIR.
-              </Typography>
-            )}
+          <Stack spacing={1.5}>
+            {detail.pir_citations.map((c) => (
+              <Box key={`${c.pir_id}-${c.finding_id}`}>
+                <Typography variant="body2">
+                  <RouterLink to={`/releases/${c.release_id}`}>{c.release_name}</RouterLink>
+                  {' — '}{c.finding_title}
+                </Typography>
+                {c.root_cause && (
+                  <Typography variant="body2" color="text.secondary"
+                              sx={{ whiteSpace: 'pre-wrap' }}>
+                    {c.root_cause}
+                  </Typography>
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {c.open_action_count} of {c.action_count} process actions still open
+                  {c.pir_status === 'complete' ? ' · review complete' : ' · review in draft'}
+                </Typography>
+              </Box>
+            ))}
           </Stack>
         )}
       </Paper>
+
+      <LinkIncidentToPirDialog
+        open={linkOpen}
+        incidentId={detail.id}
+        /* The CAUSAL release — the delivery whose process failed. Never the fix. */
+        defaultReleaseId={detail.release_id}
+        onClose={() => setLinkOpen(false)}
+        onLinked={() => { setLinkOpen(false); dispatch(fetchIncident(incidentId)); }}
+      />
 
       {/* ── Custom Fields panel ────────────────────────────────────────── */}
       {customFieldEntries.length > 0 && (
