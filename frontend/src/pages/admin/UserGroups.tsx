@@ -221,7 +221,7 @@ export default function UserGroups() {
         // window instead of the server-paged set. docs/pagination.md.
         disableColumnFilter
         pageSizeOptions={[10, 25]}
-        onRowClick={(params) => navigate(`/tenant/groups/${params.row.id}`)}
+        onRowClick={(params) => navigate(`/admin/user-groups/${params.row.id}`)}
       />
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>

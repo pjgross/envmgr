@@ -93,8 +93,8 @@ export default function EnvironmentGroupDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Button size="small" onClick={() => navigate('/tenant/environment-groups')} sx={{ mb: 2 }}>
-        Back to Environment Groups
+      <Button size="small" onClick={() => navigate('/environment-groups')} sx={{ mb: 2 }}>
+        Back to environment groups
       </Button>
 
       {loadError && (

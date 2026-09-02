@@ -52,7 +52,7 @@ function makeStore(preloadGroups = false) {
   });
   if (preloadGroups) {
     // Simulates the admin list slice having been populated earlier in the
-    // session (e.g. the user visited /tenant/environment-groups first) with a
+    // session (e.g. the user visited /environment-groups first) with a
     // STALE name for the same group id this panel will render.
     store.dispatch({
       type: 'environmentGroup/fetch/fulfilled',
@@ -104,7 +104,7 @@ describe('EnvironmentGroupsPanel', () => {
     await waitFor(() => expect(screen.getByText('Payments Squad')).toBeInTheDocument());
     expect(screen.getByText('Payments Squad').closest('a')).toHaveAttribute(
       'href',
-      '/tenant/environment-groups/5'
+      '/environment-groups/5'
     );
   });
 

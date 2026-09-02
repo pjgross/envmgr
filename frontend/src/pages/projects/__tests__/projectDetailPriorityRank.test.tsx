@@ -86,9 +86,9 @@ function signIn(role: string) {
 function renderPage() {
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={[`/tenant/projects/${PROJECT_ID}`]}>
+      <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}`]}>
         <Routes>
-          <Route path="/tenant/projects/:id" element={<ProjectDetail />} />
+          <Route path="/projects/:id" element={<ProjectDetail />} />
         </Routes>
       </MemoryRouter>
     </Provider>

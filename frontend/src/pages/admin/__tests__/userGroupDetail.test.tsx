@@ -63,9 +63,9 @@ function renderPage(role: 'Admin' | 'Member' = 'Admin') {
   });
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/tenant/groups/1']}>
+      <MemoryRouter initialEntries={['/admin/user-groups/1']}>
         <Routes>
-          <Route path="/tenant/groups/:id" element={<UserGroupDetail />} />
+          <Route path="/admin/user-groups/:id" element={<UserGroupDetail />} />
         </Routes>
       </MemoryRouter>
     </Provider>

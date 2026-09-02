@@ -104,9 +104,9 @@ beforeEach(() => {
 async function renderedGapHref(): Promise<string> {
   const view = render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/tenant/projects/7']}>
+      <MemoryRouter initialEntries={['/projects/7']}>
         <Routes>
-          <Route path="/tenant/projects/:id" element={<ProjectDetail />} />
+          <Route path="/projects/:id" element={<ProjectDetail />} />
         </Routes>
       </MemoryRouter>
     </Provider>

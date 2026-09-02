@@ -78,7 +78,7 @@ function renderList(role: 'Admin' | 'Member' = 'Admin') {
   });
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/tenant/environment-groups']}>
+      <MemoryRouter initialEntries={['/environment-groups']}>
         <EnvironmentGroups />
       </MemoryRouter>
     </Provider>
@@ -300,9 +300,9 @@ function renderDetail(role: 'Admin' | 'Member' = 'Admin') {
   });
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/tenant/environment-groups/1']}>
+      <MemoryRouter initialEntries={['/environment-groups/1']}>
         <Routes>
-          <Route path="/tenant/environment-groups/:id" element={<EnvironmentGroupDetail />} />
+          <Route path="/environment-groups/:id" element={<EnvironmentGroupDetail />} />
         </Routes>
       </MemoryRouter>
     </Provider>

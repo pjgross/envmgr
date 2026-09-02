@@ -34,8 +34,8 @@ const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
 const DoraDashboard = lazy(() => import('./pages/insights/DoraDashboard'));
 const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
 const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
-const EnvironmentGroupDetail = lazy(() => import('./pages/admin/EnvironmentGroupDetail'));
-const EnvironmentGroups = lazy(() => import('./pages/admin/EnvironmentGroups'));
+const EnvironmentGroupDetail = lazy(() => import('./pages/environment-groups/EnvironmentGroupDetail'));
+const EnvironmentGroups = lazy(() => import('./pages/environment-groups/EnvironmentGroups'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
 const EnvironmentRequestDetail = lazy(() => import('./pages/environments/EnvironmentRequestDetail'));
@@ -48,8 +48,8 @@ const IncidentDetail = lazy(() => import('./pages/incidents/IncidentDetail'));
 const IncidentForm = lazy(() => import('./pages/incidents/IncidentForm'));
 const IncidentList = lazy(() => import('./pages/incidents/IncidentList'));
 const InfrastructureComponentList = lazy(() => import('./pages/infrastructure/InfrastructureComponentList'));
-const ProjectDetail = lazy(() => import('./pages/admin/ProjectDetail'));
-const Projects = lazy(() => import('./pages/admin/Projects'));
+const ProjectDetail = lazy(() => import('./pages/projects/ProjectDetail'));
+const Projects = lazy(() => import('./pages/projects/Projects'));
 const RaidSettings = lazy(() => import('./pages/admin/RaidSettings'));
 const ReleaseAnalytics = lazy(() => import('./pages/releases/ReleaseAnalytics'));
 const ReleaseCalendar = lazy(() => import('./pages/releases/ReleaseCalendar'));
@@ -64,10 +64,10 @@ const SystemDetail = lazy(() => import('./pages/systems/SystemDetail'));
 const TenantDetail = lazy(() => import('./pages/admin/TenantDetail'));
 const TenantList = lazy(() => import('./pages/admin/TenantList'));
 const TenantScopeChangeRules = lazy(() => import('./pages/admin/TenantScopeChangeRules'));
-const TenantSettings = lazy(() => import('./pages/tenant/TenantSettings'));
+const TenantSettings = lazy(() => import('./pages/admin/TenantSettings'));
 const UserGroupDetail = lazy(() => import('./pages/admin/UserGroupDetail'));
 const UserGroups = lazy(() => import('./pages/admin/UserGroups'));
-const UserManagement = lazy(() => import('./pages/tenant/UserManagement'));
+const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
 
 function FullPageSpinner() {
   return (
