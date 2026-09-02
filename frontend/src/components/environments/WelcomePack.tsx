@@ -15,9 +15,8 @@
  *
  * `support.operations_group_members` travels with the response as a
  * `string[]` and is rendered directly. It is deliberately NOT resolved by
- * fetching `GET /tenant/users/lite` — that endpoint is capped, and a
- * `.find()` miss would render a real team member as "—", silently losing
- * information.
+ * fetching `/tenant/users/lite` — that endpoint is capped, and a `.find()`
+ * miss would render a real team member as "—", silently losing information.
  */
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';

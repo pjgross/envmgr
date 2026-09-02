@@ -10,7 +10,7 @@ vi.mock('../services/authService', () => ({
 // Every page fetches on mount; answer with nothing so no page crashes and no
 // request leaves jsdom. `headers` carries X-Total-Count for paged lists.
 //
-// Two GETs need an OBJECT, not the empty-array default, or the page that owns
+// Five GETs need an OBJECT, not the empty-array default, or the page that owns
 // them throws during render (a real page bug, not a test artifact — see the
 // report):
 //  - GET /tenant/environment-naming-policy (EnvironmentNamingPolicyPanel):
@@ -19,6 +19,15 @@ vi.mock('../services/authService', () => ({
 //    MUI `multiple` Select, which throws.
 //  - GET /tenant/raid-config (RaidSettings): `config.probability_scale` /
 //    `impact_scale` are read directly and iterated, which throws on `[]`.
+//  - GET /releases/scope-churn-analytics (ReleaseAnalytics): `[]` is truthy,
+//    so `{data && <CohortCard cohort={data.scope_changed} />}` renders with
+//    `cohort` undefined, and `cohort.count` in JSX throws.
+//  - GET /metrics/dora (DoraDashboard): `[]` is truthy, so `if (!data) return
+//    []` doesn't fire, and `data.deployment_frequency.series` throws on the
+//    missing `deployment_frequency`.
+//  - GET /metrics/environments/utilization (also ReleaseAnalytics): `[]`
+//    has no `.rows`, so `setUtilization(o.rows)` sets `undefined`, and the
+//    DataGrid's own rows-changed effect throws reading `.length` of it.
 vi.mock('../services/api', () => {
   const empty = () => Promise.resolve({ data: [], headers: { 'x-total-count': '0' } });
   const get = vi.fn((url: string) => {
@@ -41,6 +50,32 @@ vi.mock('../services/api', () => {
         headers: {},
       });
     }
+    if (url.includes('/releases/scope-churn-analytics')) {
+      return Promise.resolve({
+        data: {
+          date_from: null,
+          date_to: null,
+          scope_changed: { count: 0, delayed_count: 0, delayed_pct: 0, issue_count: 0, issue_pct: 0 },
+          stable: { count: 0, delayed_count: 0, delayed_pct: 0, issue_count: 0, issue_pct: 0 },
+          releases: [],
+        },
+        headers: {},
+      });
+    }
+    if (url.includes('/metrics/dora')) {
+      return Promise.resolve({
+        data: {
+          deployment_frequency: { total: 0, series: [] },
+          lead_time: { median_seconds: 0, p90_seconds: 0, count: 0, series: [] },
+          change_failure_rate: { rate: 0, failed_count: 0, shipped_count: 0 },
+          mttr: { mean_seconds: 0, median_seconds: 0, count: 0, series: [] },
+        },
+        headers: {},
+      });
+    }
+    if (url.includes('/metrics/environments/utilization')) {
+      return Promise.resolve({ data: { rows: [], unconfigured_count: 0 }, headers: {} });
+    }
     return empty();
   });
   return { default: { get, post: vi.fn(empty), put: vi.fn(empty), patch: vi.fn(empty), delete: vi.fn(empty) } };
@@ -54,7 +89,19 @@ describe('every nav item resolves to a real route', () => {
 
   it.each(appPaths)('app path %s does not 404', async (path) => {
     renderAppAt(path, { role: 'Admin' });
-    await waitFor(() => expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument(), { timeout: 4000 });
+    // Wait for the SHELL, not the page: the whole Routes tree sits under one
+    // top-level <Suspense>, so a bare 404-absence check resolves trivially
+    // while the lazy page's chunk is still loading (the fallback spinner has
+    // no "page not found" text either) — before the page has had a chance to
+    // render or crash. "EnvManager" is AppLayout's own brand link, not lazy,
+    // so waiting for it means the page (and any throw it made) has already
+    // been decided in the same commit.
+    await screen.findByText('EnvManager', {}, { timeout: 4000 });
+    expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
+    // AppLayout's ErrorBoundary wraps only the Outlet, so a page that throws
+    // still renders a non-404 shell at the right URL — the fallback's own
+    // copy is the only thing that tells the two apart.
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
     // still on the requested path — no guard bounced us to /dashboard
     expect(window.location.pathname).toBe(path);
   });
@@ -63,6 +110,7 @@ describe('every nav item resolves to a real route', () => {
     renderAppAt(path, { role: 'Admin', is_master_admin: true });
     expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
     expect(window.location.pathname).toBe(path);
   });
 

@@ -154,11 +154,16 @@ function App() {
             <Route path="/environment-requests/:id" element={<EnvironmentRequestDetail />} />
             <Route path="/change-requests" element={<ChangeRequestList />} />
             <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
-            {/* Readable by any tenant member; writes are gated on the page. */}
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/projects/:id" element={<ProjectDetail />} />
-            <Route path="/environment-groups" element={<EnvironmentGroups />} />
-            <Route path="/environment-groups/:id" element={<EnvironmentGroupDetail />} />
+            {/* Readable by any tenant member; writes are gated on the page.
+                PrivateRoute (no requiredRole) is still needed here, not just
+                the role gate below: it also waits on authInitialized/user
+                before rendering, so a hard reload (isAuthenticated true from
+                localStorage, user still null) can't compute a page's write
+                permissions against a null user. */}
+            <Route path="/projects" element={<PrivateRoute><Projects /></PrivateRoute>} />
+            <Route path="/projects/:id" element={<PrivateRoute><ProjectDetail /></PrivateRoute>} />
+            <Route path="/environment-groups" element={<PrivateRoute><EnvironmentGroups /></PrivateRoute>} />
+            <Route path="/environment-groups/:id" element={<PrivateRoute><EnvironmentGroupDetail /></PrivateRoute>} />
             <Route path="/contentions" element={<ContentionEscalations />} />
             <Route path="/decommissions" element={<DecommissionWorklist />} />
 
@@ -198,7 +203,11 @@ function App() {
               <Route path="releases/raid" element={<PrivateRoute requiredRole="Admin"><RaidSettings /></PrivateRoute>} />
               <Route path="tenants" element={<PrivateRoute requireMasterAdmin><TenantList /></PrivateRoute>} />
               <Route path="tenants/:tenantId" element={<PrivateRoute requireMasterAdmin><TenantDetail /></PrivateRoute>} />
-              {/* Static routes above rank ahead of these params in react-router v6. */}
+              {/* react-router v7 ranks routes by segment specificity, not
+                  declaration order, so a static segment (e.g. "tenants")
+                  always outranks a dynamic ":entity" at the same position
+                  regardless of where either is listed — these two catch-alls
+                  are simply the only routes that CAN match here. */}
               <Route path=":entity/:tab" element={<PrivateRoute requiredRole="Admin"><EntityConfig /></PrivateRoute>} />
               <Route path=":entity" element={<PrivateRoute requiredRole="Admin"><EntityConfig /></PrivateRoute>} />
             </Route>

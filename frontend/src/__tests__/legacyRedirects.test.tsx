@@ -53,7 +53,26 @@ describe('legacy paths redirect', () => {
       if (file.includes('__tests__') || file.includes('legacyRedirects')) continue;
       for (const r of LEGACY_REDIRECTS) {
         const literal = r.from.replace(/\/:[a-zA-Z]+/g, '');
-        if (src.includes(`'${literal}'`) || src.includes(`\`${literal}/`)) offenders.push(`${file}: ${literal}`);
+        // The three forms a real navigation literal actually takes, plus a
+        // template-literal interpolation start (`` `${literal}/${ `` ``) —
+        // built by concatenation so the backtick escaping stays legible.
+        // A bare `${literal}/` substring check would also match unrelated,
+        // longer endpoints that happen to share this prefix (e.g. a comment
+        // mentioning `/tenant/users/lite` would false-flag against the
+        // legacy path `/tenant/users`), which is why this is whole-literal,
+        // not prefix, matching.
+        const singleQuoted = "'" + literal + "'";
+        const doubleQuoted = '"' + literal + '"';
+        const backticked = '`' + literal + '`';
+        const interpolated = '`' + literal + '/${';
+        if (
+          src.includes(singleQuoted) ||
+          src.includes(doubleQuoted) ||
+          src.includes(backticked) ||
+          src.includes(interpolated)
+        ) {
+          offenders.push(`${file}: ${literal}`);
+        }
       }
     }
     expect(offenders).toEqual([]);
