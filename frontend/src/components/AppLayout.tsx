@@ -72,7 +72,10 @@ export default function AppLayout() {
   // the last non-admin route so "Back to EnvManager" has somewhere to go.
   useEffect(() => {
     if (!adminMode) dispatch(setLastAppRoute(location.pathname + location.search));
-    const holder = groupContaining(entries, location.pathname);
+    // Full URL, not just pathname: an admin entity-config item's own path
+    // carries `?tab=` (§6), and `isPathActive`/`groupContaining` need the
+    // query to tell which tab — and therefore which group — is active.
+    const holder = groupContaining(entries, location.pathname + location.search);
     if (holder !== undefined && navOpenGroups[groupKey(holder)] === false) {
       dispatch(setNavGroupOpen({ key: groupKey(holder), open: true }));
     }
@@ -226,7 +229,7 @@ export default function AppLayout() {
         <Box sx={{ overflow: 'auto', mt: 1 }}>
           <NavDrawer
             entries={entries}
-            currentPath={location.pathname}
+            currentPath={location.pathname + location.search}
             isGroupOpen={isGroupOpen}
             onToggleGroup={toggleGroup}
             onNavigate={navigateAndClose}

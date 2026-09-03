@@ -5,6 +5,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppLayout from '../AppLayout';
+import { EntityTabRedirect } from '../../App';
 import authReducer, { setCredentials } from '../../store/authSlice';
 import uiReducer from '../../store/uiSlice';
 
@@ -153,6 +154,13 @@ describe('AppLayout', () => {
         <MemoryRouter initialEntries={['/admin/releases/gate-types']}>
           <Routes>
             <Route element={<AppLayout />}>
+              {/* The real redirect (App.tsx), nested exactly where App.tsx
+                  nests it: inside AppLayout, ahead of the catch-all. Without
+                  it this deep link — the pre-Task-2 segment form — is a URL
+                  the real app would never actually show AppLayout at, since
+                  it redirects to the query form before AppLayout's own
+                  group-opening logic ever sees it. */}
+              <Route path="/admin/:entity/:tab" element={<EntityTabRedirect />} />
               <Route path="*" element={<Probe />} />
             </Route>
           </Routes>
