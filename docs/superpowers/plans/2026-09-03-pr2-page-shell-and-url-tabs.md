@@ -258,9 +258,20 @@ This is the task most likely to be got wrong, and the one §6 was amended for. R
 ```ts
 // src/__tests__/tabMechanism.test.ts
 import { describe, expect, it } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
 import { entityTabPath } from '../pages/admin/entityConfigTabs';
+
+// The REAL files, as text. `?raw` is Vite's own primitive (typed by
+// `vite/client`) — deliberately NOT `node:fs` + `__dirname`, which work at
+// runtime but are untyped in this package's tsconfig (no `@types/node`,
+// `lib: ES2020`) and fail `tsc --noEmit`. The same note is on
+// `src/pages/projects/__tests__/projectDetailGapLink.test.tsx`, which is
+// where this pattern is established.
+import appSource from '../App.tsx?raw';
+import releaseDetailSource from '../pages/releases/ReleaseDetail.tsx?raw';
+import environmentDetailSource from '../pages/environments/EnvironmentDetail.tsx?raw';
+import systemDetailSource from '../pages/systems/SystemDetail.tsx?raw';
+import enterpriseTabsSource from '../pages/releases/enterprise/EnterpriseTabs.tsx?raw';
+import entityConfigSource from '../pages/admin/EntityConfig.tsx?raw';
 
 /**
  * §6: the tab is a query param, everywhere. PR 1 shipped the admin config tab
@@ -279,30 +290,28 @@ describe('one tab mechanism', () => {
     // §6. ReleaseDetail rendered an eleventh tab entirely off-screen until C4
     // caught it, and only a synthetic click could reach it — automation
     // scrolls its target into view, so no test noticed and no mouse could.
-    const files = [
-      'pages/releases/ReleaseDetail.tsx',
-      'pages/environments/EnvironmentDetail.tsx',
-      'pages/systems/SystemDetail.tsx',
-      'pages/releases/enterprise/EnterpriseTabs.tsx',
-      'pages/admin/EntityConfig.tsx',
+    const strips: Array<[string, string]> = [
+      ['ReleaseDetail', releaseDetailSource],
+      ['EnvironmentDetail', environmentDetailSource],
+      ['SystemDetail', systemDetailSource],
+      ['EnterpriseTabs', enterpriseTabsSource],
+      ['EntityConfig', entityConfigSource],
     ];
-    for (const rel of files) {
-      const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
-      expect(src, `${rel} renders a tab strip that cannot scroll`).toMatch(
+    for (const [name, src] of strips) {
+      expect(src, `${name} renders a tab strip that cannot scroll`).toMatch(
         /variant="scrollable"/,
       );
     }
   });
 
   it('no route pattern addresses a tab as a path segment', () => {
-    const app = fs.readFileSync(path.join(__dirname, '..', 'App.tsx'), 'utf8');
     // Every `path="…"` that ends in a :tab segment, EXCEPT the one that renders
     // a redirect. Matching on the file is deliberate: this is a rule about the
     // route table's shape, which no rendered assertion can observe.
-    const tabSegmentRoutes = [...app.matchAll(/path="([^"]*:tab)"/g)].map((m) => m[1]);
+    const tabSegmentRoutes = [...appSource.matchAll(/path="([^"]*:tab)"/g)].map((m) => m[1]);
     expect(tabSegmentRoutes).toEqual([':entity/:tab']);
     // …and that one must be a redirect, not a page.
-    const redirectLine = app
+    const redirectLine = appSource
       .split('\n')
       .find((l) => l.includes('path=":entity/:tab"'));
     expect(redirectLine).toMatch(/Navigate/);
@@ -831,13 +840,16 @@ git commit -m "feat(nav): routeMeta drives breadcrumbs and document.title"
 
 ```tsx
 // src/components/layout/__tests__/pageHeaders.test.tsx
+import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import PageHeader from '../PageHeader';
 import DetailPageHeader from '../DetailPageHeader';
 
-const at = (path: string, ui: React.ReactNode) =>
+// `ReactNode`, not `React.ReactNode`: the new JSX transform does not bring the
+// React namespace into scope for types.
+const at = (path: string, ui: ReactNode) =>
   render(<MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>);
 
 describe('PageHeader', () => {
@@ -1082,6 +1094,8 @@ git commit -m "refactor(pages): list and admin pages adopt PageHeader"
 ## Task 9: The eleven generic confirm messages (audit P2-7)
 
 **Note:** P2-6 (focus *Cancel* when destructive) is **already implemented** in `ConfirmDialog.tsx` — `autoFocus={destructive}`, with a comment saying why. This task adds the test that pins it and fixes the messages only.
+
+**Locate every site by SEARCHING for its message text, not by the line numbers below.** Tasks 7 and 8 edit these same files first, so the numbers are true only at the branch point.
 
 **Files:** `src/hooks/useConfirm.tsx` (test only), and the 11 call sites:
 `UserManagement.tsx:115`, `TenantList.tsx:68`, `TenantDetail.tsx:125`, `ApiKeyManagement.tsx:44`, `ChangeRequestDetail.tsx:102`, `ScopeTable.tsx:90`, `GatesTable.tsx:195`, `GatesTable.tsx:281`, `PhasesTable.tsx:123`, `LinkedChangeRequestsSection.tsx:42`, `CustomFieldDefinitionManager.tsx` ("Delete this field?").
