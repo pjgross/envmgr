@@ -22,6 +22,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import type { AppDispatch, RootState } from '../../store';
 import { importEnvironments, importSystems, clearImportResult } from '../../store/versionSlice';
 import type { ImportResult } from '../../types/version';
+import PageHeader from '../../components/layout/PageHeader';
 
 // ---------------------------------------------------------------------------
 // Per-section import widget
@@ -193,13 +194,10 @@ export default function ImportPage() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight="bold" gutterBottom>
-        Import Data
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Upload Excel (.xlsx) files to bulk-import environments or systems. Duplicate names are
-        skipped automatically.
-      </Typography>
+      <PageHeader
+        title="Import Data"
+        subtitle="Upload Excel (.xlsx) files to bulk-import environments or systems. Duplicate names are skipped automatically."
+      />
 
       <Divider sx={{ mb: 3 }} />
 

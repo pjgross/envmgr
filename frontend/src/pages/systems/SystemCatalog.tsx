@@ -37,6 +37,7 @@ import type { SystemResponse, SystemCreate, SystemUpdate } from '../../types/sys
 import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import PageHeader from '../../components/layout/PageHeader';
 
 interface SystemFormValues {
   name: string;
@@ -321,27 +322,29 @@ export default function SystemCatalog() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          System Catalog
-        </Typography>
-        <TextField
-          size="small"
-          placeholder="Search systems…"
-          value={grid.filters.search ?? ''}
-          onChange={(e) => grid.setFilter('search', e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
-          New System
-        </Button>
-      </Box>
+      <PageHeader
+        title="System Catalog"
+        actions={
+          <>
+            <TextField
+              size="small"
+              placeholder="Search systems…"
+              value={grid.filters.search ?? ''}
+              onChange={(e) => grid.setFilter('search', e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+              New System
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
