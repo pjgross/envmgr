@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { useUrlTab } from '../useUrlTab';
 
 const KEYS = ['main', 'gates', 'raid'] as const;
@@ -14,6 +20,7 @@ function Probe() {
       <span data-testid="tab">{tab}</span>
       <span data-testid="search">{location.search}</span>
       <button onClick={() => setTab('raid')}>go raid</button>
+      <button onClick={() => setTab('gates')}>go gates</button>
     </div>
   );
 }
@@ -52,10 +59,15 @@ describe('useUrlTab', () => {
     expect(screen.getByTestId('search')).toHaveTextContent('tab=raid');
   });
 
-  it('preserves other query params when it changes the tab', () => {
+  it('preserves other query params when it changes the tab', async () => {
     // A list filter, a selected row — switching tabs must not silently drop a
     // param another feature owns.
     renderAt('/r/7?tab=main&status=open');
+    expect(screen.getByTestId('search')).toHaveTextContent('status=open');
+    // Actually change the tab and verify status=open survives the write
+    await userEvent.click(screen.getByRole('button', { name: 'go raid' }));
+    expect(screen.getByTestId('tab')).toHaveTextContent('raid');
+    expect(screen.getByTestId('search')).toHaveTextContent('tab=raid');
     expect(screen.getByTestId('search')).toHaveTextContent('status=open');
   });
 
@@ -76,6 +88,41 @@ describe('useUrlTab', () => {
     expect(screen.getByTestId('outer')).toHaveTextContent('enterprise');
     expect(screen.getByTestId('inner')).toHaveTextContent('report');
   });
+
+  it('uses replace, not push, so Back exits the page', async () => {
+    // Clicking through five tabs then pressing Back should leave the page, not
+    // walk back through each tab. Without replace: true, pressing Back after
+    // changing the tab would stay on the page with a previous tab param.
+    // With replace: true, multiple tab changes don't create history entries.
+    render(
+      <MemoryRouter initialEntries={['/r/7', '/r/7?tab=main']}>
+        <Routes>
+          <Route path="/r/:id" element={<ProbeWithBack />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // Should start on /r/7?tab=main
+    expect(screen.getByTestId('tab')).toHaveTextContent('main');
+
+    // Change tab from main to gates using replace (no history entry added)
+    await userEvent.click(screen.getByRole('button', { name: 'go gates' }));
+    expect(screen.getByTestId('tab')).toHaveTextContent('gates');
+
+    // Change tab from gates to raid using replace (no history entry added)
+    await userEvent.click(screen.getByRole('button', { name: 'go raid' }));
+    expect(screen.getByTestId('tab')).toHaveTextContent('raid');
+
+    // Navigate back once: with replace: true, the tab changes don't add history,
+    // so back should go to the initial /r/7 entry (no tab param).
+    // If push were used, back from raid would show gates instead.
+    const backButton = screen.getByRole('button', { name: 'back' });
+    await userEvent.click(backButton);
+
+    // Back should return to the initial /r/7 (the first entry), which has no tab param
+    // so it falls back to the default 'main'
+    expect(screen.getByTestId('tab')).toHaveTextContent('main');
+  });
 });
 
 function TwoTabProbe() {
@@ -86,6 +133,19 @@ function TwoTabProbe() {
       <span data-testid="outer">{outer}</span>
       <span data-testid="inner">{inner}</span>
       <button onClick={() => setInner('report')}>inner report</button>
+    </div>
+  );
+}
+
+function ProbeWithBack() {
+  const [tab, setTab] = useUrlTab(KEYS, 'main');
+  const navigate = useNavigate();
+  return (
+    <div>
+      <span data-testid="tab">{tab}</span>
+      <button onClick={() => setTab('gates')}>go gates</button>
+      <button onClick={() => setTab('raid')}>go raid</button>
+      <button onClick={() => navigate(-1)}>back</button>
     </div>
   );
 }
