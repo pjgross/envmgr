@@ -25,6 +25,18 @@ describe('PageHeader', () => {
     at('/environments', <PageHeader title="Environments" actions={<button>New</button>} />);
     expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
   });
+
+  it('renders a placeholder, never an empty h1, while title is absent', () => {
+    // Every consumer's fetched title starts out `undefined`/null-derived —
+    // the component owns the empty case rather than forcing `?? ''` at 53
+    // call sites, which would render a heading with no accessible name.
+    at('/environments', <PageHeader />);
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).not.toHaveAccessibleName('');
+    expect(document.title).not.toMatch(/^ ·/);
+    expect(document.title).toBe('Environments · EnvManager');
+  });
 });
 
 describe('DetailPageHeader', () => {
@@ -46,7 +58,23 @@ describe('DetailPageHeader', () => {
 
   it('puts the entity name in the document title', () => {
     at('/environments/2', <DetailPageHeader back={{ to: '/environments', label: 'Environments' }} title="Mortgage_SIT" />);
-    expect(document.title).toContain('Mortgage_SIT');
-    expect(document.title).toContain('EnvManager');
+    // Exact match, not two `toContain`s: those would still pass with the
+    // parts in the wrong order (e.g. "EnvManager · Mortgage_SIT").
+    expect(document.title).toBe('Mortgage_SIT · Environments · EnvManager');
+  });
+
+  it('renders a placeholder, never an empty h1, while title is absent', () => {
+    // Every detail page's entity is typed `T | null`, and its loading guard
+    // leaves a window where the page renders on with a null entity —
+    // DetailPageHeader owns that case rather than forcing `?? ''` at every
+    // one of its 13 call sites, which would render an unnamed heading.
+    at('/environments/2', <DetailPageHeader back={{ to: '/environments', label: 'Environments' }} />);
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).not.toHaveAccessibleName('');
+    // No override means usePageTitle falls back to the route trail — never
+    // a leading " · " from an empty override.
+    expect(document.title).not.toMatch(/^ ·/);
+    expect(document.title).toBe('Environment · Environments · EnvManager');
   });
 });

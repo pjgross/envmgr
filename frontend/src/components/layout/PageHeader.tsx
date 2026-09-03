@@ -1,11 +1,17 @@
 import type { ReactNode } from 'react';
-import { Box, Breadcrumbs, Link, Stack, Typography } from '@mui/material';
+import { Box, Breadcrumbs, Link, Skeleton, Stack, Typography } from '@mui/material';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { breadcrumbsFor } from './routeMeta';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
 export interface PageHeaderProps {
-  title: string;
+  /**
+   * Absent or empty while the page has nothing to show yet. Rendering an
+   * empty `<h1>` is an accessibility defect (no accessible name), so the
+   * component itself substitutes a skeleton rather than making every
+   * consumer coalesce a possibly-null entity name to `''`.
+   */
+  title?: string;
   subtitle?: ReactNode;
   actions?: ReactNode;
 }
@@ -39,8 +45,8 @@ export default function PageHeader({ title, subtitle, actions }: PageHeaderProps
         </Breadcrumbs>
       )}
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
-        <Typography component="h1" variant="h5">
-          {title}
+        <Typography component="h1" variant="h5" aria-label={title ? undefined : 'Loading'}>
+          {title ? title : <Skeleton variant="text" width={300} />}
         </Typography>
         {actions && (
           <Stack direction="row" spacing={1}>
