@@ -106,7 +106,7 @@ function PrivateRoute({
  * this answers "a tab is addressed differently". Folding them together would
  * leave the next reader unable to delete either safely.
  */
-function EntityTabRedirect() {
+export function EntityTabRedirect() {
   const { entity, tab } = useParams<{ entity: string; tab: string }>();
   return <Navigate replace to={`/admin/${entity}?tab=${tab}`} />;
 }
