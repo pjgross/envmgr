@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { Box, Paper, Tab, Tabs } from '@mui/material';
 import type { ReleaseResponse } from '../../../types/release';
+import { useUrlTab } from '../../../hooks/useUrlTab';
 import ReleaseMainTab from '../../../components/releases/ReleaseMainTab';
 import ReleasePlanTab from '../../../components/releases/ReleasePlanTab';
 import ReleaseEnvironmentsTab from '../../../components/releases/ReleaseEnvironmentsTab';
@@ -17,8 +17,25 @@ interface Props {
   release: ReleaseResponse;
 }
 
+const ENTERPRISE_KEYS = [
+  'main',
+  'members',
+  'phases',
+  'environments',
+  'requests',
+  'scope',
+  'systems',
+  'scope_rollup',
+  'raid_rollup',
+  'timeline',
+  'report',
+] as const;
+
 export function EnterpriseTabs({ release }: Props) {
-  const [tab, setTab] = useState('main');
+  // Rendered inside ReleaseDetail's `enterprise` tab, so both strips are
+  // live on one URL at once — `etab`, not `tab`, so they don't fight over
+  // the same query param.
+  const [tab, setTab] = useUrlTab(ENTERPRISE_KEYS, 'main', 'etab');
 
   return (
     <Box>

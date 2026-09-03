@@ -1,19 +1,22 @@
 /**
- * ReleaseDetail — full-page view for an existing release with tabs:
- *   0: Main (lifecycle, fields, transitions)
- *   1: Gates & Test Phases
- *   2: Systems
- *   3: Environments
- *   4: Linked Requests
- *   5: Scope
- *   6: RAID
- *   7: Enterprise (membership)
- *   8: Deployments
- *   9: PIR (Post-Implementation Review)
+ * ReleaseDetail — full-page view for an existing release. The active tab is
+ * held in `?tab=` (see `useUrlTab`), keyed as:
+ *   main: Main (lifecycle, fields, transitions)
+ *   gates: Gates & Test Phases
+ *   systems: Systems
+ *   environments: Environments
+ *   requests: Linked Requests
+ *   scope: Scope
+ *   raid: RAID
+ *   enterprise: Enterprise (membership)
+ *   deployments: Deployments
+ *   pir: PIR (Post-Implementation Review)
+ *   rollback: Rollback
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import {
   Box,
   Button,
@@ -60,6 +63,20 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
   cancelled: 'error',
 };
 
+const RELEASE_TABS = [
+  { key: 'main', label: 'Main' },
+  { key: 'gates', label: 'Gates & Test Phases' },
+  { key: 'systems', label: 'Systems' },
+  { key: 'environments', label: 'Environments' },
+  { key: 'requests', label: 'Linked Requests' },
+  { key: 'scope', label: 'Scope' },
+  { key: 'raid', label: 'RAID' },
+  { key: 'enterprise', label: 'Enterprise' },
+  { key: 'deployments', label: 'Deployments' },
+  { key: 'pir', label: 'PIR' },
+  { key: 'rollback', label: 'Rollback' },
+] as const;
+
 export default function ReleaseDetail() {
   const { id } = useParams<{ id: string }>();
   const releaseId = Number(id);
@@ -69,7 +86,10 @@ export default function ReleaseDetail() {
 
   const { detail: release, loading, error } = useSelector((s: RootState) => s.release);
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useUrlTab(
+    RELEASE_TABS.map((t) => t.key),
+    'main',
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [eventLogOpen, setEventLogOpen] = useState(false);
 
@@ -151,37 +171,29 @@ export default function ReleaseDetail() {
       <Paper sx={{ mb: 2 }}>
         <Tabs
           value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
+          onChange={(_, v: string) => setActiveTab(v)}
           variant="scrollable"
           scrollButtons="auto"
           sx={{ px: 2 }}
         >
-          <Tab label="Main" />
-          <Tab label="Gates & Test Phases" />
-          <Tab label="Systems" />
-          <Tab label="Environments" />
-          <Tab label="Linked Requests" />
-          <Tab label="Scope" />
-          <Tab label="RAID" />
-          <Tab label="Enterprise" />
-          <Tab label="Deployments" />
-          <Tab label="PIR" />
-          <Tab label="Rollback" />
+          {RELEASE_TABS.map((t) => (
+            <Tab key={t.key} value={t.key} label={t.label} />
+          ))}
         </Tabs>
       </Paper>
 
       {/* Tab content */}
-      {activeTab === 0 && <ReleaseMainTab releaseId={releaseId} />}
-      {activeTab === 1 && <ReleasePlanTab releaseId={releaseId} />}
-      {activeTab === 2 && <ReleaseSystemsTab releaseId={releaseId} />}
-      {activeTab === 3 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
-      {activeTab === 4 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
-      {activeTab === 5 && <ReleaseScopeTab releaseId={releaseId} />}
-      {activeTab === 6 && <RaidTab releaseId={releaseId} />}
-      {activeTab === 7 && <EnterpriseMembershipTab releaseId={releaseId} />}
-      {activeTab === 8 && <ReleaseDeploymentsTab releaseId={releaseId} />}
-      {activeTab === 9 && <ReleasePirTab releaseId={releaseId} />}
-      {activeTab === 10 && <RollbackPanel releaseId={releaseId} />}
+      {activeTab === 'main' && <ReleaseMainTab releaseId={releaseId} />}
+      {activeTab === 'gates' && <ReleasePlanTab releaseId={releaseId} />}
+      {activeTab === 'systems' && <ReleaseSystemsTab releaseId={releaseId} />}
+      {activeTab === 'environments' && <ReleaseEnvironmentsTab releaseId={releaseId} />}
+      {activeTab === 'requests' && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
+      {activeTab === 'scope' && <ReleaseScopeTab releaseId={releaseId} />}
+      {activeTab === 'raid' && <RaidTab releaseId={releaseId} />}
+      {activeTab === 'enterprise' && <EnterpriseMembershipTab releaseId={releaseId} />}
+      {activeTab === 'deployments' && <ReleaseDeploymentsTab releaseId={releaseId} />}
+      {activeTab === 'pir' && <ReleasePirTab releaseId={releaseId} />}
+      {activeTab === 'rollback' && <RollbackPanel releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}

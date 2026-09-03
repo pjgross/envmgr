@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
@@ -186,6 +187,16 @@ const emptyCompDepForm: CompDepFormValues = {
   direction: 'one_way',
 };
 
+const SYSTEM_TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'subsystems', label: 'SubSystems' },
+  { key: 'dependencies', label: 'Dependencies' },
+  { key: 'component-deps', label: 'Component Deps' },
+  { key: 'topology', label: 'Topology' },
+  { key: 'scope-windows', label: 'Scope Windows' },
+  { key: 'rollback', label: 'Rollback' },
+] as const;
+
 export default function SystemDetail() {
   const { id } = useParams<{ id: string }>();
   const systemId = Number(id);
@@ -210,7 +221,10 @@ export default function SystemDetail() {
     (state: RootState) => state.customField.definitions['system'] ?? []
   );
 
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useUrlTab(
+    SYSTEM_TABS.map((t) => t.key),
+    'overview',
+  );
 
   // Overview edit state
   const [editMode, setEditMode] = useState(false);
@@ -323,9 +337,10 @@ export default function SystemDetail() {
 
   // Load component deps for all subsystems of this system. Extracted from
   // the tab-keyed effect below so the create handler can also call it
-  // directly — `setTab(3)` from the Add button (which already lives on tab
-  // 3) is a no-op, since React bails out of state updates that don't change
-  // the value, so the effect below never reran and the list stayed stale.
+  // directly — `setTab('component-deps')` from the Add button (which already
+  // lives on that tab) is a no-op, since React bails out of state updates
+  // that don't change the value, so the effect below never reran and the
+  // list stayed stale.
   const loadCompDeps = useCallback(async () => {
     if (subsystems.length === 0) return;
     setCompDepsLoading(true);
@@ -353,7 +368,7 @@ export default function SystemDetail() {
   }, [subsystems]);
 
   useEffect(() => {
-    if (tab !== 3) return;
+    if (tab !== 'component-deps') return;
     loadCompDeps();
   }, [tab, loadCompDeps]);
 
@@ -567,9 +582,9 @@ export default function SystemDetail() {
         })
       ).unwrap();
       setCompDepDialogOpen(false);
-      // Refresh merged list. Not `setTab(3)` — the Add button lives on tab 3
-      // already, so that value never changes and the tab-keyed effect never
-      // reruns.
+      // Refresh merged list. Not `setTab('component-deps')` — the Add button
+      // lives on that tab already, so that value never changes and the
+      // tab-keyed effect never reruns.
       await loadCompDeps();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -782,7 +797,7 @@ export default function SystemDetail() {
         <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
           {currentSystem?.name ?? '…'}
         </Typography>
-        {!editMode && tab === 0 && (
+        {!editMode && tab === 'overview' && (
           <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
             Edit
           </Button>
@@ -791,22 +806,18 @@ export default function SystemDetail() {
 
       <Tabs
         value={tab}
-        onChange={(_, v) => setTab(v)}
+        onChange={(_, v: string) => setTab(v)}
         variant="scrollable"
         scrollButtons="auto"
         sx={{ mb: 2 }}
       >
-        <Tab label="Overview" />
-        <Tab label="SubSystems" />
-        <Tab label="Dependencies" />
-        <Tab label="Component Deps" />
-        <Tab label="Topology" />
-        <Tab label="Scope Windows" />
-        <Tab label="Rollback" />
+        {SYSTEM_TABS.map((t) => (
+          <Tab key={t.key} value={t.key} label={t.label} />
+        ))}
       </Tabs>
 
       {/* Overview Tab */}
-      {tab === 0 && (
+      {tab === 'overview' && (
         <Paper sx={{ p: 3 }}>
           {editMode ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -929,7 +940,7 @@ export default function SystemDetail() {
       )}
 
       {/* SubSystems Tab */}
-      {tab === 1 && (
+      {tab === 'subsystems' && (
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 2 }}>
             <Button variant="outlined" onClick={openDcImport}>
@@ -1014,7 +1025,7 @@ export default function SystemDetail() {
       )}
 
       {/* Dependencies Tab */}
-      {tab === 2 && (
+      {tab === 'dependencies' && (
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
             <Button variant="contained" startIcon={<AddIcon />} onClick={openDepCreate}>
@@ -1100,7 +1111,7 @@ export default function SystemDetail() {
       )}
 
       {/* Component Dependencies Tab */}
-      {tab === 3 && (
+      {tab === 'component-deps' && (
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
             <Button variant="contained" startIcon={<AddIcon />} onClick={openCompDepCreate}>
@@ -1190,15 +1201,15 @@ export default function SystemDetail() {
         </Box>
       )}
 
-      {tab === 4 && currentSystem && <SystemTopologyDiagram systemId={currentSystem.id} />}
+      {tab === 'topology' && currentSystem && <SystemTopologyDiagram systemId={currentSystem.id} />}
 
-      {tab === 5 && (
+      {tab === 'scope-windows' && (
         <Paper sx={{ p: 3 }}>
           <ScopeWindowsTable systemId={Number(id)} />
         </Paper>
       )}
 
-      {tab === 6 && (
+      {tab === 'rollback' && (
         <Paper sx={{ p: 3 }}>
           <RehearsalsPanel systemId={Number(id)} />
         </Paper>
