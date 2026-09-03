@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { adminNav, visibleAdminNav } from '../adminNavConfig';
-import { ENTITY_CONFIG_PAGES, entityTabPath } from '../../pages/admin/entityConfigTabs';
+import { ENTITY_CONFIG_PAGES, entityConfigPage, entityTabPath, type AdminEntity } from '../../pages/admin/entityConfigTabs';
 import type { NavUser } from '../navConfig';
 
 const regular: NavUser = { role: 'Developer', is_master_admin: false };
@@ -30,10 +30,26 @@ describe('adminNav', () => {
     expect(items(regular, 'Organisation')).toEqual(['User groups']);
   });
 
+  it('lists the Environments section with its own tabs first, then the Environment requests page', () => {
+    expect(items(admin, 'Environments')).toEqual([
+      'Tiers', 'Naming policy', 'Decommissioning', 'Custom fields', 'Environment requests',
+    ]);
+  });
+
+  it('lists the Bookings section in ENTITY_CONFIG_PAGES order', () => {
+    expect(items(admin, 'Bookings')).toEqual(['Booking types', 'Lifecycle', 'Custom fields']);
+  });
+
   it('lists the Releases section in the agreed order with Templates first', () => {
     expect(items(admin, 'Releases')).toEqual([
-      'Templates', 'Gate types', 'Rollback policy', 'Event types', 'Lifecycle',
-      'Scope-change rules', 'RAID settings', 'Custom fields', 'Scope item fields',
+      'Templates', 'Gate types', 'Rollback policy', 'Event types', 'Lifecycle', 'Custom fields',
+      'Scope-change rules', 'RAID settings', 'Release scope items',
+    ]);
+  });
+
+  it('lists the Delivery section as one page item per entity, then Component types', () => {
+    expect(items(admin, 'Delivery')).toEqual([
+      'Change requests', 'Builds', 'Deployments', 'Incidents', 'Systems', 'Subsystems', 'Component types',
     ]);
   });
 
@@ -59,5 +75,41 @@ describe('adminNav', () => {
   it('has no duplicate paths', () => {
     const paths = adminNav.flatMap((s) => s.children.map((c) => c.path));
     expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  // The defect this branch fixes: the drawer hand-wrote its own labels/order
+  // for a section's tabs, and it drifted from ENTITY_CONFIG_PAGES — wrong
+  // label ("Lifecycle & decommissioning" vs "Decommissioning"), wrong order,
+  // and one entity's tabs split across two sections. Both of the tests below
+  // fail against the pre-fix, hand-written adminNav (see the report for
+  // proof) and pass now that the drawer is generated from the table.
+  describe('sections built from an entity\'s tabs equal ENTITY_CONFIG_PAGES for that entity', () => {
+    const cases: { section: string; entity: AdminEntity }[] = [
+      { section: 'Environments', entity: 'environments' },
+      { section: 'Bookings', entity: 'bookings' },
+      { section: 'Releases', entity: 'releases' },
+    ];
+
+    it.each(cases)('$section matches the $entity tab table exactly', ({ section, entity }) => {
+      const page = entityConfigPage(entity)!;
+      const expectedPaths = page.tabs.map((t) => entityTabPath(entity, t.key));
+      const expectedLabels = page.tabs.map((t) => t.label);
+      const expectedDescriptions = page.tabs.map((t) => t.description);
+
+      const sectionChildren = visibleAdminNav(admin).find((s) => s.label === section)!.children;
+      const entityChildren = sectionChildren.filter((c) => expectedPaths.includes(c.path));
+
+      expect(entityChildren.map((c) => c.path)).toEqual(expectedPaths);
+      expect(entityChildren.map((c) => c.label)).toEqual(expectedLabels);
+      expect(entityChildren.map((c) => c.description)).toEqual(expectedDescriptions);
+    });
+  });
+
+  it('never splits one entity\'s configuration tabs across two drawer sections', () => {
+    for (const page of ENTITY_CONFIG_PAGES) {
+      const paths = new Set(page.tabs.map((t) => entityTabPath(page.entity, t.key)));
+      const sectionsContainingIt = adminNav.filter((s) => s.children.some((c) => paths.has(c.path)));
+      expect(sectionsContainingIt.length, `${page.entity}: ${sectionsContainingIt.map((s) => s.label).join(', ')}`).toBeLessThanOrEqual(1);
+    }
   });
 });
