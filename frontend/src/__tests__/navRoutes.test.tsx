@@ -1,0 +1,147 @@
+import { screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { adminNav } from '../components/adminNavConfig';
+import { appNav, isNavGroup } from '../components/navConfig';
+import { renderAppAt } from '../test/renderApp';
+
+vi.mock('../services/authService', () => ({
+  authService: { getCurrentUser: vi.fn(), login: vi.fn(), logout: vi.fn() },
+}));
+// Every page fetches on mount; answer with nothing so no page crashes and no
+// request leaves jsdom. `headers` carries X-Total-Count for paged lists.
+//
+// Five GETs need an OBJECT, not the empty-array default, or the page that owns
+// them throws during render (a real page bug, not a test artifact — see the
+// report):
+//  - GET /tenant/environment-naming-policy (EnvironmentNamingPolicyPanel):
+//    `[]` is truthy, so the panel's `if (!policy) return` guard is skipped
+//    and `setAttributes(policy.required_attributes)` feeds `undefined` to a
+//    MUI `multiple` Select, which throws.
+//  - GET /tenant/raid-config (RaidSettings): `config.probability_scale` /
+//    `impact_scale` are read directly and iterated, which throws on `[]`.
+//  - GET /releases/scope-churn-analytics (ReleaseAnalytics): `[]` is truthy,
+//    so `{data && <CohortCard cohort={data.scope_changed} />}` renders with
+//    `cohort` undefined, and `cohort.count` in JSX throws.
+//  - GET /metrics/dora (DoraDashboard): `[]` is truthy, so `if (!data) return
+//    []` doesn't fire, and `data.deployment_frequency.series` throws on the
+//    missing `deployment_frequency`.
+//  - GET /metrics/environments/utilization (also ReleaseAnalytics): `[]`
+//    has no `.rows`, so `setUtilization(o.rows)` sets `undefined`, and the
+//    DataGrid's own rows-changed effect throws reading `.length` of it.
+vi.mock('../services/api', () => {
+  const empty = () => Promise.resolve({ data: [], headers: { 'x-total-count': '0' } });
+  const get = vi.fn((url: string) => {
+    if (url.includes('/tenant/environment-naming-policy')) {
+      return Promise.resolve({
+        data: {
+          is_enabled: false,
+          name_pattern: null,
+          name_pattern_example: null,
+          required_attributes: [],
+          grace_days: 14,
+          effective_from: '2026-01-01T00:00:00Z',
+        },
+        headers: {},
+      });
+    }
+    if (url.includes('/tenant/raid-config')) {
+      return Promise.resolve({
+        data: { probability_scale: [], impact_scale: [], rag_bands: [] },
+        headers: {},
+      });
+    }
+    if (url.includes('/releases/scope-churn-analytics')) {
+      return Promise.resolve({
+        data: {
+          date_from: null,
+          date_to: null,
+          scope_changed: { count: 0, delayed_count: 0, delayed_pct: 0, issue_count: 0, issue_pct: 0 },
+          stable: { count: 0, delayed_count: 0, delayed_pct: 0, issue_count: 0, issue_pct: 0 },
+          releases: [],
+        },
+        headers: {},
+      });
+    }
+    if (url.includes('/metrics/dora')) {
+      return Promise.resolve({
+        data: {
+          deployment_frequency: { total: 0, series: [] },
+          lead_time: { median_seconds: 0, p90_seconds: 0, count: 0, series: [] },
+          change_failure_rate: { rate: 0, failed_count: 0, shipped_count: 0 },
+          mttr: { mean_seconds: 0, median_seconds: 0, count: 0, series: [] },
+        },
+        headers: {},
+      });
+    }
+    if (url.includes('/metrics/environments/utilization')) {
+      return Promise.resolve({ data: { rows: [], unconfigured_count: 0 }, headers: {} });
+    }
+    return empty();
+  });
+  return { default: { get, post: vi.fn(empty), put: vi.fn(empty), patch: vi.fn(empty), delete: vi.fn(empty) } };
+});
+
+const appPaths = appNav.flatMap((e) => (isNavGroup(e) ? e.children : [e])).map((i) => i.path);
+const adminPaths = adminNav.flatMap((s) => s.children).map((c) => c.path);
+// The main admin loop below runs as { role: 'Admin', is_master_admin: true },
+// so it cannot detect a `requireMasterAdmin` guard accidentally applied to a
+// non-Platform admin route — a master admin satisfies both checks at once.
+// This one runs the same paths as a plain Admin who is NOT a master admin, to
+// prove every non-Platform admin route is reachable on the role gate alone.
+const nonPlatformAdminPaths = adminNav
+  .filter((section) => section.label !== 'Platform')
+  .flatMap((section) => section.children)
+  .map((c) => c.path);
+
+describe('every nav item resolves to a real route', () => {
+  afterEach(() => document.body.replaceChildren());
+
+  it.each(appPaths)('app path %s does not 404', async (path) => {
+    renderAppAt(path, { role: 'Admin' });
+    // Wait for the SHELL, not the page: the whole Routes tree sits under one
+    // top-level <Suspense>, so a bare 404-absence check resolves trivially
+    // while the lazy page's chunk is still loading (the fallback spinner has
+    // no "page not found" text either) — before the page has had a chance to
+    // render or crash. "EnvManager" is AppLayout's own brand link, not lazy,
+    // so waiting for it means the page (and any throw it made) has already
+    // been decided in the same commit.
+    await screen.findByText('EnvManager', {}, { timeout: 4000 });
+    expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
+    // AppLayout's ErrorBoundary wraps only the Outlet, so a page that throws
+    // still renders a non-404 shell at the right URL — the fallback's own
+    // copy is the only thing that tells the two apart.
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
+    // still on the requested path — no guard bounced us to /dashboard
+    expect(window.location.pathname).toBe(path);
+  });
+
+  it.each(adminPaths)('admin path %s renders inside the admin shell', async (path) => {
+    renderAppAt(path, { role: 'Admin', is_master_admin: true });
+    expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe(path);
+  });
+
+  it.each(nonPlatformAdminPaths)(
+    'admin path %s renders inside the admin shell for a plain Admin (not master)',
+    async (path) => {
+      renderAppAt(path, { role: 'Admin', is_master_admin: false });
+      expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
+      expect(window.location.pathname).toBe(path);
+    }
+  );
+
+  it('a Developer can still open a user group page, inside the admin shell', async () => {
+    renderAppAt('/admin/user-groups/3', { role: 'Developer' });
+    expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/admin/user-groups/3');
+  });
+
+  it('a Developer is bounced from an Admin-only admin page', async () => {
+    renderAppAt('/admin/users', { role: 'Developer' });
+    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+  });
+});

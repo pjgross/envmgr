@@ -121,7 +121,7 @@ export default function EnvironmentProjectsPanel({
             {agreements.map((a) => (
               <TableRow key={a.id}>
                 <TableCell>
-                  <Link component={RouterLink} to={`/tenant/projects/${a.project_id}`}>
+                  <Link component={RouterLink} to={`/projects/${a.project_id}`}>
                     {a.project_name}
                   </Link>
                 </TableCell>

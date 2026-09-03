@@ -1,57 +1,67 @@
 import { describe, expect, it } from 'vitest';
-import { visibleNavGroups, type NavUser } from '../navConfig';
+import { appNav, isNavGroup, visibleAppNav, type NavUser } from '../navConfig';
 
-const regular: NavUser = { role: 'User', is_master_admin: false };
+const regular: NavUser = { role: 'Developer', is_master_admin: false };
 const admin: NavUser = { role: 'Admin', is_master_admin: false };
-const masterOnly: NavUser = { role: 'User', is_master_admin: true };
+const masterOnly: NavUser = { role: 'Viewer', is_master_admin: true };
 
-const labels = (user: NavUser) => visibleNavGroups(user).map((g) => g.label);
-const childLabels = (user: NavUser, group: string) =>
-  visibleNavGroups(user).find((g) => g.label === group)?.children?.map((c) => c.label) ?? [];
+const topLabels = (u: NavUser | null) => visibleAppNav(u).map((e) => e.label);
+const children = (u: NavUser | null, group: string) => {
+  const g = visibleAppNav(u).find((e) => e.label === group);
+  return g && isNavGroup(g) ? g.children.map((c) => c.label) : [];
+};
 
-describe('visibleNavGroups', () => {
-  it('shows the four workflow groups to a regular user, no Administration', () => {
-    expect(labels(regular)).toEqual([
-      'Insights',
-      'Environment Definition',
-      'Environment Management',
-      'Release Management',
+describe('appNav', () => {
+  it('shows Dashboard then the four workflow groups to a regular user, no Administration', () => {
+    expect(topLabels(regular)).toEqual(['Dashboard', 'Catalogue', 'Bookings', 'Releases', 'Insights']);
+  });
+
+  it('files Projects and Environment groups under Bookings for every role', () => {
+    // Both are readable by any tenant member and used when booking — they are
+    // not administration, whatever directory their page components once lived in.
+    expect(children(regular, 'Bookings')).toEqual([
+      'Calendar', 'List', 'Environment requests', 'Change requests', 'Projects',
+      'Environment groups', 'Contentions', 'Decommissions',
     ]);
   });
 
-  it('shows the contention worklist to a regular user', () => {
-    // The worklist is readable by any tenant member, deliberately: a decider
-    // needs to see the queue they are in, and everyone else needs to see that a
-    // clash they are party to has been put to someone. Who may ANSWER one is a
-    // different question, settled on the row.
-    expect(childLabels(regular, 'Environment Management')).toContain(
-      'Contention Escalations'
-    );
+  it('lists the catalogue and release groups in the agreed order', () => {
+    expect(children(regular, 'Catalogue')).toEqual([
+      'Systems', 'Environments', 'Hosts', 'Compare environments', 'Import',
+    ]);
+    expect(children(regular, 'Releases')).toEqual([
+      'List', 'Calendar', 'Timeline', 'Scope windows', 'Analytics', 'Builds',
+      'Deployments', 'Incidents', 'PIR actions',
+    ]);
+    expect(children(regular, 'Insights')).toEqual(['DORA metrics', 'Environment health']);
   });
 
-  it('hides Release Templates from a regular user', () => {
-    expect(childLabels(regular, 'Release Management')).not.toContain('Release Templates');
+  it('never lists Release templates in the app tree — it is admin configuration', () => {
+    const all = appNav.flatMap((e) => (isNavGroup(e) ? e.children : [e])).map((i) => i.label);
+    expect(all).not.toContain('Release templates');
   });
 
-  it('shows Administration (without Platform Admin) to an Admin, plus Release Templates', () => {
-    expect(labels(admin)).toContain('Administration');
-    expect(childLabels(admin, 'Release Management')).toContain('Release Templates');
-    const adminChildren = childLabels(admin, 'Administration');
-    expect(adminChildren).toContain('Users');
-    expect(adminChildren).toContain('API Keys');
-    expect(adminChildren).not.toContain('Platform Admin');
+  it('shows the Administration entry to an Admin and to a master admin, not to a regular user', () => {
+    expect(topLabels(admin)).toContain('Administration');
+    expect(topLabels(masterOnly)).toContain('Administration');
+    expect(topLabels(regular)).not.toContain('Administration');
+    expect(topLabels(null)).not.toContain('Administration');
   });
 
-  it('shows Administration with only Platform Admin to a master-admin who is not role Admin', () => {
-    expect(childLabels(masterOnly, 'Administration')).toEqual(['Platform Admin']);
+  it('points Administration at /admin', () => {
+    const entry = visibleAppNav(admin).find((e) => e.label === 'Administration');
+    expect(entry && !isNavGroup(entry) ? entry.path : undefined).toBe('/admin');
   });
 
-  it('marks Insights as default-open', () => {
-    const insights = visibleNavGroups(regular).find((g) => g.label === 'Insights');
-    expect(insights?.defaultOpen).toBe(true);
-  });
-
-  it('handles a null user by showing only non-privileged groups', () => {
-    expect(visibleNavGroups(null).map((g) => g.label)).not.toContain('Administration');
+  it('uses sentence case and no group-prefixed labels', () => {
+    for (const entry of appNav) {
+      const labels = isNavGroup(entry) ? entry.children.map((c) => c.label) : [entry.label];
+      for (const label of labels) {
+        expect(label).not.toMatch(/—/);
+        // second word onward is lower case unless it is an acronym (DORA, PIR)
+        const words = label.split(' ').slice(1);
+        for (const w of words) expect(w === w.toUpperCase() || w === w.toLowerCase()).toBe(true);
+      }
+    }
   });
 });

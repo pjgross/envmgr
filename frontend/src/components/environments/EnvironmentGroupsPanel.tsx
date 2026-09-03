@@ -82,7 +82,7 @@ export default function EnvironmentGroupsPanel({ environmentId }: EnvironmentGro
               key={m.id}
               label={m.group_name}
               component={RouterLink}
-              to={`/tenant/environment-groups/${m.group_id}`}
+              to={`/environment-groups/${m.group_id}`}
               clickable
               size="small"
             />

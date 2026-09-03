@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
@@ -10,11 +10,12 @@ import Login from './pages/Login';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import AppLayout from './components/AppLayout';
 import NotFound from './components/NotFound';
+import { LEGACY_REDIRECTS, LegacyRedirectRoute } from './components/legacyRedirects';
 
 // Route components are code-split: the app shipped as a single 3.4 MB chunk,
 // so every visitor downloaded every page — including the ELK layout engine and
 // FullCalendar — before the login form could render.
-const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
+const AdminHome = lazy(() => import('./pages/admin/AdminHome'));
 const ApiKeyManagement = lazy(() => import('./pages/admin/ApiKeyManagement'));
 const BookingCalendar = lazy(() => import('./pages/bookings/BookingCalendar'));
 const BookingDetail = lazy(() => import('./pages/bookings/BookingDetail'));
@@ -23,6 +24,7 @@ const BuildDetail = lazy(() => import('./pages/builds/BuildDetail'));
 const BuildList = lazy(() => import('./pages/builds/BuildList'));
 const ChangeRequestDetail = lazy(() => import('./pages/change-requests/ChangeRequestDetail'));
 const ChangeRequestList = lazy(() => import('./pages/change-requests/ChangeRequestList'));
+const ComponentTypesPage = lazy(() => import('./pages/admin/ComponentTypesPage'));
 const ContentionEscalations = lazy(
   () => import('./pages/contentions/EscalationWorklist')
 );
@@ -34,8 +36,8 @@ const DeploymentList = lazy(() => import('./pages/deployments/DeploymentList'));
 const DoraDashboard = lazy(() => import('./pages/insights/DoraDashboard'));
 const EntityConfig = lazy(() => import('./pages/admin/EntityConfig'));
 const EnvironmentCompare = lazy(() => import('./pages/environments/EnvironmentCompare'));
-const EnvironmentGroupDetail = lazy(() => import('./pages/admin/EnvironmentGroupDetail'));
-const EnvironmentGroups = lazy(() => import('./pages/admin/EnvironmentGroups'));
+const EnvironmentGroupDetail = lazy(() => import('./pages/environment-groups/EnvironmentGroupDetail'));
+const EnvironmentGroups = lazy(() => import('./pages/environment-groups/EnvironmentGroups'));
 const EnvironmentDetail = lazy(() => import('./pages/environments/EnvironmentDetail'));
 const EnvironmentList = lazy(() => import('./pages/environments/EnvironmentList'));
 const EnvironmentRequestDetail = lazy(() => import('./pages/environments/EnvironmentRequestDetail'));
@@ -48,8 +50,8 @@ const IncidentDetail = lazy(() => import('./pages/incidents/IncidentDetail'));
 const IncidentForm = lazy(() => import('./pages/incidents/IncidentForm'));
 const IncidentList = lazy(() => import('./pages/incidents/IncidentList'));
 const InfrastructureComponentList = lazy(() => import('./pages/infrastructure/InfrastructureComponentList'));
-const ProjectDetail = lazy(() => import('./pages/admin/ProjectDetail'));
-const Projects = lazy(() => import('./pages/admin/Projects'));
+const ProjectDetail = lazy(() => import('./pages/projects/ProjectDetail'));
+const Projects = lazy(() => import('./pages/projects/Projects'));
 const RaidSettings = lazy(() => import('./pages/admin/RaidSettings'));
 const ReleaseAnalytics = lazy(() => import('./pages/releases/ReleaseAnalytics'));
 const ReleaseCalendar = lazy(() => import('./pages/releases/ReleaseCalendar'));
@@ -64,10 +66,10 @@ const SystemDetail = lazy(() => import('./pages/systems/SystemDetail'));
 const TenantDetail = lazy(() => import('./pages/admin/TenantDetail'));
 const TenantList = lazy(() => import('./pages/admin/TenantList'));
 const TenantScopeChangeRules = lazy(() => import('./pages/admin/TenantScopeChangeRules'));
-const TenantSettings = lazy(() => import('./pages/tenant/TenantSettings'));
+const TenantSettings = lazy(() => import('./pages/admin/TenantSettings'));
 const UserGroupDetail = lazy(() => import('./pages/admin/UserGroupDetail'));
 const UserGroups = lazy(() => import('./pages/admin/UserGroups'));
-const UserManagement = lazy(() => import('./pages/tenant/UserManagement'));
+const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
 
 function FullPageSpinner() {
   return (
@@ -132,103 +134,40 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/insights/dora" element={<DoraDashboard />} />
             <Route path="/insights/health" element={<HealthDashboard />} />
-            <Route
-              path="/admin/tenants"
-              element={
-                <PrivateRoute requireMasterAdmin>
-                  <TenantList />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/admin/tenants/:tenantId"
-              element={
-                <PrivateRoute requireMasterAdmin>
-                  <TenantDetail />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/settings"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <TenantSettings />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/users"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <UserManagement />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/groups"
-              element={
-                <PrivateRoute>
-                  <UserGroups />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/groups/:id"
-              element={
-                <PrivateRoute>
-                  <UserGroupDetail />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/projects"
-              element={
-                <PrivateRoute>
-                  <Projects />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/projects/:id"
-              element={
-                <PrivateRoute>
-                  <ProjectDetail />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/environment-groups"
-              element={
-                <PrivateRoute>
-                  <EnvironmentGroups />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/tenant/environment-groups/:id"
-              element={
-                <PrivateRoute>
-                  <EnvironmentGroupDetail />
-                </PrivateRoute>
-              }
-            />
+
+            {/* Catalogue */}
             <Route path="/systems" element={<SystemCatalog />} />
             <Route path="/systems/:id" element={<SystemDetail />} />
             <Route path="/environments" element={<EnvironmentList />} />
             <Route path="/environments/compare" element={<EnvironmentCompare />} />
             <Route path="/environments/:id" element={<EnvironmentDetail />} />
-            <Route path="/environment-requests" element={<EnvironmentRequestList />} />
-            <Route path="/environment-requests/new" element={<EnvironmentRequestForm />} />
-            <Route path="/environment-requests/:id" element={<EnvironmentRequestDetail />} />
+            <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
+            <Route path="/import" element={<ImportPage />} />
+
+            {/* Bookings */}
             <Route path="/bookings" element={<Navigate replace to="/bookings/calendar" />} />
             <Route path="/bookings/calendar" element={<BookingCalendar />} />
             <Route path="/bookings/list" element={<BookingList />} />
             <Route path="/bookings/:id" element={<BookingDetail />} />
-            <Route path="/contentions" element={<ContentionEscalations />} />
-            <Route path="/decommissions" element={<DecommissionWorklist />} />
-            <Route path="/pir-actions" element={<PirActionList />} />
+            <Route path="/environment-requests" element={<EnvironmentRequestList />} />
+            <Route path="/environment-requests/new" element={<EnvironmentRequestForm />} />
+            <Route path="/environment-requests/:id" element={<EnvironmentRequestDetail />} />
             <Route path="/change-requests" element={<ChangeRequestList />} />
             <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
+            {/* Readable by any tenant member; writes are gated on the page.
+                PrivateRoute (no requiredRole) is still needed here, not just
+                the role gate below: it also waits on authInitialized/user
+                before rendering, so a hard reload (isAuthenticated true from
+                localStorage, user still null) can't compute a page's write
+                permissions against a null user. */}
+            <Route path="/projects" element={<PrivateRoute><Projects /></PrivateRoute>} />
+            <Route path="/projects/:id" element={<PrivateRoute><ProjectDetail /></PrivateRoute>} />
+            <Route path="/environment-groups" element={<PrivateRoute><EnvironmentGroups /></PrivateRoute>} />
+            <Route path="/environment-groups/:id" element={<PrivateRoute><EnvironmentGroupDetail /></PrivateRoute>} />
+            <Route path="/contentions" element={<ContentionEscalations />} />
+            <Route path="/decommissions" element={<DecommissionWorklist />} />
+
+            {/* Releases */}
             <Route path="/releases" element={<ReleaseList />} />
             <Route path="/releases/new" element={<ReleaseList />} />
             <Route path="/releases/calendar" element={<ReleaseCalendar />} />
@@ -236,22 +175,6 @@ function App() {
             <Route path="/releases/scope-windows" element={<ScopeWindows />} />
             <Route path="/releases/analytics" element={<ReleaseAnalytics />} />
             <Route path="/releases/:id" element={<ReleaseDetail />} />
-            <Route
-              path="/admin/release-templates"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <ReleaseTemplateLibrary />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/admin/release-templates/:id"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <ReleaseTemplateForm />
-                </PrivateRoute>
-              }
-            />
             <Route path="/builds" element={<BuildList />} />
             <Route path="/builds/:id" element={<BuildDetail />} />
             <Route path="/deployments" element={<DeploymentList />} />
@@ -260,61 +183,42 @@ function App() {
             <Route path="/incidents/new" element={<IncidentForm />} />
             <Route path="/incidents/:id" element={<IncidentDetail />} />
             <Route path="/incidents/:id/edit" element={<IncidentForm />} />
-            <Route path="/infrastructure/hosts" element={<InfrastructureComponentList />} />
-            <Route path="/import" element={<ImportPage />} />
-            <Route
-              path="/admin/config"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <AdminLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route path=":entityType" element={<EntityConfig />} />
+            <Route path="/pir-actions" element={<PirActionList />} />
+
+            {/* Admin mode: every route under /admin renders inside the admin drawer.
+                The gate is per route, not on the layout, because User groups is
+                readable by any tenant member (B3a) while everything else is Admin. */}
+            <Route path="/admin" element={<Outlet />}>
+              <Route index element={<PrivateRoute requiredRole="Admin"><AdminHome /></PrivateRoute>} />
+              <Route path="users" element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>} />
+              <Route path="user-groups" element={<PrivateRoute><UserGroups /></PrivateRoute>} />
+              <Route path="user-groups/:id" element={<PrivateRoute><UserGroupDetail /></PrivateRoute>} />
+              <Route path="settings" element={<PrivateRoute requiredRole="Admin"><TenantSettings /></PrivateRoute>} />
+              <Route path="api-keys" element={<PrivateRoute requiredRole="Admin"><ApiKeyManagement /></PrivateRoute>} />
+              <Route path="github" element={<PrivateRoute requiredRole="Admin"><GitHubIntegration /></PrivateRoute>} />
+              <Route path="component-types" element={<PrivateRoute requiredRole="Admin"><ComponentTypesPage /></PrivateRoute>} />
+              <Route path="releases/templates" element={<PrivateRoute requiredRole="Admin"><ReleaseTemplateLibrary /></PrivateRoute>} />
+              <Route path="releases/templates/:id" element={<PrivateRoute requiredRole="Admin"><ReleaseTemplateForm /></PrivateRoute>} />
+              <Route path="releases/scope-change-rules" element={<PrivateRoute requiredRole="Admin"><TenantScopeChangeRules /></PrivateRoute>} />
+              <Route path="releases/raid" element={<PrivateRoute requiredRole="Admin"><RaidSettings /></PrivateRoute>} />
+              <Route path="tenants" element={<PrivateRoute requireMasterAdmin><TenantList /></PrivateRoute>} />
+              <Route path="tenants/:tenantId" element={<PrivateRoute requireMasterAdmin><TenantDetail /></PrivateRoute>} />
+              {/* react-router v7 ranks routes by segment specificity, not
+                  declaration order, so a static segment (e.g. "tenants")
+                  always outranks a dynamic ":entity" at the same position
+                  regardless of where either is listed — these two catch-alls
+                  are simply the only routes that CAN match here. */}
+              <Route path=":entity/:tab" element={<PrivateRoute requiredRole="Admin"><EntityConfig /></PrivateRoute>} />
+              <Route path=":entity" element={<PrivateRoute requiredRole="Admin"><EntityConfig /></PrivateRoute>} />
             </Route>
-            <Route
-              path="/admin/scope-change-rules"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <AdminLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<TenantScopeChangeRules />} />
-            </Route>
-            <Route
-              path="/tenant/api-keys"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <AdminLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<ApiKeyManagement />} />
-            </Route>
-            <Route
-              path="/tenant/raid-settings"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <AdminLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<RaidSettings />} />
-            </Route>
-            <Route
-              path="/admin/github"
-              element={
-                <PrivateRoute requiredRole="Admin">
-                  <AdminLayout />
-                </PrivateRoute>
-              }
-            >
-              <Route index element={<GitHubIntegration />} />
-            </Route>
+
+            {/* One release of bookmark compatibility. */}
+            {LEGACY_REDIRECTS.map((r) => (
+              <Route key={r.from} path={r.from} element={<LegacyRedirectRoute to={r.to} />} />
+            ))}
           </Route>
           <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} />} />
-            <Route path="*" element={<NotFound />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

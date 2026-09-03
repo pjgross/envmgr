@@ -1,7 +1,7 @@
 /**
  * ReleaseTemplateForm — create / edit a release template.
  * Metadata + phases editor (reorderable via up/down buttons) + gates editor.
- * Route: /admin/release-templates/new  and  /admin/release-templates/:id
+ * Route: /admin/releases/templates/new  and  /admin/releases/templates/:id
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -169,7 +169,7 @@ export default function ReleaseTemplateForm() {
       if (isNew) {
         const created = await dispatch(createReleaseTemplate(payload)).unwrap();
         snackbar.success('Template created');
-        navigate(`/admin/release-templates/${created.id}`, { replace: true });
+        navigate(`/admin/releases/templates/${created.id}`, { replace: true });
       } else if (templateId) {
         await dispatch(updateReleaseTemplate({ id: templateId, data: payload })).unwrap();
         snackbar.success('Template saved');
@@ -186,7 +186,7 @@ export default function ReleaseTemplateForm() {
   return (
     <Box sx={{ p: 3, maxWidth: 900 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton size="small" onClick={() => navigate('/admin/release-templates')}>
+        <IconButton size="small" onClick={() => navigate('/admin/releases/templates')}>
           <ArrowBackIcon />
         </IconButton>
         <Typography variant="h5" sx={{ flexGrow: 1 }}>

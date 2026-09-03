@@ -108,7 +108,7 @@ function renderPage(role: 'Admin' | 'Member' = 'Admin') {
   });
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/tenant/projects']}>
+      <MemoryRouter initialEntries={['/projects']}>
         <Projects />
       </MemoryRouter>
     </Provider>
@@ -171,7 +171,7 @@ describe('Projects', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText('Mortgage')).toBeInTheDocument());
     const link = screen.getByRole('link', { name: '4' });
-    expect(link).toHaveAttribute('href', '/tenant/projects/1');
+    expect(link).toHaveAttribute('href', '/projects/1');
   });
 
   it('surfaces the server reason when a create is refused, not the axios status line', async () => {
@@ -351,9 +351,9 @@ function renderDetail(
   const projectId = options.projectId ?? 1;
   return render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={[`/tenant/projects/${projectId}`]}>
+      <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
         <Routes>
-          <Route path="/tenant/projects/:id" element={<ProjectDetail />} />
+          <Route path="/projects/:id" element={<ProjectDetail />} />
         </Routes>
       </MemoryRouter>
     </Provider>

@@ -43,32 +43,34 @@ None of this is architectural — it's all fixable incrementally, and a handful 
 
 ## P2 — Should fix
 
-| # | Finding | Where | Fix |
-|---|---------|-------|-----|
-| P2-1 | **White text on amber (`#ff9800`) fails WCAG AA** (~2.1:1; needs 4.5:1). This is the RAG "amber" state — exactly the thing users must read. Present in the recently-added RAID components. | `raidConstants.ts` amber; `RaidTab.tsx:163`, `RaidSummaryCards.tsx:46`, `RaidHeatMap.tsx:70`, `RaidRollupTab.tsx:60,89` | Compute per-band foreground from luminance (dark text on amber/light fills) instead of always `#fff`. |
-| P2-2 | **Silent list-fetch failures** — `BuildList`, `DeploymentList`, `ReleaseList` never read their slice's `error`, so a failed fetch is an unexplained empty grid. | `BuildList.tsx`, `DeploymentList.tsx`, `ReleaseList.tsx` (errors exist in the slices) | Render an `<Alert severity="error">` from the slice error. |
-| P2-3 | **Two incompatible tab systems + fragile numeric indices.** `ReleaseDetail` uses `activeTab === 5`; `EnterpriseTabs` uses string keys. Inserting a tab renumbers every branch (already bit this file — its docstring still says "5 tabs"). Tabs also aren't in the URL, so they reset on reload and can't be shared. | `ReleaseDetail.tsx:64,142-166` (+stale docstring 1-9), `EnterpriseTabs.tsx:20-58` | Convert `ReleaseDetail` to string-keyed tabs; reflect the active tab in the URL (`?tab=raid` via `useSearchParams`). |
-| P2-4 | **No shared page shell** — the header pattern (`<Box p:3>` → title `h5` → spacer → button) is copy-pasted across ~10 list pages, and padding/title styles have already drifted (Dashboard uses `Container`+`h4`; EnvironmentList bolds its `h5`, ReleaseList doesn't). | `ReleaseList`, `BookingList`, `EnvironmentList`, `ChangeRequestList`, … | Extract `<PageHeader title action>` + `<PageContainer>`; adopt on the top ~6 list pages. |
-| P2-5 | **Raw `<DataGrid>` in 15 files vs the `DataTable` wrapper in 4.** The wrapper adds saved column visibility, consistent density, and empty-state text — most tables miss all of it. | `BookingList`, `EnvironmentList`, `BuildList`, `SystemCatalog`, `DeploymentList`, `ApiKeyManagement`, +admin/enterprise | Migrate raw-DataGrid list pages to `components/DataTable.tsx`. |
-| P2-6 | **`autoFocus` on the destructive confirm button** — Enter/Space immediately deletes. | `components/ConfirmDialog.tsx:41` | Focus Cancel (or the body) when `destructive`; only autofocus confirm for non-destructive. |
-| P2-7 | **Generic confirm messages** that don't name the item ("Delete this scope item?", "Revoke this API key?") — 11 sites. Good pattern already exists (`Delete R-002 "…"`). | `ScopeTable.tsx:90`, `GatesTable.tsx:129,194`, `ApiKeyManagement.tsx:44`, `UserManagement.tsx:115`, `TenantList.tsx:68`, … | Include the entity name in the message. |
-| P2-8 | **Disabled Save with no explanation** — required fields show no inline error, just a greyed button. | `RaidItemDialog.tsx:592`, `CriterionDialog.tsx:66`, `ReleaseEventDrawer.tsx:175` | Show inline `error`/`helperText` on submit (match the EnvironmentList/SystemCatalog pattern). |
-| P2-9 | **Admin area poorly discoverable** — the main-nav "Admin" item hard-navigates to `/admin/config/booking`; RAID Settings / API keys / scope rules live only inside the AdminLayout sidebar or the avatar menu (3 disjoint entry points). | `AppLayout.tsx:327-338`, `AdminLayout.tsx:25-76` | Point "Admin" at a stable landing and rely on the AdminLayout sidebar as the single hub; ensure every admin page is ≤2 clicks from the main shell. |
+Status as of 2026-09-02; the open structural items are PRs 2–4 of `docs/superpowers/specs/2026-09-02-frontend-ia-and-shell-design.md`.
+
+| # | Finding | Where | Fix | Status |
+|---|---------|-------|-----|--------|
+| P2-1 | **White text on amber (`#ff9800`) fails WCAG AA** (~2.1:1; needs 4.5:1). This is the RAG "amber" state — exactly the thing users must read. Present in the recently-added RAID components. | `raidConstants.ts` amber; `RaidTab.tsx:163`, `RaidSummaryCards.tsx:46`, `RaidHeatMap.tsx:70`, `RaidRollupTab.tsx:60,89` | Compute per-band foreground from luminance (dark text on amber/light fills) instead of always `#fff`. | Open |
+| P2-2 | **Silent list-fetch failures** — `BuildList`, `DeploymentList`, `ReleaseList` never read their slice's `error`, so a failed fetch is an unexplained empty grid. | `BuildList.tsx`, `DeploymentList.tsx`, `ReleaseList.tsx` (errors exist in the slices) | Render an `<Alert severity="error">` from the slice error. | Open |
+| P2-3 | **Two incompatible tab systems + fragile numeric indices.** `ReleaseDetail` uses `activeTab === 5`; `EnterpriseTabs` uses string keys. Inserting a tab renumbers every branch (already bit this file — its docstring still says "5 tabs"). Tabs also aren't in the URL, so they reset on reload and can't be shared. | `ReleaseDetail.tsx:64,142-166` (+stale docstring 1-9), `EnterpriseTabs.tsx:20-58` | Convert `ReleaseDetail` to string-keyed tabs; reflect the active tab in the URL (`?tab=raid` via `useSearchParams`). | Open |
+| P2-4 | **No shared page shell** — the header pattern (`<Box p:3>` → title `h5` → spacer → button) is copy-pasted across ~10 list pages, and padding/title styles have already drifted (Dashboard uses `Container`+`h4`; EnvironmentList bolds its `h5`, ReleaseList doesn't). | `ReleaseList`, `BookingList`, `EnvironmentList`, `ChangeRequestList`, … | Extract `<PageHeader title action>` + `<PageContainer>`; adopt on the top ~6 list pages. | Open |
+| P2-5 | **Raw `<DataGrid>` in 15 files vs the `DataTable` wrapper in 4.** The wrapper adds saved column visibility, consistent density, and empty-state text — most tables miss all of it. | `BookingList`, `EnvironmentList`, `BuildList`, `SystemCatalog`, `DeploymentList`, `ApiKeyManagement`, +admin/enterprise | Migrate raw-DataGrid list pages to `components/DataTable.tsx`. | Open |
+| P2-6 | **`autoFocus` on the destructive confirm button** — Enter/Space immediately deletes. | `components/ConfirmDialog.tsx:41` | Focus Cancel (or the body) when `destructive`; only autofocus confirm for non-destructive. | Open |
+| P2-7 | **Generic confirm messages** that don't name the item ("Delete this scope item?", "Revoke this API key?") — 11 sites. Good pattern already exists (`Delete R-002 "…"`). | `ScopeTable.tsx:90`, `GatesTable.tsx:129,194`, `ApiKeyManagement.tsx:44`, `UserManagement.tsx:115`, `TenantList.tsx:68`, … | Include the entity name in the message. | Open |
+| P2-8 | **Disabled Save with no explanation** — required fields show no inline error, just a greyed button. | `RaidItemDialog.tsx:592`, `CriterionDialog.tsx:66`, `ReleaseEventDrawer.tsx:175` | Show inline `error`/`helperText` on submit (match the EnvironmentList/SystemCatalog pattern). | Open |
+| P2-9 | **Admin area poorly discoverable** — the main-nav "Admin" item hard-navigates to `/admin/config/booking`; RAID Settings / API keys / scope rules live only inside the AdminLayout sidebar or the avatar menu (3 disjoint entry points). | `AppLayout.tsx:327-338`, `AdminLayout.tsx:25-76` | Point "Admin" at a stable landing and rely on the AdminLayout sidebar as the single hub; ensure every admin page is ≤2 clicks from the main shell. | Closed — PR 1 (admin mode) |
 
 ---
 
 ## P3 — Polish
 
-| # | Finding | Where | Fix |
-|---|---------|-------|-----|
-| P3-1 | Missing success snackbars on Environment/System create/update/delete (inconsistent with release/admin pages). | `EnvironmentList.tsx`, `SystemCatalog.tsx` | Add `snackbar.success(...)`. |
-| P3-2 | Flat, inconsistent surfaces — 106 `variant="outlined"` vs 2 `elevation`; hairline borders everywhere, no depth. | across pages | Pick one surface strategy in the theme (subtle elevation + radius) as the `MuiPaper`/`MuiCard` default. |
-| P3-3 | ~101 hardcoded hex colours in charts/SVG, with three different "greens" for success. | `ReleaseTimeline`, `ReleaseCalendar`, topology diagrams, `raidConstants.ts` | Central `statusColor()` helper reading `palette.success/error/warning`; feed SVG `fill`/`stroke`. |
-| P3-4 | Exact-match nav active state (`pathname === item.path`) de-selects on nested/param routes. | `AdminLayout.tsx:105,121` | Use `pathname === p || pathname.startsWith(p + '/')` (AppLayout already does this). |
-| P3-5 | Inconsistent detail-page wayfinding — no breadcrumbs, no `document.title`, per-page back affordance; `DeploymentDetail` builds its own header. | `ReleaseDetail` vs `DeploymentDetail`, all `*Detail` | Shared `<DetailPageHeader back title actions>`; set page titles per route. |
-| P3-6 | Clickable `<Typography onClick>` (app title, calendar cells) isn't keyboard-operable. | `AppLayout.tsx` title, `BookingCalendar.tsx:183` | Use a `Button`/`Link` or add `role="button"` + `tabIndex` + `onKeyDown`. |
-| P3-7 | Timeline SVG has no text alternative. | `ReleaseTimeline.tsx:240` | `role="img"` + `aria-label` summary. |
-| P3-8 | Heading hierarchy tracks visual size, not document outline; no `<h1>` on any page. | app-wide | Set `component="h1/h2"` where the outline level differs from the visual variant. |
+| # | Finding | Where | Fix | Status |
+|---|---------|-------|-----|--------|
+| P3-1 | Missing success snackbars on Environment/System create/update/delete (inconsistent with release/admin pages). | `EnvironmentList.tsx`, `SystemCatalog.tsx` | Add `snackbar.success(...)`. | Open |
+| P3-2 | Flat, inconsistent surfaces — 106 `variant="outlined"` vs 2 `elevation`; hairline borders everywhere, no depth. | across pages | Pick one surface strategy in the theme (subtle elevation + radius) as the `MuiPaper`/`MuiCard` default. | Open |
+| P3-3 | ~101 hardcoded hex colours in charts/SVG, with three different "greens" for success. | `ReleaseTimeline`, `ReleaseCalendar`, topology diagrams, `raidConstants.ts` | Central `statusColor()` helper reading `palette.success/error/warning`; feed SVG `fill`/`stroke`. | Open |
+| P3-4 | Exact-match nav active state (`pathname === item.path`) de-selects on nested/param routes. | `AdminLayout.tsx:105,121` | Use `pathname === p || pathname.startsWith(p + '/')` (AppLayout already does this). | Closed — PR 1 |
+| P3-5 | Inconsistent detail-page wayfinding — no breadcrumbs, no `document.title`, per-page back affordance; `DeploymentDetail` builds its own header. | `ReleaseDetail` vs `DeploymentDetail`, all `*Detail` | Shared `<DetailPageHeader back title actions>`; set page titles per route. | Open |
+| P3-6 | Clickable `<Typography onClick>` (app title, calendar cells) isn't keyboard-operable. | `AppLayout.tsx` title, `BookingCalendar.tsx:183` | Use a `Button`/`Link` or add `role="button"` + `tabIndex` + `onKeyDown`. | Closed — PR 1 (title link; calendar cells remain) |
+| P3-7 | Timeline SVG has no text alternative. | `ReleaseTimeline.tsx:240` | `role="img"` + `aria-label` summary. | Open |
+| P3-8 | Heading hierarchy tracks visual size, not document outline; no `<h1>` on any page. | app-wide | Set `component="h1/h2"` where the outline level differs from the visual variant. | Open |
 
 ---
 

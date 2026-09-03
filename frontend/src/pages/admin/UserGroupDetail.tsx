@@ -95,8 +95,8 @@ export default function UserGroupDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Button size="small" onClick={() => navigate('/tenant/groups')} sx={{ mb: 2 }}>
-        Back to User Groups
+      <Button size="small" onClick={() => navigate('/admin/user-groups')} sx={{ mb: 2 }}>
+        Back to user groups
       </Button>
 
       {loadError && (

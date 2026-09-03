@@ -121,9 +121,9 @@ function renderForm(initialGates: ReleaseTemplateGate[]) {
   const store = makeStore();
   render(
     <Provider store={store}>
-      <MemoryRouter initialEntries={['/admin/release-templates/7']}>
+      <MemoryRouter initialEntries={['/admin/releases/templates/7']}>
         <Routes>
-          <Route path="/admin/release-templates/:id" element={<ReleaseTemplateForm />} />
+          <Route path="/admin/releases/templates/:id" element={<ReleaseTemplateForm />} />
         </Routes>
       </MemoryRouter>
     </Provider>

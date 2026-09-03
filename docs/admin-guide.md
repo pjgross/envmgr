@@ -145,26 +145,33 @@ The dashboard is a four-card summary above a welcome panel. The cards are static
 
 ### The left navigation
 
-The sidebar is the same for every authenticated user, with one extra entry — *Admin* — visible only to users with role *Admin*. Two entries (*Bookings*, *Releases*) are expandable groups.
+The sidebar is the same for every authenticated user. *Catalogue*, *Bookings*, *Releases* and *Insights* are collapsible groups; Admins and master admins also see *Administration*, which switches the sidebar into its own admin-mode menu (see below).
 
-| Nav entry | Route | What's there | Covered in |
-|-----------|-------|--------------|------------|
-| *Dashboard* | `/dashboard` | Summary cards and welcome panel. | this chapter |
-| *Systems* | `/systems` | System and subsystem catalogue. | ch. 5 |
-| *Environments* | `/environments` | Environment inventory and detail. | ch. 6 |
+| Group → entry | Route | What's there | Covered in |
+|---|---|---|---|
+| *Dashboard* | `/dashboard` | Landing page. | this chapter |
+| *Catalogue → Systems* | `/systems` | System and subsystem catalogue. | ch. 5 |
+| *Catalogue → Environments* | `/environments` | Environment inventory and detail. | ch. 6 |
+| *Catalogue → Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | ch. 7 |
+| *Catalogue → Compare environments* | `/environments/compare` | Side-by-side diff of two environments. | not detailed in this guide |
+| *Catalogue → Import* | `/import` | Bulk Excel import. | ch. 12 |
 | *Bookings → Calendar* | `/bookings/calendar` | Calendar view of reservations. | `user-guide.md` ch. 5 |
 | *Bookings → List* | `/bookings/list` | Tabular view of reservations. | `user-guide.md` ch. 5 |
-| *Builds* | `/builds` | CI build feed per subsystem. | `user-guide.md` ch. 9 |
-| *Change Requests* | `/change-requests` | Change-request inbox. | `user-guide.md` ch. 7 |
-| *Environment Requests* | `/environment-requests` | Request access to an environment, or a new one; approve, reject and fulfil requests for teams you operate. | `user-guide.md` ch. 6; ch. 6 below (routing, handover, deploy note) |
-| *Deployments* | `/deployments` | Deployment feed per environment. | `user-guide.md` ch. 9 |
+| *Bookings → Environment requests* | `/environment-requests` | Request access to an environment, or a new one; approve, reject and fulfil requests for teams you operate. | `user-guide.md` ch. 6; ch. 6 below (routing, handover, deploy note) |
+| *Bookings → Change requests* | `/change-requests` | Change-request inbox. | `user-guide.md` ch. 7 |
+| *Bookings → Projects* | `/projects` | Projects, their teams, priority rank and usage agreements. | ch. 4 |
+| *Bookings → Environment groups* | `/environment-groups` | Named sets of environments bookable as one unit. | ch. 6 |
+| *Bookings → Contentions* | `/contentions` | Contention escalations worklist. | ch. 4 |
+| *Bookings → Decommissions* | `/decommissions` | Decommission worklist. | ch. 6 |
 | *Releases → List* | `/releases` | Release inventory. | `user-guide.md` ch. 8 |
-| *Releases → Calendar* | `/releases/calendar` | Release schedule by date. | `user-guide.md` ch. 8 |
-| *Releases → Timeline* | `/releases/timeline` | Release timeline view. | `user-guide.md` ch. 8 |
-| *Releases → Templates* | `/admin/release-templates` | Reusable release blueprints. | ch. 9 |
-| *Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | ch. 7 |
-| *Import* | `/import` | Bulk Excel import. | ch. 12 |
-| *Admin* (Admin only) | `/admin/config/booking` | Tenant config: change kinds, gates, scope rules, API keys. | ch. 8, ch. 10, ch. 11 |
+| *Releases → Calendar / Timeline / Scope windows / Analytics* | `/releases/…` | The other release views. | `user-guide.md` ch. 8 |
+| *Releases → Builds* | `/builds` | CI build feed per subsystem. | `user-guide.md` ch. 9 |
+| *Releases → Deployments* | `/deployments` | Deployment feed per environment. | `user-guide.md` ch. 9 |
+| *Releases → Incidents* | `/incidents` | Incident register. | not detailed in this guide |
+| *Releases → PIR actions* | `/pir-actions` | Post-implementation-review action worklist. | `user-guide.md` ch. 8 |
+| *Insights → DORA metrics* | `/insights/dora` | DORA four-key dashboard. | not detailed in this guide |
+| *Insights → Environment health* | `/insights/health` | Health dashboard. | not detailed in this guide |
+| *Administration* (Admin / master admin) | `/admin` | Admin mode: a hub page and its own sidebar — Organisation, Environments, Bookings, Releases, Delivery, Integrations, Platform. Click *Back to EnvManager* to leave. | scattered through this guide; not all sections have dedicated coverage |
 
 ### Suggested setup order
 
@@ -200,7 +207,7 @@ See [ch. 13 (Appendix: role permission matrix)](#13-appendix-role-permission-mat
 
 ### Walkthrough: creating a user
 
-1. Navigate to `/tenant/users`.
+1. Navigate to `/admin/users`.
 2. Click *New User* in the page header.
 3. Fill the *Create User* dialog:
    - *Username*
@@ -221,7 +228,7 @@ To revoke access without losing history, click *Deactivate* on the user's row an
 
 ### User Groups
 
-A *User Group* organises users into a team that an environment can name as its operations group — see [ch. 6](#6-modelling-environments). Manage them at `/tenant/groups`.
+A *User Group* organises users into a team that an environment can name as its operations group — see [ch. 6](#6-modelling-environments). Manage them at `/admin/user-groups`.
 
 - **Reading the list, a group's detail, and its member list is open to any tenant member** — every user needs to be able to see which team operates a given environment, and the environment form needs the group list as a picker source. Creating, editing or deleting a group, and adding or removing a member, are Admin-only; a non-admin sees the same list and detail pages with the write controls (*New Group*, *Edit*, *Delete*, *Add*, *Remove*) hidden.
 - The list shows *Name*, *Description*, *Members*, and *Environments* — the last two are live counts, not columns you set directly. Click a group's *Environments* count to jump to `/environments` filtered to that group.
@@ -242,7 +249,7 @@ A *Project* is the multi-project-coordination unit introduced in Phase 7 sub-pro
 initiative with an optional team, linked from bookings (as an optional *Project* field, distinct
 from the existing free-text *Purpose*) and from releases (as an optional *Owning project*), and
 recorded — **warned on, never enforced** — against the environments it uses. Manage them at
-`/tenant/projects`. (Since Phase 7 sub-project A3 a booking outside those records is *flagged*;
+`/projects`. (Since Phase 7 sub-project A3 a booking outside those records is *flagged*;
 nothing is refused. See *Usage agreements are a record, not a rule* below.)
 
 - **Reading the list and a project's detail is open to any tenant member** — every booking and
@@ -380,7 +387,7 @@ to the named owner or an Admin.
 
 ### Password resets
 
-> **Not yet available:** there is no tenant-admin password-reset flow on `/tenant/users`. If a user has lost their password, ask your Master Admin to call `POST /api/v1/admin/tenants/{tenant_id}/users/{user_id}/reset-password` with a fresh `new_password`, then share the new value out of band.
+> **Not yet available:** there is no tenant-admin password-reset flow on `/admin/users`. If a user has lost their password, ask your Master Admin to call `POST /api/v1/admin/tenants/{tenant_id}/users/{user_id}/reset-password` with a fresh `new_password`, then share the new value out of band.
 
 Master-admin elevation lives in [ch. 2](#2-provisioning-a-new-tenant-master-admin-only).
 
@@ -407,7 +414,7 @@ Modelling both layers is what makes EnvManager useful: business-level rollups (t
    - *Name* — required, e.g. `Payments`.
    - *Description* — free text, multi-line.
    - *GitHub Repository URL* — optional, e.g. `https://github.com/org/payments`. Surfaces as a *GitHub* chip on the catalog row.
-   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured under tenant settings (see [ch. 11](#11-tenant-settings)).
+   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured at *Administration → Delivery → Systems* (`/admin/systems/fields`).
 4. Click *Create*. The system appears in the catalog. Click its row to open `/systems/:id`.
 
 There is no slug field — the system is referenced by its numeric id in the URL.
@@ -448,9 +455,9 @@ Edges are component dependencies. The arrow points from dependent to dependency 
 - Keep the System/Subsystem split honest: one System per shippable product. Resist the urge to model an internal library as its own System.
 - Each Subsystem should map 1:1 to a CI build target — *payments-api* corresponds to one build pipeline. This pairing matters for the deployment webhook (see [ch. 10](#10-api-keys-and-webhooks)).
 
-> **Not yet available:** DORA metrics dashboards (deployment frequency, lead time, change failure rate, mean time to restore) are planned for Phase 5+. EnvManager currently captures the underlying events (Builds, Deployments, Change Requests) so the data is there when the dashboards land.
+> **Now available:** DORA metrics dashboards (deployment frequency, lead time, change failure rate, mean time to restore) shipped in Phase 5, built from the underlying events (Builds, Deployments, Change Requests). Find them at *Insights → DORA metrics* (`/insights/dora`); this guide does not walk through reading them in detail.
 
-> **Not yet available:** GitHub-driven infrastructure discovery enrichment (auto-detecting subsystems, dependencies, IaC links from a repo) beyond the manual *GitHub Repository URL* field on a System is deferred. The current `/api/v1/import/terraform` and `/api/v1/import/docker-compose` endpoints (see [ch. 12](#12-importexport)) populate subsystems and component dependencies but stop short of full enrichment.
+> **Now available:** GitHub-driven infrastructure discovery shipped in Phase 6. Connect a tenant's GitHub App at *Administration → Integrations → GitHub* (`/admin/github`), then use *Scan repository* on a System's detail page to auto-detect subsystems and component dependencies from its `docker-compose.yml` or Terraform state (the same detectors the manual `/api/v1/import/terraform` and `/api/v1/import/docker-compose` endpoints use, see [ch. 12](#12-importexport)), and *Check drift* to compare the repository against the catalogue, read-only. This guide does not walk through that workflow in detail.
 
 ## 6. Modelling environments
 
@@ -499,10 +506,10 @@ inactive ◄──► decommissioned
    - **Description** — optional free text.
    - **Tier** (required) — a tenant-configurable vocabulary, not free text. Configure the list under *Administration → Environments → Tiers*; each tier carries a name and a colour, and drives filtering and the topology/grid chip colouring.
    - **Owner** (required) — a named user responsible for the environment. Shown on the list and detail pages; missing an owner *or* an operations group is a reportable governance gap (`?governance_gap=true`).
-   - **Operations Group** (optional) — the team responsible for this environment day-to-day, picked from *Administration → User Groups* (see [ch. 4](#4-managing-users-and-roles)). Shown on the list and detail pages; leaving it unset counts toward the same governance gap as a missing owner.
+   - **Operations Group** (optional) — the team responsible for this environment day-to-day, picked from *Administration → Organisation → User groups* (see [ch. 4](#4-managing-users-and-roles)). Shown on the list and detail pages; leaving it unset counts toward the same governance gap as a missing owner.
    - **Expires** (optional) — the date this environment is expected to retire. Leave blank for "no expiry planned" — that is a legitimate state, not a missing value, and does not count as a governance gap. Use the *expiring within N days* filter on the list page to find environments approaching their expiry.
    - **Status** — defaults to *active*.
-   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured in *Tenant Settings → Entity Config*; see [ch. 11](#11-tenant-settings)).
+   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured at *Administration → Environments → Custom fields*, `/admin/environments/fields`).
 3. Click *Create*. The environment is created with no systems attached.
 4. Open the new row to land on the detail page, then move to the *Systems* tab to attach systems.
 
@@ -595,7 +602,7 @@ Submitting a request and cancelling your own draft or submitted request need onl
 
 **The Welcome Pack** appears on a fulfilled request's detail page: environment summary, how to connect, support (including the operating team and its member list), known limitations, and offboarding notes. It is rendered **live** from the environment's current Handover fields on every view, not a document captured at fulfilment time — so a VPN endpoint the operating team updates next month shows up the next time anyone opens the pack. A field nobody has filled in reads **"Not provided"**, not a blank section; the pack always shows every heading, because an empty "How to connect" section reads as "there is nothing to do" rather than "nobody has documented this yet".
 
-**How far the lifecycle is editable.** *Standard Request* is deliberately plain — the diagram above — and a tenant can extend it like any other lifecycle template, from *Administration → Environment Requests → Lifecycle* (`/admin/config/environment-request`): add a second review step, add states, rewire which roles may make which transition. The one constraint is that a template must still define states named exactly `submitted`, `approved`, `rejected` and `fulfilled`, plus exactly one initial state (any name) — the service's own routing, fulfilment and Welcome-Pack logic key on those four names, so renaming one doesn't shrink the feature, it silently breaks it (a state the service no longer recognises as an approval target skips the group-membership check entirely, or a request reaches a status the template has no way out of). Saving a template that drops one of the four is refused with a 422 naming which is missing.
+**How far the lifecycle is editable.** *Standard Request* is deliberately plain — the diagram above — and a tenant can extend it like any other lifecycle template, from *Administration → Environments → Request lifecycle* (`/admin/environment-requests/lifecycle`): add a second review step, add states, rewire which roles may make which transition. The one constraint is that a template must still define states named exactly `submitted`, `approved`, `rejected` and `fulfilled`, plus exactly one initial state (any name) — the service's own routing, fulfilment and Welcome-Pack logic key on those four names, so renaming one doesn't shrink the feature, it silently breaks it (a state the service no longer recognises as an approval target skips the group-membership check entirely, or a request reaches a status the template has no way out of). Saving a template that drops one of the four is refused with a 422 naming which is missing.
 
 > **Deploy note.** Migration `envrequests` seeds *Standard Request* into every existing tenant as
 > part of `alembic upgrade head`. If that revision was ever applied to a database *before* this
@@ -617,7 +624,7 @@ An *Environment Group* is a named set of environments that gets booked, and tran
 
 **Walkthrough: creating a group and adding members.**
 
-1. Navigate to `/tenant/environment-groups` and click *+ New Group* (Admin only — any tenant member can view the list and open a group, matching the read/write split on User Groups and Projects).
+1. Navigate to `/environment-groups` and click *+ New Group* (Admin only — any tenant member can view the list and open a group, matching the read/write split on User Groups and Projects).
 2. Fill in **Name** (required, unique within the tenant) and an optional **Description**. Click *Create*.
 3. Open the new row. On the group's detail page, pick an environment from the **Environment** selector and click *Add* to add it as a member. Repeat for each environment the group should cover.
 4. The grid's **Environments** column shows the live member count.
@@ -626,13 +633,13 @@ An *Environment Group* is a named set of environments that gets booked, and tran
 
 **Deleting a group** removes its membership records but leaves the history of any booking already made through it untouched — deleting a group is not a way to undo or clean up past bookings.
 
-**Sorting and filtering.** The grid is client-side (loads the tenant's groups once, sorts and filters in the browser) — the same convention as `tenant/groups` and `/projects`, appropriate at the scale a tenant's own group list actually reaches. **Name** and **Created** are the only server-backed sortable columns if this grid is ever converted to a server-paged one; **Environments** (the member count) can never be, because it is computed from live membership rather than stored on the group row.
+**Sorting and filtering.** The grid is client-side (loads the tenant's groups once, sorts and filters in the browser) — the same convention as `/admin/user-groups` and `/projects`, appropriate at the scale a tenant's own group list actually reaches. **Name** and **Created** are the only server-backed sortable columns if this grid is ever converted to a server-paged one; **Environments** (the member count) can never be, because it is computed from live membership rather than stored on the group row.
 
 ### Naming and tagging policy
 
 A *naming and tagging policy* declares what an environment's **name** must look like and which
-**attributes** every environment must carry. It lives at *Administration → Entity Config →
-Environments → Naming Policy*, one policy per tenant.
+**attributes** every environment must carry. It lives at *Administration → Environments →
+Naming policy*, one policy per tenant.
 
 **What it does and does not do.** Exactly one thing is refused: saving a **changed** name that does
 not match the pattern is rejected with a 422 quoting your worked example. Everything else —
@@ -703,7 +710,7 @@ environment edit, such as deleting a user.
 
 ### Idle detection and the decommissioning workflow
 
-*Administration → Entity Config → Environments → Lifecycle & Decommissioning* is where a tenant
+*Administration → Environments → Decommissioning* is where a tenant
 configures the two halves of Phase 7 B5: whether — and how eagerly — an unused environment is
 flagged as idle, and the checklist a decommission is gated on. Reading this tab needs only
 tenant membership; saving it needs Admin.
@@ -735,8 +742,8 @@ activity, no monitored environment could ever be found idle, however unused it i
   themselves. An initiator may push the teardown date out; they may never pull it in ahead of this
   notice.
 
-**A tier can override the idle threshold.** On the *Tiers* editor (*Administration → Entity Config
-→ Environments → Tiers*), each tier has its own **Idle threshold override (days)**, left blank by
+**A tier can override the idle threshold.** On the *Tiers* editor (*Administration → Environments
+→ Tiers*), each tier has its own **Idle threshold override (days)**, left blank by
 default to inherit the tenant's number above. A Dev sandbox quiet for 30 days is a ghost worth
 flagging; a DR or Training environment quiet for 90 is behaving exactly as intended, and a single
 tenant-wide number necessarily mislabels one of them. Clear the override field to go back to
@@ -764,7 +771,7 @@ you set:
   signed against it — the signature stands as part of that decommission's record.
 
 See [ch. 6 §Walkthrough: decommissioning through the workflow](#walkthrough-decommissioning-through-the-workflow)
-for how the checklist and the idle flag are actually used, and *Environment Management →
+for how the checklist and the idle flag are actually used, and *Bookings →
 Decommissions* (`/decommissions`) for the worklist of every decommission across the tenant, live
 and finished alike.
 
@@ -823,7 +830,7 @@ A **gate** is a checkpoint on a single release — *UAT sign-off*, *Security rev
 
 ### Walkthrough: managing change kinds
 
-The change-kind admin UI lives at `/admin/scope-change-rules` — page component `TenantScopeChangeRules`. Every new tenant is seeded with four kinds:
+The change-kind admin UI lives at `/admin/releases/scope-change-rules` — page component `TenantScopeChangeRules`. Every new tenant is seeded with four kinds:
 
 | Kind | Counts as scope change |
 |------|------------------------|
@@ -834,7 +841,7 @@ The change-kind admin UI lives at `/admin/scope-change-rules` — page component
 
 To add a kind:
 
-1. Navigate to `/admin/scope-change-rules`.
+1. Navigate to `/admin/releases/scope-change-rules`.
 2. In the *Add a new change kind* panel, type a slug into the *Kind* field. Allowed: lowercase letters, digits, `_` and `-`, up to 20 characters. Examples: `chore`, `epic`, `migration`.
 3. Click *Add*. The new kind appears in the rules table with *Counts as scope change* off.
 4. Toggle the switch on if items of this kind should contribute to the rolled-up scope-change metric.
@@ -853,7 +860,7 @@ Gate dates render on the release Gantt as coloured diamonds — slate pending, g
 
 ### Gate Types
 
-*Administration → Releases → Gate Types* (`/admin/config/release`, tab *Gate Types*, Admin only) is where your tenant declares the **vocabulary** a gate can be typed against — a `functional` gate reads differently from a `security` one, and each type declares what a failure *should* mean and what evidence is expected. Every tenant is seeded with the eight standard types from [requirements.md §2.11](../requirements.md): *Functional*, *NFR / Performance*, *Integration*, *Security*, *License*, *Accessibility*, *Business*, and *Ops Readiness*. You can edit any of them, deactivate ones you don't use, and add tenant-specific types alongside them — a tenant-added type shows no *Standard category*, since that column is only populated for the eight seeded types.
+*Administration → Releases → Gate types* (`/admin/releases/gate-types`, Admin only) is where your tenant declares the **vocabulary** a gate can be typed against — a `functional` gate reads differently from a `security` one, and each type declares what a failure *should* mean and what evidence is expected. Every tenant is seeded with the eight standard types from [requirements.md §2.11](../requirements.md): *Functional*, *NFR / Performance*, *Integration*, *Security*, *License*, *Accessibility*, *Business*, and *Ops Readiness*. You can edit any of them, deactivate ones you don't use, and add tenant-specific types alongside them — a tenant-added type shows no *Standard category*, since that column is only populated for the eight seeded types.
 
 Each type has:
 
@@ -914,7 +921,7 @@ downgrade is a schema reversal, not a data one.
 
 ### Rollback Policy
 
-*Administration → Releases → Rollback Policy* (`/admin/config/release`, tab *Rollback Policy*, Admin only) is where your tenant decides whether a missing rollback plan, an unagreed one, or a missing/stale rollback rehearsal is a **warning** or a **blocker** in a release's readiness verdict — the same verdict *Gate Types* above feeds, so a connected pipeline reading `GET /api/v1/webhooks/release-ready` sees rollback gaps and gate gaps in one response (ch. 10). The panel's own copy states the scope of the two toggles plainly, and it is worth repeating here because it is easy to over-read: **this is advisory configuration only**. Neither setting stops a deployment, a release transition, or a rollback itself — a rollback can always be recorded (see the release detail page's *Rollback* tab → *Rollback History*) whether or not a plan exists at all, and nothing on this panel is enforced by this product.
+*Administration → Releases → Rollback policy* (`/admin/releases/rollback-policy`, Admin only) is where your tenant decides whether a missing rollback plan, an unagreed one, or a missing/stale rollback rehearsal is a **warning** or a **blocker** in a release's readiness verdict — the same verdict *Gate Types* above feeds, so a connected pipeline reading `GET /api/v1/webhooks/release-ready` sees rollback gaps and gate gaps in one response (ch. 10). The panel's own copy states the scope of the two toggles plainly, and it is worth repeating here because it is easy to over-read: **this is advisory configuration only**. Neither setting stops a deployment, a release transition, or a rollback itself — a rollback can always be recorded (see the release detail page's *Rollback* tab → *Rollback History*) whether or not a plan exists at all, and nothing on this panel is enforced by this product.
 
 Two toggles, **both off by default**:
 
@@ -934,13 +941,13 @@ Keep the change-kind list short — three to six is plenty. Use kind-scoped cust
 
 ### Booking types: protection levels and duration presets
 
-*Administration → Booking Types* (`/tenant/booking-types`, Admin only) is where each booking type gets its lifecycle template — and, since Phase 7 B4, two more settings that every booking of that type inherits.
+*Administration → Bookings → Booking types* (`/admin/bookings/types`, Admin only) is where each booking type gets its lifecycle template — and, since Phase 7 B4, two more settings that every booking of that type inherits.
 
 **Protection** — *Preemptible* or *Protected*. Every new booking request of this type starts at the type's level; an **Admin or Release Manager** can change it on an individual booking, and nobody else can (they see it, read-only, on the form and submit it unchanged).
 
 > A protected reservation is **advice, not a lock**. Anyone can still book over it. What "protected" changes is who is named the winner when two bookings clash and project priority cannot separate them.
 
-Precedence is worth being precise about, because it is the opposite way round from what most people assume: **project priority rank decides first**. Protection is consulted only in the cases where rank could not decide — the two projects have the same rank, one or both are unranked, or a booking has no resolvable project at all. A protected booking therefore does **not** outrank a higher-priority project's booking. Set ranks in *Administration → Projects* (see *Contention priority* above); protection is the tie-breaker underneath them.
+Precedence is worth being precise about, because it is the opposite way round from what most people assume: **project priority rank decides first**. Protection is consulted only in the cases where rank could not decide — the two projects have the same rank, one or both are unranked, or a booking has no resolvable project at all. A protected booking therefore does **not** outrank a higher-priority project's booking. Set ranks in *Bookings → Projects* (see *Contention priority* above); protection is the tie-breaker underneath them.
 
 > If every booking type is set to Protected, the level stops discriminating and contention verdicts return to naming no winner — exactly as they did before protection levels existed. There is no quota on protected bookings; the role gate is the whole control.
 
@@ -950,7 +957,7 @@ Both settings apply to bookings made **from now on**. Existing bookings keep the
 
 ### RAID Settings
 
-*RAID Settings* (left nav → **RAID Settings**, Admin only) controls how your tenant scores the **Risks** and **Issues** in every release's RAID log (user guide ch. 8 — RAID log). Each tenant gets a default 5×5 configuration on creation; edit it to match your organisation's risk framework.
+*Administration → Releases → RAID settings* (`/admin/releases/raid`, Admin only) controls how your tenant scores the **Risks** and **Issues** in every release's RAID log (user guide ch. 8 — RAID log). Each tenant gets a default 5×5 configuration on creation; edit it to match your organisation's risk framework.
 
 There are three things to configure:
 
@@ -969,8 +976,8 @@ A *release template* is a reusable skeleton for releases. It bundles a release t
 
 ### Walkthrough: creating a template
 
-1. Sign in as a tenant admin and navigate to *Admin → Release Templates* (`/admin/release-templates`).
-2. Click *New Template* to open the form at `/admin/release-templates/new`.
+1. Sign in as a tenant admin and navigate to *Administration → Releases → Templates* (`/admin/releases/templates`).
+2. Click *New Template* to open the form at `/admin/releases/templates/new`.
 3. Fill in the *Metadata* panel:
    - *Name* (required, up to 200 chars).
    - *Release Type* — one of `project`, `hotfix`, `patch`, `major`, `minor`. This becomes the type on every release built from the template.
@@ -981,7 +988,7 @@ A *release template* is a reusable skeleton for releases. It bundles a release t
 
 ### Walkthrough: editing and deleting
 
-To edit a template, open *Admin → Release Templates* and click the edit (pencil) icon on the row, or visit `/admin/release-templates/:id` directly. The form is the same as create; saving bumps the template's internal version counter.
+To edit a template, open *Administration → Releases → Templates* and click the edit (pencil) icon on the row, or visit `/admin/releases/templates/:id` directly. The form is the same as create; saving bumps the template's internal version counter.
 
 **Editing a template does *not* affect releases already created from it.** Each release gets its own copies of the *TestPhase* and *ReleaseGate* rows at instantiation — the template is a snapshot, not a live reference. Adjust the in-flight release directly if its gates or phases need to change.
 
@@ -1001,9 +1008,9 @@ The only write endpoint covered by API keys is the deployment webhook, which reg
 
 ### Walkthrough: creating an API key
 
-API keys are managed by **Tenant Admins** at `/tenant/api-keys` (left nav: *API keys*).
+API keys are managed by **Tenant Admins** at `/admin/api-keys` (*Administration → Integrations → API keys*).
 
-1. Navigate to `/tenant/api-keys`.
+1. Navigate to `/admin/api-keys`.
 2. Click *New key* (top right).
 3. Fill the *New API key* dialog:
    - *Name* — required, max 120 chars; pick something that identifies the consumer (for example `gitlab-ci-deploy`).
@@ -1278,22 +1285,23 @@ Treat keys as production secrets. Issue one per consumer so you can revoke a sin
 
 ### Concept
 
-Tenant settings hold tenant-scoped configuration that does not belong on any single entity and is not covered by per-entity custom fields. The page at `/tenant/settings` exposes one free-form JSON object — the `settings` column on the tenant row — which downstream features can read at runtime. Treat it as a small, hand-curated key/value bag for per-tenant toggles, integration hints, or feature flags that the rest of the platform consults; nothing on this page changes billing, identity, or routing.
+Tenant settings hold tenant-scoped configuration that does not belong on any single entity and is not covered by per-entity custom fields. The page at `/admin/settings` exposes one free-form JSON object — the `settings` column on the tenant row — which downstream features can read at runtime. Treat it as a small, hand-curated key/value bag for per-tenant toggles, integration hints, or feature flags that the rest of the platform consults; nothing on this page changes billing, identity, or routing.
 
 ### What's editable vs read-only
 
-The header card shows two read-only fields: *Name* (the display label that appears in the tenant switcher and headers) and *Slug* (the short identifier baked into login URLs and tenant-scoped paths). Both are deliberately locked from this page — slug changes would invalidate every existing bookmark and integration, and the name is set when the tenant is provisioned. To change either, a master admin must edit the tenant from `/admin/tenants/{tenantId}`. The only field you can edit here is the *Custom Settings (JSON)* document.
+The header card shows two read-only fields: *Name* (the display label that appears in the tenant switcher and headers) and *Slug* (the short identifier baked into login URLs and tenant-scoped paths). Both are deliberately locked from this page — slug changes would invalidate every existing bookmark and integration, and the name is set when the tenant is provisioned. To change either, a master admin must edit the tenant from `/admin/tenants/{tenantId}`. The only field you can edit here is the *Custom Settings (JSON)* document. The JSON document sits under *Advanced*, collapsed by default.
 
 ### Walkthrough: editing
 
-1. Open `/tenant/settings`.
-2. Edit the JSON in the *Custom Settings (JSON)* textarea.
-3. Click *Save Settings*.
-4. A green *Settings saved successfully* banner confirms the write; the textarea then reflects the persisted value.
+1. Open `/admin/settings`.
+2. Expand *Advanced* — the JSON editor is collapsed there by default.
+3. Edit the JSON in the *Custom settings (JSON)* textarea.
+4. Click *Save settings*.
+5. A green *Settings saved* banner confirms the write; the textarea then reflects the persisted value.
 
 ### Validation
 
-The textarea is parsed client-side before the request leaves the browser. Anything that is not valid JSON triggers an inline *Invalid JSON* alert and the *Save Settings* call is suppressed. The payload must parse to a JSON object — top-level arrays, strings, or numbers are rejected. Server-side errors (auth, network) surface in the same alert region with the backend message.
+The textarea is parsed client-side before the request leaves the browser. Anything that is not valid JSON triggers an inline *Invalid JSON* alert and the *Save settings* call is suppressed. The payload must parse to a JSON object — top-level arrays, strings, or numbers are rejected. Server-side errors (auth, network) surface in the same alert region with the backend message.
 
 ## 12. Import/export
 

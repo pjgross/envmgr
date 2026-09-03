@@ -216,8 +216,8 @@ export default function ProjectDetail() {
   if (!projectIdIsValid) {
     return (
       <Box sx={{ p: 3 }}>
-        <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
-          Back to Projects
+        <Button size="small" onClick={() => navigate('/projects')} sx={{ mb: 2 }}>
+          Back to projects
         </Button>
         <Alert severity="error">
           That address does not name a project. Pick one from the Projects list.
@@ -244,8 +244,8 @@ export default function ProjectDetail() {
   if (project == null) {
     return (
       <Box sx={{ p: 3 }}>
-        <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
-          Back to Projects
+        <Button size="small" onClick={() => navigate('/projects')} sx={{ mb: 2 }}>
+          Back to projects
         </Button>
         {loadError && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -258,8 +258,8 @@ export default function ProjectDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Button size="small" onClick={() => navigate('/tenant/projects')} sx={{ mb: 2 }}>
-        Back to Projects
+      <Button size="small" onClick={() => navigate('/projects')} sx={{ mb: 2 }}>
+        Back to projects
       </Button>
 
       {/* Reachable with the project loaded: the agreements list or a write can
@@ -291,7 +291,7 @@ export default function ProjectDetail() {
       <Typography color="text.secondary" sx={{ mb: 2 }}>
         Team:{' '}
         {project?.team_group_id ? (
-          <Link component={RouterLink} to={`/tenant/groups/${project.team_group_id}`}>
+          <Link component={RouterLink} to={`/admin/user-groups/${project.team_group_id}`}>
             {project.team_group_name ?? `Group #${project.team_group_id}`}
           </Link>
         ) : (

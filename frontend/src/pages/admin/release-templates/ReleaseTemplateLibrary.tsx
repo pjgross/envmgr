@@ -108,7 +108,7 @@ export default function ReleaseTemplateLibrary() {
           <Tooltip title="Edit template">
             <IconButton
               size="small"
-              onClick={() => navigate(`/admin/release-templates/${params.row.id}`)}
+              onClick={() => navigate(`/admin/releases/templates/${params.row.id}`)}
             >
               <EditIcon fontSize="small" />
             </IconButton>
@@ -149,7 +149,7 @@ export default function ReleaseTemplateLibrary() {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => navigate('/admin/release-templates/new')}
+          onClick={() => navigate('/admin/releases/templates/new')}
         >
           New Template
         </Button>
