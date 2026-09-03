@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useUrlTab } from '../../hooks/useUrlTab';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -35,7 +35,7 @@ import {
 } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../../components/DataTable';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -126,7 +126,6 @@ export default function EnvironmentDetail() {
   const envId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
-  const navigate = useNavigate();
 
   const { currentEnvironment, environmentSystemsData, envSubsystems, loading, error } = useSelector(
     (state: RootState) => state.environment
@@ -690,27 +689,27 @@ export default function EnvironmentDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton onClick={() => navigate('/environments')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          {currentEnvironment?.name ?? '…'}
-        </Typography>
-        {currentEnvironment && (
-          <Chip
-            label={currentEnvironment.status}
-            size="small"
-            color={STATUS_COLORS[currentEnvironment.status]}
-          />
-        )}
-        {!editMode && tab === 'overview' && (
-          <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
-            Edit
-          </Button>
-        )}
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/environments', label: 'Environments' }}
+        title={currentEnvironment?.name}
+        status={
+          currentEnvironment && (
+            <Chip
+              label={currentEnvironment.status}
+              size="small"
+              color={STATUS_COLORS[currentEnvironment.status]}
+            />
+          )
+        }
+        actions={
+          !editMode &&
+          tab === 'overview' && (
+            <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
+              Edit
+            </Button>
+          )
+        }
+      />
 
       <Tabs
         value={tab}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -19,7 +19,6 @@ import {
   DialogActions,
   TextField,
   Paper,
-  Breadcrumbs,
   Select,
   MenuItem,
   FormControl,
@@ -39,6 +38,7 @@ import {
 import type { UserResponse } from '../../types';
 import type { RootState, AppDispatch } from '../../store';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import { useConfirm } from '../../hooks/useConfirm';
 
 export default function TenantDetail() {
@@ -171,26 +171,23 @@ export default function TenantDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Breadcrumbs sx={{ mb: 2 }}>
-        <Link to="/admin/tenants" style={{ textDecoration: 'none', color: 'inherit' }}>
-          Tenants
-        </Link>
-        <Typography color="text.primary">{tenant?.name ?? 'Tenant'}</Typography>
-      </Breadcrumbs>
-
+      <DetailPageHeader
+        back={{ to: '/admin/tenants', label: 'Tenants' }}
+        title={tenant?.name}
+        status={
+          tenant && (
+            <Chip
+              label={tenant.is_active ? 'Active' : 'Disabled'}
+              color={tenant.is_active ? 'success' : 'default'}
+              size="small"
+            />
+          )
+        }
+      />
       {tenant && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="h5">{tenant.name}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Slug: {tenant.slug}
-          </Typography>
-          <Chip
-            label={tenant.is_active ? 'Active' : 'Disabled'}
-            color={tenant.is_active ? 'success' : 'default'}
-            size="small"
-            sx={{ mt: 1 }}
-          />
-        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Slug: {tenant.slug}
+        </Typography>
       )}
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>

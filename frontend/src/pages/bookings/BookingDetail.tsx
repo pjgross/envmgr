@@ -46,6 +46,7 @@ import EditEnvOverridesDialog from '../../components/bookings/EditEnvOverridesDi
 import { formatApiError } from '../../services/apiError';
 import { PROTECTION_LABELS } from '../../constants/protection';
 import { formatBookingDateTime } from '../../utils/datetime';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 // --- Status colour map -------------------------------------------------------
 
@@ -326,46 +327,32 @@ export default function BookingDetail() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 900 }}>
-      {/* Back button */}
-      <Button
-        startIcon={<ArrowBackIcon />}
-        onClick={() => navigate('/bookings/list')}
-        sx={{ mb: 2 }}
-      >
-        Back to Bookings
-      </Button>
-
-      {/* Request context */}
-      {booking.request && (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="h6">{booking.request.project_name}</Typography>
-            {protectionChip}
-            <ConflictIndicator hasUnacknowledged={booking.has_unacknowledged_conflicts} />
-            <Box sx={{ flexGrow: 1 }} />
-            {bookingRequest != null && (
-              <Button size="small" onClick={() => setEditingStandardFields(true)}>
-                Edit request
-              </Button>
+      <DetailPageHeader
+        back={{ to: '/bookings/list', label: 'Bookings' }}
+        title={booking.request ? booking.request.project_name : booking.project_name}
+        status={
+          <>
+            {!booking.request && (
+              <Chip
+                label={booking.status}
+                color={STATE_COLOURS[booking.status] ?? 'default'}
+                size="small"
+              />
             )}
-          </Box>
-        </Paper>
-      )}
-
-      {/* Booking status chip (for context when no request block shows, or as supplementary info) */}
-      {!booking.request && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-          <Typography variant="h5" fontWeight="bold">
-            {booking.project_name}
-          </Typography>
-          <Chip
-            label={booking.status}
-            color={STATE_COLOURS[booking.status] ?? 'default'}
-            size="small"
-          />
-          {protectionChip}
-        </Box>
-      )}
+            {protectionChip}
+            {booking.request && (
+              <ConflictIndicator hasUnacknowledged={booking.has_unacknowledged_conflicts} />
+            )}
+          </>
+        }
+        actions={
+          booking.request && bookingRequest != null ? (
+            <Button size="small" onClick={() => setEditingStandardFields(true)}>
+              Edit request
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Error banner (transition errors) */}
       {error && (

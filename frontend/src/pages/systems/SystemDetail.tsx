@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useUrlTab } from '../../hooks/useUrlTab';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -33,7 +33,6 @@ import {
   Typography,
   Link,
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -73,6 +72,7 @@ import SystemTopologyDiagram from './SystemTopologyDiagram';
 import ScanRepositoryDialog from '../../components/systems/ScanRepositoryDialog';
 import DriftDialog from '../../components/systems/DriftDialog';
 import ScopeWindowsTable from '../../components/releases/ScopeWindowsTable';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import RehearsalsPanel from '../../components/systems/RehearsalsPanel';
 import type {
   DependencyType,
@@ -201,7 +201,6 @@ export default function SystemDetail() {
   const { id } = useParams<{ id: string }>();
   const systemId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
-  const navigate = useNavigate();
   const snackbar = useSnackbar();
 
   const { currentSystem, subsystems, loading, error } = useSelector(
@@ -789,20 +788,18 @@ export default function SystemDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton onClick={() => navigate('/systems')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          {currentSystem?.name ?? '…'}
-        </Typography>
-        {!editMode && tab === 'overview' && (
-          <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
-            Edit
-          </Button>
-        )}
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/systems', label: 'Systems' }}
+        title={currentSystem?.name}
+        actions={
+          !editMode &&
+          tab === 'overview' && (
+            <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
+              Edit
+            </Button>
+          )
+        }
+      />
 
       <Tabs
         value={tab}

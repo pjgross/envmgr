@@ -36,6 +36,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import { AppDispatch, RootState } from '../../store';
 import { fetchRelease, deleteRelease, clearDetail } from '../../store/releaseSlice';
 import ReleaseMainTab from '../../components/releases/ReleaseMainTab';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import ReleasePlanTab from '../../components/releases/ReleasePlanTab';
 import ReleaseEnvironmentsTab from '../../components/releases/ReleaseEnvironmentsTab';
 import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedRequestsTab';
@@ -136,34 +137,33 @@ export default function ReleaseDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <IconButton onClick={() => navigate('/releases')} size="small">
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          {release.name}
-        </Typography>
-        <Chip
-          label={release.status}
-          color={STATUS_COLORS[release.status] ?? 'default'}
-          size="small"
-        />
-        <Chip label={release.release_type} size="small" variant="outlined" />
-        <Tooltip title="Status history">
-          <IconButton size="small" onClick={() => setHistoryOpen(true)}>
-            <HistoryIcon />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Event log">
-          <IconButton size="small" onClick={() => setEventLogOpen(true)}>
-            <EventNoteIcon />
-          </IconButton>
-        </Tooltip>
-        <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
-          <DeleteOutlineIcon />
-        </IconButton>
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/releases', label: 'Releases' }}
+        title={release.name}
+        status={
+          <>
+            <Chip label={release.status} color={STATUS_COLORS[release.status] ?? 'default'} size="small" />
+            <Chip label={release.release_type} size="small" variant="outlined" />
+          </>
+        }
+        actions={
+          <>
+            <Tooltip title="Status history">
+              <IconButton size="small" onClick={() => setHistoryOpen(true)}>
+                <HistoryIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Event log">
+              <IconButton size="small" onClick={() => setEventLogOpen(true)}>
+                <EventNoteIcon />
+              </IconButton>
+            </Tooltip>
+            <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
+              <DeleteOutlineIcon />
+            </IconButton>
+          </>
+        }
+      />
 
       <ReadinessBanner releaseId={releaseId} />
 

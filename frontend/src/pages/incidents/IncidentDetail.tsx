@@ -37,6 +37,7 @@ import { SEVERITY_COLOR } from '../../utils/incidentSeverity';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import LinkIncidentToPirDialog from '../../components/incidents/LinkIncidentToPirDialog';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 export default function IncidentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -111,49 +112,46 @@ export default function IncidentDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-        <IconButton onClick={() => navigate('/incidents')} size="small">
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          {detail.title}
-        </Typography>
-        <Chip
-          label={detail.severity}
-          color={SEVERITY_COLOR[detail.severity] ?? 'default'}
-          size="small"
-        />
-        <Chip label={detail.status} size="small" variant="outlined" />
+      <DetailPageHeader
+        back={{ to: '/incidents', label: 'Incidents' }}
+        title={detail.title}
+        status={
+          <>
+            <Chip
+              label={detail.severity}
+              color={SEVERITY_COLOR[detail.severity] ?? 'default'}
+              size="small"
+            />
+            <Chip label={detail.status} size="small" variant="outlined" />
+          </>
+        }
+        actions={
+          <>
+            {/* Lifecycle transition buttons */}
+            {detail.allowed_transitions.map((t) => (
+              <Button
+                key={t.to_state}
+                size="small"
+                variant="outlined"
+                onClick={() => handleTransition(t.to_state)}
+              >
+                {t.label}
+              </Button>
+            ))}
 
-        {/* Lifecycle transition buttons */}
-        {detail.allowed_transitions.map((t) => (
-          <Button
-            key={t.to_state}
-            size="small"
-            variant="outlined"
-            onClick={() => handleTransition(t.to_state)}
-          >
-            {t.label}
-          </Button>
-        ))}
-
-        <IconButton
-          size="small"
-          onClick={() => navigate(`/incidents/${incidentId}/edit`)}
-          title="Edit incident"
-        >
-          <EditIcon />
-        </IconButton>
-        <IconButton
-          size="small"
-          color="error"
-          onClick={handleDelete}
-          title="Delete incident"
-        >
-          <DeleteOutlineIcon />
-        </IconButton>
-      </Box>
+            <IconButton
+              size="small"
+              onClick={() => navigate(`/incidents/${incidentId}/edit`)}
+              title="Edit incident"
+            >
+              <EditIcon />
+            </IconButton>
+            <IconButton size="small" color="error" onClick={handleDelete} title="Delete incident">
+              <DeleteOutlineIcon />
+            </IconButton>
+          </>
+        }
+      />
 
       {/* ── Details block ──────────────────────────────────────────────── */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
