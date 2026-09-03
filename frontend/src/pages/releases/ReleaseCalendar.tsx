@@ -1,7 +1,9 @@
 /**
  * ReleaseCalendar — FullCalendar view of release phases.
  * Backed by GET /api/v1/releases/calendar?from=&to=
- * Click a phase event → /releases/:releaseId?tab=phases&phase=:phaseId
+ * Click a release → /releases/:releaseId. The endpoint returns one entry per
+ * RELEASE (ReleaseCalendarEntry has no phase id), so there is nothing finer to
+ * link to; a phase-level calendar would need a different endpoint.
  */
 import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -85,7 +87,7 @@ export default function ReleaseCalendar() {
         Release Calendar
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Phase timeline for all active releases. Click a phase to open the release.
+        Target and actual dates for all active releases. Click a release to open it.
       </Typography>
 
       {loading && (
