@@ -38,12 +38,19 @@ vi.mock('../services/api', () => {
 
 const fill = (pattern: string) => pattern.replace(/:[a-zA-Z]+/g, '42');
 
+// `window.location.pathname` alone never contains a query string, and some
+// `LEGACY_REDIRECTS` targets now legitimately carry `?tab=` (§6: the tab is
+// a query param). Comparing the full URL is strictly STRONGER than the old
+// pathname-only check: it now also proves the right tab landed, not merely
+// the right page.
+const currentUrl = () => window.location.pathname + window.location.search;
+
 describe('legacy paths redirect', () => {
   afterEach(() => document.body.replaceChildren());
 
   it.each(LEGACY_REDIRECTS.map((r) => [r.from, r.to]))('%s → %s', async (from, to) => {
     renderAppAt(fill(from), { role: 'Admin', is_master_admin: true });
-    await waitFor(() => expect(window.location.pathname).toBe(fill(to)), { timeout: 4000 });
+    await waitFor(() => expect(currentUrl()).toBe(fill(to)), { timeout: 4000 });
   });
 
   it('no source file navigates to a legacy path', () => {
