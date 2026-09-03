@@ -345,13 +345,14 @@ export default function EnvironmentDetail() {
     dispatch(verifyEnvironment(envId));
   };
 
-  const handleTabChange = (_: React.SyntheticEvent, newValue: string) => {
-    setTab(newValue);
-    if (newValue === 'components') {
-      // Lazy-load subsystems when Components tab is first opened
-      dispatch(fetchEnvSubsystems(envId));
-    }
-  };
+  // Lazy-load subsystems when the Components tab is active — keyed on `tab`
+  // (the sibling pattern SystemDetail's component-deps effect uses), not on
+  // the Tabs onChange handler, so a deep link or reload landing directly on
+  // `?tab=components` loads the data too, not only a click.
+  useEffect(() => {
+    if (tab !== 'components') return;
+    dispatch(fetchEnvSubsystems(envId));
+  }, [tab, envId, dispatch]);
 
   const openVersionDialog = () => {
     setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
@@ -713,7 +714,7 @@ export default function EnvironmentDetail() {
 
       <Tabs
         value={tab}
-        onChange={handleTabChange}
+        onChange={(_, v: string) => setTab(v)}
         variant="scrollable"
         scrollButtons="auto"
         sx={{ mb: 2 }}
