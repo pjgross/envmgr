@@ -789,7 +789,13 @@ export default function SystemDetail() {
         )}
       </Box>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ mb: 2 }}
+      >
         <Tab label="Overview" />
         <Tab label="SubSystems" />
         <Tab label="Dependencies" />

@@ -696,7 +696,13 @@ export default function EnvironmentDetail() {
         )}
       </Box>
 
-      <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 2 }}>
+      <Tabs
+        value={tab}
+        onChange={handleTabChange}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ mb: 2 }}
+      >
         <Tab label="Overview" />
         <Tab label="Systems" />
         <Tab label="Components" />
