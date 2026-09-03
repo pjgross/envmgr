@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
-  Typography,
   Table,
   TableHead,
   TableRow,
@@ -34,6 +33,7 @@ import type { UserResponse } from '../../types';
 import type { RootState, AppDispatch } from '../../store';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function UserManagement() {
   const dispatch = useDispatch<AppDispatch>();
@@ -126,12 +126,14 @@ export default function UserManagement() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h5">Users</Typography>
-        <Button variant="contained" onClick={() => setCreateOpen(true)}>
-          New User
-        </Button>
-      </Box>
+      <PageHeader
+        title="Users"
+        actions={
+          <Button variant="contained" onClick={() => setCreateOpen(true)}>
+            New User
+          </Button>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>

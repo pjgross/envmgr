@@ -6,6 +6,7 @@ import GitHubIcon from '@mui/icons-material/GitHub';
 import { githubIntegrationService } from '../../services/githubIntegrationService';
 import { formatApiError } from '../../services/apiError';
 import type { DeviceFlowStarted, GitHubStatus } from '../../types/githubIntegration';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function GitHubIntegration() {
   const [status, setStatus] = useState<GitHubStatus | null>(null);
@@ -111,11 +112,10 @@ export default function GitHubIntegration() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>GitHub Integration</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Connect a GitHub account so systems can scan their repository for subsystems and
-        dependencies.
-      </Typography>
+      <PageHeader
+        title="GitHub Integration"
+        subtitle="Connect a GitHub account so systems can scan their repository for subsystems and dependencies."
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>

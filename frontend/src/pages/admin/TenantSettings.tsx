@@ -16,6 +16,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { fetchTenantSettings, updateTenantSettings } from '../../store/tenantAdminSlice';
 import type { RootState, AppDispatch } from '../../store';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function TenantSettings() {
   const dispatch = useDispatch<AppDispatch>();
@@ -55,9 +56,7 @@ export default function TenantSettings() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Tenant settings
-      </Typography>
+      <PageHeader title="Tenant settings" />
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {saved && <Alert severity="success" sx={{ mb: 2 }}>Settings saved</Alert>}
 

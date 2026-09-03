@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { Link as RouterLink } from 'react-router-dom';
 import type { RootState } from '../../store';
 import { visibleAdminNav } from '../../components/adminNavConfig';
+import PageHeader from '../../components/layout/PageHeader';
 
 /** `/admin` — generated from adminNav so it can never disagree with the drawer. */
 export default function AdminHome() {
@@ -11,12 +12,7 @@ export default function AdminHome() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Administration
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Tenant configuration, people and integrations.
-      </Typography>
+      <PageHeader title="Administration" subtitle="Tenant configuration, people and integrations." />
       <Grid container spacing={2}>
         {sections.map((section) => (
           <Grid item xs={12} md={6} lg={4} key={section.label}>

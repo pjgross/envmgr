@@ -3,7 +3,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Link } from 'react-router-dom';
 import {
   Box,
-  Typography,
   Chip,
   Button,
   CircularProgress,
@@ -21,6 +20,7 @@ import type { RootState, AppDispatch } from '../../store';
 import DataTable from '../../components/DataTable';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
+import PageHeader from '../../components/layout/PageHeader';
 
 interface TenantRow {
   id: number;
@@ -151,12 +151,14 @@ export default function TenantList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-        <Typography variant="h5">Tenants</Typography>
-        <Button variant="contained" onClick={() => setCreateOpen(true)}>
-          New Tenant
-        </Button>
-      </Box>
+      <PageHeader
+        title="Tenants"
+        actions={
+          <Button variant="contained" onClick={() => setCreateOpen(true)}>
+            New Tenant
+          </Button>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  Box, Button, Chip, IconButton, Paper, Stack, Tooltip, Typography,
+  Box, Button, Chip, IconButton, Paper, Stack, Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -18,6 +18,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import ApiKeyCreateDialog from '../../components/apikeys/ApiKeyCreateDialog';
 import ApiKeyCreatedDialog from '../../components/apikeys/ApiKeyCreatedDialog';
 import type { ApiKeyCreatePayload } from '../../types/apiKey';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function ApiKeyManagement() {
   const dispatch = useDispatch<AppDispatch>();
@@ -87,12 +88,14 @@ export default function ApiKeyManagement() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h5">API keys</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-          New key
-        </Button>
-      </Stack>
+      <PageHeader
+        title="API keys"
+        actions={
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
+            New key
+          </Button>
+        }
+      />
 
       <Paper variant="outlined">
         <DataGrid

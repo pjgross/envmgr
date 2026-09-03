@@ -1,4 +1,4 @@
-import { Box, Tab, Tabs, Typography } from '@mui/material';
+import { Box, Tab, Tabs } from '@mui/material';
 import { useParams } from 'react-router-dom';
 import type { EntityType } from '../../types/customField';
 import NotFound from '../../components/NotFound';
@@ -13,6 +13,7 @@ import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPane
 import RollbackPolicyPanel from '../../components/admin/RollbackPolicyPanel';
 import { useUrlTab } from '../../hooks/useUrlTab';
 import { entityConfigPage, type EntityPanel } from './entityConfigTabs';
+import PageHeader from '../../components/layout/PageHeader';
 
 function Panel({ panel, entityType }: { panel: EntityPanel; entityType: EntityType }) {
   switch (panel) {
@@ -67,12 +68,7 @@ export default function EntityConfig() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        {page.label}
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Configure {page.label.toLowerCase()} for your tenant.
-      </Typography>
+      <PageHeader title={page.label} subtitle={`Configure ${page.label.toLowerCase()} for your tenant.`} />
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs
           value={current.key}

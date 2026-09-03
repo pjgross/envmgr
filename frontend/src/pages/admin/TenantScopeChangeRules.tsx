@@ -27,6 +27,7 @@ import {
 } from '../../store/scopeChangeRulesSlice';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import type { ScopeChangeKindRuleUpsertItem } from '../../types/scopeChangeRule';
+import PageHeader from '../../components/layout/PageHeader';
 
 // Must mirror the backend regex in schemas/scope_change_rule.py.
 const KIND_RE = /^[a-z][a-z0-9_-]*$/;
@@ -99,14 +100,10 @@ export default function TenantScopeChangeRules() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Scope Change Rules
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Configure which change kinds count towards scope change tracking on releases.
-        You can also add new tenant-specific kinds here — they become available in
-        the scope-item dialog as soon as you save.
-      </Typography>
+      <PageHeader
+        title="Scope Change Rules"
+        subtitle="Configure which change kinds count towards scope change tracking on releases. You can also add new tenant-specific kinds here — they become available in the scope-item dialog as soon as you save."
+      />
 
       {loading && !rules.length ? (
         <CircularProgress size={24} />

@@ -5,6 +5,39 @@ import { MemoryRouter } from 'react-router-dom';
 import PageHeader from '../PageHeader';
 import DetailPageHeader from '../DetailPageHeader';
 
+// Same technique as systemSliceConsumers.test.ts: `import.meta.glob` both
+// enumerates and reads every page source file, no Node builtins involved.
+const pageFiles = import.meta.glob<string>('../../../pages/**/*.tsx', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+// `variant="h4"` outside these files is a page rendering its title through a
+// hand-rolled Typography again, which is exactly the regression Task 8's
+// PageHeader conversion exists to prevent. These four are NOT that case:
+// each uses h4 for a large numeric stat tile / code display deep in the
+// page body, never for the page's own title, and Task 8 deliberately left
+// them alone rather than "fixing" a rendering choice unrelated to the
+// header region.
+const H4_OUTSIDE_TITLE_CONTEXT = new Set([
+  '../../../pages/Login.tsx', // its own centred layout — out of PageHeader's scope entirely
+  '../../../pages/insights/DoraDashboard.tsx', // metric-card primary value
+  '../../../pages/releases/ReleaseAnalytics.tsx', // metric-card primary values
+  '../../../pages/admin/GitHubIntegration.tsx', // device-flow user code display
+  '../../../pages/releases/enterprise/ReportTab.tsx', // report heading inside a tab, not a routed page
+]);
+
+describe('page modules use PageHeader for their title, not a bare h4', () => {
+  it('no page module outside the documented exceptions renders variant="h4"', () => {
+    const offenders = Object.entries(pageFiles)
+      .filter(([path]) => !path.includes('__tests__') && !H4_OUTSIDE_TITLE_CONTEXT.has(path))
+      .filter(([, src]) => /variant="h4"/.test(src))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+});
+
 // `ReactNode`, not `React.ReactNode`: the new JSX transform does not bring the
 // React namespace into scope for types.
 const at = (path: string, ui: ReactNode) =>
