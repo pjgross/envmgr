@@ -5,8 +5,39 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ExtensionIcon from '@mui/icons-material/Extension';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import { entityTabPath } from '../pages/admin/entityConfigTabs';
-import { userSatisfies, type NavGroup, type NavUser } from './navConfig';
+import { entityConfigPage, entityTabPath, type AdminEntity } from '../pages/admin/entityConfigTabs';
+import { userSatisfies, type NavGroup, type NavItem, type NavUser } from './navConfig';
+
+/**
+ * Expand an entity into one drawer item per its configuration tab, in the
+ * order `ENTITY_CONFIG_PAGES` declares — that table is the single source of
+ * truth for a tab's label, order and description, so a section built this
+ * way can never disagree with the tab strip `EntityConfig` renders for it.
+ */
+function entityTabItems(entity: AdminEntity): NavItem[] {
+  const page = entityConfigPage(entity);
+  if (!page) throw new Error(`Unknown admin entity: ${entity}`);
+  return page.tabs.map((tab) => ({
+    label: tab.label,
+    path: entityTabPath(entity, tab.key),
+    description: tab.description,
+  }));
+}
+
+/**
+ * A single drawer item for an entity that isn't this section's own — it
+ * navigates to the entity's page (landing on its first tab), labelled with
+ * that entity's own name rather than one of its tab names.
+ */
+function entityPageItem(entity: AdminEntity, description: string): NavItem {
+  const page = entityConfigPage(entity);
+  if (!page) throw new Error(`Unknown admin entity: ${entity}`);
+  return {
+    label: page.label,
+    path: entityTabPath(entity, page.tabs[0].key),
+    description,
+  };
+}
 
 /**
  * The admin tree. Sections group by WHAT an admin is configuring, not by
@@ -35,22 +66,15 @@ export const adminNav: NavGroup[] = [
     icon: <ComputerIcon />,
     requires: 'admin',
     children: [
-      { label: 'Tiers', path: entityTabPath('environments', 'tiers'), description: 'The tier vocabulary (dev, SIT, UAT…) and per-tier idle thresholds.' },
-      { label: 'Naming policy', path: entityTabPath('environments', 'naming-policy'), description: 'Name pattern, required attributes and quarantine grace.' },
-      { label: 'Decommissioning', path: entityTabPath('environments', 'lifecycle-policy'), description: 'Idle detection, notice period and the teardown checklist.' },
-      { label: 'Request lifecycle', path: entityTabPath('environment-requests', 'lifecycle'), description: 'States and transitions for environment requests.' },
-      { label: 'Custom fields', path: entityTabPath('environments', 'fields'), description: 'Tenant-defined fields on every environment.' },
+      ...entityTabItems('environments'),
+      entityPageItem('environment-requests', 'Custom fields and lifecycle for environment requests.'),
     ],
   },
   {
     label: 'Bookings',
     icon: <EventAvailableIcon />,
     requires: 'admin',
-    children: [
-      { label: 'Booking types', path: entityTabPath('bookings', 'types'), description: 'Types, default protection level and duration presets.' },
-      { label: 'Lifecycle', path: entityTabPath('bookings', 'lifecycle'), description: 'States and transitions for bookings.' },
-      { label: 'Custom fields', path: entityTabPath('bookings', 'fields'), description: 'Tenant-defined fields on every booking.' },
-    ],
+    children: entityTabItems('bookings'),
   },
   {
     label: 'Releases',
@@ -58,14 +82,10 @@ export const adminNav: NavGroup[] = [
     requires: 'admin',
     children: [
       { label: 'Templates', path: '/admin/releases/templates', description: 'Reusable release blueprints: phases, gates and events.' },
-      { label: 'Gate types', path: entityTabPath('releases', 'gate-types'), description: 'The gate vocabulary, failure behaviour and expected evidence.' },
-      { label: 'Rollback policy', path: entityTabPath('releases', 'rollback-policy'), description: 'Whether a missing plan or stale rehearsal warns or blocks.' },
-      { label: 'Event types', path: entityTabPath('releases', 'event-types'), description: 'Release calendar event types.' },
-      { label: 'Lifecycle', path: entityTabPath('releases', 'lifecycle'), description: 'States and transitions for releases.' },
+      ...entityTabItems('releases'),
       { label: 'Scope-change rules', path: '/admin/releases/scope-change-rules', description: 'Change kinds and what counts as scope creep.' },
       { label: 'RAID settings', path: '/admin/releases/raid', description: 'RAID categories, RAG thresholds and defaults.' },
-      { label: 'Custom fields', path: entityTabPath('releases', 'fields'), description: 'Tenant-defined fields on every release.' },
-      { label: 'Scope item fields', path: entityTabPath('release-changes', 'fields'), description: 'Tenant-defined fields on release scope items.' },
+      entityPageItem('release-changes', 'Tenant-defined fields on release scope items.'),
     ],
   },
   {
@@ -73,14 +93,13 @@ export const adminNav: NavGroup[] = [
     icon: <LocalShippingIcon />,
     requires: 'admin',
     children: [
-      { label: 'Change requests', path: entityTabPath('change-requests', 'fields'), description: 'Custom fields and lifecycle for change requests.' },
-      { label: 'Builds', path: entityTabPath('builds', 'fields'), description: 'Custom fields on builds.' },
-      { label: 'Deployments', path: entityTabPath('deployments', 'fields'), description: 'Custom fields on deployments.' },
-      { label: 'Incidents', path: entityTabPath('incidents', 'fields'), description: 'Custom fields and lifecycle for incidents.' },
-      { label: 'Systems', path: entityTabPath('systems', 'fields'), description: 'Custom fields on systems.' },
-      { label: 'Subsystems', path: entityTabPath('subsystems', 'fields'), description: 'Custom fields on subsystems.' },
+      entityPageItem('change-requests', 'Custom fields and lifecycle for change requests.'),
+      entityPageItem('builds', 'Custom fields on builds.'),
+      entityPageItem('deployments', 'Custom fields on deployments.'),
+      entityPageItem('incidents', 'Custom fields and lifecycle for incidents.'),
+      entityPageItem('systems', 'Custom fields on systems.'),
+      entityPageItem('subsystems', 'Custom fields on subsystems.'),
       { label: 'Component types', path: '/admin/component-types', description: 'Infrastructure component types and their field schemas.' },
-      { label: 'Environment request fields', path: entityTabPath('environment-requests', 'fields'), description: 'Custom fields on environment requests.' },
     ],
   },
   {

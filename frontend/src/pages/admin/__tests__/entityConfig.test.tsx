@@ -43,13 +43,13 @@ describe('EntityConfig', () => {
 
   it('redirects a bare entity path to its first tab', () => {
     renderAt('/admin/bookings');
-    expect(screen.getByTestId('path')).toHaveTextContent('/admin/bookings/fields');
-    expect(screen.getByText('fields:booking')).toBeInTheDocument();
+    expect(screen.getByTestId('path')).toHaveTextContent('/admin/bookings/types');
+    expect(screen.getByText('booking-types')).toBeInTheDocument();
   });
 
   it('redirects an unknown tab to the first tab', () => {
     renderAt('/admin/releases/nope');
-    expect(screen.getByTestId('path')).toHaveTextContent('/admin/releases/fields');
+    expect(screen.getByTestId('path')).toHaveTextContent('/admin/releases/gate-types');
   });
 
   it('changes the URL when a tab is clicked', async () => {
