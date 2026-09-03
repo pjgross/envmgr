@@ -63,6 +63,7 @@ import { contentionService } from '../../services/contentionService';
 import { formatApiError } from '../../services/apiError';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { Escalation, EscalationState } from '../../types/contention';
+import PageHeader from '../../components/layout/PageHeader';
 
 const STATE_CHIP: Record<EscalationState, { label: string; color: 'info' | 'success' | 'warning' }> = {
   open: { label: 'Open', color: 'info' },
@@ -440,9 +441,7 @@ export default function EscalationWorklist() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight="bold" sx={{ mb: 1 }}>
-        Contention Escalations
-      </Typography>
+      <PageHeader title="Contention Escalations" />
 
       {/* WHAT THIS PAGE DOES, in general — and NOTHING about groups, which is
           a fact about a particular row and is now said on the rows and the

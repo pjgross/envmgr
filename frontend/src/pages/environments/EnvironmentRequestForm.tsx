@@ -28,7 +28,6 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Typography,
 } from '@mui/material';
 
 import type { AppDispatch } from '../../store';
@@ -36,6 +35,7 @@ import { createEnvironmentRequest } from '../../store/environmentRequestSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
 import type { EnvironmentRequestCreate, EnvironmentRequestKind } from '../../types/environmentRequest';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function EnvironmentRequestForm() {
   const dispatch = useDispatch<AppDispatch>();
@@ -98,9 +98,7 @@ export default function EnvironmentRequestForm() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 640, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 3 }}>
-        New Environment Request
-      </Typography>
+      <PageHeader title="New Environment Request" />
 
       <Paper sx={{ p: 3 }}>
         <Stack spacing={2.5}>

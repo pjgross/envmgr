@@ -23,6 +23,7 @@ import {
   deleteEnvironmentGroup,
 } from '../../store/environmentGroupSlice';
 import type { EnvironmentGroupResponse } from '../../types/environmentGroup';
+import PageHeader from '../../components/layout/PageHeader';
 
 // Sortable fields (whitelist-backed, see ENVIRONMENT_GROUP_SORTS): `name` and
 // `created_at` ONLY. `member_count` is a correlated subquery — not backed by a
@@ -173,28 +174,27 @@ export default function EnvironmentGroups() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="h5">Environment Groups</Typography>
-        {canWrite && (
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => {
-              // Reset the dialog's own error before it opens, or a previous
-              // failure's message greets a fresh, untouched form (the bug
-              // Projects.tsx fixed and UserGroups.tsx still carries).
-              setCreateError(null);
-              setCreateOpen(true);
-            }}
-          >
-            + New Group
-          </Button>
-        )}
-      </Box>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
-        An environment group is a named set of environments bookable as one unit;
-        member bookings transition together.
-      </Typography>
+      <PageHeader
+        title="Environment Groups"
+        subtitle="An environment group is a named set of environments bookable as one unit; member bookings transition together."
+        actions={
+          canWrite && (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => {
+                // Reset the dialog's own error before it opens, or a previous
+                // failure's message greets a fresh, untouched form (the bug
+                // Projects.tsx fixed and UserGroups.tsx still carries).
+                setCreateError(null);
+                setCreateOpen(true);
+              }}
+            >
+              + New Group
+            </Button>
+          )
+        }
+      />
 
       <DataGrid
         rows={groups}
