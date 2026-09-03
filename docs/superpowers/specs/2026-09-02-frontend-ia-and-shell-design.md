@@ -342,15 +342,33 @@ life of the whole table for no one's benefit; and that table answers "this
 PAGE moved", while this answers "a tab is addressed differently" — folding
 them together would leave the next reader unable to delete either safely.
 
-**Two corrections to what this section assumed when it was written.** The
-`?tab=phases&phase=:phaseId` deep link it describes as switching is **built
-here, not converted**: `ReleaseCalendar` navigates to a bare `/releases/:id`
-today, and its own header comment already documents the behaviour as if it
-existed — the reverse of the "built and connected to nothing" class, and a
-reminder that a comment is not evidence. And the scrollable-tabs clause is
-**partly done**: C4 added it to `ReleaseDetail` when an eleventh tab rendered
-off-screen, and `EnterpriseTabs` always had it; PR 2 covers the remainder and
-adds the test that stops the next tab regressing it.
+**Three corrections to what this section assumed when it was written**, all
+found by reading the code before planning rather than by trusting the comments
+in it.
+
+**The `?tab=phases&phase=:phaseId` deep link CANNOT BE BUILT, and is struck
+from this section.** `ReleaseCalendar`'s header comment documents exactly that
+destination, and the page's own subtitle reads "Phase timeline for all active
+releases. Click a phase to open the release." Both are fiction:
+`GET /releases/calendar` returns `ReleaseCalendarEntry` — `{id, title, start,
+end, status, release_type}` — so the events on that calendar are **releases,
+not phases**, and no phase id exists anywhere in the payload to deep-link
+with. `handleEventClick` navigates to `/releases/:id`, which is the only thing
+it could do. PR 2 therefore corrects the comment and the subtitle to describe
+what the page does, and builds no deep link. A phase-level calendar is a
+different feature needing a different endpoint; it is not smuggled in here.
+Recorded at this length because two pieces of prose asserted this behaviour
+confidently enough that a spec repeated it.
+
+**The scrollable-tabs clause is partly done**: C4 added it to `ReleaseDetail`
+when an eleventh tab rendered off-screen, and `EnterpriseTabs` always had it;
+PR 2 covers the remainder and adds the test that stops the next tab regressing
+it.
+
+**`ConfirmDialog` already focuses *Cancel* when `destructive`** (audit P2-6) —
+implemented, commented, and with no test. PR 2 adds the guard and fixes the
+eleven messages (P2-7) only. There are exactly eleven, so that count was
+right.
 
 **`ConfirmDialog`**: focuses *Cancel* when `destructive` (P2-6). The eleven
 generic confirm messages the audit listed name the entity (P2-7).
