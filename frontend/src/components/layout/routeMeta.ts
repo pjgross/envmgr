@@ -31,8 +31,12 @@ export const ROUTE_META: Record<string, RouteMeta> = {
   '/systems': { label: 'Systems' },
   '/systems/:id': { label: 'System', parent: '/systems' },
   '/environments': { label: 'Environments' },
-  '/environments/compare': { label: 'Compare environments' },
+  // Declared before its literal sibling on purpose: the dynamic pattern
+  // matches "compare" as `id` too, so this ordering is a live check that the
+  // specificity scorer below — not insertion order — is what makes the
+  // literal win (see routeMeta.test.ts's specificity-scorer test).
   '/environments/:id': { label: 'Environment', parent: '/environments' },
+  '/environments/compare': { label: 'Compare environments' },
   '/infrastructure/hosts': { label: 'Hosts' },
   '/import': { label: 'Import' },
 
@@ -54,12 +58,15 @@ export const ROUTE_META: Record<string, RouteMeta> = {
 
   // Releases
   '/releases': { label: 'List' },
-  '/releases/new': { label: 'New release', parent: '/releases' },
   '/releases/calendar': { label: 'Calendar' },
   '/releases/timeline': { label: 'Timeline' },
   '/releases/scope-windows': { label: 'Scope windows' },
   '/releases/analytics': { label: 'Analytics' },
+  // Same deliberate ordering as /environments above: /releases/:id is
+  // declared before /releases/new, which it would otherwise swallow as
+  // `id: "new"` were the scorer not doing the picking.
   '/releases/:id': { label: 'Release', parent: '/releases' },
+  '/releases/new': { label: 'New release', parent: '/releases' },
   '/builds': { label: 'Builds' },
   '/builds/:id': { label: 'Build', parent: '/builds' },
   '/deployments': { label: 'Deployments' },
