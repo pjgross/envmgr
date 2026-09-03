@@ -27,6 +27,7 @@ import MoveScopeItemDialog from '../../components/releases/MoveScopeItemDialog';
 import { useAllSystems } from '../../hooks/useAllSystems';
 import { useAllProjects } from '../../hooks/useAllProjects';
 import { releaseColumns } from './releaseColumns';
+import PageHeader from '../../components/layout/PageHeader';
 
 const KIND_COLORS: Record<string, 'default' | 'info' | 'error' | 'warning'> = {
   story: 'info',
@@ -153,14 +154,14 @@ export default function ReleaseList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 2 }}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Releases
-        </Typography>
-        <Button variant="contained" onClick={() => setFormOpen(true)}>
-          New Release
-        </Button>
-      </Box>
+      <PageHeader
+        title="Releases"
+        actions={
+          <Button variant="contained" onClick={() => setFormOpen(true)}>
+            New Release
+          </Button>
+        }
+      />
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Releases" />

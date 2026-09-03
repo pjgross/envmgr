@@ -39,6 +39,7 @@ import { formatApiError } from '../../services/apiError';
 import { pirService } from '../../services/pirService';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { PirActionRow, PirActionStatus } from '../../types/pir';
+import PageHeader from '../../components/layout/PageHeader';
 
 const STATUS_LABELS: Record<PirActionStatus, string> = {
   open: 'Open',
@@ -222,9 +223,7 @@ export default function PirActionList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight="bold" sx={{ mb: 1 }}>
-        PIR Actions
-      </Typography>
+      <PageHeader title="PIR Actions" />
 
       <Alert severity="info" sx={{ mb: 2 }} data-testid="pir-actions-advisory">
         Process fixes raised by post-implementation reviews across every release. An

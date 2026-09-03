@@ -1,7 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, MenuItem, Paper, Stack, TextField, Typography,
+  Box, MenuItem, Paper, Stack, TextField,
 } from '@mui/material';
 import { DataGrid, GridColDef, GridRowParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
@@ -9,6 +9,7 @@ import { fetchDeployments } from '../../store/deploymentSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import DeploymentStatusChip from '../../components/deployments/DeploymentStatusChip';
 import type { DeploymentStatus } from '../../types/deployment';
+import PageHeader from '../../components/layout/PageHeader';
 
 const STATUS_OPTIONS: DeploymentStatus[] = [
   'pending', 'in_progress', 'success', 'failed', 'rolled_back',
@@ -64,7 +65,7 @@ export default function DeploymentList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>Deployments</Typography>
+      <PageHeader title="Deployments" />
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">

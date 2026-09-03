@@ -21,6 +21,7 @@ import { AppDispatch, RootState } from '../../store';
 import { fetchReleaseTimeline } from '../../store/releaseSlice';
 import DependencyAlertBanner from '../../components/releases/DependencyAlertBanner';
 import type { ReleaseTimelineEntry } from '../../types/release';
+import PageHeader from '../../components/layout/PageHeader';
 
 const PHASE_STATUS_COLORS: Record<string, string> = {
   pending: '#9e9e9e',
@@ -173,12 +174,10 @@ export default function ReleaseTimeline({ releaseId, alerts = [] }: Props) {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Release Timeline
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Gantt view of all release phases. Click a release name to open it.
-      </Typography>
+      <PageHeader
+        title="Release Timeline"
+        subtitle="Gantt view of all release phases. Click a release name to open it."
+      />
 
       {releaseId && alerts.length > 0 && (
         <DependencyAlertBanner releaseId={releaseId} alerts={alerts} />
