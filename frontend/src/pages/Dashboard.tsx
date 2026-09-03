@@ -1,5 +1,6 @@
 import { Typography, Container, Box, Paper, Grid } from '@mui/material';
 import { useAllEnvironments } from '../hooks/useAllEnvironments';
+import PageHeader from '../components/layout/PageHeader';
 
 export default function Dashboard() {
   // Not the shared environment slice: since the C3 conversion it
@@ -9,9 +10,7 @@ export default function Dashboard() {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Typography variant="h4" gutterBottom>
-        Dashboard
-      </Typography>
+      <PageHeader title="Dashboard" />
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={6} lg={3}>
