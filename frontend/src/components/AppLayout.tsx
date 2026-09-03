@@ -162,7 +162,12 @@ export default function AppLayout() {
             EnvManager
           </Link>
           <IconButton color="inherit" aria-label="Account menu" onClick={(e) => setMenuAnchor(e.currentTarget)}>
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.dark', fontSize: 14 }}>
+            {/* An explicit colour: MUI's Avatar defaults its initial to
+                background.default, which in dark mode is near-black on this
+                mid-blue — the initial read at a contrast ratio of 2.37. */}
+            <Avatar
+              sx={{ width: 32, height: 32, bgcolor: 'primary.dark', color: 'primary.contrastText', fontSize: 14 }}
+            >
               {user?.username?.[0]?.toUpperCase()}
             </Avatar>
           </IconButton>
