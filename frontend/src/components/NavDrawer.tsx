@@ -69,9 +69,9 @@ export default function NavDrawer({
       key={item.path}
       selected={item.path === active}
       onClick={() => onNavigate(item.path)}
-      sx={{ ...itemSx, pl: nested ? 4 : 2 }}
+      sx={{ ...itemSx, pl: nested ? 3 : 2 }}
     >
-      {item.icon !== undefined && <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>}
+      {item.icon !== undefined && <ListItemIcon sx={{ minWidth: 32 }}>{item.icon}</ListItemIcon>}
       <ListItemText primary={item.label} />
     </ListItemButton>
   );

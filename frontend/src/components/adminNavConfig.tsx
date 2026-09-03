@@ -37,7 +37,7 @@ export const adminNav: NavGroup[] = [
     children: [
       { label: 'Tiers', path: entityTabPath('environments', 'tiers'), description: 'The tier vocabulary (dev, SIT, UAT…) and per-tier idle thresholds.' },
       { label: 'Naming policy', path: entityTabPath('environments', 'naming-policy'), description: 'Name pattern, required attributes and quarantine grace.' },
-      { label: 'Lifecycle & decommissioning', path: entityTabPath('environments', 'lifecycle-policy'), description: 'Idle detection, notice period and the teardown checklist.' },
+      { label: 'Decommissioning', path: entityTabPath('environments', 'lifecycle-policy'), description: 'Idle detection, notice period and the teardown checklist.' },
       { label: 'Request lifecycle', path: entityTabPath('environment-requests', 'lifecycle'), description: 'States and transitions for environment requests.' },
       { label: 'Custom fields', path: entityTabPath('environments', 'fields'), description: 'Tenant-defined fields on every environment.' },
     ],

@@ -710,7 +710,7 @@ environment edit, such as deleting a user.
 
 ### Idle detection and the decommissioning workflow
 
-*Administration → Environments → Lifecycle & decommissioning* is where a tenant
+*Administration → Environments → Decommissioning* is where a tenant
 configures the two halves of Phase 7 B5: whether — and how eagerly — an unused environment is
 flagged as idle, and the checklist a decommission is gated on. Reading this tab needs only
 tenant membership; saving it needs Admin.
