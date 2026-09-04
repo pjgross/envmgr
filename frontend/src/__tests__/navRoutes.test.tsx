@@ -28,6 +28,11 @@ vi.mock('../services/authService', () => ({
 //  - GET /metrics/environments/utilization (also ReleaseAnalytics): `[]`
 //    has no `.rows`, so `setUtilization(o.rows)` sets `undefined`, and the
 //    DataGrid's own rows-changed effect throws reading `.length` of it.
+//  - GET /me/work (AppLayout's nav badge, via `useMyWork`, on EVERY page —
+//    and MyWork.tsx itself at /my-work): `[]` has no `.queues`, and
+//    `selectMyWorkTotal`/AppLayout's own attention check both read
+//    `data.queues`, throwing on every single route in this sweep, not just
+//    `/my-work`.
 vi.mock('../services/api', () => {
   const empty = () => Promise.resolve({ data: [], headers: { 'x-total-count': '0' } });
   const get = vi.fn((url: string) => {
@@ -75,6 +80,22 @@ vi.mock('../services/api', () => {
     }
     if (url.includes('/metrics/environments/utilization')) {
       return Promise.resolve({ data: { rows: [], unconfigured_count: 0 }, headers: {} });
+    }
+    if (url.includes('/me/work')) {
+      const emptyQueue = { count: 0, items: [], failed: false };
+      return Promise.resolve({
+        data: {
+          as_of: '2026-09-04T00:00:00Z',
+          queues: {
+            environment_requests: emptyQueue,
+            contentions: emptyQueue,
+            decommissions: emptyQueue,
+            pir_actions: emptyQueue,
+            incidents: emptyQueue,
+          },
+        },
+        headers: {},
+      });
     }
     return empty();
   });

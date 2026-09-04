@@ -31,6 +31,24 @@ vi.mock('../services/api', () => {
         headers: {},
       });
     }
+    if (url.includes('/me/work')) {
+      // AppLayout's nav badge (useMyWork) fetches on every page now — see
+      // navRoutes.test.tsx's identical branch for why `[]` throws here.
+      const emptyQueue = { count: 0, items: [], failed: false };
+      return Promise.resolve({
+        data: {
+          as_of: '2026-09-04T00:00:00Z',
+          queues: {
+            environment_requests: emptyQueue,
+            contentions: emptyQueue,
+            decommissions: emptyQueue,
+            pir_actions: emptyQueue,
+            incidents: emptyQueue,
+          },
+        },
+        headers: {},
+      });
+    }
     return empty();
   });
   return { default: { get, post: vi.fn(empty), put: vi.fn(empty), patch: vi.fn(empty), delete: vi.fn(empty) } };

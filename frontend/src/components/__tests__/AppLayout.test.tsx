@@ -8,8 +8,28 @@ import AppLayout from '../AppLayout';
 import { EntityTabRedirect } from '../../App';
 import authReducer, { setCredentials } from '../../store/authSlice';
 import uiReducer from '../../store/uiSlice';
+import myWorkReducer from '../../store/myWorkSlice';
 
 vi.mock('../../services/authService', () => ({ authService: { logout: vi.fn() } }));
+// AppLayout now calls useMyWork() on every render (Task 7's nav badge) — an
+// unmocked call would hit the real axios instance from inside jsdom. Resolve
+// with an all-empty, non-failed response: none of this file's assertions are
+// about the badge, so the quietest possible answer (no badge rendered at
+// all) is the right one here.
+vi.mock('../../services/myWorkService', () => ({
+  myWorkService: {
+    getMyWork: vi.fn().mockResolvedValue({
+      as_of: '2026-09-04T00:00:00Z',
+      queues: {
+        environment_requests: { count: 0, items: [], failed: false },
+        contentions: { count: 0, items: [], failed: false },
+        decommissions: { count: 0, items: [], failed: false },
+        pir_actions: { count: 0, items: [], failed: false },
+        incidents: { count: 0, items: [], failed: false },
+      },
+    }),
+  },
+}));
 
 function Probe() {
   const navigate = useNavigate();
@@ -26,7 +46,7 @@ function Probe() {
 
 function renderAt(path: string, role = 'Admin', isMaster = false) {
   const store = configureStore({
-    reducer: { auth: authReducer, ui: uiReducer },
+    reducer: { auth: authReducer, ui: uiReducer, myWork: myWorkReducer },
     preloadedState: {
       auth: {
         user: { id: 1, username: 'admin', email: 'a@x', role, tenant_id: 1, is_master_admin: isMaster },
@@ -131,7 +151,7 @@ describe('AppLayout', () => {
     // load (see uiSlice.test.ts), so writing localStorage from inside a test
     // body never reaches a reducer whose initial state was already computed.
     const store = configureStore({
-      reducer: { auth: authReducer, ui: uiReducer },
+      reducer: { auth: authReducer, ui: uiReducer, myWork: myWorkReducer },
       preloadedState: {
         auth: {
           user: null,

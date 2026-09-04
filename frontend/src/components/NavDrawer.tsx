@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import {
+  Badge,
   Collapse,
   List,
   ListItemButton,
@@ -8,7 +9,7 @@ import {
 } from '@mui/material';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { isNavGroup, type NavEntry, type NavItem } from './navConfig';
+import { isNavGroup, type NavBadgeKey, type NavEntry, type NavItem } from './navConfig';
 
 function splitPathAndQuery(value: string): [pathname: string, search: string] {
   const qIndex = value.indexOf('?');
@@ -75,6 +76,24 @@ export function groupContaining(entries: NavEntry[], current: string): string | 
   return undefined;
 }
 
+/**
+ * One badge's live state, keyed by `NavItem.badge` in `NavDrawerProps.badges`
+ * — whoever renders the tree (AppLayout) supplies this; NavDrawer never
+ * knows what "my-work" means, only how to draw a badge for it.
+ *
+ * `total` is a count; `attention` is a distinct "something couldn't be
+ * checked" signal that does NOT require `total` to be zero (a rendered
+ * count can itself be a lower bound while some other queue behind the same
+ * badge failed) — see AppLayout's own reasoning for why these are not the
+ * same flag.
+ */
+export interface NavBadgeState {
+  total: number;
+  attention: boolean;
+}
+
+export type NavBadges = Partial<Record<NavBadgeKey, NavBadgeState>>;
+
 export interface NavDrawerProps {
   entries: NavEntry[];
   currentPath: string;
@@ -83,6 +102,8 @@ export interface NavDrawerProps {
   onNavigate: (path: string) => void;
   /** Rendered above the list — admin mode's back link and heading. */
   header?: ReactNode;
+  /** Live counts for any item declaring `badge`. Absent key/prop renders no badge. */
+  badges?: NavBadges;
 }
 
 const itemSx = { borderRadius: 1, mx: 1, mb: 0.5 };
@@ -94,20 +115,62 @@ export default function NavDrawer({
   onToggleGroup,
   onNavigate,
   header,
+  badges,
 }: NavDrawerProps) {
   const active = activeItemPath(entries, currentPath);
 
-  const renderItem = (item: NavItem, nested: boolean) => (
-    <ListItemButton
-      key={item.path}
-      selected={item.path === active}
-      onClick={() => onNavigate(item.path)}
-      sx={{ ...itemSx, pl: nested ? 3 : 2 }}
-    >
-      {item.icon !== undefined && <ListItemIcon sx={{ minWidth: 32 }}>{item.icon}</ListItemIcon>}
-      <ListItemText primary={item.label} />
-    </ListItemButton>
-  );
+  const renderIcon = (item: NavItem): ReactNode => {
+    if (item.icon === undefined) return undefined;
+    const state = item.badge ? badges?.[item.badge] : undefined;
+    // Rule 3: a true zero (no count, nothing failed) renders no badge at
+    // all — a "0" is noise, and a hidden dot would be indistinguishable
+    // from no state prop being wired up yet.
+    if (!state || (state.total === 0 && !state.attention)) return item.icon;
+    const showCount = state.total > 0;
+    return (
+      <Badge
+        color={showCount ? 'error' : 'warning'}
+        variant={showCount ? 'standard' : 'dot'}
+        badgeContent={showCount ? state.total : undefined}
+        max={99}
+        overlap="circular"
+        componentsProps={{ badge: { 'aria-hidden': true } }}
+      >
+        {item.icon}
+      </Badge>
+    );
+  };
+
+  /**
+   * The badge's count/attention state is folded into the button's
+   * accessible name explicitly (rather than left to whatever text nodes the
+   * Badge happens to render) because the Badge's own numeral is marked
+   * `aria-hidden` above — a screen reader would otherwise announce nothing
+   * about it at all, not merely announce it inconsistently.
+   */
+  const badgeAriaSuffix = (item: NavItem): string => {
+    const state = item.badge ? badges?.[item.badge] : undefined;
+    if (!state) return '';
+    if (state.total > 0) return `, ${state.total} item${state.total === 1 ? '' : 's'} waiting`;
+    if (state.attention) return ', some queues could not be checked';
+    return '';
+  };
+
+  const renderItem = (item: NavItem, nested: boolean) => {
+    const suffix = badgeAriaSuffix(item);
+    return (
+      <ListItemButton
+        key={item.path}
+        selected={item.path === active}
+        onClick={() => onNavigate(item.path)}
+        sx={{ ...itemSx, pl: nested ? 3 : 2 }}
+        aria-label={suffix ? `${item.label}${suffix}` : undefined}
+      >
+        {item.icon !== undefined && <ListItemIcon sx={{ minWidth: 32 }}>{renderIcon(item)}</ListItemIcon>}
+        <ListItemText primary={item.label} />
+      </ListItemButton>
+    );
+  };
 
   return (
     <>

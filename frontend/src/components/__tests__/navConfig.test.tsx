@@ -12,8 +12,10 @@ const children = (u: NavUser | null, group: string) => {
 };
 
 describe('appNav', () => {
-  it('shows Dashboard then the four workflow groups to a regular user, no Administration', () => {
-    expect(topLabels(regular)).toEqual(['Dashboard', 'Catalogue', 'Bookings', 'Releases', 'Insights']);
+  it('shows Dashboard, My work, then the four workflow groups to a regular user, no Administration', () => {
+    expect(topLabels(regular)).toEqual([
+      'Dashboard', 'My work', 'Catalogue', 'Bookings', 'Releases', 'Insights',
+    ]);
   });
 
   it('files Projects and Environment groups under Bookings for every role', () => {
