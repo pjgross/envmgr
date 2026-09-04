@@ -2,7 +2,9 @@
 
 > Status: design approved 2026-09-02; §6 amended 2026-09-03 before PR 2
 > (one tab mechanism, `routeMeta` stays static, the segment form becomes a
-> route-level redirect — see §6 and §11).
+> route-level redirect — see §6 and §11); §5 amended 2026-09-04 before PR 3
+> (`GET /bookings` has no range params and PR 3 adds them; the decommission
+> narrowing does not exist and PR 3 adds it; `/me/work` degrades per queue).
 >
 > A five-PR frontend programme. It replaces the two disagreeing admin menus with
 > one admin mode, restructures the main navigation, turns the Phase-0 placeholder
@@ -275,6 +277,20 @@ Rules:
   `environment_service.assert_may_edit_handover` is built on; it is the third
   reader of membership after the two B3b established, and follows their
   tenant scoping and Admin bypass.
+
+  **AMENDED 2026-09-04, before PR 3: this narrowing DOES NOT EXIST YET and is
+  not reuse.** `environment_decommission_service.worklist_query`'s signature is
+  `(tenant_id, *, now, sort, state)` — there is no membership parameter. PR 3
+  ADDS one (optional, so `/decommissions`' own unnarrowed listing is
+  unchanged), and the addition must match B3b's two existing membership
+  readers on tenant scoping and the Admin bypass, because B3b's rule is that
+  those readers "must stay in step". `/decommissions` gains the capability
+  too; it is not private to `/me/work`.
+
+- **`environment_request_service._actionable_clause` is promoted to public**
+  (`actionable_clause`). The underscore said it had one caller; it is about to
+  have two, and a private reach-in from another service is how a predicate
+  quietly acquires a second definition.
 - Items carry display names with the row (environment name, release name,
   owner username), never ids — `usernames_for` is not tenant-qualified, per
   A4/C2.
@@ -283,16 +299,48 @@ The nav badge on *My work* is the sum of the five counts, fetched on mount and
 on every route change through a `useMyWork` hook backed by `uiSlice`. No
 polling.
 
+**One failing queue does not blank the page** (added 2026-09-04). Five queues
+answer in one response, so `/me/work` returns the queues that succeeded and
+marks the one that did not, rather than failing the whole request. A dashboard
+that goes blank because a single worklist is unhappy is worse than one showing
+four of five and saying so. The frontend renders a failed queue's card with a
+retry, never as an empty queue — "nothing waiting on you" must never be the
+rendering of "we could not tell".
+
 ### 5.2 Dashboard
 
 The Phase-0 text goes. The page becomes:
 
 - **Four live tiles**, each a link to the filtered list: *Active environments*
-  (`GET /environments?status=active`), *Bookings live now*
-  (`GET /bookings?start=<now>&end=<now>` semantics via the existing range
-  params — half-open `[start, end)`), *Releases in flight* (non-terminal
-  status), *Open incidents*. Counts read `X-Total-Count` from a `limit=1`
-  fetch of the existing list endpoint; no aggregation endpoint is invented.
+  (`GET /environments?status=active`), *Bookings live now*, *Releases in
+  flight* (non-terminal status), *Open incidents*. Counts read `X-Total-Count`
+  from a `limit=1` fetch of the existing list endpoint; no aggregation
+  endpoint is invented.
+
+  **AMENDED 2026-09-04, before PR 3: `GET /bookings` HAS NO RANGE PARAMS.**
+  This section said the tile used "the existing range params"; it does not —
+  `start_date`/`end_date` appear only in `BOOKING_SORTS`, the sort whitelist.
+  Sending `?start=&end=` would be **silently dropped** by FastAPI and the tile
+  would count every booking in the tenant while looking right. That is the
+  third instance of this exact trap here, after `/releases/calendar`'s date
+  range and the Projects grid's `?project_id=`.
+
+  PR 3 therefore ADDS `start`/`end` filters to `GET /bookings`, with three
+  rules the endpoint's existing shape forces:
+
+  - **Filtered in SQL, never after the query.** The endpoint is paged, so a
+    Python-side filter would window the pre-filter set and quietly return the
+    wrong page — the standing rule in docs/pagination.md.
+  - **The test is interval OVERLAP, not "starts within".** A booking running
+    1-10 September is live on the 4th; filtering on `start_date` alone would
+    miss it. This is the correction `/releases/calendar` needed, and
+    `contention_forecast_service.overlapping_pairs` is the local precedent —
+    including its rule that `GREATEST`/`LEAST` are unavailable on SQLite and a
+    decomposed comparison is used instead.
+  - **A zero-width probe must match.** The "live now" tile asks
+    `?start=<now>&end=<now>`, an empty range. Overlap must be defined so a
+    booking spanning that instant still matches, or the tile silently reads
+    zero. Half-open `[start, end)` is kept for ranges with width.
 - **Coming up**: bookings starting in the next 7 days and releases whose
   target date falls in the next 14, from the calendar range endpoints.
 - **Needs attention**: the existing `ContentionHorizon` widget and the
@@ -435,7 +483,18 @@ Named tests for the promises, in the pattern this codebase already uses:
   sides of the filter and assert the count equals the worklist's
   `X-Total-Count` under the same filter and clock; on both engines. A PIR
   action due today is **not** overdue; a decommission whose teardown day is
-  today is `warned`, not `due`.
+  today is `warned`, not `due`. This is the test that gives §5's "no restated
+  predicates" rule teeth: without it, "the counts call the existing seams" is
+  a sentence nothing checks, and a second implementation could drift for
+  months while both surfaces look right in isolation.
+- **`GET /bookings`'s new range filter is asserted on OVERLAP, not on start**:
+  a booking spanning the queried range matches even though it begins before
+  it, and a zero-width probe (`start == end`) matches a booking spanning that
+  instant. A test that only seeds bookings starting inside the range passes
+  with a wrong `start_date >= :start` implementation.
+- **Three runs, not one.** PR 3 is the first in this programme with backend
+  code, so "the full suite" means SQLite, PostgreSQL and the frontend. A
+  green frontend run says nothing about either backend leg.
 - **Membership narrowing on decommissions**: a user in no group sees an empty
   decommission queue; an Admin sees all; a member sees only their group's
   environments.
@@ -480,6 +539,11 @@ programme closes; CLAUDE.md gets one banner paragraph at the end of PR 5.
 - **Tenant settings JSON stays.** Nothing reads named keys through the UI;
   inventing a form for an opaque blob would be a guess.
 - **Redirects live one release.** Test bookmarks are the only consumers.
+- **`/me/work` degrades per queue rather than failing whole** (added
+  2026-09-04). Considered and declined: 500 on any queue's failure (one
+  unhappy worklist blanks a landing page), and silently omitting a failed
+  queue (indistinguishable from an empty one, so "nothing waiting on you"
+  would be a lie the user cannot detect).
 - **A tab is a query param, not a route segment** (amended 2026-09-03, before
   PR 2). Considered and declined: keeping both, with the rule "a tab a drawer
   item targets is a segment, a tab a page owns is a query param" — defensible,
