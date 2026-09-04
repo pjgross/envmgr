@@ -161,7 +161,13 @@ export default function IncidentList() {
 
   const grid = useServerGrid({
     endpoint: 'incidents',
-    filterKeys: ['status', 'severity', 'system_id'],
+    // `open` has no filter UI on this page — it exists so the Dashboard's
+    // "Open incidents" tile can link here with `?open=true` already in the
+    // URL and land on the SAME rows it counted. Without this in filterKeys,
+    // useServerGrid never reads it out of the URL, `fetchIncidents` never
+    // gets it, and the tile and the page it links to would silently
+    // disagree — the same failure BookingList's `start`/`end` entries guard.
+    filterKeys: ['status', 'severity', 'system_id', 'open'],
     onFetch: (params) => dispatch(fetchIncidents(params)),
     total,
     totalPending: listLoading,

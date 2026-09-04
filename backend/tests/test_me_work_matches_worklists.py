@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.db.models.contention_escalation import ContentionEscalation
+from app.services.incident_defaults import seed_incident_defaults_for_tenant
 from tests.factories import (
     add_group_member,
     ensure_environment,
@@ -32,9 +33,24 @@ from tests.factories import (
 async def test_incidents_count_matches_the_worklist(
     client, auth_headers, test_tenant, db_session
 ):
+    """`?open=true` — non-terminal, resolved from the tenant's own incident
+    lifecycle template, never a hardcoded status.
+
+    Seeded with statuses `create_incident` can actually produce (`new`, the
+    initial state, and `closed`, a real terminal one) — NOT the old
+    `status="open"`/`status="closed"` pairing, where `"open"` is not a real
+    incident status and could never occur outside a test fixture. Asserting
+    equivalence against `?status=open` let both sides agree on a fabricated
+    value forever; this asserts it against the real filter instead. Requires
+    `test_tenant`'s incident lifecycle to be seeded — it is a bare Tenant row
+    (bypasses `tenant_service.create_tenant`), so nothing seeds it otherwise.
+    """
+    await seed_incident_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
+
     for i in range(3):
         await make_incident(
-            db_session, test_tenant.id, title=f"open {i}", status="open"
+            db_session, test_tenant.id, title=f"open {i}", status="new"
         )
     for i in range(2):
         await make_incident(
@@ -43,7 +59,7 @@ async def test_incidents_count_matches_the_worklist(
 
     mine = await client.get("/api/v1/me/work", headers=auth_headers)
     worklist = await client.get(
-        "/api/v1/incidents?status=open&limit=1", headers=auth_headers
+        "/api/v1/incidents?open=true&limit=1", headers=auth_headers
     )
 
     assert mine.status_code == 200

@@ -239,7 +239,37 @@ already have the filters:
 | Contentions I must decide | `GET /contentions?state=open&owner_user_id=<me>` | the named owner |
 | Decommissions needing action | `GET /decommissions?state=warned\|extension_requested\|due`, narrowed to environments whose operations group contains me | ops-team members (Admin included, by membership only — see below) |
 | PIR actions I own | `GET /pir-actions?owner_id=<me>&status=open`; overdue counted separately | the owner |
-| Open incidents | `GET /incidents?status=open` | everyone — incidents have no assignee |
+| Open incidents | `GET /incidents?open=true` | everyone — incidents have no assignee |
+
+**AMENDED 2026-09-04, before PR 3: `?status=open` IS NOT A REAL STATUS AND
+NEVER WAS.** This table's "open incidents" row, and the dashboard tile of the
+same name in §5.2, both said `?status=open`. The default incident lifecycle
+(`incident_defaults.py`) names seven states — `new`, `investigating`,
+`identified`, `fix_scheduled`, `resolved`, `closed`, `cancelled` — and `open`
+is none of them. Against the running demo tenant, `GET
+/incidents?status=open&limit=1` returns `X-Total-Count: 0` regardless of how
+many incidents exist, so `/my-work`'s incidents card and the dashboard tile
+were both permanently empty.
+
+**How this survived a green suite: an equivalence test proves two sides
+agree, not that either is right.** `test_me_work_matches_worklists.py`'s
+incident test seeded rows with the factory default `status="open"` — a value
+`create_incident` can never actually produce, since it always assigns the
+lifecycle's initial state — and then asserted `/me/work`'s count equalled
+`GET /incidents?status=open`'s count. Both sides read the same fabricated
+value, so the test stayed green while describing a status that cannot occur
+in real data. Fixed by seeding realistic statuses (the initial state and a
+real terminal one) and asserting against the new filter instead.
+
+Statuses are per-tenant (lifecycle-template driven), so no fixed status list
+can be hardcoded client- or server-side. Every lifecycle state already
+carries `is_terminal` (`incident_defaults.py`, and `release_defaults.py` for
+the sibling case in §5.2), so PR 3 adds a server-resolved, tenant-agnostic
+filter instead: `GET /incidents` and `GET /releases` both gain `?open=` (a
+plain bool; omit for no filter), resolved per row from that row's OWN
+lifecycle template — `lifecycle_service.terminal_status_clause` — never a
+hardcoded set of statuses. Filtered in SQL, before pagination, same rule as
+the bookings range filter above.
 
 Each queue is a card: count, the five most urgent rows (soonest deadline,
 then oldest), and "View all →" to the existing worklist **with the same filter
@@ -326,10 +356,24 @@ rendering of "we could not tell".
 The Phase-0 text goes. The page becomes:
 
 - **Four live tiles**, each a link to the filtered list: *Active environments*
-  (`GET /environments?status=active`), *Bookings live now*, *Releases in
-  flight* (non-terminal status), *Open incidents*. Counts read `X-Total-Count`
-  from a `limit=1` fetch of the existing list endpoint; no aggregation
-  endpoint is invented.
+  (`GET /environments?status=active`), *Bookings live now*, *Open releases*
+  (`GET /releases?open=true`), *Open incidents* (`GET /incidents?open=true`).
+  Counts read `X-Total-Count` from a `limit=1` fetch of the existing list
+  endpoint; no aggregation endpoint is invented.
+
+  **AMENDED 2026-09-04, before PR 3: both "non-terminal status" tiles used a
+  single hardcoded status, not "non-terminal".** *Releases in flight* (as
+  first shipped) counted only `?status=in_progress` — real, but one of five
+  non-terminal statuses (draft/submitted/approved/in_progress/
+  ready_for_release), under-counting every release still in draft or
+  awaiting approval. *Open incidents* counted `?status=open`, which is not a
+  status at all (see the incidents-queue amendment above) and always read
+  zero. Both are now `?open=true` against the `GET /incidents` /
+  `GET /releases` filter PR 3 adds, resolved from each row's own lifecycle
+  template rather than one hardcoded value — see
+  `lifecycle_service.terminal_status_clause`. The releases tile is relabelled
+  **"Open releases"** to say what it now counts, the same rule that produced
+  its original "in progress" rename.
 
   **AMENDED 2026-09-04, before PR 3: `GET /bookings` HAS NO RANGE PARAMS.**
   This section said the tile used "the existing range params"; it does not —

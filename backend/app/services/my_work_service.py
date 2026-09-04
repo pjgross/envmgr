@@ -28,8 +28,11 @@ drifting from the worklist page it is supposed to mirror:
   `pir_finding_service.LIVE_ACTION_STATUSES` (`list_actions`' own `status=`
   takes one value, and there are two non-terminal statuses) — the
   codebase's own already-defined non-terminal set, never a re-derived one.
-- `incident_service.list_incidents(..., filters={"status": "open"})` — the
-  same filter `GET /incidents?status=open` sends. Incidents carry no
+- `incident_service.list_incidents(..., filters={"open": True})` — the
+  same filter `GET /incidents?open=true` sends, resolving "non-terminal"
+  from the tenant's own incident lifecycle template
+  (`lifecycle_service.terminal_status_clause`) rather than a hardcoded
+  status — `"open"` was never itself an incident status. Incidents carry no
   per-user ownership in this codebase, so this queue is tenant-wide, not
   narrowed to `user`.
 
@@ -228,12 +231,19 @@ async def _incidents_queue(
     db: AsyncSession, *, tenant_id: int, user: User, now: datetime
 ) -> QueueResult:
     """Open incidents, tenant-wide — the same filter `GET
-    /incidents?status=open` sends. Incidents carry no per-user ownership
+    /incidents?open=true` sends. Incidents carry no per-user ownership
     anywhere in this codebase, so there is no seam to narrow this to `user`
     with; every tenant member's card shows the same open incidents.
+
+    `open=true` resolves to "non-terminal" via
+    `lifecycle_service.terminal_status_clause`, read off the tenant's own
+    incident lifecycle template — never a hardcoded status list. `"open"` was
+    never itself a status value (the default template's states are `new`,
+    `investigating`, `identified`, `fix_scheduled`, `resolved`, `closed`,
+    `cancelled`); `?status=open` always returned zero rows in production.
     """
     rows, total = await incident_service.list_incidents(
-        db, tenant_id, {"status": "open"},
+        db, tenant_id, {"open": True},
         sort=Sort(column=incident_service.Incident.detected_at, descending=False),
     )
     items = [

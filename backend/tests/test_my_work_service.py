@@ -9,6 +9,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from app.services.incident_defaults import seed_incident_defaults_for_tenant
 from tests.factories import (
     add_group_member,
     ensure_environment,
@@ -90,8 +91,14 @@ async def test_every_queue_sees_the_same_instant(db_session, test_tenant, test_u
 async def test_items_carry_names_not_ids(
     db_session, test_tenant, test_user
 ):
+    # The incidents queue filters on `open=true`, resolved from the tenant's
+    # OWN lifecycle template (never a hardcoded status) — a tenant with none
+    # seeded (like the bare `test_tenant` fixture) can classify no incident
+    # either way, so it must be seeded for this queue to see anything.
+    await seed_incident_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.flush()
     user = await ensure_user(db_session, test_tenant.id, username='my-work-user')
-    await make_incident(db_session, test_tenant.id, title="Payments outage", status="open")
+    await make_incident(db_session, test_tenant.id, title="Payments outage", status="new")
     now = datetime.now(timezone.utc)
     from app.services import my_work_service
 
@@ -107,9 +114,11 @@ async def test_items_carry_names_not_ids(
 async def test_each_queue_returns_at_most_five_items_but_counts_them_all(
     db_session, test_tenant, test_user
 ):
+    await seed_incident_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.flush()
     user = await ensure_user(db_session, test_tenant.id, username='my-work-user')
     for i in range(8):
-        await make_incident(db_session, test_tenant.id, title=f"Incident {i}", status="open")
+        await make_incident(db_session, test_tenant.id, title=f"Incident {i}", status="new")
     now = datetime.now(timezone.utc)
     from app.services import my_work_service
 

@@ -114,7 +114,7 @@ describe('MyWork', () => {
   it('View all links to the worklist with the same filter in the URL', async () => {
     renderWithStore(<MyWork />, allFive);
     const link = await screen.findByRole('link', { name: /view all incidents/i });
-    expect(link).toHaveAttribute('href', '/incidents?status=open');
+    expect(link).toHaveAttribute('href', '/incidents?open=true');
   });
 
   it('shows at most five rows even when the count is higher', async () => {

@@ -65,6 +65,13 @@ async def list_incidents(
     source: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    open: bool | None = Query(
+        None,
+        description="Only non-terminal (open=true) or terminal (open=false) "
+                    "incidents, resolved from the tenant's own incident "
+                    "lifecycle template. 'open' is not itself a status value — "
+                    "omit for no filter.",
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(INCIDENT_SORTS, default="detected_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
@@ -79,6 +86,7 @@ async def list_incidents(
         "source": source,
         "date_from": date_from,
         "date_to": date_to,
+        "open": open,
     }
     rows, total = await incident_service.list_incidents(
         db, current_user.active_tenant_id, filters, page=page, sort=sort

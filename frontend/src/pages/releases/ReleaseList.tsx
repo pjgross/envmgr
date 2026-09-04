@@ -81,7 +81,13 @@ export default function ReleaseList() {
 
   const grid = useServerGrid({
     endpoint: 'releases',
-    filterKeys: ['status', 'release_type', 'release_kind', 'system_id', 'project_id'],
+    // `open` has no filter UI on this page — it exists so the Dashboard's
+    // "Open releases" tile can link here with `?open=true` already in the
+    // URL and land on the SAME rows it counted. Without this in filterKeys,
+    // useServerGrid never reads it out of the URL, `fetchReleases` never
+    // gets it, and the tile and the page it links to would silently
+    // disagree — the same failure BookingList's `start`/`end` entries guard.
+    filterKeys: ['status', 'release_type', 'release_kind', 'system_id', 'project_id', 'open'],
     total,
     totalPending: listLoading,
     onFetch: (params) =>

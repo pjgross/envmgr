@@ -606,7 +606,7 @@ async def make_incident(
     tenant_id: int,
     *,
     title: str = "test incident",
-    status: str = "open",
+    status: str = "new",
     severity: str = "P2",
     detected_at: Optional[datetime] = None,
 ) -> Incident:
@@ -614,6 +614,16 @@ async def make_incident(
 
     `make_`, not `ensure_`: a tenant may raise any number of incidents over its
     history, so there is nothing to be idempotent about.
+
+    `status` defaults to `"new"` — the default incident lifecycle's initial
+    state (`app/services/incident_defaults.py`), not `"open"`. `"open"` is
+    not, and never was, a real incident status: `create_incident` always
+    assigns one of `new`/`investigating`/`identified`/`fix_scheduled`/
+    `resolved`/`closed`/`cancelled`. A caller exercising the `?open=`
+    terminal-status filter must also seed a lifecycle template for
+    `tenant_id` (`seed_incident_defaults_for_tenant`) — this factory sets no
+    `lifecycle_template_id`, so an unseeded tenant has nothing for that
+    filter to resolve terminal-ness against.
     """
     if detected_at is None:
         detected_at = datetime.now(timezone.utc)

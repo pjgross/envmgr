@@ -404,6 +404,66 @@ async def test_list_releases_filter_by_search(db_session, tenant, user):
     assert count == 2
 
 
+@pytest.mark.asyncio
+async def test_list_releases_open_filter_resolves_per_release_lifecycle_template(
+    db_session, tenant, user
+):
+    """`open=` is resolved from EACH RELEASE'S OWN lifecycle template
+    (`is_terminal` on its states), never one hardcoded status set or the
+    tenant's default template alone — a tenant may run several release
+    lifecycles at once (Major/Minor/Emergency/Enterprise).
+
+    `deployed` is terminal ONLY in the Emergency-shaped template built here;
+    a filter that unioned every template's terminal keys, or resolved only
+    against the default (Major) template, would misclassify the Emergency
+    release's `deployed` row as still open.
+    """
+    major = await _create_lifecycle(db_session, tenant.id, name="Major", is_default=True)
+    emergency = LifecycleTemplate(
+        tenant_id=tenant.id,
+        entity_type="release",
+        name="Emergency",
+        is_default=False,
+        definition={
+            "states": [
+                {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                {"key": "deployed", "label": "Deployed", "is_initial": False, "is_terminal": True},
+            ],
+            "transitions": [
+                {"from_state": "draft", "to_state": "deployed", "allowed_roles": ["Admin"]},
+            ],
+            "field_permissions": {
+                "draft": {"standard_fields": {}, "custom_fields": {}},
+                "deployed": {"standard_fields": {}, "custom_fields": {}},
+            },
+        },
+    )
+    db_session.add(emergency)
+    await db_session.flush()
+
+    rows = {
+        "major-open": (major.id, "draft"),
+        "major-closed": (major.id, "completed"),
+        "emergency-open": (emergency.id, "draft"),
+        "emergency-closed": (emergency.id, "deployed"),
+    }
+    for name, (tpl_id, st) in rows.items():
+        db_session.add(Release(
+            tenant_id=tenant.id, name=name, release_type="Major",
+            release_kind="project", lifecycle_template_id=tpl_id,
+            status=st, raised_by=user.id,
+        ))
+    await db_session.flush()
+
+    open_rows, open_count = await release_service.list_releases(db_session, tenant.id, open=True)
+    assert open_count == 2
+    assert {r.name for r in open_rows} == {"major-open", "emergency-open"}
+
+    closed_rows, closed_count = await release_service.list_releases(db_session, tenant.id, open=False)
+    assert closed_count == 2
+    assert {r.name for r in closed_rows} == {"major-closed", "emergency-closed"}
+
+
 # ── applies_to_kind enforcement tests ────────────────────────────────────────
 
 def _make_lifecycle_with_kind(tenant_id, applies_to_kind, name="Typed", is_default=False):

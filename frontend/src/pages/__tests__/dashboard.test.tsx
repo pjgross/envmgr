@@ -95,19 +95,19 @@ describe('Dashboard', () => {
     expect(screen.queryByText(/Phase 0/i)).not.toBeInTheDocument();
   });
 
-  it('the releases tile links to the same status it counted', async () => {
+  it('the releases tile links to the same filter it counted', async () => {
     mockGet('/releases', { data: [oneRow], headers: { 'x-total-count': '7' } });
     renderDashboard();
-    const link = await screen.findByRole('link', { name: /releases in progress/i });
-    expect(link).toHaveAttribute('href', '/releases?status=in_progress');
+    const link = await screen.findByRole('link', { name: /open releases/i });
+    expect(link).toHaveAttribute('href', '/releases?open=true');
     expect(await screen.findByText('7')).toBeInTheDocument();
   });
 
-  it('the incidents tile links to the same status it counted', async () => {
+  it('the incidents tile links to the same filter it counted', async () => {
     mockGet('/incidents', { data: [oneRow], headers: { 'x-total-count': '3' } });
     renderDashboard();
     const link = await screen.findByRole('link', { name: /open incidents/i });
-    expect(link).toHaveAttribute('href', '/incidents?status=open');
+    expect(link).toHaveAttribute('href', '/incidents?open=true');
     expect(await screen.findByText('3')).toBeInTheDocument();
   });
 

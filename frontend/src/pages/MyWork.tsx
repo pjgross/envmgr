@@ -107,9 +107,13 @@ const QUEUES: QueueConfig[] = [
   {
     key: 'incidents',
     title: 'Incidents',
-    // Exact match: `?status=open` is precisely what `_incidents_queue` asks
-    // for, and IncidentList's `status` filter key is `status` itself.
-    viewAllHref: '/incidents?status=open',
+    // Exact match: `?open=true` is precisely what `_incidents_queue` asks
+    // for (`incident_service.list_incidents(..., {"open": True})`), and
+    // IncidentList's `open` filter key is `open` itself (added to its
+    // `filterKeys` for exactly this link). This replaced `?status=open`
+    // 2026-09-04 — "open" was never a real incident status, so that link
+    // always landed on an empty list regardless of this card's count.
+    viewAllHref: '/incidents?open=true',
     viewAllLabel: 'incidents',
   },
 ];

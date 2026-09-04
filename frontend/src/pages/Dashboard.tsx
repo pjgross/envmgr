@@ -17,30 +17,27 @@
  *   `start`/`end` needed adding to BookingList's `filterKeys` for this link
  *   to actually filter rather than silently landing on the whole estate;
  *   see that page's own comment.)
- * - Releases in progress  -> GET /releases?status=in_progress&limit=1
- *                         -> /releases?status=in_progress
- *   `GET /releases`' `status` filter is an EXACT match
- *   (`Release.status == status`) against a value a tenant's lifecycle
- *   template defines — there is no `is_terminal` filter and no way to ask
- *   for "any non-terminal status" in one request without either summing
- *   several fetches (breaking the one-fetch-one-link contract every other
- *   tile keeps) or adding a new backend filter (out of this task's scope).
- *   `in_progress` is picked as the one status every seeded release
- *   lifecycle template (major/minor/enterprise) names, is non-terminal in
- *   all of them, and is already a wired filter option on ReleaseList's own
- *   dropdown — so the link reproduces the count exactly.
+ * - Open releases         -> GET /releases?open=true&limit=1
+ *                         -> /releases?open=true
+ *   `open=true` resolves to "non-terminal" from EACH RELEASE'S OWN
+ *   lifecycle template (a tenant may run several — Major/Minor/Emergency/
+ *   Enterprise all at once) via `lifecycle_service.terminal_status_clause`,
+ *   never a hardcoded status list.
  *
- *   THE TILE IS LABELLED "Releases in progress", NOT "in flight" — it was
- *   originally labelled the latter while only counting `in_progress`, which
- *   is exactly the class of defect this PR exists to remove (a label that
- *   claims a broader query than it runs). "In progress" says precisely what
- *   is counted: draft/submitted/approved/ready_for_release releases are NOT
- *   included, and the label no longer implies they are. A fuller "any
- *   non-terminal status" tile needs a backend `status_in`-shaped filter and
- *   is flagged as a follow-on for the final review to schedule, not built
- *   here.
- * - Open incidents        -> GET /incidents?status=open&limit=1
- *                         -> /incidents?status=open
+ *   THE TILE WAS PREVIOUSLY LABELLED "Releases in progress" and counted only
+ *   `?status=in_progress` — a real status, but only one of five non-terminal
+ *   ones (draft/submitted/approved/in_progress/ready_for_release), so it
+ *   under-counted every release still in draft or awaiting approval. Now
+ *   that a real "any non-terminal status" filter exists, the tile is
+ *   relabelled "Open releases" to match what it actually counts, the same
+ *   rule that renamed the incidents tile below.
+ * - Open incidents        -> GET /incidents?open=true&limit=1
+ *                         -> /incidents?open=true
+ *   `open=true` replaced `?status=open` here 2026-09-04: "open" was never a
+ *   real incident status (the seeded lifecycle names `new`/`investigating`/
+ *   `identified`/`fix_scheduled`/`resolved`/`closed`/`cancelled`), so this
+ *   tile read 0 forever in any tenant using the default template. See
+ *   docs/superpowers/specs/2026-09-02-frontend-ia-and-shell-design.md §5.
  *
  * "Coming up" and "Needs attention" are previews, not tiles — they have no
  * X-Total-Count contract to keep, only "don't show something misleading".
@@ -303,12 +300,12 @@ export default function Dashboard() {
     () => bookingService.listBookings({ start: nowIso, end: nowIso, limit: 1 }).then((p) => p.total),
     [nowIso]
   );
-  const fetchReleasesInProgress = useCallback(
-    () => releaseService.list({ status: 'in_progress', limit: 1 }).then((p) => p.total),
+  const fetchOpenReleases = useCallback(
+    () => releaseService.list({ open: true, limit: 1 }).then((p) => p.total),
     []
   );
   const fetchOpenIncidents = useCallback(
-    () => incidentService.list({ status: 'open', limit: 1 }).then((p) => p.total),
+    () => incidentService.list({ open: true, limit: 1 }).then((p) => p.total),
     []
   );
 
@@ -329,13 +326,13 @@ export default function Dashboard() {
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
           <StatTile
-            label="Releases in progress"
-            to="/releases?status=in_progress"
-            fetchCount={fetchReleasesInProgress}
+            label="Open releases"
+            to="/releases?open=true"
+            fetchCount={fetchOpenReleases}
           />
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
-          <StatTile label="Open incidents" to="/incidents?status=open" fetchCount={fetchOpenIncidents} />
+          <StatTile label="Open incidents" to="/incidents?open=true" fetchCount={fetchOpenIncidents} />
         </Grid>
       </Grid>
 
