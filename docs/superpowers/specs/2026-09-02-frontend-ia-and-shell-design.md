@@ -237,7 +237,7 @@ already have the filters:
 |---|---|---|
 | Environment requests to action | `GET /environment-requests?actionable=true` | operating-team members; Admin |
 | Contentions I must decide | `GET /contentions?state=open&owner_user_id=<me>` | the named owner |
-| Decommissions needing action | `GET /decommissions?state=warned\|extension_requested\|due`, narrowed to environments whose operations group contains me (Admin: all) | ops-team members; Admin |
+| Decommissions needing action | `GET /decommissions?state=warned\|extension_requested\|due`, narrowed to environments whose operations group contains me | ops-team members (Admin included, by membership only — see below) |
 | PIR actions I own | `GET /pir-actions?owner_id=<me>&status=open`; overdue counted separately | the owner |
 | Open incidents | `GET /incidents?status=open` | everyone — incidents have no assignee |
 
@@ -278,8 +278,22 @@ Rules:
   reader of membership after the two B3b established, and follows their
   tenant scoping and Admin bypass.
 
-  **AMENDED 2026-09-04, before PR 3: this narrowing DOES NOT EXIST YET and is
-  not reuse.** `environment_decommission_service.worklist_query`'s signature is
+  **AMENDED 2026-09-04, before PR 3: "(Admin: all)" is WRONG and is struck.**
+  The codebase already decided this question for the sibling queue, and
+  decided it the other way. `environment_request_service._actionable_clause`'s
+  docstring says it "deliberately does NOT fold in the Admin group-bypass …
+  folding the bypass in would return the whole tenant for every Admin, making
+  the queue useless for the one user most likely to need it. The bypass exists
+  so a transition is never impossible — it is not a claim about whose queue a
+  request belongs in." That reasoning is about a PERSONAL queue, which is
+  exactly what `/my-work` is, so the decommission queue follows it: narrowed
+  by membership for everyone, Admins included. An Admin who is in no
+  operations group sees an empty decommissions card, and that is correct —
+  nothing is waiting on *them*. `/decommissions`, the estate-wide worklist,
+  stays unnarrowed; the narrowing parameter is optional and `/me/work` is its
+  only caller.
+
+  **This section's narrowing DOES NOT EXIST YET and is not reuse.** `environment_decommission_service.worklist_query`'s signature is
   `(tenant_id, *, now, sort, state)` — there is no membership parameter. PR 3
   ADDS one (optional, so `/decommissions`' own unnarrowed listing is
   unchanged), and the addition must match B3b's two existing membership
