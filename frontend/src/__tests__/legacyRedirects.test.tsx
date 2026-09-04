@@ -9,6 +9,10 @@ vi.mock('../services/authService', () => ({
 // See navRoutes.test.tsx for why these two GETs need an object, not the
 // empty-array default: EnvironmentNamingPolicyPanel and RaidSettings both
 // throw on render otherwise (real page bugs — reported, not papered over).
+// GET /me/work deliberately keeps the plain `[]` default here too — see
+// navRoutes.test.tsx's identical comment: `selectMyWorkTotal` and
+// AppLayout's `attention` check are now defensive against that shape
+// (finding 4 of the PR 3 whole-branch review) and must not crash on it.
 vi.mock('../services/api', () => {
   const empty = () => Promise.resolve({ data: [], headers: { 'x-total-count': '0' } });
   const get = vi.fn((url: string) => {
@@ -28,24 +32,6 @@ vi.mock('../services/api', () => {
     if (url.includes('/tenant/raid-config')) {
       return Promise.resolve({
         data: { probability_scale: [], impact_scale: [], rag_bands: [] },
-        headers: {},
-      });
-    }
-    if (url.includes('/me/work')) {
-      // AppLayout's nav badge (useMyWork) fetches on every page now — see
-      // navRoutes.test.tsx's identical branch for why `[]` throws here.
-      const emptyQueue = { count: 0, items: [], failed: false };
-      return Promise.resolve({
-        data: {
-          as_of: '2026-09-04T00:00:00Z',
-          queues: {
-            environment_requests: emptyQueue,
-            contentions: emptyQueue,
-            decommissions: emptyQueue,
-            pir_actions: emptyQueue,
-            incidents: emptyQueue,
-          },
-        },
         headers: {},
       });
     }

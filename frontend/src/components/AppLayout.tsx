@@ -55,8 +55,10 @@ export default function AppLayout() {
   // mount; the effect below re-fetches on every subsequent route change —
   // together that is "on mount and on every route change", never a timer.
   const { data: myWorkData, total: myWorkTotal, refetch: refetchMyWork } = useMyWork();
-  // A failed queue's `count` is always 0 (its schema default), so it drops
-  // out of `myWorkTotal` on its own — meaning "everything failed" and
+  // A failed queue's `count` is always 0 — set EXPLICITLY by every failing
+  // construction on the backend (`QueueResult.count` has no schema default
+  // at all; only `failed` does), never inferred — so it drops out of
+  // `myWorkTotal` on its own — meaning "everything failed" and
   // "nothing is waiting" render identically unless something else marks the
   // difference. `attention` is that difference: true whenever at least one
   // queue could not be evaluated, independent of whether the total (a

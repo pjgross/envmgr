@@ -23,7 +23,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import PageHeader from '../components/layout/PageHeader';
 import QueueCard from '../components/mywork/QueueCard';
 import { useMyWork } from '../hooks/useMyWork';
-import type { MyWorkQueueKey, QueueResult, WorkItem } from '../types/myWork';
+import type { MyWorkQueueKey, MyWorkResponse, QueueResult, WorkItem } from '../types/myWork';
 
 const EMPTY_QUEUE: QueueResult = { count: 0, items: [], failed: false };
 
@@ -37,6 +37,31 @@ const EMPTY_QUEUE: QueueResult = { count: 0, items: [], failed: false };
 // arrived. Same rule as `QueueCard`'s own failed-vs-empty distinction, one
 // level up.
 const WHOLE_RESPONSE_FAILED_QUEUE: QueueResult = { count: 0, items: [], failed: true };
+
+/**
+ * Reads one queue out of `data` defensively (finding 4 of the PR 3
+ * whole-branch review). `data?.queues[key]` throws the moment `data` is
+ * non-null but `queues` is missing or malformed — a `/me/work` 200 with a
+ * body that does not match `MyWorkResponse` — and this page is reached by
+ * clicking the nav badge that already rendered from that same response, so
+ * the malformed-body case is not hypothetical. Falls back the same way a
+ * missing response does: `WHOLE_RESPONSE_FAILED_QUEUE` when there is an
+ * `error` to explain it, `EMPTY_QUEUE` otherwise.
+ */
+function queueFor(
+  data: MyWorkResponse | null,
+  key: MyWorkQueueKey,
+  error: string | null
+): QueueResult {
+  // Cast, not a structural assignment: the type system already guarantees
+  // `queues` is well-shaped when the response really is a `MyWorkResponse` —
+  // the runtime check right below is for the case it ISN'T, which `tsc`
+  // cannot see from here.
+  const queues = data?.queues as Record<string, QueueResult> | undefined;
+  const queue = queues && typeof queues === 'object' ? queues[key] : undefined;
+  if (queue) return queue;
+  return error ? WHOLE_RESPONSE_FAILED_QUEUE : EMPTY_QUEUE;
+}
 
 interface QueueConfig {
   key: MyWorkQueueKey;
@@ -78,17 +103,21 @@ const QUEUES: QueueConfig[] = [
   {
     key: 'decommissions',
     title: 'Decommissions',
-    // No filter at all: `GET /decommissions` (the worklist endpoint) has no
-    // membership-narrowing parameter on the wire — confirmed in
-    // backend/tests/test_me_work_matches_worklists.py's own comment, which
-    // says as much because this is the one queue of the five it cannot
-    // assert X-Total-Count equivalence for. Unlike contentions/pir_actions,
-    // this is NOT a superset of "mine" — it's the whole tenant's estate,
-    // with no owner narrowing at all, so the card carries a visible
-    // caption rather than leaving that disclosed only in this comment.
-    viewAllHref: '/decommissions',
+    // `?mine=true` -> `member_user_id=<me>` on the wire — the SAME
+    // membership predicate `_decommissions_queue` already used privately
+    // (`environment_decommission_service.worklist_query`'s own
+    // `member_user_id`), now exposed on `GET /decommissions` itself (PR 3's
+    // dashboard fix wave, finding 6 — spec §5's amendment said this
+    // endpoint would gain the capability, and only the service seam had
+    // it until now). This is still not an EXACT match: the card additionally
+    // excludes `cancelled`/`torn_down` (terminal, computed per row), which
+    // the worklist's own `state=` filter can express only one at a time —
+    // so `?mine=true` alone is a superset (mine, any state) rather than
+    // the identical filtered set. No caption: the estate-wide disclosure
+    // this used to need no longer applies now the link actually narrows by
+    // membership.
+    viewAllHref: '/decommissions?mine=true',
     viewAllLabel: 'decommissions',
-    viewAllCaption: 'Shows the whole estate, not just yours.',
   },
   {
     key: 'pir_actions',
@@ -181,8 +210,10 @@ export default function MyWork() {
                 // WHOLE_RESPONSE_FAILED_QUEUE when it never did (`error` set,
                 // `data` still null) — never EMPTY_QUEUE in that case, or a
                 // total failure renders as five confident empty queues (see
-                // the constant's own comment above).
-                queue={data?.queues[cfg.key] ?? (error ? WHOLE_RESPONSE_FAILED_QUEUE : EMPTY_QUEUE)}
+                // the constant's own comment above). `queueFor` also covers
+                // the case `data` arrived but `queues` did not match the
+                // expected shape — see its own comment.
+                queue={queueFor(data, cfg.key, error)}
                 viewAllHref={cfg.viewAllHref}
                 viewAllLabel={cfg.viewAllLabel}
                 viewAllCaption={cfg.viewAllCaption}

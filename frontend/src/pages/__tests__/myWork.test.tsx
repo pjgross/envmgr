@@ -149,4 +149,29 @@ describe('MyWork', () => {
     expect(await screen.findAllByText(/couldn't load/i)).toHaveLength(5);
     expect(screen.queryByText('Nothing waiting on you')).not.toBeInTheDocument();
   });
+
+  it('a malformed 200 (queues missing) renders without crashing (finding 4)', async () => {
+    // `data?.queues[cfg.key]` used to throw the moment `data` arrived but
+    // `queues` did not match the schema — dropping the WHOLE page (and, via
+    // the same selector, every other route's nav badge) to the root
+    // ErrorBoundary rather than showing five degraded cards.
+    myWorkService.getMyWork.mockResolvedValue(
+      { as_of: '2026-09-04T00:00:00Z' } as unknown as MyWorkResponse
+    );
+    const store = configureStore({ reducer: { myWork: myWorkReducer } });
+
+    render(
+      <Provider store={store}>
+        <MemoryRouter>
+          <MyWork />
+        </MemoryRouter>
+      </Provider>
+    );
+
+    expect(await screen.findByRole('heading', { name: /my work/i })).toBeInTheDocument();
+    // No crash either way this renders — asserting the ordinary "empty"
+    // fallback rather than "failed" is a statement about today's choice
+    // (no `error` was set; this was a 200), not a claim that failed is wrong.
+    expect(await screen.findAllByText('Nothing waiting on you')).toHaveLength(5);
+  });
 });

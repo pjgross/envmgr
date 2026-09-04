@@ -62,16 +62,27 @@ const myWorkSlice = createSlice({
 
 /**
  * The badge total Task 7's nav reads — the sum of all five queues' counts.
- * A FAILED queue's `count` is always 0 (the schema default), so it drops out
- * of the sum on its own; nothing here needs to special-case it. Typed
- * against a minimal shape rather than `RootState` to avoid a circular import
- * with `store/index.ts`, the same call `bookingLifecycleSlice`'s selectors
- * make.
+ * A FAILED queue always sets `count` to 0 EXPLICITLY (`QueueResult.count` has
+ * no schema default at all — `failed` does), so it drops out of the sum on
+ * its own; nothing here needs to special-case it. Typed against a minimal
+ * shape rather than `RootState` to avoid a circular import with
+ * `store/index.ts`, the same call `bookingLifecycleSlice`'s selectors make.
+ *
+ * DEFENSIVE ON PURPOSE (finding 4 of the PR 3 whole-branch review): this
+ * selector runs on EVERY route via `AppLayout` -> `useMyWork`, so a `/me/work`
+ * 200 whose body is missing `queues`, or has it as something other than an
+ * object, must not throw here — that would drop every route in the app to
+ * the root `ErrorBoundary`, not just `/my-work`. `Object.values` on a
+ * non-object throws (or silently returns `[]` for `null`/arrays in ways that
+ * mask the real shape mismatch), so the shape is checked explicitly first.
  */
 export function selectMyWorkTotal(state: { myWork: MyWorkState }): number {
-  const data = state.myWork.data;
-  if (!data) return 0;
-  return Object.values(data.queues).reduce((sum, q) => sum + q.count, 0);
+  const queues = state.myWork.data?.queues;
+  if (!queues || typeof queues !== 'object') return 0;
+  return Object.values(queues).reduce(
+    (sum, q) => sum + (typeof q?.count === 'number' ? q.count : 0),
+    0
+  );
 }
 
 export default myWorkSlice.reducer;

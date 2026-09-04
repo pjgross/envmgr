@@ -10,7 +10,7 @@ vi.mock('../services/authService', () => ({
 // Every page fetches on mount; answer with nothing so no page crashes and no
 // request leaves jsdom. `headers` carries X-Total-Count for paged lists.
 //
-// Five GETs need an OBJECT, not the empty-array default, or the page that owns
+// Four GETs need an OBJECT, not the empty-array default, or the page that owns
 // them throws during render (a real page bug, not a test artifact — see the
 // report):
 //  - GET /tenant/environment-naming-policy (EnvironmentNamingPolicyPanel):
@@ -28,11 +28,13 @@ vi.mock('../services/authService', () => ({
 //  - GET /metrics/environments/utilization (also ReleaseAnalytics): `[]`
 //    has no `.rows`, so `setUtilization(o.rows)` sets `undefined`, and the
 //    DataGrid's own rows-changed effect throws reading `.length` of it.
-//  - GET /me/work (AppLayout's nav badge, via `useMyWork`, on EVERY page —
-//    and MyWork.tsx itself at /my-work): `[]` has no `.queues`, and
-//    `selectMyWorkTotal`/AppLayout's own attention check both read
-//    `data.queues`, throwing on every single route in this sweep, not just
-//    `/my-work`.
+//
+// GET /me/work (AppLayout's nav badge, via `useMyWork`, on EVERY page — and
+// MyWork.tsx itself at /my-work) deliberately falls through to the plain `[]`
+// default below: `selectMyWorkTotal` and AppLayout's own `attention` check
+// are now defensive against exactly this shape (finding 4 of the PR 3
+// whole-branch review — `[]` has no `.queues`) and must not crash. That is
+// the assertion this sweep makes for `/me/work`; it is not merely untested.
 vi.mock('../services/api', () => {
   const empty = () => Promise.resolve({ data: [], headers: { 'x-total-count': '0' } });
   const get = vi.fn((url: string) => {
@@ -81,22 +83,9 @@ vi.mock('../services/api', () => {
     if (url.includes('/metrics/environments/utilization')) {
       return Promise.resolve({ data: { rows: [], unconfigured_count: 0 }, headers: {} });
     }
-    if (url.includes('/me/work')) {
-      const emptyQueue = { count: 0, items: [], failed: false };
-      return Promise.resolve({
-        data: {
-          as_of: '2026-09-04T00:00:00Z',
-          queues: {
-            environment_requests: emptyQueue,
-            contentions: emptyQueue,
-            decommissions: emptyQueue,
-            pir_actions: emptyQueue,
-            incidents: emptyQueue,
-          },
-        },
-        headers: {},
-      });
-    }
+    // GET /me/work deliberately gets the plain `[]` default — see the
+    // comment above this mock for why that is the point of this sweep now,
+    // not a gap in it.
     return empty();
   });
   return { default: { get, post: vi.fn(empty), put: vi.fn(empty), patch: vi.fn(empty), delete: vi.fn(empty) } };
