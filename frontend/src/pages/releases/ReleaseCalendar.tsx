@@ -85,7 +85,7 @@ export default function ReleaseCalendar() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Release Calendar"
+        title="Release calendar"
         subtitle="Target and actual dates for all active releases. Click a release to open it."
       />
 

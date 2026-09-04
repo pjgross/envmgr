@@ -143,7 +143,7 @@ export default function ReleaseTemplateLibrary() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Release Template Library"
+        title="Templates"
         actions={
           <Button
             variant="contained"

@@ -101,7 +101,7 @@ export default function TenantScopeChangeRules() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Scope Change Rules"
+        title="Scope-change rules"
         subtitle="Configure which change kinds count towards scope change tracking on releases. You can also add new tenant-specific kinds here — they become available in the scope-item dialog as soon as you save."
       />
 

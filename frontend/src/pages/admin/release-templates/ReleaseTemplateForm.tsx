@@ -187,7 +187,7 @@ export default function ReleaseTemplateForm() {
     <Box sx={{ p: 3, maxWidth: 900 }}>
       <DetailPageHeader
         back={{ to: '/admin/releases/templates', label: 'Templates' }}
-        title={isNew ? 'New Template' : detail?.name}
+        title={isNew ? 'New template' : detail?.name}
         actions={
           <Button variant="contained" onClick={handleSave} disabled={saving || loading}>
             {saving ? 'Saving…' : 'Save'}

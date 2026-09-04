@@ -323,7 +323,7 @@ export default function SystemCatalog() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="System Catalog"
+        title="System catalog"
         actions={
           <>
             <TextField

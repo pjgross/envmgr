@@ -175,7 +175,7 @@ export default function ReleaseTimeline({ releaseId, alerts = [] }: Props) {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Release Timeline"
+        title="Release timeline"
         subtitle="Gantt view of all release phases. Click a release name to open it."
       />
 

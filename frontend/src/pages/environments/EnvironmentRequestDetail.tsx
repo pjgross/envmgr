@@ -194,7 +194,7 @@ export default function EnvironmentRequestDetail() {
   return (
     <Box sx={{ p: 3 }}>
       <DetailPageHeader
-        back={{ to: '/environment-requests', label: 'Environment Requests' }}
+        back={{ to: '/environment-requests', label: 'Environment requests' }}
         title={target}
         status={
           <Chip label={current.status} size="small" color={STATUS_COLORS[current.status] ?? 'default'} />

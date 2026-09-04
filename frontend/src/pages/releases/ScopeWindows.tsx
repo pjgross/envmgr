@@ -6,7 +6,7 @@ export default function ScopeWindows() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Scope Windows"
+        title="Scope windows"
         subtitle="Find a system's releases and see which scope cutoffs are still open."
       />
       <ScopeWindowsTable showSystemFilter />

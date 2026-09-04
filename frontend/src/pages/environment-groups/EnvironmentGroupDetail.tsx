@@ -94,7 +94,7 @@ export default function EnvironmentGroupDetail() {
   return (
     <Box sx={{ p: 3 }}>
       <DetailPageHeader
-        back={{ to: '/environment-groups', label: 'Environment Groups' }}
+        back={{ to: '/environment-groups', label: 'Environment groups' }}
         title={group?.name}
         status={
           group && (

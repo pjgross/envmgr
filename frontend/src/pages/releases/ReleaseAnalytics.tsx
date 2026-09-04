@@ -168,7 +168,7 @@ export default function ReleaseAnalytics() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Release Analytics"
+        title="Release analytics"
         subtitle="Descriptive correlation between scope change and delays / issues across shipped project releases in the selected window — not a causal claim."
       />
 

@@ -286,7 +286,7 @@ export default function IncidentForm() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 800, mx: 'auto' }}>
-      <PageHeader title={isEdit ? 'Edit Incident' : 'New Incident'} />
+      <PageHeader title={isEdit ? 'Edit incident' : 'New incident'} />
 
       <Paper sx={{ p: 3 }}>
         <Stack spacing={2.5}>

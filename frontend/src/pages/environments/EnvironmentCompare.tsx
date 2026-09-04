@@ -93,7 +93,7 @@ export default function EnvironmentCompare() {
   return (
     <Box>
       <PageHeader
-        title="Compare Environments"
+        title="Compare environments"
         subtitle="Differences in what each environment contains, what is mocked, which versions are deployed, and how each subsystem is hosted."
       />
 

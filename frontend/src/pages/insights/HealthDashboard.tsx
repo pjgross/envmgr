@@ -135,7 +135,7 @@ export default function HealthDashboard() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Environment Health"
+        title="Environment health"
         subtitle="Current operational status of all active environments. Alerts fire when an environment is degraded or down during an active booking with no planned outage."
       />
 

@@ -95,7 +95,7 @@ export default function UserGroupDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <DetailPageHeader back={{ to: '/admin/user-groups', label: 'User Groups' }} title={group?.name} />
+      <DetailPageHeader back={{ to: '/admin/user-groups', label: 'User groups' }} title={group?.name} />
 
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>

@@ -236,7 +236,7 @@ export default function BookingCalendar() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Bookings"
+        title="Booking calendar"
         actions={
           <>
             <FormControl size="small" sx={{ minWidth: 200 }}>

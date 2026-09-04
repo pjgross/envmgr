@@ -602,7 +602,7 @@ export default function BookingList() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Booking List"
+        title="Bookings"
         actions={
           <Button variant="contained" size="small" onClick={() => setFormOpen(true)}>
             + New Booking

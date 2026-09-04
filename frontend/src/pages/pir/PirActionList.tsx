@@ -223,7 +223,7 @@ export default function PirActionList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <PageHeader title="PIR Actions" />
+      <PageHeader title="PIR actions" />
 
       <Alert severity="info" sx={{ mb: 2 }} data-testid="pir-actions-advisory">
         Process fixes raised by post-implementation reviews across every release. An

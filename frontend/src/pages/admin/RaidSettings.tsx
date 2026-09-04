@@ -154,7 +154,7 @@ export default function RaidSettings() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="RAID Settings"
+        title="RAID settings"
         subtitle="Configure the probability and impact scales and the RAG bands used to score risks and issues. Severity = probability × impact."
       />
 

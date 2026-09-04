@@ -260,7 +260,7 @@ export default function InfrastructureComponentList() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Hosts & Infrastructure"
+        title="Hosts & infrastructure"
         actions={
           <>
             <TextField

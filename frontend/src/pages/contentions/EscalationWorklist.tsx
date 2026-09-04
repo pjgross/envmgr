@@ -441,7 +441,7 @@ export default function EscalationWorklist() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <PageHeader title="Contention Escalations" />
+      <PageHeader title="Contention escalations" />
 
       {/* WHAT THIS PAGE DOES, in general — and NOTHING about groups, which is
           a fact about a particular row and is now said on the rows and the

@@ -98,7 +98,7 @@ export default function EnvironmentRequestForm() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 640, mx: 'auto' }}>
-      <PageHeader title="New Environment Request" />
+      <PageHeader title="New environment request" />
 
       <Paper sx={{ p: 3 }}>
         <Stack spacing={2.5}>

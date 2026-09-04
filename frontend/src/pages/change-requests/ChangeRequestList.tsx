@@ -161,7 +161,7 @@ export default function ChangeRequestList() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Change Requests"
+        title="Change requests"
         actions={
           <Button variant="contained" onClick={() => setFormOpen(true)}>
             New Change Request

@@ -113,7 +113,7 @@ export default function GitHubIntegration() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="GitHub Integration"
+        title="GitHub"
         subtitle="Connect a GitHub account so systems can scan their repository for subsystems and dependencies."
       />
 

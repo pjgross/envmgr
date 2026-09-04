@@ -195,7 +195,7 @@ export default function ImportPage() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Import Data"
+        title="Import data"
         subtitle="Upload Excel (.xlsx) files to bulk-import environments or systems. Duplicate names are skipped automatically."
       />
 

@@ -116,7 +116,7 @@ export default function EnvironmentRequestList() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Environment Requests"
+        title="Environment requests"
         actions={
           <Button
             variant="contained"

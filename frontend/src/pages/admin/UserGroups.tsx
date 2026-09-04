@@ -187,7 +187,7 @@ export default function UserGroups() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="User Groups"
+        title="User groups"
         subtitle="A group organises users for environment access. A group operating environments cannot be deleted."
         actions={
           canWrite && (

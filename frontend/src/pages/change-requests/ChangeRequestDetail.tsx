@@ -140,7 +140,7 @@ export default function ChangeRequestDetail() {
   return (
     <Box sx={{ p: 3 }}>
       <DetailPageHeader
-        back={{ to: '/change-requests', label: 'Change Requests' }}
+        back={{ to: '/change-requests', label: 'Change requests' }}
         title={detail.title}
         status={<Chip label={detail.status} color={STATUS_COLORS[detail.status] ?? 'default'} />}
         actions={

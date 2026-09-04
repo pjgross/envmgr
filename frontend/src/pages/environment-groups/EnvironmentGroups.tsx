@@ -175,7 +175,7 @@ export default function EnvironmentGroups() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="Environment Groups"
+        title="Environment groups"
         subtitle="An environment group is a named set of environments bookable as one unit; member bookings transition together."
         actions={
           canWrite && (

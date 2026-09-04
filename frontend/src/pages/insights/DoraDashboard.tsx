@@ -258,7 +258,7 @@ export default function DoraDashboard() {
   return (
     <Box sx={{ p: 3 }}>
       <PageHeader
-        title="DORA Metrics"
+        title="DORA metrics"
         subtitle="Deployment Frequency, Lead Time for Changes, Change Failure Rate, and Mean Time to Restore over the selected window."
       />
 
