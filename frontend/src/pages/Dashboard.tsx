@@ -17,7 +17,7 @@
  *   `start`/`end` needed adding to BookingList's `filterKeys` for this link
  *   to actually filter rather than silently landing on the whole estate;
  *   see that page's own comment.)
- * - Releases in flight    -> GET /releases?status=in_progress&limit=1
+ * - Releases in progress  -> GET /releases?status=in_progress&limit=1
  *                         -> /releases?status=in_progress
  *   `GET /releases`' `status` filter is an EXACT match
  *   (`Release.status == status`) against a value a tenant's lifecycle
@@ -28,10 +28,17 @@
  *   `in_progress` is picked as the one status every seeded release
  *   lifecycle template (major/minor/enterprise) names, is non-terminal in
  *   all of them, and is already a wired filter option on ReleaseList's own
- *   dropdown — so the link reproduces the count exactly. This under-counts
- *   releases sitting in draft/submitted/approved/ready_for_release; a fuller
- *   "any non-terminal status" tile needs a backend `status_in`-shaped filter
- *   and is flagged as a follow-on, not built here.
+ *   dropdown — so the link reproduces the count exactly.
+ *
+ *   THE TILE IS LABELLED "Releases in progress", NOT "in flight" — it was
+ *   originally labelled the latter while only counting `in_progress`, which
+ *   is exactly the class of defect this PR exists to remove (a label that
+ *   claims a broader query than it runs). "In progress" says precisely what
+ *   is counted: draft/submitted/approved/ready_for_release releases are NOT
+ *   included, and the label no longer implies they are. A fuller "any
+ *   non-terminal status" tile needs a backend `status_in`-shaped filter and
+ *   is flagged as a follow-on for the final review to schedule, not built
+ *   here.
  * - Open incidents        -> GET /incidents?status=open&limit=1
  *                         -> /incidents?status=open
  *
@@ -296,7 +303,7 @@ export default function Dashboard() {
     () => bookingService.listBookings({ start: nowIso, end: nowIso, limit: 1 }).then((p) => p.total),
     [nowIso]
   );
-  const fetchReleasesInFlight = useCallback(
+  const fetchReleasesInProgress = useCallback(
     () => releaseService.list({ status: 'in_progress', limit: 1 }).then((p) => p.total),
     []
   );
@@ -322,9 +329,9 @@ export default function Dashboard() {
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
           <StatTile
-            label="Releases in flight"
+            label="Releases in progress"
             to="/releases?status=in_progress"
-            fetchCount={fetchReleasesInFlight}
+            fetchCount={fetchReleasesInProgress}
           />
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>

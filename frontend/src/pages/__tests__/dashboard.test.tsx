@@ -98,7 +98,7 @@ describe('Dashboard', () => {
   it('the releases tile links to the same status it counted', async () => {
     mockGet('/releases', { data: [oneRow], headers: { 'x-total-count': '7' } });
     renderDashboard();
-    const link = await screen.findByRole('link', { name: /releases in flight/i });
+    const link = await screen.findByRole('link', { name: /releases in progress/i });
     expect(link).toHaveAttribute('href', '/releases?status=in_progress');
     expect(await screen.findByText('7')).toBeInTheDocument();
   });

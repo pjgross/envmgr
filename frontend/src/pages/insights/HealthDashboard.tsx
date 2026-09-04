@@ -11,6 +11,7 @@ import DataTable from '../../components/DataTable';
 import { environmentHealthService } from '../../services/environmentHealthService';
 import type { EnvironmentHealthOverviewRow, HealthStatus } from '../../types/environmentHealth';
 import PageHeader from '../../components/layout/PageHeader';
+import HealthAlertBanner from '../../components/environments/HealthAlertBanner';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -69,9 +70,6 @@ export default function HealthDashboard() {
         setLoading(false);
       });
   }, []);
-
-  // Environments currently in alert state
-  const alertingEnvs = useMemo(() => rows.filter((r) => r.alert), [rows]);
 
   const columns = useMemo<GridColDef<EnvironmentHealthOverviewRow>[]>(
     () => [
@@ -146,9 +144,13 @@ export default function HealthDashboard() {
         </Alert>
       )}
 
-      {/* The alert list is derived from the fetched rows, so a truncated fetch
-          means environments could be alerting without appearing above. Say so
-          rather than presenting a partial list as the whole picture. */}
+      {/* This page's own table rows are capped server-side, so a truncated
+          fetch means an environment could be alerting without a row for it
+          appearing in the grid below. (The banner just above no longer
+          shares this risk with the grid — it runs its own, separately
+          capped fetch via HealthAlertBanner — but the grid's own rows can
+          still be an incomplete picture, so say so rather than presenting a
+          partial list as the whole one.) */}
       {!fetchError && rows.length < total && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Showing {rows.length} of {total} environments — any alerts on the remaining{' '}
@@ -156,14 +158,12 @@ export default function HealthDashboard() {
         </Alert>
       )}
 
-      {/* Alert banner — shown only when at least one environment is in alert */}
-      {!fetchError && alertingEnvs.length > 0 && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <strong>Action required:</strong> The following environments are degraded during an active
-          booking:{' '}
-          {alertingEnvs.map((r) => r.environment_name).join(', ')}.
-        </Alert>
-      )}
+      {/* Alert banner — shared with the Dashboard's "Needs attention" panel
+          (extracted here first) rather than re-derived a second time. It runs
+          its own fetch/predicate rather than reading `rows`/`fetchError`
+          above, so it renders (or stays silent) independently of this page's
+          own load state. */}
+      {!fetchError && <HealthAlertBanner />}
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
