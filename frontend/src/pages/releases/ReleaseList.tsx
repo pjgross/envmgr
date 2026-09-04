@@ -275,6 +275,20 @@ export default function ReleaseList() {
                 <MenuItem key={p.id} value={String(p.id)}>{p.name}</MenuItem>
               ))}
             </TextField>
+            {/* `open` has no dropdown of its own — it exists so the
+                Dashboard's "Open releases" tile can link here with
+                `?open=true` already in the URL. Without this chip, that link
+                could land a user on a filtered grid with every visible
+                control reading "All", no way to tell it is filtered, let
+                alone clear it. */}
+            {grid.filters.open !== undefined && (
+              <Chip
+                label={grid.filters.open === 'false' ? 'Terminal only · clear' : 'Open only · clear'}
+                size="small"
+                color="info"
+                onDelete={() => grid.setFilter('open', '')}
+              />
+            )}
           </Box>
 
           <Box sx={{ height: 600, width: '100%' }}>

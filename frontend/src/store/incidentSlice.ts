@@ -1,6 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { incidentService } from '../services/incidentService';
-import type { IncidentListRow, IncidentDetail, IncidentCreate, IncidentUpdate } from '../types/incident';
+import type {
+  IncidentListRow, IncidentDetail, IncidentCreate, IncidentUpdate, IncidentListFilters,
+} from '../types/incident';
 
 interface IncidentState {
   list: IncidentListRow[];
@@ -28,7 +30,7 @@ const initialState: IncidentState = {
 
 export const fetchIncidents = createAsyncThunk(
   'incidents/list',
-  (params: Record<string, unknown> = {}) => incidentService.list(params),
+  (params: IncidentListFilters = {}) => incidentService.list(params),
 );
 
 export const fetchIncident = createAsyncThunk(

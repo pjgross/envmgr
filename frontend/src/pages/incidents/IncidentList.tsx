@@ -249,6 +249,18 @@ export default function IncidentList() {
             </MenuItem>
           ))}
         </TextField>
+        {/* `open` has no dropdown of its own (see filterKeys' comment above)
+            — without this chip, the Dashboard's "Open incidents" tile could
+            land a user on a filtered grid with every visible control
+            reading "All", no way to tell it is filtered, let alone clear it. */}
+        {grid.filters.open !== undefined && (
+          <Chip
+            label={grid.filters.open === 'false' ? 'Closed only · clear' : 'Open only · clear'}
+            size="small"
+            color="info"
+            onDelete={() => grid.setFilter('open', '')}
+          />
+        )}
       </Box>
 
       <Box sx={{ height: 600, width: '100%' }}>

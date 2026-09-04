@@ -48,6 +48,36 @@ export interface IncidentPirCitation {
   open_action_count: number;
 }
 
+/**
+ * `GET /incidents` query params — mirrors `incident_service.list_incidents`'s
+ * own filter set. Typed (following `ReleaseListFilters`'s precedent) so a
+ * wrong param name is a compile error rather than a silently-dropped filter
+ * — `?status=open` lived undetected in an untyped `Record<string, unknown>`
+ * for exactly this reason ("open" was never a real incident status; see
+ * `open` below).
+ */
+export interface IncidentListFilters {
+  status?: string;
+  severity?: string;
+  system_id?: number | string;
+  environment_id?: number;
+  release_id?: number;
+  source?: string;
+  date_from?: string;
+  date_to?: string;
+  /**
+   * Non-terminal, resolved server-side from the tenant's OWN incident
+   * lifecycle template (`lifecycle_service.terminal_status_clause`) — never
+   * a hardcoded status. `"open"` is not itself a status value. Omit for no
+   * filter.
+   */
+  open?: boolean;
+  limit?: number;
+  offset?: number;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
 export interface IncidentCreate {
   title: string; description?: string; severity: Severity; detected_at?: string;
   environment_id?: number | null; deployment_id?: number | null;
