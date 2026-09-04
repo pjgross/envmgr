@@ -120,14 +120,20 @@ async def test_a_decommission_due_today_is_warned_and_still_counts(
     the filter; see `my_work_service.py`'s `_decommissions_queue`
     docstring.)
 
-    `GET /decommissions` (the worklist endpoint) has no membership-narrowing
-    filter at all — see `app/api/v1/decommissions.py`'s
-    `list_decommission_worklist`, which is deliberately tenant-wide, not
-    per-member — so there is no single filtered HTTP call to assert true
-    X-Total-Count equivalence against here, unlike the other four queues.
+    `GET /decommissions?mine=true` (PR 3's dashboard fix wave, finding 6) now
+    carries the SAME membership predicate `_decommissions_queue` already used
+    privately — but not the identical filtered set: the worklist's own
+    `state=` pattern accepts only ONE state at a time, and this queue's
+    `warned|due|extension_requested` is three ORed together, which no single
+    HTTP call to that endpoint can express. So true `X-Total-Count`
+    equivalence still is not asserted here; instead, `?mine=true` (no
+    `state=`) is fetched unfiltered-by-state and narrowed to the same three
+    states IN PYTHON, in the test, which is a legitimate use of a test's own
+    Python — unlike a service that would window the wrong set first.
+
     Both axes `_decommissions_queue` filters on are still seeded on both
-    sides instead: a genuinely DUE decommission AND a WARNED (due-today) one
-    on `test_user`'s own operations group (both counted — proves `warned` is
+    sides: a genuinely DUE decommission AND a WARNED (due-today) one on
+    `test_user`'s own operations group (both counted — proves `warned` is
     included, not just `due`), a TORN_DOWN one on that same group (must not
     count — the state filter still excludes a terminal state, not just
     membership), and a genuinely DUE decommission on a DIFFERENT group
@@ -175,6 +181,19 @@ async def test_a_decommission_due_today_is_warned_and_still_counts(
 
     mine = await client.get("/api/v1/me/work", headers=auth_headers)
     assert mine.json()["queues"]["decommissions"]["count"] == 2
+
+    # Finding 6's equivalence check: `?mine=true` narrows the SAME endpoint
+    # the "View all" link now points at, by the SAME membership rule. Not a
+    # bare X-Total-Count compare (see the docstring above for why one HTTP
+    # call cannot reproduce the three-state OR) — filtered to the three
+    # actionable states in the test itself instead.
+    worklist = await client.get(
+        "/api/v1/decommissions?mine=true", headers=auth_headers
+    )
+    assert worklist.status_code == 200
+    actionable_states = {"warned", "due", "extension_requested"}
+    actionable_rows = [r for r in worklist.json() if r["state"] in actionable_states]
+    assert len(actionable_rows) == mine.json()["queues"]["decommissions"]["count"] == 2
 
 
 @pytest.mark.asyncio

@@ -885,6 +885,7 @@ async def list_decommissions(
     tenant_id: int,
     *,
     state: Optional[str] = None,
+    member_user_id: Optional[int] = None,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
     now: datetime,
@@ -900,9 +901,21 @@ async def list_decommissions(
     `now` decides both this filter and every row's rendered state
     (`decommission_views` below) — taken ONCE by the caller (the route) and
     threaded through both, never re-read here.
+
+    `member_user_id` — PR 3's dashboard fix wave, finding 6 — narrows to
+    decommissions on an environment `member_user_id` operates, using
+    `worklist_query`'s own membership predicate (the same one
+    `my_work_service._decommissions_queue` already used privately). Spec §5's
+    amendment said `/decommissions` would gain this capability alongside
+    `/me/work`; only the service seam had it until now. Omit for the
+    unnarrowed, tenant-wide worklist — the endpoint's existing default.
     """
     return await fetch_page(
-        db, worklist_query(tenant_id, now=now, sort=sort, state=state), page
+        db,
+        worklist_query(
+            tenant_id, now=now, sort=sort, state=state, member_user_id=member_user_id,
+        ),
+        page,
     )
 
 

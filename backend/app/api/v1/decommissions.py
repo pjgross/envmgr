@@ -112,6 +112,15 @@ async def list_decommission_worklist(
             "deliberately no 'all' value."
         ),
     ),
+    mine: Optional[bool] = Query(
+        None,
+        description=(
+            "true: only decommissions on an environment the caller operates "
+            "(same membership rule `/me/work`'s decommissions queue uses). "
+            "OMIT for the whole tenant's estate, the endpoint's original "
+            "behaviour."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(
         sorting(
@@ -139,7 +148,9 @@ async def list_decommission_worklist(
     tenant_id = current_user.active_tenant_id
     now = datetime.now(timezone.utc)
     rows, total = await environment_decommission_service.list_decommissions(
-        db, tenant_id, state=state, page=page, sort=sort, now=now,
+        db, tenant_id, state=state,
+        member_user_id=current_user.id if mine else None,
+        page=page, sort=sort, now=now,
     )
     set_total_count(response, total)
     views = await environment_decommission_service.decommission_views(

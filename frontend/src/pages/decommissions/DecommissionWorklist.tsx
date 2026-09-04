@@ -101,6 +101,18 @@ function stateParam(value: string | number | undefined): { state?: DecommissionS
     : {};
 }
 
+/**
+ * `mine` — PR 3's dashboard fix wave, finding 6. `/me/work`'s decommissions
+ * card links here with `?mine=true`; this page has no dropdown for it (only
+ * the "Mine only" chip below), so `mine` is a boolean-shaped string, read
+ * the same defensive way `stateParam` reads its own vocabulary — anything
+ * that is not literally `'true'` is "no filter", never a 422 that would
+ * blank the grid.
+ */
+function mineParam(value: string | number | undefined): { mine?: boolean } {
+  return value === 'true' ? { mine: true } : {};
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
@@ -119,7 +131,7 @@ export default function DecommissionWorklist() {
   // resolved.
   const grid = useServerGrid({
     endpoint: 'decommissions',
-    filterKeys: ['state'],
+    filterKeys: ['state', 'mine'],
     total: worklistTotal,
     totalPending: worklistLoading,
     onFetch: (params) =>
@@ -130,11 +142,13 @@ export default function DecommissionWorklist() {
           sortBy: params.sort_by as 'scheduled_teardown_at' | 'warned_at' | 'environment',
           sortDir: params.sort_dir,
           ...stateParam(params.state),
+          ...mineParam(params.mine),
         })
       ),
   });
 
   const stateFilter = grid.filters.state ?? 'any';
+  const mineFilter = grid.filters.mine === 'true';
 
   const columns: GridColDef<DecommissionWorklistRow>[] = [
     {
@@ -230,6 +244,17 @@ export default function DecommissionWorklist() {
             onClick={() => grid.setFilter('state', f.value)}
           />
         ))}
+        {/* `mine` (finding 6) — visible and clearable here, unlike the link
+            that sets it from `/me/work`, which would otherwise land on a
+            filtered grid with no way to tell or clear it. */}
+        <Chip
+          label="Mine only"
+          clickable
+          component="button"
+          color={mineFilter ? 'primary' : 'default'}
+          variant={mineFilter ? 'filled' : 'outlined'}
+          onClick={() => grid.setFilter('mine', mineFilter ? '' : 'true')}
+        />
       </Box>
 
       {worklistError && (
