@@ -144,10 +144,10 @@ no icons.
 | Section | Items → route |
 |---|---|
 | **Organisation** | Users `/admin/users` · User groups `/admin/user-groups`, `/admin/user-groups/:id` · Tenant settings `/admin/settings` |
-| **Environments** | Tiers `/admin/environments/tiers` · Naming policy `/admin/environments/naming-policy` · Lifecycle & decommissioning `/admin/environments/lifecycle-policy` · Request lifecycle `/admin/environment-requests/lifecycle` · Custom fields `/admin/environments/fields` |
-| **Bookings** | Booking types `/admin/bookings/types` · Lifecycle `/admin/bookings/lifecycle` · Custom fields `/admin/bookings/fields` |
-| **Releases** | Templates `/admin/releases/templates`, `/admin/releases/templates/:id` · Gate types `/admin/releases/gate-types` · Rollback policy `/admin/releases/rollback-policy` · Event types `/admin/releases/event-types` · Lifecycle `/admin/releases/lifecycle` · Scope-change rules `/admin/releases/scope-change-rules` · RAID settings `/admin/releases/raid` · Custom fields `/admin/releases/fields` · Scope item fields `/admin/release-changes/fields` |
-| **Delivery** | Change requests `/admin/change-requests/{fields,lifecycle}` · Builds `/admin/builds/fields` · Deployments `/admin/deployments/fields` · Incidents `/admin/incidents/{fields,lifecycle}` · Systems `/admin/systems/fields` · Subsystems `/admin/subsystems/fields` · Component types `/admin/component-types` · Environment request fields `/admin/environment-requests/fields` |
+| **Environments** | Tiers `/admin/environments?tab=tiers` · Naming policy `/admin/environments?tab=naming-policy` · Lifecycle & decommissioning `/admin/environments?tab=lifecycle-policy` · Request lifecycle `/admin/environment-requests?tab=lifecycle` · Custom fields `/admin/environments?tab=fields` |
+| **Bookings** | Booking types `/admin/bookings?tab=types` · Lifecycle `/admin/bookings?tab=lifecycle` · Custom fields `/admin/bookings?tab=fields` |
+| **Releases** | Templates `/admin/releases/templates`, `/admin/releases/templates/:id` · Gate types `/admin/releases?tab=gate-types` · Rollback policy `/admin/releases?tab=rollback-policy` · Event types `/admin/releases?tab=event-types` · Lifecycle `/admin/releases?tab=lifecycle` · Scope-change rules `/admin/releases/scope-change-rules` · RAID settings `/admin/releases/raid` · Custom fields `/admin/releases?tab=fields` · Scope item fields `/admin/release-changes?tab=fields` |
+| **Delivery** | Change requests `/admin/change-requests?tab={fields,lifecycle}` · Builds `/admin/builds?tab=fields` · Deployments `/admin/deployments?tab=fields` · Incidents `/admin/incidents?tab={fields,lifecycle}` · Systems `/admin/systems?tab=fields` · Subsystems `/admin/subsystems?tab=fields` · Component types `/admin/component-types` · Environment request fields `/admin/environment-requests?tab=fields` |
 | **Integrations** | API keys `/admin/api-keys` · GitHub `/admin/github` |
 | **Platform** (master admin only) | Tenants `/admin/tenants`, `/admin/tenants/:id` |
 
@@ -155,10 +155,18 @@ Sections group by **what an admin is configuring**, not by which table holds
 the setting: RAID settings and scope-change rules sit beside release templates,
 where a release manager looks for them.
 
+Per-entity items above (everything but Templates, Scope-change rules, RAID
+settings and Component types, which are their own literal routes) address
+their tab with `?tab=`, not a path segment — see §6, "ONE MECHANISM: THE TAB
+IS A QUERY PARAM, EVERYWHERE." The segment form (`/admin/<entity>/<tab>`)
+still resolves, as a route-level redirect, for one release.
+
 ### 4.3 Entity configuration pages
 
-`EntityConfig` becomes `/admin/<entity>/<tab>` with **string-keyed tabs in the
-route** (`useUrlTab`, §6). The per-entity page keeps its tab strip
+`EntityConfig` becomes `/admin/<entity>?tab=<tab>` with **string-keyed tabs in
+a query param** (`useUrlTab`, §6 — the tab is a query param everywhere, not
+just here; the segment form, `/admin/<entity>/<tab>`, still resolves as a
+route-level redirect for one release). The per-entity page keeps its tab strip
 (so an admin on *Tiers* can see *Naming policy* is next door), but each tab is
 a first-class URL, so the drawer can point at a tab directly. The seven
 `*_SUPPORTED` feature lists move into a single `entityConfigTabs` table:
