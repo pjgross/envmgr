@@ -17,7 +17,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -36,7 +35,7 @@ import type {
   ReleaseTemplateCreatePayload,
 } from '../../../types/releaseTemplate';
 import { useSnackbar } from '../../../hooks/useSnackbar';
-import PageHeader from '../../../components/layout/PageHeader';
+import DetailPageHeader from '../../../components/layout/DetailPageHeader';
 
 const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
 
@@ -186,17 +185,13 @@ export default function ReleaseTemplateForm() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 900 }}>
-      <PageHeader
-        title={isNew ? 'New Template' : `Edit Template: ${detail?.name ?? ''}`}
+      <DetailPageHeader
+        back={{ to: '/admin/releases/templates', label: 'Templates' }}
+        title={isNew ? 'New Template' : detail?.name}
         actions={
-          <>
-            <IconButton size="small" onClick={() => navigate('/admin/releases/templates')} aria-label="Back to templates">
-              <ArrowBackIcon />
-            </IconButton>
-            <Button variant="contained" onClick={handleSave} disabled={saving || loading}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-          </>
+          <Button variant="contained" onClick={handleSave} disabled={saving || loading}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
         }
       />
 

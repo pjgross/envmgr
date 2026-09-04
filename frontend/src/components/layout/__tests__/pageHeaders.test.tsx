@@ -15,11 +15,12 @@ const pageFiles = import.meta.glob<string>('../../../pages/**/*.tsx', {
 
 // `variant="h4"` outside these files is a page rendering its title through a
 // hand-rolled Typography again, which is exactly the regression Task 8's
-// PageHeader conversion exists to prevent. These four are NOT that case:
-// each uses h4 for a large numeric stat tile / code display deep in the
-// page body, never for the page's own title, and Task 8 deliberately left
-// them alone rather than "fixing" a rendering choice unrelated to the
-// header region.
+// PageHeader conversion exists to prevent. These five are NOT that case:
+// Login.tsx is its own centred layout, entirely outside PageHeader's remit,
+// and the other four use h4 for a large numeric stat tile / code display
+// deep in the page body, never for the page's own title — Task 8
+// deliberately left them alone rather than "fixing" a rendering choice
+// unrelated to the header region.
 const H4_OUTSIDE_TITLE_CONTEXT = new Set([
   '../../../pages/Login.tsx', // its own centred layout — out of PageHeader's scope entirely
   '../../../pages/insights/DoraDashboard.tsx', // metric-card primary value
