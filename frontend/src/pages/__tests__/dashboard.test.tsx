@@ -135,6 +135,35 @@ describe('Dashboard', () => {
     expect(screen.getByText(/quarantined/i)).toBeInTheDocument();
   });
 
+  it('a failed governance-gap fetch never renders as "0 environments have a governance gap"', async () => {
+    // Finding 3 of the PR 3 whole-branch review: `setGap(0)` on a rejected
+    // request produced an affirmative false statement out of a failure.
+    mockedGet.mockReset();
+    mockedGet.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.startsWith('/environments')) return Promise.reject(new Error('network down'));
+      return Promise.resolve({ data: [], headers: {} });
+    });
+    renderDashboard('Admin');
+    expect(await screen.findByText(/couldn.?t load governance gap/i)).toBeInTheDocument();
+    expect(await screen.findByText(/couldn.?t load quarantined count/i)).toBeInTheDocument();
+    expect(screen.queryByText(/environments? have a governance gap/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ quarantined$/i)).not.toBeInTheDocument();
+  });
+
+  it('a failed health-overview fetch renders a warning, never silence', async () => {
+    // Finding 3: `setAlertingNames([])` on a rejected request rendered
+    // exactly what "everything is healthy" renders — nothing at all.
+    mockedGet.mockReset();
+    mockedGet.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.startsWith('/environments/health')) return Promise.reject(new Error('network down'));
+      return Promise.resolve({ data: [], headers: { 'x-total-count': '0' } });
+    });
+    renderDashboard();
+    expect(await screen.findByText(/couldn.?t check environment health/i)).toBeInTheDocument();
+  });
+
   it('a tile whose fetch fails renders a dash instead of a stale count', async () => {
     mockedGet.mockReset();
     mockedGet.mockImplementation((url: string) => {
