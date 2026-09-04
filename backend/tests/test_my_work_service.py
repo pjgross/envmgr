@@ -56,7 +56,18 @@ async def test_one_failing_queue_does_not_fail_the_response(
 async def test_every_queue_sees_the_same_instant(db_session, test_tenant, test_user):
     """One clock. Two datetime.now() calls in one response can disagree across
     midnight, and `expiry_boundary` turns that into two different answers about
-    what is overdue."""
+    what is overdue.
+
+    Patching `.now()` to RAISE is not enough on its own: a `datetime.now()`
+    call made INSIDE a queue builder raises an `AssertionError`, which is an
+    `Exception` like any other, so `build()`'s own per-queue `except
+    Exception` (the failure-isolation requirement) would quietly swallow it
+    into `QueueResult(failed=True)` and the response would still come back
+    with the right `as_of` — the two requirements interacting to hide exactly
+    the violation this test exists to catch. The second assertion closes
+    that: a clock call anywhere inside a builder must surface as a failed
+    queue, not a silently-passing test.
+    """
     user = await ensure_user(db_session, test_tenant.id, username='my-work-user')
     fixed = datetime(2026, 9, 4, 23, 59, 59, tzinfo=timezone.utc)
     from app.services import my_work_service
@@ -69,6 +80,10 @@ async def test_every_queue_sees_the_same_instant(db_session, test_tenant, test_u
             db_session, tenant_id=test_tenant.id, user=user, now=fixed
         )
     assert res.as_of == fixed
+    assert not any(q.failed for q in res.queues.values()), (
+        "a queue failed while `datetime.now()` was patched to raise — some "
+        "queue builder is calling its own clock instead of using `now`"
+    )
 
 
 @pytest.mark.asyncio
@@ -256,3 +271,37 @@ async def test_pir_actions_queue_counts_overdue(db_session, test_tenant, test_us
     assert res.queues["pir_actions"].overdue == 1
     for other in ("environment_requests", "contentions", "decommissions", "incidents"):
         assert res.queues[other].overdue is None
+
+
+@pytest.mark.asyncio
+async def test_pir_actions_queue_excludes_closed_actions(
+    db_session, test_tenant, test_user
+):
+    """A done/cancelled action is finished work, not something waiting on me
+    — it must not inflate `count` (or ever appear in `items`), or a "waiting
+    on me" card would accumulate closed work forever and never shrink."""
+    me = await ensure_user(db_session, test_tenant.id, username='pir-owner-2')
+    now = datetime.now(timezone.utc)
+    live = await make_pir_action(
+        db_session, test_tenant.id, title="Still open", owner_id=me.id,
+        status="open",
+    )
+    done = await make_pir_action(
+        db_session, test_tenant.id, title="Already done", owner_id=me.id,
+        status="done",
+    )
+    cancelled = await make_pir_action(
+        db_session, test_tenant.id, title="Cancelled", owner_id=me.id,
+        status="cancelled",
+    )
+
+    from app.services import my_work_service
+
+    res = await my_work_service.build(
+        db_session, tenant_id=test_tenant.id, user=me, now=now
+    )
+    assert res.queues["pir_actions"].count == 1
+    ids = {i.id for i in res.queues["pir_actions"].items}
+    assert live.id in ids
+    assert done.id not in ids
+    assert cancelled.id not in ids

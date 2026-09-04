@@ -22,6 +22,10 @@ drifting from the worklist page it is supposed to mirror:
 - `pir_finding_service.list_actions(..., owner_id=...)` — `is_overdue` on
   each row is the same function `GET /pir-actions` renders from; `overdue`
   is a count over rows this call already fetched, never a second query.
+  Filtered in Python to `status` membership in
+  `pir_finding_service.LIVE_ACTION_STATUSES` (`list_actions`' own `status=`
+  takes one value, and there are two non-terminal statuses) — the
+  codebase's own already-defined non-terminal set, never a re-derived one.
 - `incident_service.list_incidents(..., filters={"status": "open"})` — the
   same filter `GET /incidents?status=open` sends. Incidents carry no
   per-user ownership in this codebase, so this queue is tenant-wide, not
@@ -39,11 +43,11 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.schemas.my_work import MyWorkResponse, QueueResult, WorkItem
 from app.core.decommission_states import STATE_DUE, STATE_EXTENSION_REQUESTED
 from app.core.pagination import Sort
 from app.core.security import Role
 from app.db.models.user import User
-from app.schemas.my_work import MyWorkResponse, QueueResult, WorkItem
 from app.services import (
     contention_service,
     environment_decommission_service,
@@ -115,7 +119,7 @@ async def _contentions_queue(
         env_b = view.other_booking_label.environment_name if view else None
         title = (
             f"{env_a or 'Unknown'} vs {env_b or 'Unknown'}"
-            if (env_a or env_b) else f"Contention #{escalation.id}"
+            if (env_a or env_b) else "Contention between unresolved bookings"
         )
         items.append(
             WorkItem(
@@ -158,7 +162,7 @@ async def _decommissions_queue(
     items = [
         WorkItem(
             id=row.id,
-            title=views[row.id].environment_name or f"Decommission #{row.id}",
+            title=views[row.id].environment_name or "Decommission of an unresolved environment",
             subtitle=views[row.id].state,
             url="/decommissions",
             due=row.scheduled_teardown_at,
@@ -171,16 +175,29 @@ async def _decommissions_queue(
 async def _pir_actions_queue(
     db: AsyncSession, *, tenant_id: int, user: User, now: datetime
 ) -> QueueResult:
-    """My open PIR actions. `is_overdue` on each row comes from
+    """My NOT-YET-CLOSED PIR actions. `is_overdue` on each row comes from
     `pir_finding_service.list_actions` itself — the same computation
     `GET /pir-actions` renders from — so `overdue` is a count over rows this
     call already fetched, never a second query re-deriving the boundary.
+
+    `list_actions`' own `status=` filter accepts exactly one value, and there
+    are two non-terminal statuses (`pir_finding_service.LIVE_ACTION_STATUSES`
+    — `open` and `in_progress`), so this fetches every action I own (already
+    narrowed by `owner_id`, hence bounded) and keeps only the live ones in
+    Python by reading `status` membership in that set — the codebase's own
+    already-defined non-terminal set, not a re-derived one. Without this, a
+    "waiting on me" card would accumulate `done`/`cancelled` actions forever
+    and its count would never shrink.
     """
     rows, total = await pir_finding_service.list_actions(
         db, tenant_id, now=now, owner_id=user.id,
         sort=Sort(column=pir_finding_service.PirAction.due_date, descending=False),
     )
-    overdue = sum(1 for row in rows if row["is_overdue"])
+    live = [
+        row for row in rows
+        if row["status"] in pir_finding_service.LIVE_ACTION_STATUSES
+    ]
+    overdue = sum(1 for row in live if row["is_overdue"])
     items = [
         WorkItem(
             id=row["id"],
@@ -189,9 +206,9 @@ async def _pir_actions_queue(
             url="/pir-actions",
             due=row["due_date"],
         )
-        for row in rows[:ITEM_CAP]
+        for row in live[:ITEM_CAP]
     ]
-    return QueueResult(count=total, items=items, overdue=overdue)
+    return QueueResult(count=len(live), items=items, overdue=overdue)
 
 
 async def _incidents_queue(
