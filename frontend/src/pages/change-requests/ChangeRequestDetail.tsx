@@ -8,12 +8,10 @@ import {
   Chip,
   CircularProgress,
   Divider,
-  IconButton,
   Paper,
   Stack,
   Typography,
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import { AppDispatch, RootState } from '../../store';
@@ -33,6 +31,7 @@ import { changeRequestService } from '../../services/changeRequestService';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { CHANGE_TYPE_LABELS } from '../../types/changeRequest';
 import ChangeRequestEditDialog from './ChangeRequestEditDialog';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   draft: 'default',
@@ -99,7 +98,8 @@ export default function ChangeRequestDetail() {
   };
 
   const handleDelete = async () => {
-    if (!(await confirm({ message: 'Delete this change request?', destructive: true }))) return;
+    const label = detail?.title ? `change request "${detail.title}"` : 'this change request';
+    if (!(await confirm({ message: `Delete ${label}?`, destructive: true }))) return;
     try {
       const action = await dispatch(deleteChangeRequest(crId));
       if ('error' in action) throw new Error(action.error.message ?? 'Delete failed');
@@ -139,33 +139,21 @@ export default function ChangeRequestDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton onClick={() => navigate('/change-requests')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          {detail.title}
-        </Typography>
-        <Chip
-          label={detail.status}
-          color={STATUS_COLORS[detail.status] ?? 'default'}
-        />
-        <Button
-          size="small"
-          startIcon={<EditIcon />}
-          onClick={() => setEditOpen(true)}
-        >
-          Edit
-        </Button>
-        <Button
-          color="error"
-          size="small"
-          startIcon={<DeleteOutlineIcon />}
-          onClick={handleDelete}
-        >
-          Delete
-        </Button>
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/change-requests', label: 'Change requests' }}
+        title={detail.title}
+        status={<Chip label={detail.status} color={STATUS_COLORS[detail.status] ?? 'default'} />}
+        actions={
+          <>
+            <Button size="small" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
+              Edit
+            </Button>
+            <Button color="error" size="small" startIcon={<DeleteOutlineIcon />} onClick={handleDelete}>
+              Delete
+            </Button>
+          </>
+        }
+      />
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={4} flexWrap="wrap">

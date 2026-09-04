@@ -21,6 +21,7 @@ import type { AppDispatch, RootState } from '../../store';
 import { fetchProjects, createProject, updateProject, deleteProject } from '../../store/projectSlice';
 import { fetchUserGroups } from '../../store/userGroupSlice';
 import type { ProjectResponse } from '../../types/project';
+import PageHeader from '../../components/layout/PageHeader';
 
 // Sortable fields (whitelist-backed, see the backend's PROJECT_SORTS): `name`,
 // `code`, `created_at` ONLY. `team_group_name` is joined and
@@ -200,27 +201,27 @@ export default function Projects() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="h5">Projects</Typography>
-        {canWrite && (
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => {
-              // Mirror openEdit and the delete-open click: reset the dialog's
-              // own error before it opens, or a previous failure's message
-              // greets a fresh, untouched form (Finding 1, Task 6 review).
-              setCreateError(null);
-              setCreateOpen(true);
-            }}
-          >
-            + New Project
-          </Button>
-        )}
-      </Box>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
-        A project coordinates work across releases, bookings and environments.
-      </Typography>
+      <PageHeader
+        title="Projects"
+        subtitle="A project coordinates work across releases, bookings and environments."
+        actions={
+          canWrite && (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => {
+                // Mirror openEdit and the delete-open click: reset the dialog's
+                // own error before it opens, or a previous failure's message
+                // greets a fresh, untouched form (Finding 1, Task 6 review).
+                setCreateError(null);
+                setCreateOpen(true);
+              }}
+            >
+              + New Project
+            </Button>
+          )
+        }
+      />
 
       <DataGrid
         rows={projects}

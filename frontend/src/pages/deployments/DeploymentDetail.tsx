@@ -12,6 +12,7 @@ import DeploymentStatusChip from '../../components/deployments/DeploymentStatusC
 import LinkChangeDialog from '../../components/deployments/LinkChangeDialog';
 import { useSnackbar } from '../../hooks/useSnackbar';
 import api from '../../services/api';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 interface LinkedCr {
   id: number;
@@ -110,10 +111,11 @@ export default function DeploymentDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="h5">{deploymentTitle}</Typography>
-        <DeploymentStatusChip status={deployment.status} size="medium" />
-      </Stack>
+      <DetailPageHeader
+        back={{ to: '/deployments', label: 'Deployments' }}
+        title={deploymentTitle}
+        status={<DeploymentStatusChip status={deployment.status} size="medium" />}
+      />
       <Stack direction="row" spacing={2} sx={{ color: 'text.secondary', mb: 3 }} flexWrap="wrap">
         <Typography variant="body2">Environment: {deployment.environment_name ?? '—'}</Typography>
         {deployment.release_name && (

@@ -28,6 +28,7 @@ import type { DoraSummary, DoraParams } from '../../types/dora';
 import type { EnvironmentResponse } from '../../types/environment';
 import type { ReleaseListItemResponse } from '../../types/release';
 import api from '../../services/api';
+import PageHeader from '../../components/layout/PageHeader';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -256,13 +257,10 @@ export default function DoraDashboard() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 1 }}>
-        DORA Metrics
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Deployment Frequency, Lead Time for Changes, Change Failure Rate, and Mean Time to Restore
-        over the selected window.
-      </Typography>
+      <PageHeader
+        title="DORA metrics"
+        subtitle="Deployment Frequency, Lead Time for Changes, Change Failure Rate, and Mean Time to Restore over the selected window."
+      />
 
       {/* Filter bar */}
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap', alignItems: 'flex-end' }}>

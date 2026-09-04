@@ -1,12 +1,13 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Box, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Box, Paper, Stack, TextField } from '@mui/material';
 import { DataGrid, GridColDef, GridRowParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchBuilds } from '../../store/buildSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import type { PipelineStep } from '../../types/build';
+import PageHeader from '../../components/layout/PageHeader';
 
 function latestStepSummary(steps: PipelineStep[]): string {
   if (steps.length === 0) return '—';
@@ -70,7 +71,7 @@ export default function BuildList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>Builds</Typography>
+      <PageHeader title="Builds" />
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">

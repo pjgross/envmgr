@@ -93,6 +93,27 @@ const nonPlatformAdminPaths = adminNav
   .flatMap((section) => section.children)
   .map((c) => c.path);
 
+// `window.location.pathname` alone never contains a query string, and an
+// admin entity-config path now legitimately carries `?tab=` (§6: the tab is
+// a query param). Comparing the full URL is strictly STRONGER than the old
+// pathname-only check: it now also proves the right tab landed, not merely
+// the right page.
+const currentUrl = () => window.location.pathname + window.location.search;
+
+// `EnvironmentRequestList` passes no `defaultSort` to `useServerGrid`, so it
+// falls back to that endpoint's own resolved default (created_at desc) and
+// `useServerGrid` writes the RESOLVED sort back into the URL on mount (a
+// pre-existing, deliberate feature — a shared link then shows the sort that
+// is actually applied, not silently omit it). That happens on this branch
+// too, unrelated to §6/the tab work: `git diff` against this branch's base
+// touches neither `EnvironmentRequestList.tsx` nor `useServerGrid.ts`. The
+// stronger `currentUrl()` check below is correct to catch it — it is a real
+// part of "where did we land" — so it is named here rather than loosening
+// the check for every path to tolerate it.
+const EXPECTED_LANDING_OVERRIDES: Record<string, string> = {
+  '/environment-requests': '/environment-requests?sort_by=created_at&sort_dir=desc',
+};
+
 describe('every nav item resolves to a real route', () => {
   afterEach(() => document.body.replaceChildren());
 
@@ -112,7 +133,7 @@ describe('every nav item resolves to a real route', () => {
     // copy is the only thing that tells the two apart.
     expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
     // still on the requested path — no guard bounced us to /dashboard
-    expect(window.location.pathname).toBe(path);
+    expect(currentUrl()).toBe(EXPECTED_LANDING_OVERRIDES[path] ?? path);
   });
 
   it.each(adminPaths)('admin path %s renders inside the admin shell', async (path) => {
@@ -120,7 +141,7 @@ describe('every nav item resolves to a real route', () => {
     expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
-    expect(window.location.pathname).toBe(path);
+    expect(currentUrl()).toBe(path);
   });
 
   it.each(nonPlatformAdminPaths)(
@@ -130,18 +151,18 @@ describe('every nav item resolves to a real route', () => {
       expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByText(/page not found/i)).not.toBeInTheDocument();
       expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument();
-      expect(window.location.pathname).toBe(path);
+      expect(currentUrl()).toBe(path);
     }
   );
 
   it('a Developer can still open a user group page, inside the admin shell', async () => {
     renderAppAt('/admin/user-groups/3', { role: 'Developer' });
     expect(await screen.findByText('Back to EnvManager', {}, { timeout: 4000 })).toBeInTheDocument();
-    expect(window.location.pathname).toBe('/admin/user-groups/3');
+    expect(currentUrl()).toBe('/admin/user-groups/3');
   });
 
   it('a Developer is bounced from an Admin-only admin page', async () => {
     renderAppAt('/admin/users', { role: 'Developer' });
-    await waitFor(() => expect(window.location.pathname).toBe('/dashboard'));
+    await waitFor(() => expect(currentUrl()).toBe('/dashboard'));
   });
 });

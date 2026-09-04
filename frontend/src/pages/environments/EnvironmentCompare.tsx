@@ -17,6 +17,7 @@ import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { environmentComparisonService } from '../../services/environmentComparisonService';
 import type { DifferenceKind, EnvironmentComparison } from '../../types/environmentComparison';
 import ComparisonTable, { KIND_LABEL } from '../../components/environments/ComparisonTable';
+import PageHeader from '../../components/layout/PageHeader';
 
 export default function EnvironmentCompare() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -91,11 +92,10 @@ export default function EnvironmentCompare() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Compare Environments</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Differences in what each environment contains, what is mocked, which versions are
-        deployed, and how each subsystem is hosted.
-      </Typography>
+      <PageHeader
+        title="Compare environments"
+        subtitle="Differences in what each environment contains, what is mocked, which versions are deployed, and how each subsystem is hosted."
+      />
 
       <Paper sx={{ p: 2, mb: 2, display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <TextField

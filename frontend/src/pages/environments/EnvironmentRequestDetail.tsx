@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -15,7 +15,6 @@ import {
   Chip,
   Divider,
   FormControl,
-  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -24,7 +23,6 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -35,6 +33,7 @@ import {
 } from '../../store/environmentRequestSlice';
 import { fetchUserGroups } from '../../store/userGroupSlice';
 import WelcomePack from '../../components/environments/WelcomePack';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   draft: 'default',
@@ -57,7 +56,6 @@ export default function EnvironmentRequestDetail() {
   const { id } = useParams<{ id: string }>();
   const requestId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
-  const navigate = useNavigate();
 
   const { current, allowedTransitions, error } = useSelector(
     (state: RootState) => state.environmentRequest
@@ -195,19 +193,13 @@ export default function EnvironmentRequestDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton onClick={() => navigate('/environment-requests')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          {target}
-        </Typography>
-        <Chip
-          label={current.status}
-          size="small"
-          color={STATUS_COLORS[current.status] ?? 'default'}
-        />
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/environment-requests', label: 'Environment requests' }}
+        title={target}
+        status={
+          <Chip label={current.status} size="small" color={STATUS_COLORS[current.status] ?? 'default'} />
+        }
+      />
 
       <Paper sx={{ p: 3, mb: 3 }}>
         <Stack spacing={1.5} divider={<Divider />}>

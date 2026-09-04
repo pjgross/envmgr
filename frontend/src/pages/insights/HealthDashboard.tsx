@@ -5,11 +5,12 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Box, Chip, CircularProgress, Typography } from '@mui/material';
+import { Alert, Box, Chip, CircularProgress } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../../components/DataTable';
 import { environmentHealthService } from '../../services/environmentHealthService';
 import type { EnvironmentHealthOverviewRow, HealthStatus } from '../../types/environmentHealth';
+import PageHeader from '../../components/layout/PageHeader';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -133,13 +134,10 @@ export default function HealthDashboard() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 1 }}>
-        Environment Health
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Current operational status of all active environments. Alerts fire when an environment is
-        degraded or down during an active booking with no planned outage.
-      </Typography>
+      <PageHeader
+        title="Environment health"
+        subtitle="Current operational status of all active environments. Alerts fire when an environment is degraded or down during an active booking with no planned outage."
+      />
 
       {/* Fetch error */}
       {fetchError && (

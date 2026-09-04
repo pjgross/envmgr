@@ -28,6 +28,7 @@ import {
   updateProject,
 } from '../../store/projectSlice';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 /**
  * Where the gap rollup below points: this project's bookings that no live
@@ -258,9 +259,19 @@ export default function ProjectDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Button size="small" onClick={() => navigate('/projects')} sx={{ mb: 2 }}>
-        Back to projects
-      </Button>
+      <DetailPageHeader
+        back={{ to: '/projects', label: 'Projects' }}
+        title={project?.name}
+        status={
+          project && (
+            <Chip
+              size="small"
+              label={project.is_active ? 'Active' : 'Archived'}
+              color={project.is_active ? 'success' : 'default'}
+            />
+          )
+        }
+      />
 
       {/* Reachable with the project loaded: the agreements list or a write can
           fail on its own. */}
@@ -270,16 +281,6 @@ export default function ProjectDetail() {
         </Alert>
       )}
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-        <Typography variant="h5">{project?.name ?? 'Project'}</Typography>
-        {project && (
-          <Chip
-            size="small"
-            label={project.is_active ? 'Active' : 'Archived'}
-            color={project.is_active ? 'success' : 'default'}
-          />
-        )}
-      </Box>
       {project?.code && (
         <Typography color="text.secondary">Code: {project.code}</Typography>
       )}

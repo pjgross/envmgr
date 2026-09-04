@@ -17,6 +17,7 @@ import type {
   ChurnCohortResponse,
   ChurnReleaseRowResponse,
 } from '../../types/release';
+import PageHeader from '../../components/layout/PageHeader';
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -166,11 +167,10 @@ export default function ReleaseAnalytics() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" sx={{ mb: 1 }}>Release Analytics</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Descriptive correlation between scope change and delays / issues across shipped project
-        releases in the selected window — not a causal claim.
-      </Typography>
+      <PageHeader
+        title="Release analytics"
+        subtitle="Descriptive correlation between scope change and delays / issues across shipped project releases in the selected window — not a causal claim."
+      />
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField label="From" type="date" size="small" value={from}

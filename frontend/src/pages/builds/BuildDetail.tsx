@@ -8,6 +8,7 @@ import type { AppDispatch, RootState } from '../../store';
 import { fetchBuildById } from '../../store/buildSlice';
 import { fetchDeploymentsByBuild } from '../../store/deploymentSlice';
 import DeploymentStatusChip from '../../components/deployments/DeploymentStatusChip';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import type { PipelineStep } from '../../types/build';
 import type { DeploymentStatus } from '../../types/deployment';
 
@@ -60,9 +61,10 @@ export default function BuildDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5">
-        Build {build.build_number ?? build.git_sha.slice(0, 8)}
-      </Typography>
+      <DetailPageHeader
+        back={{ to: '/builds', label: 'Builds' }}
+        title={`Build ${build.build_number ?? build.git_sha.slice(0, 8)}`}
+      />
       <Stack direction="row" spacing={2} sx={{ mt: 1, color: 'text.secondary' }} flexWrap="wrap">
         <Typography variant="body2">SubSystem: {build.subsystem_name ?? '—'}</Typography>
         <Typography variant="body2">Branch: {build.git_branch ?? '—'}</Typography>

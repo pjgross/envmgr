@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
@@ -34,7 +35,7 @@ import {
 } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
 import DataTable from '../../components/DataTable';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -109,12 +110,22 @@ interface SysFormValues {
 
 const emptySysForm: SysFormValues = { system_id: '' };
 
+const ENVIRONMENT_TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'systems', label: 'Systems' },
+  { key: 'components', label: 'Components' },
+  { key: 'topology', label: 'Topology' },
+  { key: 'schedule', label: 'Schedule' },
+  { key: 'deployments', label: 'Deployments' },
+  { key: 'health', label: 'Health' },
+  { key: 'operating-hours', label: 'Operating Hours' },
+] as const;
+
 export default function EnvironmentDetail() {
   const { id } = useParams<{ id: string }>();
   const envId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
   const snackbar = useSnackbar();
-  const navigate = useNavigate();
 
   const { currentEnvironment, environmentSystemsData, envSubsystems, loading, error } = useSelector(
     (state: RootState) => state.environment
@@ -143,7 +154,10 @@ export default function EnvironmentDetail() {
   const decommissionSteps = useSelector((state: RootState) => state.decommission.steps);
   const authUser = useSelector((state: RootState) => state.auth.user);
 
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useUrlTab(
+    ENVIRONMENT_TABS.map((t) => t.key),
+    'overview',
+  );
 
   // Overview edit state
   const [editMode, setEditMode] = useState(false);
@@ -330,13 +344,14 @@ export default function EnvironmentDetail() {
     dispatch(verifyEnvironment(envId));
   };
 
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    setTab(newValue);
-    if (newValue === 2) {
-      // Lazy-load subsystems when Components tab is first opened
-      dispatch(fetchEnvSubsystems(envId));
-    }
-  };
+  // Lazy-load subsystems when the Components tab is active — keyed on `tab`
+  // (the sibling pattern SystemDetail's component-deps effect uses), not on
+  // the Tabs onChange handler, so a deep link or reload landing directly on
+  // `?tab=components` loads the data too, not only a click.
+  useEffect(() => {
+    if (tab !== 'components') return;
+    dispatch(fetchEnvSubsystems(envId));
+  }, [tab, envId, dispatch]);
 
   const openVersionDialog = () => {
     setVersionForm({ subsystem_id: 0, build_id: '', version_label: '', installed_at: undefined });
@@ -674,41 +689,42 @@ export default function EnvironmentDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton onClick={() => navigate('/environments')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          {currentEnvironment?.name ?? '…'}
-        </Typography>
-        {currentEnvironment && (
-          <Chip
-            label={currentEnvironment.status}
-            size="small"
-            color={STATUS_COLORS[currentEnvironment.status]}
-          />
-        )}
-        {!editMode && tab === 0 && (
-          <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
-            Edit
-          </Button>
-        )}
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/environments', label: 'Environments' }}
+        title={currentEnvironment?.name}
+        status={
+          currentEnvironment && (
+            <Chip
+              label={currentEnvironment.status}
+              size="small"
+              color={STATUS_COLORS[currentEnvironment.status]}
+            />
+          )
+        }
+        actions={
+          !editMode &&
+          tab === 'overview' && (
+            <Button startIcon={<EditIcon />} onClick={() => setEditMode(true)}>
+              Edit
+            </Button>
+          )
+        }
+      />
 
-      <Tabs value={tab} onChange={handleTabChange} sx={{ mb: 2 }}>
-        <Tab label="Overview" />
-        <Tab label="Systems" />
-        <Tab label="Components" />
-        <Tab label="Topology" />
-        <Tab label="Schedule" />
-        <Tab label="Deployments" />
-        <Tab label="Health" />
-        <Tab label="Operating Hours" />
+      <Tabs
+        value={tab}
+        onChange={(_, v: string) => setTab(v)}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ mb: 2 }}
+      >
+        {ENVIRONMENT_TABS.map((t) => (
+          <Tab key={t.key} value={t.key} label={t.label} />
+        ))}
       </Tabs>
 
       {/* Overview Tab */}
-      {tab === 0 && (
+      {tab === 'overview' && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Paper sx={{ p: 3 }}>
             {editMode ? (
@@ -1200,7 +1216,7 @@ export default function EnvironmentDetail() {
       )}
 
       {/* Systems Tab */}
-      {tab === 1 && (
+      {tab === 'systems' && (
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
             <Button variant="contained" startIcon={<AddIcon />} onClick={openSysCreate}>
@@ -1227,7 +1243,7 @@ export default function EnvironmentDetail() {
       )}
 
       {/* Components Tab */}
-      {tab === 2 && (
+      {tab === 'components' && (
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
             <Button variant="contained" startIcon={<AddIcon />} onClick={openVersionDialog}>
@@ -1253,19 +1269,19 @@ export default function EnvironmentDetail() {
       )}
 
       {/* Topology Tab */}
-      {tab === 3 && <EnvironmentTopologyDiagram envId={envId} />}
+      {tab === 'topology' && <EnvironmentTopologyDiagram envId={envId} />}
 
       {/* Schedule Tab */}
-      {tab === 4 && <EnvironmentSchedule envId={envId} />}
+      {tab === 'schedule' && <EnvironmentSchedule envId={envId} />}
 
       {/* Deployments Tab */}
-      {tab === 5 && <EnvironmentDeploymentsTab envId={envId} />}
+      {tab === 'deployments' && <EnvironmentDeploymentsTab envId={envId} />}
 
       {/* Health Tab */}
-      {tab === 6 && <EnvironmentHealthTab envId={envId} />}
+      {tab === 'health' && <EnvironmentHealthTab envId={envId} />}
 
       {/* Operating Hours Tab */}
-      {tab === 7 && <EnvironmentOperatingHoursTab envId={envId} />}
+      {tab === 'operating-hours' && <EnvironmentOperatingHoursTab envId={envId} />}
 
       {/* Edit Version Dialog */}
       <Dialog

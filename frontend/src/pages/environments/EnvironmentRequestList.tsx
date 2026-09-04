@@ -9,7 +9,7 @@
  */
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Box, Button, Chip, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip } from '@mui/material';
 import { DataGrid, type GridColDef } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 
@@ -17,6 +17,7 @@ import type { AppDispatch, RootState } from '../../store';
 import { fetchEnvironmentRequests } from '../../store/environmentRequestSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { EnvironmentRequestResponse } from '../../types/environmentRequest';
+import PageHeader from '../../components/layout/PageHeader';
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "environment-requests" and the backend's REQUEST_SORTS): status, kind,
@@ -114,18 +115,18 @@ export default function EnvironmentRequestList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          Environment Requests
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/environment-requests/new')}
-        >
-          New Request
-        </Button>
-      </Box>
+      <PageHeader
+        title="Environment requests"
+        actions={
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/environment-requests/new')}
+          >
+            New Request
+          </Button>
+        }
+      />
 
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         {QUEUE_FILTERS.map((f) => (

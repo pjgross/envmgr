@@ -11,6 +11,7 @@ import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 import { useAllHosts } from '../../hooks/useAllHosts';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import ChangeRequestForm from './ChangeRequestForm';
+import PageHeader from '../../components/layout/PageHeader';
 import {
   CHANGE_TYPE_LABELS,
   type ChangeRequestResponse,
@@ -159,14 +160,14 @@ export default function ChangeRequestList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 2 }}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Change Requests
-        </Typography>
-        <Button variant="contained" onClick={() => setFormOpen(true)}>
-          New Change Request
-        </Button>
-      </Box>
+      <PageHeader
+        title="Change requests"
+        actions={
+          <Button variant="contained" onClick={() => setFormOpen(true)}>
+            New Change Request
+          </Button>
+        }
+      />
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField

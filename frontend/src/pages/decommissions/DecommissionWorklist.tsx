@@ -48,6 +48,7 @@ import type { AppDispatch, RootState } from '../../store';
 import { fetchDecommissionWorklist } from '../../store/decommissionSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { DecommissionState, DecommissionWorklistRow } from '../../types/decommission';
+import PageHeader from '../../components/layout/PageHeader';
 
 // The exact five literals in `backend/app/core/decommission_states.py` /
 // `types/decommission.ts`. Duplicated rather than imported from
@@ -206,9 +207,7 @@ export default function DecommissionWorklist() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" fontWeight="bold" sx={{ mb: 1 }}>
-        Decommissions
-      </Typography>
+      <PageHeader title="Decommissions" />
 
       <Alert severity="info" sx={{ mb: 2 }} data-testid="worklist-advisory">
         Every environment decommission this tenant has raised. <strong>Due</strong> and{' '}

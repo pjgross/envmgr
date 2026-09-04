@@ -17,7 +17,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -36,6 +35,7 @@ import type {
   ReleaseTemplateCreatePayload,
 } from '../../../types/releaseTemplate';
 import { useSnackbar } from '../../../hooks/useSnackbar';
+import DetailPageHeader from '../../../components/layout/DetailPageHeader';
 
 const RELEASE_TYPES = ['project', 'hotfix', 'patch', 'major', 'minor'];
 
@@ -185,17 +185,15 @@ export default function ReleaseTemplateForm() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 900 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
-        <IconButton size="small" onClick={() => navigate('/admin/releases/templates')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          {isNew ? 'New Template' : `Edit Template: ${detail?.name ?? ''}`}
-        </Typography>
-        <Button variant="contained" onClick={handleSave} disabled={saving || loading}>
-          {saving ? 'Saving…' : 'Save'}
-        </Button>
-      </Box>
+      <DetailPageHeader
+        back={{ to: '/admin/releases/templates', label: 'Templates' }}
+        title={isNew ? 'New template' : detail?.name}
+        actions={
+          <Button variant="contained" onClick={handleSave} disabled={saving || loading}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        }
+      />
 
       {/* Metadata */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>

@@ -18,6 +18,7 @@ import { useSnackbar } from '../../hooks/useSnackbar';
 import type { RaidScaleLevel, RaidBand, RaidConfig } from '../../types/raid';
 import RaidHeatMap from '../../components/releases/raid/RaidHeatMap';
 import { titleCase } from '../../components/releases/raid/raidConstants';
+import PageHeader from '../../components/layout/PageHeader';
 
 function ScaleEditor({
   title,
@@ -152,11 +153,10 @@ export default function RaidSettings() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>RAID Settings</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Configure the probability and impact scales and the RAG bands used to score risks and
-        issues. Severity = probability × impact.
-      </Typography>
+      <PageHeader
+        title="RAID settings"
+        subtitle="Configure the probability and impact scales and the RAG bands used to score risks and issues. Severity = probability × impact."
+      />
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3}>
         <Stack spacing={2} sx={{ flex: 1 }}>

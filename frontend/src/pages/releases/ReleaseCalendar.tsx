@@ -1,7 +1,9 @@
 /**
  * ReleaseCalendar — FullCalendar view of release phases.
  * Backed by GET /api/v1/releases/calendar?from=&to=
- * Click a phase event → /releases/:releaseId?tab=phases&phase=:phaseId
+ * Click a release → /releases/:releaseId. The endpoint returns one entry per
+ * RELEASE (ReleaseCalendarEntry has no phase id), so there is nothing finer to
+ * link to; a phase-level calendar would need a different endpoint.
  */
 import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -10,9 +12,10 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import type { EventClickArg, EventInput, DatesSetArg } from '@fullcalendar/core';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import { AppDispatch, RootState } from '../../store';
 import { fetchReleaseCalendar } from '../../store/releaseSlice';
+import PageHeader from '../../components/layout/PageHeader';
 
 const RELEASE_STATUS_COLORS: Record<string, string> = {
   draft: '#9e9e9e',
@@ -81,12 +84,10 @@ export default function ReleaseCalendar() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Release Calendar
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Phase timeline for all active releases. Click a phase to open the release.
-      </Typography>
+      <PageHeader
+        title="Release calendar"
+        subtitle="Target and actual dates for all active releases. Click a release to open it."
+      />
 
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>

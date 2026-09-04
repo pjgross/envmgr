@@ -414,7 +414,7 @@ Modelling both layers is what makes EnvManager useful: business-level rollups (t
    - *Name* — required, e.g. `Payments`.
    - *Description* — free text, multi-line.
    - *GitHub Repository URL* — optional, e.g. `https://github.com/org/payments`. Surfaces as a *GitHub* chip on the catalog row.
-   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured at *Administration → Delivery → Systems* (`/admin/systems/fields`).
+   - Any tenant-defined custom fields appear under the standard fields. Custom fields for the *system* entity are configured at *Administration → Delivery → Systems* (`/admin/systems?tab=fields`).
 4. Click *Create*. The system appears in the catalog. Click its row to open `/systems/:id`.
 
 There is no slug field — the system is referenced by its numeric id in the URL.
@@ -509,7 +509,7 @@ inactive ◄──► decommissioned
    - **Operations Group** (optional) — the team responsible for this environment day-to-day, picked from *Administration → Organisation → User groups* (see [ch. 4](#4-managing-users-and-roles)). Shown on the list and detail pages; leaving it unset counts toward the same governance gap as a missing owner.
    - **Expires** (optional) — the date this environment is expected to retire. Leave blank for "no expiry planned" — that is a legitimate state, not a missing value, and does not count as a governance gap. Use the *expiring within N days* filter on the list page to find environments approaching their expiry.
    - **Status** — defaults to *active*.
-   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured at *Administration → Environments → Custom fields*, `/admin/environments/fields`).
+   - **Custom Fields** — any tenant-defined fields for the *environment* entity (configured at *Administration → Environments → Custom fields*, `/admin/environments?tab=fields`).
 3. Click *Create*. The environment is created with no systems attached.
 4. Open the new row to land on the detail page, then move to the *Systems* tab to attach systems.
 
@@ -602,7 +602,7 @@ Submitting a request and cancelling your own draft or submitted request need onl
 
 **The Welcome Pack** appears on a fulfilled request's detail page: environment summary, how to connect, support (including the operating team and its member list), known limitations, and offboarding notes. It is rendered **live** from the environment's current Handover fields on every view, not a document captured at fulfilment time — so a VPN endpoint the operating team updates next month shows up the next time anyone opens the pack. A field nobody has filled in reads **"Not provided"**, not a blank section; the pack always shows every heading, because an empty "How to connect" section reads as "there is nothing to do" rather than "nobody has documented this yet".
 
-**How far the lifecycle is editable.** *Standard Request* is deliberately plain — the diagram above — and a tenant can extend it like any other lifecycle template, from *Administration → Environments → Environment requests* (`/admin/environment-requests/lifecycle` — the *Lifecycle* tab, which is where that page lands): add a second review step, add states, rewire which roles may make which transition. The one constraint is that a template must still define states named exactly `submitted`, `approved`, `rejected` and `fulfilled`, plus exactly one initial state (any name) — the service's own routing, fulfilment and Welcome-Pack logic key on those four names, so renaming one doesn't shrink the feature, it silently breaks it (a state the service no longer recognises as an approval target skips the group-membership check entirely, or a request reaches a status the template has no way out of). Saving a template that drops one of the four is refused with a 422 naming which is missing.
+**How far the lifecycle is editable.** *Standard Request* is deliberately plain — the diagram above — and a tenant can extend it like any other lifecycle template, from *Administration → Environments → Environment requests* (`/admin/environment-requests?tab=lifecycle` — the *Lifecycle* tab, which is where that page lands): add a second review step, add states, rewire which roles may make which transition. The one constraint is that a template must still define states named exactly `submitted`, `approved`, `rejected` and `fulfilled`, plus exactly one initial state (any name) — the service's own routing, fulfilment and Welcome-Pack logic key on those four names, so renaming one doesn't shrink the feature, it silently breaks it (a state the service no longer recognises as an approval target skips the group-membership check entirely, or a request reaches a status the template has no way out of). Saving a template that drops one of the four is refused with a 422 naming which is missing.
 
 > **Deploy note.** Migration `envrequests` seeds *Standard Request* into every existing tenant as
 > part of `alembic upgrade head`. If that revision was ever applied to a database *before* this
@@ -860,7 +860,7 @@ Gate dates render on the release Gantt as coloured diamonds — slate pending, g
 
 ### Gate Types
 
-*Administration → Releases → Gate types* (`/admin/releases/gate-types`, Admin only) is where your tenant declares the **vocabulary** a gate can be typed against — a `functional` gate reads differently from a `security` one, and each type declares what a failure *should* mean and what evidence is expected. Every tenant is seeded with the eight standard types from [requirements.md §2.11](../requirements.md): *Functional*, *NFR / Performance*, *Integration*, *Security*, *License*, *Accessibility*, *Business*, and *Ops Readiness*. You can edit any of them, deactivate ones you don't use, and add tenant-specific types alongside them — a tenant-added type shows no *Standard category*, since that column is only populated for the eight seeded types.
+*Administration → Releases → Gate types* (`/admin/releases?tab=gate-types`, Admin only) is where your tenant declares the **vocabulary** a gate can be typed against — a `functional` gate reads differently from a `security` one, and each type declares what a failure *should* mean and what evidence is expected. Every tenant is seeded with the eight standard types from [requirements.md §2.11](../requirements.md): *Functional*, *NFR / Performance*, *Integration*, *Security*, *License*, *Accessibility*, *Business*, and *Ops Readiness*. You can edit any of them, deactivate ones you don't use, and add tenant-specific types alongside them — a tenant-added type shows no *Standard category*, since that column is only populated for the eight seeded types.
 
 Each type has:
 
@@ -921,7 +921,7 @@ downgrade is a schema reversal, not a data one.
 
 ### Rollback Policy
 
-*Administration → Releases → Rollback policy* (`/admin/releases/rollback-policy`, Admin only) is where your tenant decides whether a missing rollback plan, an unagreed one, or a missing/stale rollback rehearsal is a **warning** or a **blocker** in a release's readiness verdict — the same verdict *Gate Types* above feeds, so a connected pipeline reading `GET /api/v1/webhooks/release-ready` sees rollback gaps and gate gaps in one response (ch. 10). The panel's own copy states the scope of the two toggles plainly, and it is worth repeating here because it is easy to over-read: **this is advisory configuration only**. Neither setting stops a deployment, a release transition, or a rollback itself — a rollback can always be recorded (see the release detail page's *Rollback* tab → *Rollback History*) whether or not a plan exists at all, and nothing on this panel is enforced by this product.
+*Administration → Releases → Rollback policy* (`/admin/releases?tab=rollback-policy`, Admin only) is where your tenant decides whether a missing rollback plan, an unagreed one, or a missing/stale rollback rehearsal is a **warning** or a **blocker** in a release's readiness verdict — the same verdict *Gate Types* above feeds, so a connected pipeline reading `GET /api/v1/webhooks/release-ready` sees rollback gaps and gate gaps in one response (ch. 10). The panel's own copy states the scope of the two toggles plainly, and it is worth repeating here because it is easy to over-read: **this is advisory configuration only**. Neither setting stops a deployment, a release transition, or a rollback itself — a rollback can always be recorded (see the release detail page's *Rollback* tab → *Rollback History*) whether or not a plan exists at all, and nothing on this panel is enforced by this product.
 
 Two toggles, **both off by default**:
 
@@ -941,7 +941,7 @@ Keep the change-kind list short — three to six is plenty. Use kind-scoped cust
 
 ### Booking types: protection levels and duration presets
 
-*Administration → Bookings → Booking types* (`/admin/bookings/types`, Admin only) is where each booking type gets its lifecycle template — and, since Phase 7 B4, two more settings that every booking of that type inherits.
+*Administration → Bookings → Booking types* (`/admin/bookings?tab=types`, Admin only) is where each booking type gets its lifecycle template — and, since Phase 7 B4, two more settings that every booking of that type inherits.
 
 **Protection** — *Preemptible* or *Protected*. Every new booking request of this type starts at the type's level; an **Admin or Release Manager** can change it on an individual booking, and nobody else can (they see it, read-only, on the form and submit it unchanged).
 

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from './store';
@@ -97,6 +97,18 @@ function PrivateRoute({
   if (requiredRole && user.role !== requiredRole && !user.is_master_admin)
     return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
+}
+
+/**
+ * `/admin/:entity/:tab` was PR 1's form. The tab is a query param now (§6), so
+ * this is a redirect and NOT a LEGACY_REDIRECTS entry: that table answers
+ * "this page moved" and is scheduled for deletion one release after PR 1;
+ * this answers "a tab is addressed differently". Folding them together would
+ * leave the next reader unable to delete either safely.
+ */
+export function EntityTabRedirect() {
+  const { entity, tab } = useParams<{ entity: string; tab: string }>();
+  return <Navigate replace to={`/admin/${entity}?tab=${tab}`} />;
 }
 
 function App() {
@@ -208,7 +220,7 @@ function App() {
                   always outranks a dynamic ":entity" at the same position
                   regardless of where either is listed — these two catch-alls
                   are simply the only routes that CAN match here. */}
-              <Route path=":entity/:tab" element={<PrivateRoute requiredRole="Admin"><EntityConfig /></PrivateRoute>} />
+              <Route path=":entity/:tab" element={<PrivateRoute requiredRole="Admin"><EntityTabRedirect /></PrivateRoute>} />
               <Route path=":entity" element={<PrivateRoute requiredRole="Admin"><EntityConfig /></PrivateRoute>} />
             </Route>
 

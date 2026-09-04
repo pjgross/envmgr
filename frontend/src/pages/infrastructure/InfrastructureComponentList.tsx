@@ -42,6 +42,7 @@ import {
   type InfrastructureComponentType,
   type InfrastructureComponentUpdate,
 } from '../../types/infrastructureComponent';
+import PageHeader from '../../components/layout/PageHeader';
 
 interface FormValues {
   name: string;
@@ -258,42 +259,44 @@ export default function InfrastructureComponentList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          Hosts &amp; Infrastructure
-        </Typography>
-        <TextField
-          size="small"
-          placeholder="Search hosts…"
-          value={grid.filters.search ?? ''}
-          onChange={(e) => grid.setFilter('search', e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Type</InputLabel>
-          <Select
-            label="Type"
-            value={grid.filters.component_type ?? 'all'}
-            onChange={(e) => grid.setFilter('component_type', e.target.value)}
-          >
-            <MenuItem value="all">All types</MenuItem>
-            {COMPONENT_TYPE_OPTIONS.map((o) => (
-              <MenuItem key={o.value} value={o.value}>
-                {o.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
-          New Host
-        </Button>
-      </Box>
+      <PageHeader
+        title="Hosts & infrastructure"
+        actions={
+          <>
+            <TextField
+              size="small"
+              placeholder="Search hosts…"
+              value={grid.filters.search ?? ''}
+              onChange={(e) => grid.setFilter('search', e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel>Type</InputLabel>
+              <Select
+                label="Type"
+                value={grid.filters.component_type ?? 'all'}
+                onChange={(e) => grid.setFilter('component_type', e.target.value)}
+              >
+                <MenuItem value="all">All types</MenuItem>
+                {COMPONENT_TYPE_OPTIONS.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+              New Host
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>

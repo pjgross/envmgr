@@ -60,10 +60,17 @@ describe('adminNav', () => {
     const standalone = new Set([
       '/admin/releases/templates', '/admin/releases/scope-change-rules', '/admin/releases/raid',
     ]);
+    // Query form, not `/admin/<entity>/<tab>` (§6: the tab is a query param,
+    // not a path segment) — `entityTabPath` emits `?tab=`.
     const entityPaths = adminNav
       .flatMap((s) => s.children)
       .map((c) => c.path)
-      .filter((p) => /^\/admin\/[a-z-]+\/[a-z-]+$/.test(p) && !standalone.has(p));
+      .filter((p) => /^\/admin\/[a-z-]+\?tab=[a-z-]+$/.test(p) && !standalone.has(p));
+    // Keep this guard. Without it, a regex that matches nothing (as the old
+    // segment-form pattern now does) makes `entityPaths` empty, the loop
+    // below runs zero times, and the test passes vacuously — exactly how
+    // this went unnoticed for two review rounds. A test that can pass by
+    // checking nothing is worse than no test.
     expect(entityPaths.length).toBeGreaterThan(10);
     for (const p of entityPaths) expect(known.has(p), p).toBe(true);
   });

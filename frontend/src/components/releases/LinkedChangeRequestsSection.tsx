@@ -38,10 +38,17 @@ export default function LinkedChangeRequestsSection({
   const snackbar = useSnackbar();
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  const handleUnlink = async (crId: number) => {
-    if (!(await confirm({ message: 'Unlink this change request from the release?', destructive: true }))) return;
+  const handleUnlink = async (cr: ChangeRequestResponse) => {
+    const label = cr.title ? `"${cr.title}"` : 'this change request';
+    if (
+      !(await confirm({
+        message: `Unlink ${label} from this release? The change request itself is not deleted.`,
+        destructive: true,
+      }))
+    )
+      return;
     try {
-      await releaseService.unlinkChangeRequest(releaseId, crId);
+      await releaseService.unlinkChangeRequest(releaseId, cr.id);
       snackbar.success('Change request unlinked');
       onUnlinked();
     } catch (err) {
@@ -77,7 +84,7 @@ export default function LinkedChangeRequestsSection({
             color="error"
             onClick={(e) => {
               e.stopPropagation();
-              handleUnlink(params.row.id);
+              handleUnlink(params.row);
             }}
           >
             <DeleteIcon fontSize="small" />

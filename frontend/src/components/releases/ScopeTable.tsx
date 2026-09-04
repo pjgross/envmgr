@@ -86,10 +86,11 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
     setHistoryOpen(true);
   };
 
-  const handleDelete = async (changeId: number) => {
-    if (!(await confirm({ message: 'Delete this scope item?', destructive: true }))) return;
+  const handleDelete = async (item: ReleaseChangeResponse) => {
+    const label = item.title ? `scope item "${item.title}"` : 'this scope item';
+    if (!(await confirm({ message: `Delete ${label}?`, destructive: true }))) return;
     try {
-      await dispatch(deleteReleaseChange(changeId)).unwrap();
+      await dispatch(deleteReleaseChange(item.id)).unwrap();
       snackbar.success('Scope item deleted');
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to delete scope item');
@@ -219,7 +220,7 @@ export default function ScopeTable({ releaseId, changes, loading }: Props) {
               aria-label="Delete scope item"
               onClick={(e) => {
                 e.stopPropagation();
-                handleDelete(params.row.id);
+                handleDelete(params.row);
               }}
             >
               <DeleteIcon fontSize="small" />

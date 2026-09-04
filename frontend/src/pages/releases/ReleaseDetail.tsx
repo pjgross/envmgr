@@ -1,19 +1,22 @@
 /**
- * ReleaseDetail — full-page view for an existing release with tabs:
- *   0: Main (lifecycle, fields, transitions)
- *   1: Gates & Test Phases
- *   2: Systems
- *   3: Environments
- *   4: Linked Requests
- *   5: Scope
- *   6: RAID
- *   7: Enterprise (membership)
- *   8: Deployments
- *   9: PIR (Post-Implementation Review)
+ * ReleaseDetail — full-page view for an existing release. The active tab is
+ * held in `?tab=` (see `useUrlTab`), keyed as:
+ *   main: Main (lifecycle, fields, transitions)
+ *   gates: Gates & Test Phases
+ *   systems: Systems
+ *   environments: Environments
+ *   requests: Linked Requests
+ *   scope: Scope
+ *   raid: RAID
+ *   enterprise: Enterprise (membership)
+ *   deployments: Deployments
+ *   pir: PIR (Post-Implementation Review)
+ *   rollback: Rollback
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useUrlTab } from '../../hooks/useUrlTab';
 import {
   Box,
   Button,
@@ -33,6 +36,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import { AppDispatch, RootState } from '../../store';
 import { fetchRelease, deleteRelease, clearDetail } from '../../store/releaseSlice';
 import ReleaseMainTab from '../../components/releases/ReleaseMainTab';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import ReleasePlanTab from '../../components/releases/ReleasePlanTab';
 import ReleaseEnvironmentsTab from '../../components/releases/ReleaseEnvironmentsTab';
 import ReleaseLinkedRequestsTab from '../../components/releases/ReleaseLinkedRequestsTab';
@@ -60,6 +64,20 @@ const STATUS_COLORS: Record<string, 'default' | 'success' | 'warning' | 'error' 
   cancelled: 'error',
 };
 
+const RELEASE_TABS = [
+  { key: 'main', label: 'Main' },
+  { key: 'gates', label: 'Gates & Test Phases' },
+  { key: 'systems', label: 'Systems' },
+  { key: 'environments', label: 'Environments' },
+  { key: 'requests', label: 'Linked Requests' },
+  { key: 'scope', label: 'Scope' },
+  { key: 'raid', label: 'RAID' },
+  { key: 'enterprise', label: 'Enterprise' },
+  { key: 'deployments', label: 'Deployments' },
+  { key: 'pir', label: 'PIR' },
+  { key: 'rollback', label: 'Rollback' },
+] as const;
+
 export default function ReleaseDetail() {
   const { id } = useParams<{ id: string }>();
   const releaseId = Number(id);
@@ -69,7 +87,10 @@ export default function ReleaseDetail() {
 
   const { detail: release, loading, error } = useSelector((s: RootState) => s.release);
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useUrlTab(
+    RELEASE_TABS.map((t) => t.key),
+    'main',
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [eventLogOpen, setEventLogOpen] = useState(false);
 
@@ -110,81 +131,34 @@ export default function ReleaseDetail() {
     );
   }
 
-  if (release.release_kind === 'enterprise') {
-    return <EnterpriseTabs release={release} />;
-  }
-
-  return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-        <IconButton onClick={() => navigate('/releases')} size="small">
-          <ArrowBackIcon />
+  // Shared by both branches below so the enterprise release page — reachable
+  // whenever release_kind === 'enterprise' — gets the same header, status
+  // chips and actions as its sibling instead of none of them.
+  const statusChips = (
+    <>
+      <Chip label={release.status} color={STATUS_COLORS[release.status] ?? 'default'} size="small" />
+      <Chip label={release.release_type} size="small" variant="outlined" />
+    </>
+  );
+  const headerActions = (
+    <>
+      <Tooltip title="Status history">
+        <IconButton size="small" onClick={() => setHistoryOpen(true)}>
+          <HistoryIcon />
         </IconButton>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          {release.name}
-        </Typography>
-        <Chip
-          label={release.status}
-          color={STATUS_COLORS[release.status] ?? 'default'}
-          size="small"
-        />
-        <Chip label={release.release_type} size="small" variant="outlined" />
-        <Tooltip title="Status history">
-          <IconButton size="small" onClick={() => setHistoryOpen(true)}>
-            <HistoryIcon />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Event log">
-          <IconButton size="small" onClick={() => setEventLogOpen(true)}>
-            <EventNoteIcon />
-          </IconButton>
-        </Tooltip>
-        <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
-          <DeleteOutlineIcon />
+      </Tooltip>
+      <Tooltip title="Event log">
+        <IconButton size="small" onClick={() => setEventLogOpen(true)}>
+          <EventNoteIcon />
         </IconButton>
-      </Box>
-
-      <ReadinessBanner releaseId={releaseId} />
-
-      {/* Tab strip */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{ px: 2 }}
-        >
-          <Tab label="Main" />
-          <Tab label="Gates & Test Phases" />
-          <Tab label="Systems" />
-          <Tab label="Environments" />
-          <Tab label="Linked Requests" />
-          <Tab label="Scope" />
-          <Tab label="RAID" />
-          <Tab label="Enterprise" />
-          <Tab label="Deployments" />
-          <Tab label="PIR" />
-          <Tab label="Rollback" />
-        </Tabs>
-      </Paper>
-
-      {/* Tab content */}
-      {activeTab === 0 && <ReleaseMainTab releaseId={releaseId} />}
-      {activeTab === 1 && <ReleasePlanTab releaseId={releaseId} />}
-      {activeTab === 2 && <ReleaseSystemsTab releaseId={releaseId} />}
-      {activeTab === 3 && <ReleaseEnvironmentsTab releaseId={releaseId} />}
-      {activeTab === 4 && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
-      {activeTab === 5 && <ReleaseScopeTab releaseId={releaseId} />}
-      {activeTab === 6 && <RaidTab releaseId={releaseId} />}
-      {activeTab === 7 && <EnterpriseMembershipTab releaseId={releaseId} />}
-      {activeTab === 8 && <ReleaseDeploymentsTab releaseId={releaseId} />}
-      {activeTab === 9 && <ReleasePirTab releaseId={releaseId} />}
-      {activeTab === 10 && <RollbackPanel releaseId={releaseId} />}
-
-      {confirmDialog}
-      {/* Side drawers */}
+      </Tooltip>
+      <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
+        <DeleteOutlineIcon />
+      </IconButton>
+    </>
+  );
+  const sideDrawers = (
+    <>
       <ReleaseStatusHistoryDrawer
         open={historyOpen}
         releaseId={releaseId}
@@ -195,6 +169,67 @@ export default function ReleaseDetail() {
         releaseId={releaseId}
         onClose={() => setEventLogOpen(false)}
       />
+    </>
+  );
+
+  if (release.release_kind === 'enterprise') {
+    return (
+      <Box sx={{ p: 3 }}>
+        <DetailPageHeader
+          back={{ to: '/releases', label: 'Releases' }}
+          title={release.name}
+          status={statusChips}
+          actions={headerActions}
+        />
+        <EnterpriseTabs release={release} />
+        {confirmDialog}
+        {sideDrawers}
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <DetailPageHeader
+        back={{ to: '/releases', label: 'Releases' }}
+        title={release.name}
+        status={statusChips}
+        actions={headerActions}
+      />
+
+      <ReadinessBanner releaseId={releaseId} />
+
+      {/* Tab strip */}
+      <Paper sx={{ mb: 2 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v: string) => setActiveTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ px: 2 }}
+        >
+          {RELEASE_TABS.map((t) => (
+            <Tab key={t.key} value={t.key} label={t.label} />
+          ))}
+        </Tabs>
+      </Paper>
+
+      {/* Tab content */}
+      {activeTab === 'main' && <ReleaseMainTab releaseId={releaseId} />}
+      {activeTab === 'gates' && <ReleasePlanTab releaseId={releaseId} />}
+      {activeTab === 'systems' && <ReleaseSystemsTab releaseId={releaseId} />}
+      {activeTab === 'environments' && <ReleaseEnvironmentsTab releaseId={releaseId} />}
+      {activeTab === 'requests' && <ReleaseLinkedRequestsTab releaseId={releaseId} />}
+      {activeTab === 'scope' && <ReleaseScopeTab releaseId={releaseId} />}
+      {activeTab === 'raid' && <RaidTab releaseId={releaseId} />}
+      {activeTab === 'enterprise' && <EnterpriseMembershipTab releaseId={releaseId} />}
+      {activeTab === 'deployments' && <ReleaseDeploymentsTab releaseId={releaseId} />}
+      {activeTab === 'pir' && <ReleasePirTab releaseId={releaseId} />}
+      {activeTab === 'rollback' && <RollbackPanel releaseId={releaseId} />}
+
+      {confirmDialog}
+      {/* Side drawers */}
+      {sideDrawers}
     </Box>
   );
 }

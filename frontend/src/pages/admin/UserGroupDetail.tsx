@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -24,12 +24,12 @@ import {
   fetchUserGroup,
   removeGroupMember,
 } from '../../store/userGroupSlice';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 
 export default function UserGroupDetail() {
   const { id } = useParams<{ id: string }>();
   const groupId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
-  const navigate = useNavigate();
   const { currentGroup, members, memberTotal, error: loadError } = useSelector(
     (s: RootState) => s.userGroup
   );
@@ -95,9 +95,7 @@ export default function UserGroupDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Button size="small" onClick={() => navigate('/admin/user-groups')} sx={{ mb: 2 }}>
-        Back to user groups
-      </Button>
+      <DetailPageHeader back={{ to: '/admin/user-groups', label: 'User groups' }} title={group?.name} />
 
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -105,7 +103,6 @@ export default function UserGroupDetail() {
         </Alert>
       )}
 
-      <Typography variant="h5">{group?.name ?? 'User Group'}</Typography>
       {group?.description && (
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           {group.description}

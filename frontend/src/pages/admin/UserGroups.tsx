@@ -24,6 +24,7 @@ import {
   deleteUserGroup,
 } from '../../store/userGroupSlice';
 import type { UserGroupResponse } from '../../types/userGroup';
+import PageHeader from '../../components/layout/PageHeader';
 
 // This grid is client-side: no sortingMode="server" or paginationMode="server"
 // below, so every click sorts the rows already in the browser and none of it
@@ -185,29 +186,28 @@ export default function UserGroups() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="h5">User Groups</Typography>
-        {canWrite && (
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => {
-              // Reset the dialog's own error before it opens, or a previous
-              // failure's message greets a fresh, untouched form. handleCreate
-              // resets at SUBMIT time, which is too late — the user sees the
-              // stale error the moment the empty dialog appears.
-              setCreateError(null);
-              setCreateOpen(true);
-            }}
-          >
-            + New Group
-          </Button>
-        )}
-      </Box>
-      <Typography color="text.secondary" sx={{ mb: 2 }}>
-        A group organises users for environment access. A group operating
-        environments cannot be deleted.
-      </Typography>
+      <PageHeader
+        title="User groups"
+        subtitle="A group organises users for environment access. A group operating environments cannot be deleted."
+        actions={
+          canWrite && (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => {
+                // Reset the dialog's own error before it opens, or a previous
+                // failure's message greets a fresh, untouched form. handleCreate
+                // resets at SUBMIT time, which is too late — the user sees the
+                // stale error the moment the empty dialog appears.
+                setCreateError(null);
+                setCreateOpen(true);
+              }}
+            >
+              + New Group
+            </Button>
+          )
+        }
+      />
 
       <DataGrid
         rows={groups}

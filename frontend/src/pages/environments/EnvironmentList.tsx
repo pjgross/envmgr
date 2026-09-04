@@ -52,6 +52,7 @@ import type { DecommissionState } from '../../types/decommission';
 import type { CustomFieldDefinition } from '../../types/customField';
 import CustomFieldsSection from '../../components/CustomFieldsSection';
 import { useSnackbar } from '../../hooks/useSnackbar';
+import PageHeader from '../../components/layout/PageHeader';
 import { useAllEnvironmentTiers } from '../../hooks/useAllEnvironmentTiers';
 import { useNamingPolicy, namingPolicyHelperText } from '../../hooks/useNamingPolicy';
 import { formatExpiry, isExpiryOverdue } from '../../utils/dates';
@@ -633,28 +634,29 @@ export default function EnvironmentList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header row */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexGrow: 1 }}>
-          Environments
-        </Typography>
-        <TextField
-          size="small"
-          placeholder="Search environments…"
-          value={grid.filters.search ?? ''}
-          onChange={(e) => grid.setFilter('search', e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
-          New Environment
-        </Button>
-      </Box>
+      <PageHeader
+        title="Environments"
+        actions={
+          <>
+            <TextField
+              size="small"
+              placeholder="Search environments…"
+              value={grid.filters.search ?? ''}
+              onChange={(e) => grid.setFilter('search', e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+              New Environment
+            </Button>
+          </>
+        }
+      />
 
       {/* Status / tier / governance filters */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>

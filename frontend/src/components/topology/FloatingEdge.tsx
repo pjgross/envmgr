@@ -6,6 +6,8 @@ import {
   useStore,
   type EdgeProps,
 } from 'reactflow';
+import { useTheme } from '@mui/material/styles';
+import { edgeLabelStyle } from '../../theme';
 import { getEdgeParams } from './floatingEdgeGeometry';
 
 /**
@@ -22,6 +24,7 @@ export default function FloatingEdge({
   style,
   label,
 }: EdgeProps) {
+  const theme = useTheme();
   const sourceNode = useStore(useCallback((s) => s.nodeInternals.get(source), [source]));
   const targetNode = useStore(useCallback((s) => s.nodeInternals.get(target), [target]));
 
@@ -54,7 +57,7 @@ export default function FloatingEdge({
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              background: 'var(--mui-palette-background-paper, #fff)',
+              ...edgeLabelStyle(theme),
               padding: '0 4px',
               fontSize: 11,
               lineHeight: 1.4,

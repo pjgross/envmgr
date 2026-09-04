@@ -191,10 +191,11 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
     }
   };
 
-  const handleDelete = async (gateId: number) => {
-    if (!(await confirm({ message: 'Delete this gate?', destructive: true }))) return;
+  const handleDelete = async (gate: ReleaseGateResponse) => {
+    const label = gate.name ? `gate "${gate.name}"` : 'this gate';
+    if (!(await confirm({ message: `Delete ${label}?`, destructive: true }))) return;
     try {
-      await dispatch(deleteGate({ releaseId, gateId })).unwrap();
+      await dispatch(deleteGate({ releaseId, gateId: gate.id })).unwrap();
       onRefresh();
       snackbar.success('Gate deleted');
     } catch (err) {
@@ -278,7 +279,8 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
   };
 
   const handleDeleteCriterion = async (criterion: GateCriterion) => {
-    if (!(await confirm({ message: 'Delete this criterion?', destructive: true }))) return;
+    const label = criterion.title ? `criterion "${criterion.title}"` : 'this criterion';
+    if (!(await confirm({ message: `Delete ${label}?`, destructive: true }))) return;
     try {
       await dispatch(deleteCriterion(criterion.id)).unwrap();
       snackbar.success('Criterion deleted');
@@ -461,7 +463,7 @@ export default function GatesTable({ releaseId, gates, onRefresh }: Props) {
                   <Button
                     size="small"
                     color="error"
-                    onClick={() => handleDelete(gate.id)}
+                    onClick={() => handleDelete(gate)}
                   >
                     <DeleteIcon fontSize="small" />
                   </Button>

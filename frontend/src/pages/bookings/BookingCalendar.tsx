@@ -28,6 +28,7 @@ import type { BookingResponse } from '../../types/booking';
 import type { AllowedTransition } from '../../types/bookingLifecycle';
 import { bookingService } from '../../services/bookingService';
 import BookingForm from './BookingForm';
+import PageHeader from '../../components/layout/PageHeader';
 import CustomFieldsDisplay from '../../components/CustomFieldsDisplay';
 import TransitionButtons from '../../components/bookings/TransitionButtons';
 import ConflictIndicator from '../../components/bookings/ConflictIndicator';
@@ -234,36 +235,35 @@ export default function BookingCalendar() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Toolbar */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Bookings
-        </Typography>
+      <PageHeader
+        title="Booking calendar"
+        actions={
+          <>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Filter by Environment</InputLabel>
+              <Select
+                value={envFilter}
+                label="Filter by Environment"
+                onChange={(e) => handleEnvFilter(e.target.value as number | '')}
+              >
+                <MenuItem value="">All environments</MenuItem>
+                {environments.map((env) => (
+                  <MenuItem key={env.id} value={env.id}>
+                    {env.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              {environmentsTruncated && (
+                <FormHelperText>Only the first {environments.length} environments are shown.</FormHelperText>
+              )}
+            </FormControl>
 
-        {/* Environment filter */}
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Filter by Environment</InputLabel>
-          <Select
-            value={envFilter}
-            label="Filter by Environment"
-            onChange={(e) => handleEnvFilter(e.target.value as number | '')}
-          >
-            <MenuItem value="">All environments</MenuItem>
-            {environments.map((env) => (
-              <MenuItem key={env.id} value={env.id}>
-                {env.name}
-              </MenuItem>
-            ))}
-          </Select>
-          {environmentsTruncated && (
-            <FormHelperText>Only the first {environments.length} environments are shown.</FormHelperText>
-          )}
-        </FormControl>
-
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)}>
-          New Booking
-        </Button>
-      </Box>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)}>
+              New Booking
+            </Button>
+          </>
+        }
+      />
 
       {/* B6 Task 8 — the leading-indicator headline. Deliberately mounted
           with no props describing the calendar's visible range: there is

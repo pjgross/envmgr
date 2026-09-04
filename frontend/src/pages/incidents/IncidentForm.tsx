@@ -45,6 +45,7 @@ import type { Deployment } from '../../types/deployment';
 import type { ReleaseListItemResponse } from '../../types/release';
 import type { SubSystemResponse } from '../../types/system';
 import type { IncidentCreate, IncidentUpdate } from '../../types/incident';
+import PageHeader from '../../components/layout/PageHeader';
 
 // ─── helper ────────────────────────────────────────────────────────────────
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -285,9 +286,7 @@ export default function IncidentForm() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 800, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 3 }}>
-        {isEdit ? 'Edit Incident' : 'New Incident'}
-      </Typography>
+      <PageHeader title={isEdit ? 'Edit incident' : 'New incident'} />
 
       <Paper sx={{ p: 3 }}>
         <Stack spacing={2.5}>

@@ -10,9 +10,42 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { isNavGroup, type NavEntry, type NavItem } from './navConfig';
 
+function splitPathAndQuery(value: string): [pathname: string, search: string] {
+  const qIndex = value.indexOf('?');
+  return qIndex === -1 ? [value, ''] : [value.slice(0, qIndex), value.slice(qIndex + 1)];
+}
+
+/**
+ * `path` (a nav item's declared destination) is active for `current` (the
+ * browser's actual URL) when the pathname matches as before — equal, or
+ * `current` nested one level under `path` — AND every query param `path`
+ * itself declares is present with the same value on `current`.
+ *
+ * This is a QUERY-SUBSET match, deliberately not full-URL equality: an admin
+ * entity-config item's path carries `?tab=<key>` (§6), so equality is right
+ * for telling two tabs on the same entity apart (`?tab=gate-types` must not
+ * light up for `?tab=fields`) — but a plain item with no query in its own
+ * path (e.g. `/environment-requests`) must still match when the page itself
+ * has written an unrelated param into the URL (that list writes its
+ * resolved default sort back on mount). Full-URL equality would mean that
+ * page's drawer item never highlights — the exact false negative a resolved
+ * default-sort mismatch produced in navRoutes.test.tsx before it was fixed
+ * to compare on the same subset principle.
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function isPathActive(current: string, path: string): boolean {
-  return current === path || current.startsWith(path + '/');
+  const [currentPathname, currentSearch] = splitPathAndQuery(current);
+  const [pathPathname, pathSearch] = splitPathAndQuery(path);
+  const pathnameMatches =
+    currentPathname === pathPathname || currentPathname.startsWith(pathPathname + '/');
+  if (!pathnameMatches) return false;
+  const requiredParams = new URLSearchParams(pathSearch);
+  if ([...requiredParams.keys()].length === 0) return true;
+  const currentParams = new URLSearchParams(currentSearch);
+  for (const [key, value] of requiredParams) {
+    if (currentParams.get(key) !== value) return false;
+  }
+  return true;
 }
 
 function allItems(entries: NavEntry[]): NavItem[] {

@@ -22,6 +22,7 @@ import { useServerGrid } from '../../hooks/useServerGrid';
 import type { IncidentListRow } from '../../types/incident';
 import { SEVERITY_COLOR, SEVERITIES } from '../../utils/incidentSeverity';
 import { useAllSystems } from '../../hooks/useAllSystems';
+import PageHeader from '../../components/layout/PageHeader';
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "incidents"): title, severity, status, detected_at, resolved_at. system_name,
@@ -183,14 +184,14 @@ export default function IncidentList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 2 }}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Incidents
-        </Typography>
-        <Button variant="contained" onClick={() => navigate('/incidents/new')}>
-          New Incident
-        </Button>
-      </Box>
+      <PageHeader
+        title="Incidents"
+        actions={
+          <Button variant="contained" onClick={() => navigate('/incidents/new')}>
+            New Incident
+          </Button>
+        }
+      />
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <TextField

@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import TenantSettings from '../TenantSettings';
 import tenantAdminReducer from '../../../store/tenantAdminSlice';
@@ -18,7 +19,9 @@ describe('TenantSettings', () => {
     } as never);
     render(
       <Provider store={configureStore({ reducer: { tenantAdmin: tenantAdminReducer } })}>
-        <TenantSettings />
+        <MemoryRouter>
+          <TenantSettings />
+        </MemoryRouter>
       </Provider>
     );
     expect(await screen.findByLabelText('Name')).toHaveValue('Demo Org');
@@ -34,7 +37,9 @@ describe('TenantSettings', () => {
     vi.mocked(tenantAdminService.updateSettings).mockResolvedValue({ id: 1, name: 'D', slug: 'd', settings: { a: 1 } } as never);
     render(
       <Provider store={configureStore({ reducer: { tenantAdmin: tenantAdminReducer } })}>
-        <TenantSettings />
+        <MemoryRouter>
+          <TenantSettings />
+        </MemoryRouter>
       </Provider>
     );
     await screen.findByLabelText('Name');

@@ -10,9 +10,10 @@ import SystemDetail from '../SystemDetail';
 // adds the entry but does not refresh the page, so you have to switch tabs
 // and then back to see the new entry." The Component Dependencies tab holds
 // its list in local state (`allCompDeps`), populated by an effect keyed on
-// `[tab, subsystems]`. The create handler used to call `setTab(3)` to force
-// a "refresh" — a no-op, since the Add button lives on tab 3 and the value
-// doesn't change, so React bails out and the effect never reruns.
+// `[tab, subsystems]`. The create handler used to call `setTab('component-deps')`
+// to force a "refresh" — a no-op, since the Add button lives on that tab
+// already and the value doesn't change, so React bails out and the effect
+// never reruns.
 
 // vi.mock factories below are hoisted above normal top-level const
 // declarations, so the fixtures they reference must go through vi.hoisted.
@@ -176,7 +177,8 @@ describe('SystemDetail component dependency create refresh', () => {
     );
 
     // The bug: after a successful create, the list must be reloaded — with
-    // no tab click in between (the Add button lives on tab 3 already).
+    // no tab click in between (the Add button lives on the Component Deps
+    // tab already).
     await waitFor(() =>
       expect(dependencyService.listComponentDependencies).toHaveBeenCalled()
     );

@@ -1,6 +1,8 @@
 # Frontend information architecture, admin mode and page shell
 
-> Status: design approved 2026-09-02.
+> Status: design approved 2026-09-02; §6 amended 2026-09-03 before PR 2
+> (one tab mechanism, `routeMeta` stays static, the segment form becomes a
+> route-level redirect — see §6 and §11).
 >
 > A five-PR frontend programme. It replaces the two disagreeing admin menus with
 > one admin mode, restructures the main navigation, turns the Phase-0 placeholder
@@ -142,10 +144,10 @@ no icons.
 | Section | Items → route |
 |---|---|
 | **Organisation** | Users `/admin/users` · User groups `/admin/user-groups`, `/admin/user-groups/:id` · Tenant settings `/admin/settings` |
-| **Environments** | Tiers `/admin/environments/tiers` · Naming policy `/admin/environments/naming-policy` · Lifecycle & decommissioning `/admin/environments/lifecycle-policy` · Request lifecycle `/admin/environment-requests/lifecycle` · Custom fields `/admin/environments/fields` |
-| **Bookings** | Booking types `/admin/bookings/types` · Lifecycle `/admin/bookings/lifecycle` · Custom fields `/admin/bookings/fields` |
-| **Releases** | Templates `/admin/releases/templates`, `/admin/releases/templates/:id` · Gate types `/admin/releases/gate-types` · Rollback policy `/admin/releases/rollback-policy` · Event types `/admin/releases/event-types` · Lifecycle `/admin/releases/lifecycle` · Scope-change rules `/admin/releases/scope-change-rules` · RAID settings `/admin/releases/raid` · Custom fields `/admin/releases/fields` · Scope item fields `/admin/release-changes/fields` |
-| **Delivery** | Change requests `/admin/change-requests/{fields,lifecycle}` · Builds `/admin/builds/fields` · Deployments `/admin/deployments/fields` · Incidents `/admin/incidents/{fields,lifecycle}` · Systems `/admin/systems/fields` · Subsystems `/admin/subsystems/fields` · Component types `/admin/component-types` · Environment request fields `/admin/environment-requests/fields` |
+| **Environments** | Tiers `/admin/environments?tab=tiers` · Naming policy `/admin/environments?tab=naming-policy` · Lifecycle & decommissioning `/admin/environments?tab=lifecycle-policy` · Request lifecycle `/admin/environment-requests?tab=lifecycle` · Custom fields `/admin/environments?tab=fields` |
+| **Bookings** | Booking types `/admin/bookings?tab=types` · Lifecycle `/admin/bookings?tab=lifecycle` · Custom fields `/admin/bookings?tab=fields` |
+| **Releases** | Templates `/admin/releases/templates`, `/admin/releases/templates/:id` · Gate types `/admin/releases?tab=gate-types` · Rollback policy `/admin/releases?tab=rollback-policy` · Event types `/admin/releases?tab=event-types` · Lifecycle `/admin/releases?tab=lifecycle` · Scope-change rules `/admin/releases/scope-change-rules` · RAID settings `/admin/releases/raid` · Custom fields `/admin/releases?tab=fields` · Scope item fields `/admin/release-changes?tab=fields` |
+| **Delivery** | Change requests `/admin/change-requests?tab={fields,lifecycle}` · Builds `/admin/builds?tab=fields` · Deployments `/admin/deployments?tab=fields` · Incidents `/admin/incidents?tab={fields,lifecycle}` · Systems `/admin/systems?tab=fields` · Subsystems `/admin/subsystems?tab=fields` · Component types `/admin/component-types` · Environment request fields `/admin/environment-requests?tab=fields` |
 | **Integrations** | API keys `/admin/api-keys` · GitHub `/admin/github` |
 | **Platform** (master admin only) | Tenants `/admin/tenants`, `/admin/tenants/:id` |
 
@@ -153,10 +155,18 @@ Sections group by **what an admin is configuring**, not by which table holds
 the setting: RAID settings and scope-change rules sit beside release templates,
 where a release manager looks for them.
 
+Per-entity items above (everything but Templates, Scope-change rules, RAID
+settings and Component types, which are their own literal routes) address
+their tab with `?tab=`, not a path segment — see §6, "ONE MECHANISM: THE TAB
+IS A QUERY PARAM, EVERYWHERE." The segment form (`/admin/<entity>/<tab>`)
+still resolves, as a route-level redirect, for one release.
+
 ### 4.3 Entity configuration pages
 
-`EntityConfig` becomes `/admin/<entity>/<tab>` with **string-keyed tabs in the
-route** (`useUrlTab`, §6). The per-entity page keeps its tab strip
+`EntityConfig` becomes `/admin/<entity>?tab=<tab>` with **string-keyed tabs in
+a query param** (`useUrlTab`, §6 — the tab is a query param everywhere, not
+just here; the segment form, `/admin/<entity>/<tab>`, still resolves as a
+route-level redirect for one release). The per-entity page keeps its tab strip
 (so an admin on *Tiers* can see *Naming policy* is next door), but each tab is
 a first-class URL, so the drawer can point at a tab directly. The seven
 `*_SUPPORTED` feature lists move into a single `entityConfigTabs` table:
@@ -198,7 +208,7 @@ removed:
 | `/tenant/environment-groups(/:id)` | `/environment-groups(/:id)` |
 | `/tenant/api-keys` | `/admin/api-keys` |
 | `/tenant/raid-settings` | `/admin/releases/raid` |
-| `/admin/config/:slug` | `/admin/<entity>/fields` (per-slug map) |
+| `/admin/config/:slug` | `/admin/<entity>?tab=fields` (per-slug map) |
 | `/admin/config/component-types` | `/admin/component-types` |
 | `/admin/scope-change-rules` | `/admin/releases/scope-change-rules` |
 | `/admin/release-templates(/:id)` | `/admin/releases/templates(/:id)` |
@@ -307,13 +317,66 @@ personal part lives in My work.
 breadcrumbs and `document.title` (`"Naming policy · Admin · EnvManager"`)
 through `usePageTitle`. `TenantDetail`'s ad-hoc breadcrumbs move onto it.
 
+**The map is STATIC; a dynamic name is passed in, never stored in it.**
+A detail page's title is its entity's name, which no static map can hold, so
+`usePageTitle` takes an optional leading override — `usePageTitle(env.name)`
+on `/environments/2` yields `"Mortgage_SIT · Environments · EnvManager"`.
+Putting entity data into `routeMeta` would make a wayfinding table depend on
+fetched state and give it two sources of truth.
+
 **`hooks/useUrlTab.ts`** — `useUrlTab(keys, defaultKey)` reads and writes
 `?tab=` (replace, not push). Adopted by `ReleaseDetail`, `EnvironmentDetail`,
-`SystemDetail` and the entity-config pages; numeric tab indices are removed
-from all four. Unknown `?tab=` values fall back to the default. Deep links
-elsewhere in the app (incident → release PIR tab, environment → topology)
-switch to `?tab=<key>`. Any `<Tabs>` with more than six entries gets
-`variant="scrollable" scrollButtons="auto"`.
+`SystemDetail`, `EnterpriseTabs` and the entity-config pages; numeric tab
+indices are removed from all of them. Unknown `?tab=` values fall back to the
+default. Deep links elsewhere in the app (incident → release PIR tab,
+environment → topology) switch to `?tab=<key>`. Any `<Tabs>` with more than
+six entries gets `variant="scrollable" scrollButtons="auto"`.
+
+**ONE MECHANISM: THE TAB IS A QUERY PARAM, EVERYWHERE.** PR 1 shipped the
+admin entity-config tab as a *route segment* (`/admin/:entity/:tab`) because a
+drawer item has to point straight at "Naming policy". That works, but it left
+two ways to say which tab a page is on — the exact shape of drift the
+programme was raised to remove, one layer down. `EntityConfig` therefore stops
+reading `useParams().tab`, `entityTabPath` emits `/admin/:entity?tab=<key>`,
+and `adminNavConfig`'s items move with it in the same commit, so the drawer
+never emits a URL that immediately redirects.
+
+**The old segment form is a ROUTE-LEVEL redirect, not a `LEGACY_REDIRECTS`
+entry.** `/admin/:entity/:tab` stays registered and renders
+`<Navigate replace to={`/admin/${entity}?tab=${tab}`} />`. Two reasons, and
+they are separate: `LEGACY_REDIRECTS` is already scheduled for deletion one
+release after PR 1, and filling it with URLs two days old would extend the
+life of the whole table for no one's benefit; and that table answers "this
+PAGE moved", while this answers "a tab is addressed differently" — folding
+them together would leave the next reader unable to delete either safely.
+
+**Three corrections to what this section assumed when it was written**, all
+found by reading the code before planning rather than by trusting the comments
+in it.
+
+**The `?tab=phases&phase=:phaseId` deep link CANNOT BE BUILT, and is struck
+from this section.** `ReleaseCalendar`'s header comment documents exactly that
+destination, and the page's own subtitle reads "Phase timeline for all active
+releases. Click a phase to open the release." Both are fiction:
+`GET /releases/calendar` returns `ReleaseCalendarEntry` — `{id, title, start,
+end, status, release_type}` — so the events on that calendar are **releases,
+not phases**, and no phase id exists anywhere in the payload to deep-link
+with. `handleEventClick` navigates to `/releases/:id`, which is the only thing
+it could do. PR 2 therefore corrects the comment and the subtitle to describe
+what the page does, and builds no deep link. A phase-level calendar is a
+different feature needing a different endpoint; it is not smuggled in here.
+Recorded at this length because two pieces of prose asserted this behaviour
+confidently enough that a spec repeated it.
+
+**The scrollable-tabs clause is partly done**: C4 added it to `ReleaseDetail`
+when an eleventh tab rendered off-screen, and `EnterpriseTabs` always had it;
+PR 2 covers the remainder and adds the test that stops the next tab regressing
+it.
+
+**`ConfirmDialog` already focuses *Cancel* when `destructive`** (audit P2-6) —
+implemented, commented, and with no test. PR 2 adds the guard and fixes the
+eleven messages (P2-7) only. There are exactly eleven, so that count was
+right.
 
 **`ConfirmDialog`**: focuses *Cancel* when `destructive` (P2-6). The eleven
 generic confirm messages the audit listed name the entity (P2-7).
@@ -378,6 +441,13 @@ Named tests for the promises, in the pattern this codebase already uses:
   environments.
 - **`useUrlTab`**: unknown key falls back; changing tab replaces rather than
   pushes history; the deep links updated in §6 land on the named tab.
+- **No page addresses a tab by a route segment.** A structural sweep asserts
+  no route pattern ends in `:tab` and that `entityTabPath` emits a query
+  param — the one-mechanism rule of §6 is otherwise a sentence nothing checks,
+  and the segment form is still reachable as a redirect, so a page could
+  quietly go back to it and every behavioural test would stay green.
+- **The old `/admin/:entity/:tab` still lands on the right tab**, through the
+  route-level redirect rather than `LEGACY_REDIRECTS`.
 - **`storageKey` uniqueness** and the `DataGrid` import lint rule.
 - **Frontend suite runs whole**, not targeted files — a regression here
   survived six verification steps on targeted runs. Three runs mean SQLite,
@@ -410,3 +480,11 @@ programme closes; CLAUDE.md gets one banner paragraph at the end of PR 5.
 - **Tenant settings JSON stays.** Nothing reads named keys through the UI;
   inventing a form for an opaque blob would be a guess.
 - **Redirects live one release.** Test bookmarks are the only consumers.
+- **A tab is a query param, not a route segment** (amended 2026-09-03, before
+  PR 2). Considered and declined: keeping both, with the rule "a tab a drawer
+  item targets is a segment, a tab a page owns is a query param" — defensible,
+  and rejected because PR 1 exists precisely because two defensible rules
+  drifted apart; and converting the detail pages to segments instead
+  (`/releases/:id/:tab`), which is tidier REST but rewrites routing for three
+  large pages and every link into them, to fix a problem only the admin
+  section has.

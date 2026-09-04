@@ -33,6 +33,54 @@ describe('path helpers', () => {
     expect(groupContaining(tree, '/releases/calendar')).toBe('Releases');
     expect(groupContaining(tree, '/dashboard')).toBeUndefined();
   });
+
+  // An admin entity-config item's own path carries `?tab=<key>` (§6) — the
+  // three behaviours a QUERY-SUBSET match must give, all found the hard way:
+  // NavDrawer never highlighted any admin entity-config item, and never
+  // auto-opened a collapsed group containing one, because `isPathActive` was
+  // a plain string comparison with no notion of a query string at all.
+  describe('query-subset matching', () => {
+    it('matches an item whose own path has a query when current carries the same param and value', () => {
+      expect(isPathActive('/admin/releases?tab=gate-types', '/admin/releases?tab=gate-types')).toBe(
+        true
+      );
+    });
+
+    it('does NOT match the same item when current names a different tab — a different tab is a different item', () => {
+      expect(isPathActive('/admin/releases?tab=fields', '/admin/releases?tab=gate-types')).toBe(
+        false
+      );
+    });
+
+    it('matches a plain item (no query in its own path) even when current carries an UNRELATED param', () => {
+      // EnvironmentRequestList writes its own resolved default sort back into
+      // the URL on mount (`?sort_by=...&sort_dir=...`) — nothing to do with
+      // navigation. Full-URL equality would mean its drawer item can never
+      // highlight; a subset match correctly ignores a param the item itself
+      // never declared.
+      expect(
+        isPathActive('/environment-requests?sort_by=created_at&sort_dir=desc', '/environment-requests')
+      ).toBe(true);
+    });
+
+    it('the longest-match tiebreak still prefers the more specific (query-bearing) item when both match', () => {
+      const withQueryTiebreak: NavEntry[] = [
+        { label: 'Environment requests', path: '/environment-requests' },
+        { label: 'Environment requests (details)', path: '/environment-requests?tab=details' },
+      ];
+      // Only the plain item's pathname-only match applies: the query-bearing
+      // sibling requires ?tab=details, which is absent.
+      expect(activeItemPath(withQueryTiebreak, '/environment-requests?sort_by=created_at')).toBe(
+        '/environment-requests'
+      );
+      // Both match once the URL actually carries tab=details — the longer,
+      // more specific string wins, exactly as `/releases/calendar` wins over
+      // `/releases` today.
+      expect(activeItemPath(withQueryTiebreak, '/environment-requests?tab=details')).toBe(
+        '/environment-requests?tab=details'
+      );
+    });
+  });
 });
 
 describe('NavDrawer', () => {

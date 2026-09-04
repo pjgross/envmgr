@@ -274,6 +274,12 @@ export function entityConfigPage(entity: string | undefined): EntityConfigPage |
   return ENTITY_CONFIG_PAGES.find((p) => p.entity === entity);
 }
 
+/**
+ * Where an entity's configuration tab lives. The tab is a QUERY PARAM, not a
+ * path segment (spec §6): one mechanism app-wide, so a drawer item, a tab
+ * click and a bookmark all say the same thing. `/admin/:entity/:tab` still
+ * resolves, as a redirect registered in App.tsx.
+ */
 export function entityTabPath(entity: AdminEntity, tab: string): string {
-  return `/admin/${entity}/${tab}`;
+  return `/admin/${entity}?tab=${tab}`;
 }

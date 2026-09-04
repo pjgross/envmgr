@@ -15,7 +15,6 @@ import {
   IconButton,
   TextField,
   Tooltip,
-  Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -33,6 +32,7 @@ import type { ReleaseTemplateResponse } from '../../../types/releaseTemplate';
 import { useSnackbar } from '../../../hooks/useSnackbar';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { toIsoDatetime } from '../../../utils/dates';
+import PageHeader from '../../../components/layout/PageHeader';
 
 export default function ReleaseTemplateLibrary() {
   const dispatch = useDispatch<AppDispatch>();
@@ -142,18 +142,18 @@ export default function ReleaseTemplateLibrary() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h5" sx={{ flexGrow: 1 }}>
-          Release Template Library
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/admin/releases/templates/new')}
-        >
-          New Template
-        </Button>
-      </Box>
+      <PageHeader
+        title="Templates"
+        actions={
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/admin/releases/templates/new')}
+          >
+            New Template
+          </Button>
+        }
+      />
 
       <DataGrid
         rows={templates}

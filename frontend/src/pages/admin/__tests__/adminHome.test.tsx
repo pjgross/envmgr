@@ -25,7 +25,7 @@ describe('AdminHome', () => {
     renderAs('Admin');
     expect(screen.getByRole('heading', { name: 'Releases' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Naming policy/ })).toHaveAttribute(
-      'href', '/admin/environments/naming-policy'
+      'href', '/admin/environments?tab=naming-policy'
     );
     expect(screen.getByText('Name pattern, required attributes and quarantine grace.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Platform' })).not.toBeInTheDocument();

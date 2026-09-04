@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -24,13 +24,13 @@ import {
   fetchGroupMembers,
   removeGroupMember,
 } from '../../store/environmentGroupSlice';
+import DetailPageHeader from '../../components/layout/DetailPageHeader';
 import { useAllEnvironments } from '../../hooks/useAllEnvironments';
 
 export default function EnvironmentGroupDetail() {
   const { id } = useParams<{ id: string }>();
   const groupId = Number(id);
   const dispatch = useDispatch<AppDispatch>();
-  const navigate = useNavigate();
   const { current: group, members, memberTotal, error: loadError } = useSelector(
     (s: RootState) => s.environmentGroup
   );
@@ -93,26 +93,25 @@ export default function EnvironmentGroupDetail() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Button size="small" onClick={() => navigate('/environment-groups')} sx={{ mb: 2 }}>
-        Back to environment groups
-      </Button>
+      <DetailPageHeader
+        back={{ to: '/environment-groups', label: 'Environment groups' }}
+        title={group?.name}
+        status={
+          group && (
+            <Chip
+              size="small"
+              label={group.is_active ? 'Active' : 'Archived'}
+              color={group.is_active ? 'success' : 'default'}
+            />
+          )
+        }
+      />
 
       {loadError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {loadError}
         </Alert>
       )}
-
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-        <Typography variant="h5">{group?.name ?? 'Environment Group'}</Typography>
-        {group && (
-          <Chip
-            size="small"
-            label={group.is_active ? 'Active' : 'Archived'}
-            color={group.is_active ? 'success' : 'default'}
-          />
-        )}
-      </Box>
       {group?.description && (
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           {group.description}

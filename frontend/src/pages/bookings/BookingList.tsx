@@ -37,6 +37,7 @@ import AgreementGapIndicator from '../../components/bookings/AgreementGapIndicat
 import { ContentionMarker } from '../../components/bookings/ContentionMarker';
 import { formatApiError } from '../../services/apiError';
 import BookingForm from './BookingForm';
+import PageHeader from '../../components/layout/PageHeader';
 import {
   PROTECTION_FILTER_NONE,
   PROTECTION_LABELS,
@@ -600,7 +601,16 @@ export default function BookingList() {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header */}
+      <PageHeader
+        title="Bookings"
+        actions={
+          <Button variant="contained" size="small" onClick={() => setFormOpen(true)}>
+            + New Booking
+          </Button>
+        }
+      />
+
+      {/* Filters */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
         <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
           Status:
@@ -691,10 +701,6 @@ export default function BookingList() {
             </MenuItem>
           ))}
         </TextField>
-        <Box sx={{ flexGrow: 1 }} />
-        <Button variant="contained" size="small" onClick={() => setFormOpen(true)}>
-          + New Booking
-        </Button>
       </Box>
 
       {/* Error */}

@@ -1,5 +1,5 @@
-import { Box, Tab, Tabs, Typography } from '@mui/material';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Box, Tab, Tabs } from '@mui/material';
+import { useParams } from 'react-router-dom';
 import type { EntityType } from '../../types/customField';
 import NotFound from '../../components/NotFound';
 import BookingTypesPanel from '../../components/admin/BookingTypesPanel';
@@ -11,7 +11,9 @@ import GateTypesPanel from '../../components/admin/GateTypesPanel';
 import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
 import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPanel';
 import RollbackPolicyPanel from '../../components/admin/RollbackPolicyPanel';
-import { entityConfigPage, entityTabPath, type EntityPanel } from './entityConfigTabs';
+import { useUrlTab } from '../../hooks/useUrlTab';
+import { entityConfigPage, type EntityPanel } from './entityConfigTabs';
+import PageHeader from '../../components/layout/PageHeader';
 
 function Panel({ panel, entityType }: { panel: EntityPanel; entityType: EntityType }) {
   switch (panel) {
@@ -41,31 +43,36 @@ function Panel({ panel, entityType }: { panel: EntityPanel; entityType: EntityTy
 }
 
 /**
- * `/admin/:entity/:tab`. The tab is a route segment, so a drawer item can
- * point straight at "Naming policy" and a reload lands on the same tab.
- * Which tabs an entity has is `ENTITY_CONFIG_PAGES`' business, not this file's.
+ * `/admin/:entity?tab=<key>`. The tab is a query param (spec §6: one
+ * mechanism app-wide), so a drawer item still points straight at "Naming
+ * policy" via `entityTabPath`, and a reload or bookmark lands on the same
+ * tab. Which tabs an entity has is `ENTITY_CONFIG_PAGES`' business, not this
+ * file's. `useUrlTab` already falls back an unknown tab to the first one, so
+ * this renders no redirect for that case — only an unknown entity is a 404.
+ *
+ * `useUrlTab` is called unconditionally, before the unknown-entity check:
+ * React's rules of hooks forbid calling it only on the branch where `page`
+ * resolves, so an absent page falls back to an empty tab vocabulary that is
+ * never read — the 404 return happens right after.
  */
 export default function EntityConfig() {
-  const { entity, tab } = useParams<{ entity: string; tab?: string }>();
-  const navigate = useNavigate();
+  const { entity } = useParams<{ entity: string }>();
   const page = entityConfigPage(entity);
+  const [tab, setTab] = useUrlTab(
+    page ? page.tabs.map((t) => t.key) : [],
+    page ? page.tabs[0].key : '',
+  );
   if (!page) return <NotFound />;
 
-  const current = page.tabs.find((t) => t.key === tab);
-  if (!current) return <Navigate replace to={entityTabPath(page.entity, page.tabs[0].key)} />;
+  const current = page.tabs.find((t) => t.key === tab) ?? page.tabs[0];
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        {page.label}
-      </Typography>
-      <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Configure {page.label.toLowerCase()} for your tenant.
-      </Typography>
+      <PageHeader title={page.label} subtitle={`Configure ${page.label.toLowerCase()} for your tenant.`} />
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs
           value={current.key}
-          onChange={(_, key: string) => navigate(entityTabPath(page.entity, key))}
+          onChange={(_, key: string) => setTab(key)}
           variant="scrollable"
           scrollButtons="auto"
         >
