@@ -413,7 +413,7 @@ REQUEST_SORTS = {
 }
 
 
-def _actionable_clause(tenant_id: int, user_id: int, is_admin: bool):
+def actionable_clause(tenant_id: int, user_id: int, is_admin: bool):
     """"Requests my team must action."
 
     Deliberately does NOT fold in the Admin group-bypass. An Admin sees
@@ -422,6 +422,9 @@ def _actionable_clause(tenant_id: int, user_id: int, is_admin: bool):
     making the queue useless for the one user most likely to need it. The
     bypass exists so a transition is never impossible — it is not a claim about
     whose queue a request belongs in.
+
+    Public because `my_work_service` is its second caller; a private reach-in
+    from another service is how a predicate acquires a second definition.
     """
     member_exists = (
         select(UserGroupMember.id)
@@ -475,7 +478,7 @@ async def list_requests(
         query = query.where(
             EnvironmentRequest.status.notin_(terminal),
             EnvironmentRequest.requested_by != user_id,
-            _actionable_clause(tenant_id, user_id, is_admin),
+            actionable_clause(tenant_id, user_id, is_admin),
         )
     query = apply_sort(query, sort).order_by(EnvironmentRequest.id)
     rows, total = await fetch_page_rows(db, query, page)

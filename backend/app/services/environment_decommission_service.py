@@ -823,6 +823,7 @@ def worklist_query(
     now: datetime,
     sort: Optional[Sort] = None,
     state: Optional[str] = None,
+    member_user_id: Optional[int] = None,
 ):
     """The worklist query, EXPOSED so its ORDER BY can be asserted directly —
     the same seam `contention_service.worklist_query` and
@@ -842,6 +843,9 @@ def worklist_query(
     `EnvironmentDecommission`) so `sort_by=environment` has a column to sort
     by — `DECOMMISSION_SORTS["environment"]` is `Environment.name`, and
     `apply_sort` needs that table present in the query's FROM clause.
+
+    `member_user_id` is optional and, when omitted, changes nothing — the
+    estate-wide `/decommissions` worklist must stay exactly as it was.
     """
     D = EnvironmentDecommission
     query = (
@@ -851,6 +855,23 @@ def worklist_query(
     )
     if state is not None:
         query = query.where(state_predicate(state, now))
+    if member_user_id is not None:
+        # The THIRD reader of group membership, after the two B3b established
+        # (environment_request_service.assert_may_transition and
+        # environment_service.assert_may_edit_handover). Same tenant scoping.
+        # NO Admin bypass: this narrows a PERSONAL queue, and the bypass exists
+        # so a transition is never impossible, not to decide whose queue a row
+        # is in — see actionable_clause's docstring.
+        member_exists = (
+            select(UserGroupMember.id)
+            .where(
+                UserGroupMember.group_id == Environment.operations_group_id,
+                UserGroupMember.user_id == member_user_id,
+                UserGroupMember.tenant_id == tenant_id,
+            )
+            .exists()
+        )
+        query = query.where(member_exists)
     # Chained AFTER apply_sort, never instead of it: none of the three
     # sortable columns is unique (scheduled_teardown_at ties are ordinary — a
     # batch of environments decommissioned together shares one date), and

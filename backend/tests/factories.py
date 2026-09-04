@@ -23,6 +23,7 @@ idempotent about (an environment may be deployed to any number of times), so
 it too always creates a new row — its own docstring says so as well.
 """
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -36,6 +37,7 @@ from app.db.models.build import Build
 from app.db.models.change_request import ChangeRequest
 from app.db.models.deployment import Deployment
 from app.db.models.environment import Environment
+from app.db.models.environment_decommission import EnvironmentDecommission
 from app.db.models.environment_group import EnvironmentGroup
 from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
@@ -43,7 +45,7 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.project import Project
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
-from app.db.models.user_group import UserGroup
+from app.db.models.user_group import UserGroup, UserGroupMember
 
 
 async def ensure_subsystem(
@@ -114,7 +116,8 @@ async def ensure_booking_type(
 
 
 async def ensure_user(
-    db: AsyncSession, tenant_id: int, username: str = "fk-parent-user"
+    db: AsyncSession, tenant_id: int, username: str = "fk-parent-user",
+    role: str = "Admin",
 ) -> User:
     """A user for `tenant_id`, for columns like release.raised_by."""
     existing = (
@@ -130,7 +133,7 @@ async def ensure_user(
         username=username,
         email=f"{username}@test.local",
         password_hash=get_password_hash("password123"),
-        role="Admin",
+        role=role,
     )
     db.add(user)
     await db.flush()
@@ -214,13 +217,20 @@ async def ensure_environment_tier(
     return tier
 
 
-async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) -> Environment:
+async def ensure_environment(
+    db: AsyncSession, tenant_id: int, slot: int = 1,
+    *, operations_group_id: Optional[int] = None,
+) -> Environment:
     """A real environment for `tenant_id`, addressed by a small integer.
 
     Tests historically passed literal `environment_id=1` / `=2` to mean "two
     different environments". `slot` preserves that intent while pointing at rows
     that exist; it is idempotent, so repeated calls with the same slot return the
-    same environment.
+    same environment. Callers building several distinct environments in one
+    test (e.g. one per operations group) must pass distinct `slot` values —
+    idempotency is keyed on (tenant, slot), and `operations_group_id` is only
+    applied on the row this call CREATES, never retro-fitted onto an existing
+    one it merely returns.
     """
     name = f"test-env-{slot}"
     existing = (
@@ -234,7 +244,10 @@ async def ensure_environment(db: AsyncSession, tenant_id: int, slot: int = 1) ->
         return existing
 
     tier = await ensure_environment_tier(db, tenant_id)
-    environment = Environment(tenant_id=tenant_id, name=name, tier_id=tier.id)
+    environment = Environment(
+        tenant_id=tenant_id, name=name, tier_id=tier.id,
+        operations_group_id=operations_group_id,
+    )
     db.add(environment)
     await db.flush()
     return environment
@@ -519,3 +532,66 @@ async def ensure_deployment(
     db.add(deployment)
     await db.flush()
     return deployment
+
+
+async def add_group_member(
+    db: AsyncSession, group: UserGroup, user: User
+) -> UserGroupMember:
+    """One `UserGroupMember` row, carrying the GROUP's `tenant_id` — the same
+    denormalisation `UserGroupMember` itself documents (derivable through
+    `group_id`, stored anyway so every tenant-scoped query on this table can
+    filter `tenant_id` directly, without a join).
+
+    `make_`, not `ensure_`: membership has no natural per-(group, user)
+    identity to be idempotent about beyond the model's own unique constraint
+    (`uq_user_group_member`), and repeating a membership a test already made
+    should be a constraint violation, not a silent no-op.
+    """
+    member = UserGroupMember(
+        tenant_id=group.tenant_id, group_id=group.id, user_id=user.id
+    )
+    db.add(member)
+    await db.flush()
+    return member
+
+
+async def make_decommission(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    environment_id: int,
+    initiated_by: Optional[int] = None,
+    reason: str = "test decommission",
+    warned_at: Optional[datetime] = None,
+    scheduled_teardown_at: Optional[datetime] = None,
+) -> EnvironmentDecommission:
+    """A decommission record against `environment_id`, for `tenant_id`.
+
+    `make_`, not `ensure_`: a tenant may raise any number of decommission
+    attempts against the same environment over its history (cancelled, then
+    raised again), so there is nothing to be idempotent about.
+
+    `initiated_by` is a real, NOT NULL FK to `user`. When the caller has no
+    particular initiator in mind, one is created via `ensure_user` rather than
+    pointing the row at an id nobody created — this module's whole reason for
+    existing.
+    """
+    if initiated_by is None:
+        initiator = await ensure_user(db, tenant_id)
+        initiated_by = initiator.id
+    if warned_at is None:
+        warned_at = datetime.now(timezone.utc)
+    if scheduled_teardown_at is None:
+        scheduled_teardown_at = warned_at + timedelta(days=5)
+
+    decommission = EnvironmentDecommission(
+        tenant_id=tenant_id,
+        environment_id=environment_id,
+        reason=reason,
+        warned_at=warned_at,
+        scheduled_teardown_at=scheduled_teardown_at,
+        initiated_by=initiated_by,
+    )
+    db.add(decommission)
+    await db.flush()
+    return decommission
