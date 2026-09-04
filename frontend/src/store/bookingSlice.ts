@@ -43,6 +43,8 @@ export const fetchBookings = createAsyncThunk(
     agreement_gap?: boolean;
     /** B4's protection filter — see bookingService.listBookings. */
     protection?: 'soft' | 'hard';
+    /** Live-now filter — see bookingService.listBookings. */
+    active?: boolean;
     limit?: number;
     offset?: number;
     sort_by?: string;

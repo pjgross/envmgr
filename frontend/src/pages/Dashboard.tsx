@@ -10,13 +10,26 @@
  *
  * - Active environments  -> GET /environments?status=active&limit=1
  *                         -> /environments?status=active
- * - Bookings live now     -> GET /bookings/?start=<now>&end=<now>&limit=1
- *                         -> /bookings/list?start=<now>&end=<now>
+ * - Bookings live now     -> GET /bookings/?start=<now>&end=<now>&active=true&limit=1
+ *                         -> /bookings/list?start=<now>&end=<now>&active=true
  *   (`/bookings` itself redirects to the calendar — see the App.tsx route
  *   table — so the tile links at `/bookings/list`, BookingList's own route.
- *   `start`/`end` needed adding to BookingList's `filterKeys` for this link
- *   to actually filter rather than silently landing on the whole estate;
- *   see that page's own comment.)
+ *   `start`/`end`/`active` needed adding to BookingList's `filterKeys` for
+ *   this link to actually filter rather than silently landing on the whole
+ *   estate; see that page's own comment.
+ *
+ *   `active=true` EXCLUDES draft/rejected/closed bookings (the codebase's
+ *   own `INACTIVE_BOOKING_STATUSES`). Without it, `?start=&end=` alone
+ *   counts a booking nobody has submitted as an occupied environment —
+ *   found live in the demo tenant, where 10 of 18 bookings are drafts.
+ *   `active` is a new, OPT-IN query param on `GET /bookings/` itself
+ *   (`booking_service.list_bookings`) rather than a client-side filter on
+ *   the fetched page — the endpoint is bounded (`limit=1` for the tile,
+ *   server-paged for the list), so a filter applied after the fetch would
+ *   window the wrong set. Every other `/bookings/` consumer keeps its old
+ *   behaviour (every status, unless it opts in) — this tile is the one
+ *   caller that needs "genuinely live", so the tile and its link are the
+ *   only two places that pass it.)
  * - Open releases         -> GET /releases?open=true&limit=1
  *                         -> /releases?open=true
  *   `open=true` resolves to "non-terminal" from EACH RELEASE'S OWN
@@ -85,15 +98,19 @@ function formatDate(iso: string | null): string {
 // ---------------------------------------------------------------------------
 
 /**
- * `bookingService.listBookings({ start, end })` is the OVERLAP filter Task 1
- * added — a booking that started before `now` and merely runs past it also
- * matches, which is right for "live now" but not for "starting soon". So the
- * fetched window is narrowed further, client-side, to rows whose own
- * `start_date` actually falls in it. This is a preview list, not a paginated
- * grid — narrowing a fetched batch here does not window a count the way it
- * would on a page with a `limit`/`offset` contract (docs/pagination.md's
- * rule is about the FOUR TILES above, which have no client-side filter at
- * all).
+ * `bookingService.listBookings({ start, end, active: true })` is the OVERLAP
+ * filter Task 1 added — a booking that started before `now` and merely runs
+ * past it also matches, which is right for "live now" but not for "starting
+ * soon". So the fetched window is narrowed further, client-side, to rows
+ * whose own `start_date` actually falls in it. This is a preview list, not a
+ * paginated grid — narrowing a fetched batch here does not window a count
+ * the way it would on a page with a `limit`/`offset` contract
+ * (docs/pagination.md's rule is about the FOUR TILES above, which have no
+ * client-side filter at all).
+ *
+ * `active: true` excludes draft/rejected/closed bookings, the same fix the
+ * "Bookings live now" tile got — without it, a draft nobody has submitted
+ * showed up under "Bookings starting soon" as though it were scheduled.
  */
 function ComingUpBookings() {
   const [rows, setRows] = useState<BookingResponse[] | null>(null);
@@ -107,6 +124,7 @@ function ComingUpBookings() {
       .listBookings({
         start: now.toISOString(),
         end: end.toISOString(),
+        active: true,
         limit: 50,
         sort_by: 'start_date',
         sort_dir: 'asc',
@@ -233,10 +251,19 @@ function ComingUpReleases() {
  * Counted the same `limit=1` + `X-Total-Count` way as the four tiles above,
  * but not a fifth tile: Admin-only, and folded into one line rather than
  * one more Grid cell.
+ *
+ * FAILURE IS NEVER RENDERED AS ZERO — the bug `StatTile` was already built
+ * to avoid (finding 3 of the PR 3 whole-branch review). The old `catch(() =>
+ * setGap(0))` produced "0 environments have a governance gap", an
+ * affirmative false statement manufactured from a failed request. Each half
+ * now tracks its own `failed` flag and renders a distinct "couldn't load"
+ * span in its place instead of a clickable count.
  */
 function GovernanceGapLine() {
   const [gap, setGap] = useState<number | null>(null);
+  const [gapFailed, setGapFailed] = useState(false);
   const [quarantined, setQuarantined] = useState<number | null>(null);
+  const [quarantinedFailed, setQuarantinedFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,7 +273,7 @@ function GovernanceGapLine() {
         if (!cancelled) setGap(p.total);
       })
       .catch(() => {
-        if (!cancelled) setGap(0);
+        if (!cancelled) setGapFailed(true);
       });
     environmentService
       .listEnvironments({ quarantined: true, limit: 1 })
@@ -254,24 +281,41 @@ function GovernanceGapLine() {
         if (!cancelled) setQuarantined(p.total);
       })
       .catch(() => {
-        if (!cancelled) setQuarantined(0);
+        if (!cancelled) setQuarantinedFailed(true);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (gap === null || quarantined === null) return null;
+  // "Settled" now means resolved OR failed — a failure must count as settled
+  // too, or this line would wait forever rather than ever showing the
+  // couldn't-load text.
+  const gapSettled = gap !== null || gapFailed;
+  const quarantinedSettled = quarantined !== null || quarantinedFailed;
+  if (!gapSettled || !quarantinedSettled) return null;
 
   return (
     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-      <Link component={RouterLink} to="/environments?governance_gap=true">
-        {gap} {gap === 1 ? 'environment has' : 'environments have'} a governance gap
-      </Link>
+      {gapFailed ? (
+        <Box component="span" aria-label="governance gap: couldn't load">
+          Couldn&apos;t load governance gap
+        </Box>
+      ) : (
+        <Link component={RouterLink} to="/environments?governance_gap=true">
+          {gap} {gap === 1 ? 'environment has' : 'environments have'} a governance gap
+        </Link>
+      )}
       {' · '}
-      <Link component={RouterLink} to="/environments?quarantined=true">
-        {quarantined} quarantined
-      </Link>
+      {quarantinedFailed ? (
+        <Box component="span" aria-label="quarantined count: couldn't load">
+          couldn&apos;t load quarantined count
+        </Box>
+      ) : (
+        <Link component={RouterLink} to="/environments?quarantined=true">
+          {quarantined} quarantined
+        </Link>
+      )}
     </Typography>
   );
 }
@@ -288,7 +332,8 @@ export default function Dashboard() {
   // the two can never describe two different instants.
   const nowIso = useMemo(() => new Date().toISOString(), []);
   const bookingsHref = useMemo(
-    () => `/bookings/list?${new URLSearchParams({ start: nowIso, end: nowIso }).toString()}`,
+    () =>
+      `/bookings/list?${new URLSearchParams({ start: nowIso, end: nowIso, active: 'true' }).toString()}`,
     [nowIso]
   );
 
@@ -297,7 +342,10 @@ export default function Dashboard() {
     []
   );
   const fetchLiveBookings = useCallback(
-    () => bookingService.listBookings({ start: nowIso, end: nowIso, limit: 1 }).then((p) => p.total),
+    () =>
+      bookingService
+        .listBookings({ start: nowIso, end: nowIso, active: true, limit: 1 })
+        .then((p) => p.total),
     [nowIso]
   );
   const fetchOpenReleases = useCallback(

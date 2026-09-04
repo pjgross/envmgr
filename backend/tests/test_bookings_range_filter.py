@@ -131,3 +131,66 @@ async def test_supplying_only_end_is_a_422(
         headers=auth_headers,
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_active_true_excludes_draft_and_rejected_bookings(
+    client, auth_headers, test_tenant, test_user, db_session
+):
+    """Finding 1 of the PR 3 whole-branch review: the Dashboard's "Bookings
+    live now" tile counted `?start=&end=` alone, which includes a booking
+    nobody has submitted (draft, the factory's default status) and one that
+    was refused (rejected) — dates say nothing about whether a claim on the
+    environment is real. `?active=true` excludes the codebase's own
+    `INACTIVE_BOOKING_STATUSES` set."""
+    now = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
+    env = await ensure_environment(db_session, test_tenant.id)
+    submitted = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now - timedelta(hours=1), end=now + timedelta(hours=1),
+    )
+    submitted.status = "submitted"
+    draft = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now - timedelta(hours=1), end=now + timedelta(hours=1),
+    )
+    # draft is the factory's default status — left alone.
+    rejected = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now - timedelta(hours=1), end=now + timedelta(hours=1),
+    )
+    rejected.status = "rejected"
+    await db_session.flush()
+
+    r = await client.get(
+        "/api/v1/bookings/",
+        params={"start": now.isoformat(), "end": now.isoformat(), "active": "true"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    ids = {row["id"] for row in r.json()}
+    assert submitted.id in ids
+    assert draft.id not in ids
+    assert rejected.id not in ids
+
+
+@pytest.mark.asyncio
+async def test_without_active_the_old_default_behaviour_is_unchanged(
+    db_session, test_tenant, test_user, client, auth_headers
+):
+    """`active` is opt-in — every OTHER consumer of `GET /bookings/` (the
+    BookingList grid included) must keep seeing every status by default."""
+    now = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
+    env = await ensure_environment(db_session, test_tenant.id)
+    draft = await make_booking(
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
+        start=now - timedelta(hours=1), end=now + timedelta(hours=1),
+    )
+
+    r = await client.get(
+        "/api/v1/bookings/",
+        params={"start": now.isoformat(), "end": now.isoformat()},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert draft.id in {row["id"] for row in r.json()}

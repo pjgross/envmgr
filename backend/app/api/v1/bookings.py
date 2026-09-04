@@ -224,6 +224,16 @@ async def list_bookings(
             "ignored param."
         ),
     ),
+    active: Optional[bool] = Query(
+        None,
+        description=(
+            "true: exclude draft/rejected/closed bookings — the codebase's "
+            "own INACTIVE_BOOKING_STATUSES set — so `?start=&end=` answers "
+            "'is anything genuinely booked here', not 'is any row's dates "
+            "overlapping, submitted or not'. false: the exact complement "
+            "(only those three statuses). OMIT for no filter."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
@@ -250,6 +260,7 @@ async def list_bookings(
         project_id=project_id,
         agreement_gap=agreement_gap,
         protection=protection,
+        active=active,
         page=page,
         sort=sort,
         now=now,
