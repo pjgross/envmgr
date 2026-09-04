@@ -343,7 +343,13 @@ async def list_bookings(
     if environment_id is not None:
         query = query.where(Booking.environment_id == environment_id)
     if start is not None and end is not None:
-        query = query.where(Booking.start_date < end, Booking.end_date > start)
+        # Interval overlap, decomposed rather than using GREATEST/LEAST —
+        # SQLite has neither (see contention_forecast_service.overlapping_pairs).
+        # `<=`/`>=` on both sides, not `<`/`>`, so a zero-width probe (start ==
+        # end, which is what the "live now" dashboard tile sends) still
+        # matches a booking spanning — or starting or ending exactly at —
+        # that instant.
+        query = query.where(Booking.start_date <= end, Booking.end_date >= start)
     if booking_status is not None:
         query = query.where(Booking.status == booking_status)
     # Sorting by protection_level needs the same join as the three filters
