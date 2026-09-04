@@ -121,10 +121,16 @@ export default function TenantDetail() {
     }
   };
 
-  const handleDeactivate = async (userId: number) => {
-    if (await confirm({ message: 'Deactivate this user? They will lose access immediately.', destructive: true })) {
+  const handleDeactivate = async (user: UserResponse) => {
+    const label = user.username ? user.username : 'this user';
+    if (
+      await confirm({
+        message: `Deactivate ${label}? They will lose access immediately.`,
+        destructive: true,
+      })
+    ) {
       try {
-        await dispatch(deactivateTenantUser({ tenantId: id, userId })).unwrap();
+        await dispatch(deactivateTenantUser({ tenantId: id, userId: user.id })).unwrap();
       } catch {
         snackbar.error('Failed to deactivate user');
       }
@@ -259,7 +265,7 @@ export default function TenantDetail() {
                         size="small"
                         variant="outlined"
                         color="error"
-                        onClick={() => handleDeactivate(user.id)}
+                        onClick={() => handleDeactivate(user)}
                       >
                         Deactivate
                       </Button>

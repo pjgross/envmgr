@@ -119,10 +119,11 @@ export default function PhasesTable({ releaseId, phases }: Props) {
     }
   };
 
-  const handleDelete = async (phaseId: number) => {
-    if (!(await confirm({ message: 'Delete this phase?', destructive: true }))) return;
+  const handleDelete = async (phase: TestPhaseResponse) => {
+    const label = phase.name ? `phase "${phase.name}"` : 'this phase';
+    if (!(await confirm({ message: `Delete ${label}?`, destructive: true }))) return;
     try {
-      await dispatch(deletePhase({ releaseId, phaseId })).unwrap();
+      await dispatch(deletePhase({ releaseId, phaseId: phase.id })).unwrap();
       snackbar.success('Phase deleted');
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to delete phase');
@@ -159,7 +160,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
             color="error"
             onClick={(e) => {
               e.stopPropagation();
-              handleDelete(params.row.id);
+              handleDelete(params.row);
             }}
           >
             <DeleteIcon fontSize="small" />

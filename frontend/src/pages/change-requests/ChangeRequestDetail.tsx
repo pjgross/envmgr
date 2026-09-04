@@ -98,7 +98,8 @@ export default function ChangeRequestDetail() {
   };
 
   const handleDelete = async () => {
-    if (!(await confirm({ message: 'Delete this change request?', destructive: true }))) return;
+    const label = detail?.title ? `change request "${detail.title}"` : 'this change request';
+    if (!(await confirm({ message: `Delete ${label}?`, destructive: true }))) return;
     try {
       const action = await dispatch(deleteChangeRequest(crId));
       if ('error' in action) throw new Error(action.error.message ?? 'Delete failed');

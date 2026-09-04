@@ -17,7 +17,7 @@ import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import ApiKeyCreateDialog from '../../components/apikeys/ApiKeyCreateDialog';
 import ApiKeyCreatedDialog from '../../components/apikeys/ApiKeyCreatedDialog';
-import type { ApiKeyCreatePayload } from '../../types/apiKey';
+import type { ApiKey, ApiKeyCreatePayload } from '../../types/apiKey';
 import PageHeader from '../../components/layout/PageHeader';
 
 export default function ApiKeyManagement() {
@@ -41,10 +41,17 @@ export default function ApiKeyManagement() {
     }
   };
 
-  const handleRevoke = async (id: number) => {
-    if (!(await confirm({ message: 'Revoke this API key?', destructive: true }))) return;
+  const handleRevoke = async (key: ApiKey) => {
+    const label = key.name ? `API key "${key.name}"` : 'this API key';
+    if (
+      !(await confirm({
+        message: `Revoke ${label}? Anything using it will stop working.`,
+        destructive: true,
+      }))
+    )
+      return;
     try {
-      await dispatch(revokeApiKey(id)).unwrap();
+      await dispatch(revokeApiKey(key.id)).unwrap();
       snackbar.success('API key revoked');
     } catch (err) {
       snackbar.error(err instanceof Error ? err.message : 'Failed to revoke API key');
@@ -78,7 +85,7 @@ export default function ApiKeyManagement() {
       field: 'actions', headerName: '', width: 80, sortable: false,
       renderCell: (p) => (
         <Tooltip title="Revoke">
-          <IconButton size="small" color="error" onClick={() => handleRevoke(p.row.id)}>
+          <IconButton size="small" color="error" onClick={() => handleRevoke(p.row)}>
             <DeleteIcon fontSize="small" />
           </IconButton>
         </Tooltip>

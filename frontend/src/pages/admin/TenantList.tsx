@@ -64,10 +64,16 @@ export default function TenantList() {
   };
 
   const handleDisable = useCallback(
-    async (id: number) => {
-      if (await confirm({ message: 'Disable this tenant? All users will lose access.', destructive: true })) {
+    async (tenant: TenantRow) => {
+      const label = tenant.name ? `tenant "${tenant.name}"` : 'this tenant';
+      if (
+        await confirm({
+          message: `Disable ${label}? All its users will lose access.`,
+          destructive: true,
+        })
+      ) {
         try {
-          await dispatch(disableTenant(id)).unwrap();
+          await dispatch(disableTenant(tenant.id)).unwrap();
           snackbar.success('Tenant disabled');
         } catch {
           snackbar.error('Failed to disable tenant');
@@ -137,7 +143,7 @@ export default function TenantList() {
                 size="small"
                 variant="outlined"
                 color="error"
-                onClick={() => handleDisable(params.row.id)}
+                onClick={() => handleDisable(params.row)}
               >
                 Disable
               </Button>

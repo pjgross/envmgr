@@ -58,9 +58,10 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
     setEditTarget(d);
     setDialogOpen(true);
   };
-  const handleDelete = async (id: number) => {
-    if (!(await confirm({ message: 'Delete this field? This cannot be undone.', destructive: true }))) return;
-    dispatch(deleteDefinition(id));
+  const handleDelete = async (def: CustomFieldDefinition) => {
+    const label = def.label ? `custom field "${def.label}"` : 'this field';
+    if (!(await confirm({ message: `Delete ${label}? This cannot be undone.`, destructive: true }))) return;
+    dispatch(deleteDefinition(def.id));
   };
 
   if (loading && defs.length === 0) return <Skeleton variant="rectangular" height={120} />;
@@ -130,7 +131,7 @@ export default function CustomFieldDefinitionManager({ entityType }: Props) {
                       </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete">
-                      <IconButton size="small" onClick={() => handleDelete(d.id)}>
+                      <IconButton size="small" onClick={() => handleDelete(d)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
