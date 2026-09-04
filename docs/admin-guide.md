@@ -134,22 +134,28 @@ Before you click anywhere, it helps to know how the domain hangs together. *Syst
 
 ### Dashboard tour
 
-The dashboard is a four-card summary above a welcome panel. The cards are static counters today — they are not clickable shortcuts; use the left navigation to drill in.
+The dashboard is a live landing pad: four count tiles (each a self-contained fetch, so one failing request never blanks the others), a "coming up" panel and a "needs attention" panel. Every tile and row is a link to the filtered list it counted — see `user-guide.md` ch. 2 for the full breakdown of what each one counts. In short:
 
-- *Environments* — *Total environments* visible to your tenant. Use ch. 6 to populate this.
-- *Bookings* — *Active bookings* across the tenant. Filled in once your team starts reserving environments (`user-guide.md` ch. 5).
-- *Changes* — *Pending changes* awaiting approval or implementation (`user-guide.md` ch. 7).
-- *Releases* — *Active releases* currently in flight (`user-guide.md` ch. 8).
+- **Active environments** — `status=active`. Links to `/environments?status=active`.
+- **Bookings live now** — excludes draft/rejected/closed bookings, so an unsubmitted booking never reads as an occupied environment. Links to `/bookings/list` with the same filter.
+- **Open releases** — any non-terminal status, per each release's own lifecycle template.
+- **Open incidents** — any non-terminal status; a resolved-but-unclosed incident still counts.
+- (Admin only) a *Needs attention* line reporting environments with a governance gap or in quarantine.
 
-> **Not yet available:** the *Bookings*, *Changes*, and *Releases* cards are wired to placeholder zeros in the current build; only *Environments* reflects live data. Treat the dashboard as a landing page, not a metrics view.
+A tile that fails to fetch shows a dash, never a fabricated zero.
+
+### My work
+
+*My work* (`/my-work`) is the second entry in the left navigation, above the collapsible groups — a personal inbox of five "waiting on me" queues (environment requests, contentions, decommissions, PIR actions, open incidents), each capped at five rows with a link to its full worklist. The nav item itself carries a badge with the running total across all five. See `user-guide.md` ch. 2 for the per-queue breakdown.
 
 ### The left navigation
 
-The sidebar is the same for every authenticated user. *Catalogue*, *Bookings*, *Releases* and *Insights* are collapsible groups; Admins and master admins also see *Administration*, which switches the sidebar into its own admin-mode menu (see below).
+The sidebar is the same for every authenticated user. *Dashboard* and *My work* are single entries; *Catalogue*, *Bookings*, *Releases* and *Insights* are collapsible groups; Admins and master admins also see *Administration*, which switches the sidebar into its own admin-mode menu (see below).
 
 | Group → entry | Route | What's there | Covered in |
 |---|---|---|---|
 | *Dashboard* | `/dashboard` | Landing page. | this chapter |
+| *My work* | `/my-work` | Personal "waiting on me" inbox. | this chapter |
 | *Catalogue → Systems* | `/systems` | System and subsystem catalogue. | ch. 5 |
 | *Catalogue → Environments* | `/environments` | Environment inventory and detail. | ch. 6 |
 | *Catalogue → Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | ch. 7 |

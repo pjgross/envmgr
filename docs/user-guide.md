@@ -48,22 +48,42 @@ On success you land on `/dashboard`. If you have access to more than one tenant,
 
 ### The dashboard
 
-The dashboard is a four-card landing pad above a welcome panel — a quick orientation, not a metrics view. Today only the *Environments* card reflects live data; the other three are wired to placeholder zeros until later phases populate them. Use the left navigation to actually drill in.
+The dashboard is a live landing pad, not a placeholder: four count tiles, two "what's coming up" lists, and a "needs attention" panel, each fetching its own number so one slow or failing request never blanks the rest of the page. Use the left navigation to actually drill in — every tile and row links straight to the filtered list it counted.
 
-- *Environments* — *Total environments* visible to your tenant. (Live.)
-- *Bookings* — *Active bookings*. *(Placeholder zero today.)*
-- *Changes* — *Pending changes*. *(Placeholder zero today.)*
-- *Releases* — *Active releases*. *(Placeholder zero today.)*
+The four tiles:
 
-> **Not yet available:** the *Bookings*, *Changes*, and *Releases* cards are static zeros in the current build. Treat the dashboard as a landing page, not a status board — head straight to the relevant section in the left navigation for real numbers.
+- **Active environments** — environments with `status=active`. Links to `/environments?status=active`.
+- **Bookings live now** — bookings whose window covers this instant, EXCLUDING drafts, rejected and closed bookings (a booking nobody has submitted is not a real claim on the environment). Links to `/bookings/list` with the same filter.
+- **Open releases** — releases in any non-terminal status, resolved from each release's own lifecycle template (a tenant may run several at once). Links to `/releases?open=true`.
+- **Open incidents** — incidents in any non-terminal status. *Includes resolved incidents not yet closed* — "resolved" is deliberately non-terminal in the default lifecycle, so a fixed-but-unclosed incident still counts here. Links to `/incidents?open=true`.
+
+A tile whose fetch fails shows a dash ("—") rather than a stale or fabricated zero, with an accessible label saying it couldn't load.
+
+Below the tiles, two panels:
+
+- **Coming up** — bookings starting in the next 7 days and releases due in the next 14, as short link lists (not counts, so there is nothing to keep consistent with a tile's own total).
+- **Needs attention** — a forward-contention widget, a banner naming any environment degraded during an active booking, and (Admin only) a line reporting how many environments have a governance gap or are quarantined. Any one of these that fails to load says so rather than rendering silently as "nothing to report".
+
+### My work
+
+*My work* (`/my-work`) sits beside *Dashboard* in the left navigation — a personal inbox of five "waiting on me" queues, each capped at five rows with a "View all" link to the full worklist and a running total shown as a badge on the nav item itself:
+
+- **Environment requests** your team must action.
+- **Contentions** — booking clashes escalated to you, not yet decided.
+- **Decommissions** on an environment you operate that are warned, due, or awaiting your extension decision.
+- **PIR actions** you own that are still open or in progress.
+- **Open incidents**, tenant-wide (incidents carry no per-user ownership, so everyone's card shows the same ones).
+
+Cards are never hidden, even when empty — a hidden card would be indistinguishable from a queue you are not a member of. A queue that could not be computed shows "Couldn't load" rather than the empty state, since those two are not the same thing.
 
 ### The left navigation
 
-The sidebar is the same for every authenticated user. *Dashboard* is a single entry; *Catalogue*, *Bookings*, *Releases* and *Insights* are collapsible groups (the sidebar remembers which you have collapsed, and opens a group automatically when you navigate into it). Admins and master admins also see *Administration*, which switches the sidebar into admin mode — see the admin guide.
+The sidebar is the same for every authenticated user. *Dashboard* and *My work* are single entries; *Catalogue*, *Bookings*, *Releases* and *Insights* are collapsible groups (the sidebar remembers which you have collapsed, and opens a group automatically when you navigate into it). Admins and master admins also see *Administration*, which switches the sidebar into admin mode — see the admin guide.
 
 | Group → entry | Route | What's there | Covered in |
 |---|---|---|---|
 | *Dashboard* | `/dashboard` | Landing page. | this chapter |
+| *My work* | `/my-work` | Personal "waiting on me" inbox. | this chapter |
 | *Catalogue → Systems* | `/systems` | System and subsystem catalogue. | [ch. 4](#4-browsing-systems-and-environments) |
 | *Catalogue → Environments* | `/environments` | Environment inventory and detail. | [ch. 4](#4-browsing-systems-and-environments) |
 | *Catalogue → Hosts* | `/infrastructure/hosts` | Infrastructure host inventory. | [`admin-guide.md` ch. 7](admin-guide.md#7-modelling-infrastructure-hosts) |
