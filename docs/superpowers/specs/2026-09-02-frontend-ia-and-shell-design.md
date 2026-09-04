@@ -208,7 +208,7 @@ removed:
 | `/tenant/environment-groups(/:id)` | `/environment-groups(/:id)` |
 | `/tenant/api-keys` | `/admin/api-keys` |
 | `/tenant/raid-settings` | `/admin/releases/raid` |
-| `/admin/config/:slug` | `/admin/<entity>/fields` (per-slug map) |
+| `/admin/config/:slug` | `/admin/<entity>?tab=fields` (per-slug map) |
 | `/admin/config/component-types` | `/admin/component-types` |
 | `/admin/scope-change-rules` | `/admin/releases/scope-change-rules` |
 | `/admin/release-templates(/:id)` | `/admin/releases/templates(/:id)` |

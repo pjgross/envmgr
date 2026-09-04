@@ -182,6 +182,7 @@ export default function ReleaseDetail() {
           actions={headerActions}
         />
         <EnterpriseTabs release={release} />
+        {confirmDialog}
         {sideDrawers}
       </Box>
     );
