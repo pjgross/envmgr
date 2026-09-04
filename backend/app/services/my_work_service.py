@@ -52,8 +52,9 @@ from app.api.v1.schemas.my_work import MyWorkResponse, QueueResult, WorkItem
 from app.core.decommission_states import (
     STATE_DUE, STATE_EXTENSION_REQUESTED, STATE_WARNED,
 )
-from app.core.pagination import Sort
+from app.core.pagination import Page, Sort, fetch_page
 from app.core.security import Role
+from app.db.models.contention_escalation import ContentionEscalation
 from app.db.models.user import User
 from app.services import (
     contention_service,
@@ -76,12 +77,20 @@ async def _environment_requests_queue(
     """"Requests my team must action" — `list_requests`' own `actionable_for`
     wrapper around `environment_request_service.actionable_clause`. Never a
     request I raised myself; never one no team of mine can act on.
+
+    WINDOWED (`page=Page(limit=ITEM_CAP, offset=0)`, PR 3's dashboard fix
+    wave, finding 5): `list_requests` already takes its `total` from the same
+    filtered query regardless of whether a page is supplied (`fetch_page_rows`
+    counts against the filters, not against `len(rows)`), so asking for only
+    the first `ITEM_CAP` rows changes nothing observable here — every filter
+    this queue needs is already in SQL, before the window.
     """
     is_admin = user.role == Role.ADMIN
     views, total = await environment_request_service.list_requests(
         db, tenant_id,
         sort=Sort(column=environment_request_service.REQUEST_SORTS["needed_by"], descending=False),
         actionable_for=(user.id, is_admin),
+        page=Page(limit=ITEM_CAP, offset=0),
     )
     items = [
         WorkItem(
@@ -96,7 +105,7 @@ async def _environment_requests_queue(
             url=f"/environment-requests/{view.request.id}",
             due=view.request.needed_by,
         )
-        for view in views[:ITEM_CAP]
+        for view in views
     ]
     return QueueResult(count=total, items=items)
 
@@ -105,22 +114,27 @@ async def _contentions_queue(
     db: AsyncSession, *, tenant_id: int, user: User, now: datetime
 ) -> QueueResult:
     """Every escalation naming me as owner, minus the ones I have already
-    answered. `decided_at IS NOT NULL` is a raw column read, not a re-derived
+    answered. `decided_at IS NULL` is a raw column read, not a re-derived
     version of `contention_service.state_predicate`'s open/expired split — this
     queue does not care which of those two a row is, only whether it is
     still undecided.
+
+    THE `decided_at IS NULL` PREDICATE IS NOW IN SQL (PR 3's dashboard fix
+    wave, finding 5), chained onto the `Select` `worklist_query` returns —
+    it is a raw column on `ContentionEscalation`, not a value computed from
+    the row (unlike `_decommissions_queue`'s state, below), so it is exactly
+    as safe to push down as `pir_actions`' status filter. This is what makes
+    windowing to `ITEM_CAP` safe instead of loading every escalation ever
+    raised against me and filtering in Python.
     """
     query = contention_service.worklist_query(
         tenant_id, now=now, owner_user_id=user.id,
         sort=Sort(column=contention_service.ESCALATION_SORTS["respond_by"], descending=False),
-    )
-    rows = list((await db.execute(query)).scalars().all())
-    undecided = [row for row in rows if row.decided_at is None]
-    views = await contention_service.escalation_views(
-        db, undecided[:ITEM_CAP], tenant_id, now
-    )
+    ).where(ContentionEscalation.decided_at.is_(None))
+    rows, total = await fetch_page(db, query, Page(limit=ITEM_CAP, offset=0))
+    views = await contention_service.escalation_views(db, rows, tenant_id, now)
     items = []
-    for escalation in undecided[:ITEM_CAP]:
+    for escalation in rows:
         view = views.get(escalation.id)
         env_a = view.booking_label.environment_name if view else None
         env_b = view.other_booking_label.environment_name if view else None
@@ -137,7 +151,7 @@ async def _contentions_queue(
                 due=escalation.respond_by,
             )
         )
-    return QueueResult(count=len(undecided), items=items)
+    return QueueResult(count=total, items=items)
 
 
 async def _decommissions_queue(
@@ -159,6 +173,22 @@ async def _decommissions_queue(
     is too late to act on calmly — the warning would be pointless. Only
     `cancelled` and `torn_down` are excluded: both are terminal, and neither
     needs a human to do anything more.
+
+    DELIBERATELY LEFT UNBOUNDED (PR 3's dashboard fix wave, finding 5): the
+    `warned`/`due`/`extension_requested` filter above runs against
+    `views[row.id].state`, a value `decommission_views` COMPUTES per row (it
+    resolves `decommission_state`, which reads three columns and a clock),
+    not a raw column this queue could push into a `WHERE`. Windowing the main
+    query BEFORE this filter — the same mistake pir_actions' status filter
+    used to make — would return the first `ITEM_CAP` decommissions in ANY
+    state, filtered down afterwards, which is not the same set as the first
+    `ITEM_CAP` ACTIONABLE ones, and `X-Total-Count` would describe the wrong
+    thing. (`environment_decommission_service.state_predicate` DOES express
+    one state at a time in SQL, and `worklist_query`'s own `state=` filter
+    already uses it — but only for ONE state; this queue needs three ORed
+    together, which is a real query restructure, not a one-line window
+    change, and is left as a documented follow-on rather than done opportunistically
+    inside an unrelated fix wave.)
     """
     query = environment_decommission_service.worklist_query(
         tenant_id, now=now, member_user_id=user.id,
@@ -193,27 +223,36 @@ async def _pir_actions_queue(
 ) -> QueueResult:
     """My NOT-YET-CLOSED PIR actions. `is_overdue` on each row comes from
     `pir_finding_service.list_actions` itself — the same computation
-    `GET /pir-actions` renders from — so `overdue` is a count over rows this
-    call already fetched, never a second query re-deriving the boundary.
+    `GET /pir-actions` renders from.
 
-    `list_actions`' own `status=` filter accepts exactly one value, and there
-    are two non-terminal statuses (`pir_finding_service.LIVE_ACTION_STATUSES`
-    — `open` and `in_progress`), so this fetches every action I own (already
-    narrowed by `owner_id`, hence bounded) and keeps only the live ones in
-    Python by reading `status` membership in that set — the codebase's own
-    already-defined non-terminal set, not a re-derived one. Without this, a
-    "waiting on me" card would accumulate `done`/`cancelled` actions forever
-    and its count would never shrink.
+    `status IN (open, in_progress)` (`pir_finding_service.LIVE_ACTION_STATUSES`)
+    IS NOW IN SQL, VIA `list_actions`' NEW `statuses=` PARAMETER — PR 3's
+    dashboard fix wave, finding 5. This USED to fetch every action I own
+    (already narrowed by `owner_id`, but with NO LIMIT) and keep only the
+    live ones in Python, which windowing the main query would have made
+    silently wrong (a page of the first `ITEM_CAP` actions BY ANY STATUS,
+    then filtered down, is not the same set as the first `ITEM_CAP` LIVE
+    actions). Pushing the status filter into the query first is what makes
+    windowing safe here, unlike `_decommissions_queue` below, whose filter
+    genuinely cannot move into SQL the same way.
+
+    `overdue` is a SEPARATE, `limit=1` query with `overdue=True` added — not
+    `sum(row["is_overdue"] for row in rows)` over the (now windowed) main
+    page, which would undercount the moment there are more than `ITEM_CAP`
+    live actions. Both calls share the same `now`, so a row cannot be
+    selected as overdue by one query and excluded by the other.
     """
     rows, total = await pir_finding_service.list_actions(
         db, tenant_id, now=now, owner_id=user.id,
+        statuses=pir_finding_service.LIVE_ACTION_STATUSES,
         sort=Sort(column=pir_finding_service.PirAction.due_date, descending=False),
+        page=Page(limit=ITEM_CAP, offset=0),
     )
-    live = [
-        row for row in rows
-        if row["status"] in pir_finding_service.LIVE_ACTION_STATUSES
-    ]
-    overdue = sum(1 for row in live if row["is_overdue"])
+    _, overdue_total = await pir_finding_service.list_actions(
+        db, tenant_id, now=now, owner_id=user.id,
+        statuses=pir_finding_service.LIVE_ACTION_STATUSES, overdue=True,
+        page=Page(limit=1, offset=0),
+    )
     items = [
         WorkItem(
             id=row["id"],
@@ -222,9 +261,9 @@ async def _pir_actions_queue(
             url="/pir-actions",
             due=row["due_date"],
         )
-        for row in live[:ITEM_CAP]
+        for row in rows
     ]
-    return QueueResult(count=len(live), items=items, overdue=overdue)
+    return QueueResult(count=total, items=items, overdue=overdue_total)
 
 
 async def _incidents_queue(
@@ -241,9 +280,14 @@ async def _incidents_queue(
     never itself a status value (the default template's states are `new`,
     `investigating`, `identified`, `fix_scheduled`, `resolved`, `closed`,
     `cancelled`); `?status=open` always returned zero rows in production.
+
+    WINDOWED (`page=Page(limit=ITEM_CAP, offset=0)`, PR 3's dashboard fix
+    wave, finding 5): `list_incidents` takes `total` from `fetch_page`
+    against the same filtered query either way, so this is the same "no
+    behaviour change" case `_environment_requests_queue` is.
     """
     rows, total = await incident_service.list_incidents(
-        db, tenant_id, {"open": True},
+        db, tenant_id, {"open": True}, page=Page(limit=ITEM_CAP, offset=0),
         sort=Sort(column=incident_service.Incident.detected_at, descending=False),
     )
     items = [
@@ -254,7 +298,7 @@ async def _incidents_queue(
             url=f"/incidents/{row.id}",
             due=None,
         )
-        for row in rows[:ITEM_CAP]
+        for row in rows
     ]
     return QueueResult(count=total, items=items)
 
@@ -269,6 +313,31 @@ async def build(
     to tell "failed" apart from "nothing waiting on you" — `QueueResult(
     count=0, items=[], failed=True)` is not the same value as an empty,
     successful queue.
+
+    EACH QUEUE RUNS INSIDE ITS OWN `db.begin_nested()` SAVEPOINT, released on
+    success and rolled back on failure (finding 2 of the PR 3 whole-branch
+    review). On aiosqlite a failed statement leaves the session usable for
+    the next queue; on asyncpg it does not — PostgreSQL aborts the WHOLE
+    transaction at the database level, and every subsequent statement on the
+    same connection raises `InFailedSQLTransactionError` until a rollback
+    happens. Without this, a real database error in the FIRST queue would
+    mark all five failed on PostgreSQL, breaking the "returns the queues
+    that succeeded" promise exactly when it matters most.
+
+    A SAVEPOINT, NOT A PLAIN `db.rollback()` — this was tried first and
+    reverted after it broke a passing test. `Session.rollback()` EXPIRES
+    EVERY OBJECT loaded in the session, not just ones touched by the failed
+    statement — including `user`, which is loaded once by the caller
+    (the route) BEFORE `build()` even starts and read by every queue after
+    the first (`user.id`, `user.role`). The next access to an expired
+    attribute triggers an implicit lazy-refresh, and `AsyncSession` cannot
+    perform that refresh synchronously: it raises `MissingGreenlet`
+    ("greenlet_spawn has not been called") the moment the SECOND queue reads
+    `user.id`. A SAVEPOINT rollback (`nested.rollback()`) is scoped to work
+    done since that savepoint began, so it leaves `user` — loaded well
+    before this loop — untouched, exactly as `insert_or_reread`'s savepoint
+    leaves the surrounding transaction usable without expiring the objects
+    around it.
 
     The builders dict is built HERE, inside the function, not at module
     scope — a module-level dict captures each function object once, at
@@ -286,9 +355,17 @@ async def build(
     }
     queues: dict[str, QueueResult] = {}
     for key, fn in builders.items():
+        # See this function's own docstring for why this is a SAVEPOINT
+        # (`begin_nested`), not a bare `db.rollback()`.
+        nested = await db.begin_nested()
         try:
             queues[key] = await fn(db, tenant_id=tenant_id, user=user, now=now)
         except Exception:
             logger.exception("my_work queue %s failed", key)
+            # MUST run before the next queue's first statement, or a real
+            # database error (asyncpg) poisons every queue after this one.
+            await nested.rollback()
             queues[key] = QueueResult(count=0, items=[], failed=True)
+        else:
+            await nested.commit()
     return MyWorkResponse(as_of=now, queues=queues)

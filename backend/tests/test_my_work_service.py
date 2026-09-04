@@ -383,3 +383,69 @@ async def test_pir_actions_queue_excludes_closed_actions(
     assert live.id in ids
     assert done.id not in ids
     assert cancelled.id not in ids
+
+
+@pytest.mark.asyncio
+async def test_a_real_database_error_in_one_queue_does_not_poison_the_rest(
+    db_session, test_tenant, test_user, monkeypatch
+):
+    """Finding 2 of the PR 3 whole-branch review.
+
+    `build()` used to catch each queue's exception and continue on the SAME
+    session with no rollback. On aiosqlite that is harmless — a failed
+    statement leaves the connection usable for the next one. On asyncpg it
+    is not: PostgreSQL aborts the WHOLE transaction at the database level the
+    moment one statement fails, and every later statement on that connection
+    raises `InFailedSQLTransactionError` until a rollback happens. So a real
+    database error in the FIRST queue would mark ALL FIVE queues failed on
+    PostgreSQL, not just the one that actually broke — the opposite of §5's
+    promise.
+
+    `test_one_failing_queue_does_not_fail_the_response` (above) cannot catch
+    this: it patches a builder to raise a bare `RuntimeError` that never
+    touches the database, so the session is never actually left in a bad
+    state. This test replaces the FIRST queue in `build()`'s dict with one
+    that runs a genuinely broken SQL statement (a reference to a table that
+    does not exist) and asserts the other four — one seeded with real data —
+    still succeed and return correct results, not just `failed=False`.
+
+    Only meaningfully exercises the poisoning bug on PostgreSQL — on SQLite
+    this passes whether or not the fix is applied, because aiosqlite never
+    poisons the connection in the first place. Run against both engines (see
+    the report for which one actually failed red before the fix).
+    """
+    from sqlalchemy import text
+
+    await seed_incident_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
+    incident = await make_incident(
+        db_session, test_tenant.id, title="still open", status="new",
+    )
+    now = datetime.now(timezone.utc)
+
+    from app.services import my_work_service
+
+    async def _broken_queue(db, *, tenant_id, user, now):
+        # A genuinely broken statement — a real DBAPI-level error, not an
+        # application-level raise — because that is the only kind of failure
+        # that actually aborts a PostgreSQL transaction.
+        await db.execute(text("SELECT * FROM this_table_does_not_exist_at_all"))
+        raise AssertionError("unreachable — the execute above must raise first")
+
+    monkeypatch.setattr(
+        my_work_service, "_environment_requests_queue", _broken_queue
+    )
+
+    res = await my_work_service.build(
+        db_session, tenant_id=test_tenant.id, user=test_user, now=now
+    )
+
+    assert res.queues["environment_requests"].failed is True
+    for key in ("contentions", "decommissions", "pir_actions", "incidents"):
+        assert res.queues[key].failed is False, (
+            f"{key} was poisoned by the earlier queue's database error"
+        )
+    # Not just `failed is False` — the session must have RECOVERED enough to
+    # actually run this queue's real query and get the real answer.
+    assert res.queues["incidents"].count == 1
+    assert incident.id in {i.id for i in res.queues["incidents"].items}
