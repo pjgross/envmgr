@@ -17,7 +17,7 @@
 - **`/me/work` DEGRADES PER QUEUE.** One failing queue returns marked-as-failed; it never fails the whole request, and it is never rendered as empty. "Nothing waiting on you" must never be the rendering of "we could not tell".
 - **THE DECOMMISSION QUEUE IS NARROWED BY MEMBERSHIP FOR EVERYONE, ADMINS INCLUDED.** §5's "(Admin: all)" was struck — see the spec and `environment_request_service.actionable_clause`'s docstring for why. An Admin in no operations group correctly sees an empty card.
 - **Items carry display names with the row** (environment name, release name, owner username), never bare ids. `usernames_for` is **not** tenant-qualified (A4/C2: under master-admin impersonation the person can sit outside the row's tenant).
-- Backend: `native_enum=False` on any enum column; never `db.commit()` in a service (`get_db` commits; use `flush()`); every tenant-scoped query filters `current_user.active_tenant_id`, **not** `.tenant_id`.
+- Backend: `native_enum=False` on any enum column; never `db.commit()` in a service (`get_db` commits; use `flush()`); every tenant-scoped query filters `test_user.active_tenant_id`, **not** `.tenant_id`.
 - **Three suite runs, not one.** SQLite (`uv run pytest -q`), PostgreSQL (`TEST_DATABASE_URL=postgresql+asyncpg://envmgr:envmgr_dev_password@localhost:5432/envmgr_test uv run pytest -q`, **run alone** — two concurrent PG sessions drop each other's tables), and the frontend (`npx vitest run`).
 - Frontend gate before every commit touching `.ts`/`.tsx`: `npx tsc --noEmit && npm run lint` (`--max-warnings 0`). A function exported from a component file trips `react-refresh/only-export-components` — hooks and helpers go in their own file.
 - Run a **floor**, not a whitelist: backend `uv run pytest -q`, frontend `npx vitest run src/pages src/components src/__tests__ src/hooks`. In PR 2 a named list of test files omitted a task's own page tests and left five tests red for five tasks.
@@ -113,17 +113,17 @@ async def test_a_booking_spanning_the_range_matches_even_though_it_started_befor
     spanning = await make_booking(
         db_session,
         test_tenant.id,
-        booked_by=current_user.id,
+        booked_by=test_user.id,
         environment=env,
         start=now - timedelta(days=3),
         end=now + timedelta(days=6),
     )
     before = await make_booking(
-        db_session, test_tenant.id, booked_by=current_user.id, environment=env,
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         start=now - timedelta(days=30), end=now - timedelta(days=20),
     )
     after = await make_booking(
-        db_session, test_tenant.id, booked_by=current_user.id, environment=env,
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         start=now + timedelta(days=20), end=now + timedelta(days=30),
     )
 
@@ -148,7 +148,7 @@ async def test_a_zero_width_probe_is_what_the_live_now_tile_sends(
     now = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
     env = await ensure_environment(db_session, test_tenant.id)
     live = await make_booking(
-        db_session, test_tenant.id, booked_by=current_user.id, environment=env,
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         start=now - timedelta(hours=1), end=now + timedelta(hours=1),
     )
     r = await client.get(
@@ -169,11 +169,11 @@ async def test_the_range_filter_runs_in_sql_before_the_page(
     env = await ensure_environment(db_session, test_tenant.id)
     for i in range(3):
         await make_booking(
-            db_session, test_tenant.id, booked_by=current_user.id, environment=env,
+            db_session, test_tenant.id, booked_by=test_user.id, environment=env,
             start=now - timedelta(days=100 + i), end=now - timedelta(days=90 + i),
         )
     await make_booking(
-        db_session, test_tenant.id, booked_by=current_user.id, environment=env,
+        db_session, test_tenant.id, booked_by=test_user.id, environment=env,
         start=now - timedelta(hours=1), end=now + timedelta(hours=1),
     )
     r = await client.get(
@@ -258,14 +258,15 @@ from datetime import datetime, timezone
 
 @pytest.mark.asyncio
 async def test_narrowing_returns_only_environments_whose_ops_group_i_am_in(
-    db_session, test_tenant, current_user
+    db_session, test_tenant, test_user
 ):
     """Build the fixtures with this repo's factories; do NOT point a row at an
     id you did not create (SQLite ignored FKs until PRAGMA foreign_keys=ON and
     ~40 tests were inserting broken rows)."""
     me = await ensure_user(db_session, test_tenant.id, username='queue-member')
-    mine_group = await ensure_user_group(db_session, test_tenant.id, name='Mine', members=[me])
-    theirs_group = await ensure_user_group(db_session, test_tenant.id, name='Theirs', members=[])
+    mine_group = await ensure_user_group(db_session, test_tenant.id, name='Mine')
+    await add_group_member(db_session, mine_group, me)
+    theirs_group = await ensure_user_group(db_session, test_tenant.id, name='Theirs')
 
     mine_env = await ensure_environment(db_session, test_tenant.id, operations_group_id=mine_group.id)
     theirs_env = await ensure_environment(db_session, test_tenant.id, operations_group_id=theirs_group.id)
@@ -304,7 +305,7 @@ async def test_without_the_parameter_nothing_changes(
 
 @pytest.mark.asyncio
 async def test_an_admin_is_narrowed_too(
-    db_session, test_tenant, current_user
+    db_session, test_tenant, test_user
 ):
     """§5's "(Admin: all)" was struck. /my-work is a PERSONAL queue and follows
     `environment_request_service.actionable_clause`'s recorded reasoning: the
@@ -312,7 +313,7 @@ async def test_an_admin_is_narrowed_too(
     claim about whose queue a row belongs in. An Admin in no group sees none.
     """
     admin = await ensure_user(db_session, test_tenant.id, username='queue-admin', role='Admin')
-    other_group = await ensure_user_group(db_session, test_tenant.id, name='Other', members=[])
+    other_group = await ensure_user_group(db_session, test_tenant.id, name='Other')
     env = await ensure_environment(db_session, test_tenant.id, operations_group_id=other_group.id)
     await make_decommission(environment_id=env.id, tenant_id=test_tenant.id)
 
@@ -328,9 +329,12 @@ async def test_an_admin_is_narrowed_too(
 Run: `cd backend && uv run pytest tests/test_decommission_membership_narrowing.py -q`
 Expected: FAIL — `worklist_query() got an unexpected keyword argument 'member_user_id'`.
 
-**Before Step 3, check `ensure_user_group`'s real signature.** If it does not
-take `members=`, add membership rows explicitly rather than inventing a kwarg —
-and say so in your report, because the tests above assume it.
+**`ensure_user_group` takes NO `members=` kwarg** — its real signature is
+`ensure_user_group(db, tenant_id, name="fk-parent-group")`, verified before
+this plan was written. Membership rows are created explicitly. Add a small
+`add_group_member(db, group, user)` helper to `tests/factories.py` alongside
+`make_decommission` (it inserts one `UserGroupMember` with the group's
+`tenant_id`), rather than repeating the insert in four tests.
 
 - [ ] **Step 3: Add the narrowing**
 
@@ -422,7 +426,7 @@ from unittest.mock import patch
 
 @pytest.mark.asyncio
 async def test_one_failing_queue_does_not_fail_the_response(
-    db_session, test_tenant, current_user
+    db_session, test_tenant, test_user
 ):
     """§5: a dashboard that goes blank because one worklist is unhappy is worse
     than one showing four of five and saying so. `failed` is NOT the same as
@@ -451,7 +455,7 @@ async def test_one_failing_queue_does_not_fail_the_response(
 
 
 @pytest.mark.asyncio
-async def test_every_queue_sees_the_same_instant(db_session, test_tenant, current_user):
+async def test_every_queue_sees_the_same_instant(db_session, test_tenant, test_user):
     """One clock. Two datetime.now() calls in one response can disagree across
     midnight, and `expiry_boundary` turns that into two different answers about
     what is overdue."""
@@ -471,7 +475,7 @@ async def test_every_queue_sees_the_same_instant(db_session, test_tenant, curren
 
 @pytest.mark.asyncio
 async def test_items_carry_names_not_ids(
-    db_session, test_tenant, current_user
+    db_session, test_tenant, test_user
 ):
     user = await ensure_user(db_session, test_tenant.id, username='my-work-user')
     await make_incident(tenant_id=test_tenant.id, title="Payments outage", status="open")
@@ -488,7 +492,7 @@ async def test_items_carry_names_not_ids(
 
 @pytest.mark.asyncio
 async def test_each_queue_returns_at_most_five_items_but_counts_them_all(
-    db_session, test_tenant, current_user
+    db_session, test_tenant, test_user
 ):
     user = await ensure_user(db_session, test_tenant.id, username='my-work-user')
     for i in range(8):
@@ -591,20 +595,20 @@ async def test_incidents_count_matches_the_worklist(
 
 @pytest.mark.asyncio
 async def test_pir_actions_count_matches_and_a_due_today_action_is_not_overdue(
-    client, auth_headers, test_tenant, db_session, current_user
+    client, auth_headers, test_tenant, db_session, test_user
 ):
     """The day-not-instant rule: `expiry_boundary` means an action due TODAY is
     not yet overdue. Asserting it here pins the shared clock as well as the
     count."""
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    await make_pir_action(tenant_id=test_tenant.id, owner_id=current_user.id,
+    await make_pir_action(tenant_id=test_tenant.id, owner_id=test_user.id,
                           status="open", due_date=today)
-    await make_pir_action(tenant_id=test_tenant.id, owner_id=current_user.id,
+    await make_pir_action(tenant_id=test_tenant.id, owner_id=test_user.id,
                           status="done", due_date=today)
 
     mine = await client.get("/api/v1/me/work", headers=auth_headers)
     worklist = await client.get(
-        f"/api/v1/pir-actions?owner_id={current_user.id}&status=open&limit=1",
+        f"/api/v1/pir-actions?owner_id={test_user.id}&status=open&limit=1",
         headers=auth_headers,
     )
     q = mine.json()["queues"]["pir_actions"]
@@ -614,11 +618,12 @@ async def test_pir_actions_count_matches_and_a_due_today_action_is_not_overdue(
 
 @pytest.mark.asyncio
 async def test_a_decommission_due_today_is_warned_not_due(
-    client, auth_headers, test_tenant, db_session, current_user
+    client, auth_headers, test_tenant, db_session, test_user
 ):
     """B5's rule, restated at this seam because /me/work is a second reader of
     that state machine."""
-    group = await ensure_user_group(db_session, test_tenant.id, name='Ops', members=[current_user])
+    group = await ensure_user_group(db_session, test_tenant.id, name='Ops')
+    await add_group_member(db_session, group, test_user)
     env = await ensure_environment(db_session, test_tenant.id, operations_group_id=group.id)
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     await make_decommission(environment_id=env.id, tenant_id=test_tenant.id,
@@ -645,14 +650,14 @@ router = APIRouter(prefix="/me", tags=["me"])
 @router.get("/work", response_model=MyWorkResponse)
 async def my_work(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    test_user: User = Depends(get_test_user),
 ):
     # ONE clock, taken here and threaded through every queue.
     now = datetime.now(timezone.utc)
     return await my_work_service.build(
         db,
-        tenant_id=current_user.active_tenant_id,  # NOT .tenant_id — impersonation
-        user=current_user,
+        tenant_id=test_user.active_tenant_id,  # NOT .tenant_id — impersonation
+        user=test_user,
         now=now,
     )
 ```
@@ -861,7 +866,7 @@ new row.
   separate "test infrastructure" commit — a factory with no caller is the
   connected-to-nothing class this repo has shipped four times.
 
-`current_user` and `test_tenant` are existing conftest fixtures. **Do not mix
+`test_user` and `test_tenant` are existing conftest fixtures. **Do not mix
 the `tenant` fixture with `auth_headers`** — `tenant` creates a *different*
 tenant ("Phase3 Org") from the one `auth_headers` authenticates into, so a
 test combining them queries across two tenants and can pass vacuously.
