@@ -41,8 +41,12 @@ from app.db.models.environment_decommission import EnvironmentDecommission
 from app.db.models.environment_group import EnvironmentGroup
 from app.db.models.environment_request import EnvironmentRequest
 from app.db.models.environment_tier import EnvironmentTier
+from app.db.models.incident import Incident
 from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.pir import PIR
+from app.db.models.pir_finding import PirAction, PirFinding
 from app.db.models.project import Project
+from app.db.models.release import Release
 from app.db.models.system import SubSystem, System
 from app.db.models.user import User
 from app.db.models.user_group import UserGroup, UserGroupMember
@@ -595,3 +599,109 @@ async def make_decommission(
     db.add(decommission)
     await db.flush()
     return decommission
+
+
+async def make_incident(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    title: str = "test incident",
+    status: str = "open",
+    severity: str = "P2",
+    detected_at: Optional[datetime] = None,
+) -> Incident:
+    """An incident for `tenant_id`.
+
+    `make_`, not `ensure_`: a tenant may raise any number of incidents over its
+    history, so there is nothing to be idempotent about.
+    """
+    if detected_at is None:
+        detected_at = datetime.now(timezone.utc)
+    incident = Incident(
+        tenant_id=tenant_id,
+        title=title,
+        status=status,
+        severity=severity,
+        detected_at=detected_at,
+    )
+    db.add(incident)
+    await db.flush()
+    return incident
+
+
+async def make_pir_action(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    title: str = "test pir action",
+    owner_id: Optional[int] = None,
+    status: str = "open",
+    due_date: Optional[datetime] = None,
+    finding_id: Optional[int] = None,
+    finding_kind: str = "went_wrong",
+    release_name: str = "fk-parent-release",
+) -> PirAction:
+    """A `PirAction` for `tenant_id`, building the whole chain it hangs off
+    (release -> lifecycle template -> PIR -> finding) when `finding_id` is not
+    given.
+
+    `make_`, not `ensure_`: a finding may carry any number of actions, so
+    there is nothing to be idempotent about.
+    """
+    if finding_id is None:
+        raiser = await ensure_user(db, tenant_id)
+        tpl = LifecycleTemplate(
+            tenant_id=tenant_id,
+            entity_type="release",
+            name=f"fk-parent-release-lifecycle-{uuid4().hex[:8]}",
+            is_default=False,
+            definition={
+                "states": [
+                    {"key": "draft", "label": "Draft", "is_initial": True, "is_terminal": False},
+                ],
+                "transitions": [],
+                "field_permissions": {},
+            },
+        )
+        db.add(tpl)
+        await db.flush()
+
+        release = Release(
+            tenant_id=tenant_id,
+            name=release_name,
+            release_type="Major",
+            release_kind="project",
+            lifecycle_template_id=tpl.id,
+            status="draft",
+            raised_by=raiser.id,
+        )
+        db.add(release)
+        await db.flush()
+
+        pir = PIR(
+            tenant_id=tenant_id, release_id=release.id, status="draft",
+            created_by=raiser.id,
+        )
+        db.add(pir)
+        await db.flush()
+
+        finding = PirFinding(
+            tenant_id=tenant_id, pir_id=pir.id, kind=finding_kind, seq=1,
+            title=f"finding for {title}",
+        )
+        db.add(finding)
+        await db.flush()
+        finding_id = finding.id
+
+    action = PirAction(
+        tenant_id=tenant_id,
+        finding_id=finding_id,
+        seq=1,
+        title=title,
+        owner_id=owner_id,
+        due_date=due_date,
+        status=status,
+    )
+    db.add(action)
+    await db.flush()
+    return action
