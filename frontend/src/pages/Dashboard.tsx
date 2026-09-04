@@ -332,7 +332,15 @@ export default function Dashboard() {
           />
         </Grid>
         <Grid item xs={12} sm={6} lg={3}>
-          <StatTile label="Open incidents" to="/incidents?open=true" fetchCount={fetchOpenIncidents} />
+          <StatTile
+            label="Open incidents"
+            to="/incidents?open=true"
+            fetchCount={fetchOpenIncidents}
+            // `open` is non-terminal, and `resolved` is non-terminal in the default
+            // lifecycle — only `closed`/`cancelled` are. So a resolved incident still
+            // awaiting close-out counts here, and the label alone would not say so.
+            hint="Includes resolved incidents not yet closed"
+          />
         </Grid>
       </Grid>
 

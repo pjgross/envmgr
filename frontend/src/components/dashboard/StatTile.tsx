@@ -18,6 +18,19 @@ export interface StatTileProps {
    * would show "1" for every non-empty list.
    */
   fetchCount: () => Promise<number>;
+  /**
+   * Optional one-line clarification, rendered under the count.
+   *
+   * For a tile whose LABEL is shorter than the truth of what it counts. The
+   * incidents tile is the case this exists for: `open` means non-terminal,
+   * and `resolved` is deliberately non-terminal in the default lifecycle
+   * (only `closed`/`cancelled` are terminal), so a resolved-but-unclosed
+   * incident counts here. A reader glancing at "Open incidents" would
+   * otherwise read it as "still causing a problem" rather than "still needs
+   * closing out" — the same labelling-vs-filter mismatch that made the
+   * releases tile wrong before it was relabelled.
+   */
+  hint?: string;
 }
 
 /**
@@ -25,7 +38,7 @@ export interface StatTileProps {
  * request and its own failure — one tile's list endpoint erroring must not
  * blank the other three.
  */
-export default function StatTile({ label, to, fetchCount }: StatTileProps) {
+export default function StatTile({ label, to, fetchCount, hint }: StatTileProps) {
   const [count, setCount] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -65,6 +78,11 @@ export default function StatTile({ label, to, fetchCount }: StatTileProps) {
           <Skeleton variant="text" width={60} height={48} />
         ) : (
           <Typography variant="h3">{count}</Typography>
+        )}
+        {hint && (
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+            {hint}
+          </Typography>
         )}
       </Link>
     </Paper>

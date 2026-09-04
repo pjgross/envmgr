@@ -103,13 +103,13 @@ already matched, so it is unaffected.
 
 | Endpoint | Sortable fields | Default | New filters |
 |---|---|---|---|
-| `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | — |
-| `GET /bookings/` | `start_date`, `end_date`, `status`, `protection_level` **✧** | `start_date` asc | `agreement_gap` **✦**, `protection` **✧** |
+| `GET /releases` | `name`, `release_type`, `release_kind`, `status`, `target_date`, `created_at` | `created_at` desc | `open` **✻** |
+| `GET /bookings/` | `start_date`, `end_date`, `status`, `protection_level` **✧** | `start_date` asc | `agreement_gap` **✦**, `protection` **✧**, `start`/`end` **✺** |
 | `GET /environments/` | `name`, `tier`, `status`, `owner`, `expires_at`, `created_at` | `name` asc | `search`, `idle` **⁂** |
 | `GET /change-requests` | `title`, `change_type`, `status`, `scheduled_start` | `scheduled_start` desc | — |
 | `GET /systems/` | `name` | `name` asc | `search` |
 | `GET /infrastructure-components/` | `name`, `component_type`, `provider`, `region`, `source` | `name` asc | `search` (widened to name/provider/region) |
-| `GET /incidents` | `title`, `severity`, `status`, `detected_at`, `resolved_at` | `detected_at` desc | — |
+| `GET /incidents` | `title`, `severity`, `status`, `detected_at`, `resolved_at` | `detected_at` desc | `open` **✻** |
 | `GET /deployments` | `status`, `deployer_name`, `deployed_at` | `deployed_at` desc | `environment_search`, `release_search` |
 | `GET /builds` | `git_branch`, `build_number`, `commit_timestamp` | `commit_timestamp` desc | `subsystem_search` |
 | `GET /environment-requests` **§** | `status`, `kind`, `needed_by`, `created_at` | `created_at` desc | `status`, `kind`, `environment_id`, `mine`, `actionable` |
@@ -119,6 +119,43 @@ Four of the nine C1-era endpoints — releases, incidents, change-requests, depl
 `sorting()` was not allowed to change a default page's contents. That has a sharp edge for
 anyone building a client against this table; see point 3 under *What sub-project C3 must
 honour* below.
+
+**✻** `open` on `/incidents` and `/releases` arrived with the frontend IA programme's PR 3
+(2026-09-04), and it exists because the filter it replaced **was not real**. Both surfaces
+previously asked for `?status=open`, and `open` is not an incident status: the default lifecycle
+defines `new`, `investigating`, `identified`, `fix_scheduled`, `resolved`, `closed`, `cancelled`.
+Live against the demo tenant, `?status=open` returned **0** while four releases and one incident
+were genuinely in flight — a dashboard tile and an inbox card both permanently, silently empty.
+It survived review because the backend count-equivalence test compared `/me/work`'s count against
+the worklist's `X-Total-Count` **under the same fabricated filter**: an equivalence test proves two
+things agree, not that either is right, and the test factory set `status="open"` directly,
+bypassing `create_incident`, so the value could never arise in real data.
+
+`open` is a tri-state `Optional[bool]` resolved **per tenant** — `lifecycle_service.terminal_status_clause`
+reads the tenant's own lifecycle templates and folds each one's `is_terminal` states into an
+`OR` of `(template_id == tid AND status IN/NOT IN keys)` branches. It cannot be a hardcoded status
+list, because the status vocabulary is per-tenant; that hardcoding is precisely what broke. Applied
+in SQL before pagination on both endpoints, so `X-Total-Count` describes the filtered set; additive,
+so omitting it reproduces the previous query exactly. **Not a sort key** on either endpoint.
+
+Two edges worth knowing. `resolved` is `is_terminal: False` in the default template (only `closed`
+and `cancelled` are terminal), so a resolved-but-unclosed incident counts as **open** — the template
+deliberately separates "fixed" from "done with the paperwork". And `true`/`false` partition the
+estate *only while every referenced template is live*: a row whose `lifecycle_template_id` points at
+a **soft-deleted** template matches neither, and vanishes from both — see
+[issue #14](https://github.com/pjgross/envmgr/issues/14), a pre-existing gap in `delete_template`
+that this filter is simply the first thing to depend on.
+
+**✺** `start`/`end` on `/bookings/` also arrived with PR 3, for a dashboard tile counting bookings
+live *right now*. The service already had the parameters and an overlap clause; only the HTTP
+exposure was missing — and the clause was **strict** (`start_date < end AND end_date > start`),
+which meant the tile's zero-width probe (`?start=<now>&end=<now>`) matched **nothing**. The bounds
+are now inclusive (`<=`/`>=`) so an empty range still matches a booking spanning that instant. The
+test is interval **overlap**, not "starts within": a booking running 1-10 September is live on the
+4th, and a `start_date >= :start` implementation passes every test that only seeds bookings
+beginning inside the window. Supplying exactly one of the pair is a **422**, not a silently ignored
+filter — the same failure this whole family of filters exists to close. Neither is a sort key;
+`start_date`/`end_date` remain sortable columns and are a different thing.
 
 **✦** `agreement_gap` is not C1's — it arrived with Phase 7 sub-project A3, long after this
 table was written, and it is a **filter only, never a sort key**: `BOOKING_SORTS` is unchanged
