@@ -473,7 +473,14 @@ export default function BookingList() {
   const grid = useServerGrid({
     endpoint: 'bookings',
     // `booking_status`, not `status` — the wire name differs from the label.
-    filterKeys: ['booking_status', 'project_id', 'agreement_gap', 'protection'],
+    // `start`/`end` (Task 1's overlap filter) have no filter UI on this page
+    // — they exist so the Dashboard's "Bookings live now" tile can link here
+    // with `?start=&end=` already in the URL and land on the SAME rows it
+    // counted. Without this in filterKeys, useServerGrid never reads them
+    // out of the URL, `fetchBookings` gets called with neither, and the tile
+    // and the page it links to would silently disagree — the exact failure
+    // this task's own brief calls out.
+    filterKeys: ['booking_status', 'project_id', 'agreement_gap', 'protection', 'start', 'end'],
     onFetch: (params) =>
       dispatch(
         fetchBookings({
