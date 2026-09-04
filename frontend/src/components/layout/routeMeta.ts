@@ -19,6 +19,13 @@ export type RouteMeta = { label: string; parent?: string };
  * entry and no parent here — a page nested only under a group sits at the
  * root of its own breadcrumb trail, exactly like `/environments` in the
  * tests below.
+ *
+ * Labels are copied from the nav verbatim, except where a drawer label is
+ * only meaningful under its group header — the drawer item is plain "List"
+ * under both the Releases and the Bookings group, which reads fine there but
+ * would be a naked "List" in a browser tab or a breadcrumb with no group
+ * header beside it. `/releases` and `/bookings/list` hold the page's own
+ * name ("Releases", "Bookings") instead for exactly that reason.
  */
 const adminEntityRoutes: Record<string, RouteMeta> = Object.fromEntries(
   ENTITY_CONFIG_PAGES.map((page) => [`/admin/${page.entity}`, { label: page.label, parent: '/admin' }])
@@ -42,7 +49,12 @@ export const ROUTE_META: Record<string, RouteMeta> = {
 
   // Bookings
   '/bookings/calendar': { label: 'Calendar' },
-  '/bookings/list': { label: 'List' },
+  '/bookings/list': { label: 'Bookings' }, // drawer says "List" — see the note above
+  // Parented to the list, not the calendar: BookingDetail's own "Back to"
+  // link and the calendar are two different ways in, and the list is the
+  // one that still makes sense to land back on regardless of which way a
+  // visitor arrived — the calendar is a view over a date range a booking
+  // may not even fall inside.
   '/bookings/:id': { label: 'Booking', parent: '/bookings/list' },
   '/environment-requests': { label: 'Environment requests' },
   '/environment-requests/new': { label: 'New environment request', parent: '/environment-requests' },
@@ -57,7 +69,7 @@ export const ROUTE_META: Record<string, RouteMeta> = {
   '/decommissions': { label: 'Decommissions' },
 
   // Releases
-  '/releases': { label: 'List' },
+  '/releases': { label: 'Releases' }, // drawer says "List" — see the note above
   '/releases/calendar': { label: 'Calendar' },
   '/releases/timeline': { label: 'Timeline' },
   '/releases/scope-windows': { label: 'Scope windows' },
@@ -66,12 +78,22 @@ export const ROUTE_META: Record<string, RouteMeta> = {
   // declared before /releases/new, which it would otherwise swallow as
   // `id: "new"` were the scorer not doing the picking.
   '/releases/:id': { label: 'Release', parent: '/releases' },
+  // App.tsx routes `/releases/new` to <ReleaseList />, which ignores the
+  // pathname — a visitor here sees the list, not a page named "New release".
+  // This entry exists only so a stale bookmark from before that page was
+  // removed doesn't instead fall through to `/releases/:id` and fetch
+  // `id: "new"`.
   '/releases/new': { label: 'New release', parent: '/releases' },
   '/builds': { label: 'Builds' },
   '/builds/:id': { label: 'Build', parent: '/builds' },
   '/deployments': { label: 'Deployments' },
   '/deployments/:id': { label: 'Deployment', parent: '/deployments' },
   '/incidents': { label: 'Incidents' },
+  // /incidents/new and /incidents/:id/edit both render the same <IncidentForm>
+  // component, but they are different navigation contexts and get different
+  // parents: creating one is reached from the list, editing one is reached
+  // from that incident's own page, so their breadcrumb trails should — and
+  // do — differ in depth even though the page underneath is identical.
   '/incidents/new': { label: 'New incident', parent: '/incidents' },
   '/incidents/:id': { label: 'Incident', parent: '/incidents' },
   '/incidents/:id/edit': { label: 'Edit incident', parent: '/incidents/:id' },

@@ -33,7 +33,7 @@ describe('breadcrumbsFor', () => {
       'Compare environments',
     ]);
     // /releases/:id would otherwise match "new" as an :id.
-    expect(breadcrumbsFor('/releases/new').map((c) => c.label)).toEqual(['List', 'New release']);
+    expect(breadcrumbsFor('/releases/new').map((c) => c.label)).toEqual(['Releases', 'New release']);
   });
 
   it('resolves a DYNAMIC parent against the concrete pathname, not the raw pattern', () => {
