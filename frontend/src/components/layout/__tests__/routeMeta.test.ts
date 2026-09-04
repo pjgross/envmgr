@@ -35,6 +35,18 @@ describe('breadcrumbsFor', () => {
     // /releases/:id would otherwise match "new" as an :id.
     expect(breadcrumbsFor('/releases/new').map((c) => c.label)).toEqual(['List', 'New release']);
   });
+
+  it('resolves a DYNAMIC parent against the concrete pathname, not the raw pattern', () => {
+    // /incidents/:id/edit's parent is /incidents/:id — the only dynamic
+    // `parent` in the table. A crumb linking to the literal pattern string
+    // would navigate to `/incidents/:id`, whose detail page then fetches
+    // `id === ':id'` → NaN.
+    expect(breadcrumbsFor('/incidents/5/edit')).toEqual([
+      { label: 'Incidents', to: '/incidents' },
+      { label: 'Incident', to: '/incidents/5' },
+      { label: 'Edit incident' },
+    ]);
+  });
 });
 
 describe('ROUTE_META', () => {

@@ -131,8 +131,60 @@ export default function ReleaseDetail() {
     );
   }
 
+  // Shared by both branches below so the enterprise release page — reachable
+  // whenever release_kind === 'enterprise' — gets the same header, status
+  // chips and actions as its sibling instead of none of them.
+  const statusChips = (
+    <>
+      <Chip label={release.status} color={STATUS_COLORS[release.status] ?? 'default'} size="small" />
+      <Chip label={release.release_type} size="small" variant="outlined" />
+    </>
+  );
+  const headerActions = (
+    <>
+      <Tooltip title="Status history">
+        <IconButton size="small" onClick={() => setHistoryOpen(true)}>
+          <HistoryIcon />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Event log">
+        <IconButton size="small" onClick={() => setEventLogOpen(true)}>
+          <EventNoteIcon />
+        </IconButton>
+      </Tooltip>
+      <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
+        <DeleteOutlineIcon />
+      </IconButton>
+    </>
+  );
+  const sideDrawers = (
+    <>
+      <ReleaseStatusHistoryDrawer
+        open={historyOpen}
+        releaseId={releaseId}
+        onClose={() => setHistoryOpen(false)}
+      />
+      <ReleaseEventDrawer
+        open={eventLogOpen}
+        releaseId={releaseId}
+        onClose={() => setEventLogOpen(false)}
+      />
+    </>
+  );
+
   if (release.release_kind === 'enterprise') {
-    return <EnterpriseTabs release={release} />;
+    return (
+      <Box sx={{ p: 3 }}>
+        <DetailPageHeader
+          back={{ to: '/releases', label: 'Releases' }}
+          title={release.name}
+          status={statusChips}
+          actions={headerActions}
+        />
+        <EnterpriseTabs release={release} />
+        {sideDrawers}
+      </Box>
+    );
   }
 
   return (
@@ -140,29 +192,8 @@ export default function ReleaseDetail() {
       <DetailPageHeader
         back={{ to: '/releases', label: 'Releases' }}
         title={release.name}
-        status={
-          <>
-            <Chip label={release.status} color={STATUS_COLORS[release.status] ?? 'default'} size="small" />
-            <Chip label={release.release_type} size="small" variant="outlined" />
-          </>
-        }
-        actions={
-          <>
-            <Tooltip title="Status history">
-              <IconButton size="small" onClick={() => setHistoryOpen(true)}>
-                <HistoryIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Event log">
-              <IconButton size="small" onClick={() => setEventLogOpen(true)}>
-                <EventNoteIcon />
-              </IconButton>
-            </Tooltip>
-            <IconButton color="error" onClick={handleDelete} size="small" title="Delete release">
-              <DeleteOutlineIcon />
-            </IconButton>
-          </>
-        }
+        status={statusChips}
+        actions={headerActions}
       />
 
       <ReadinessBanner releaseId={releaseId} />
@@ -197,16 +228,7 @@ export default function ReleaseDetail() {
 
       {confirmDialog}
       {/* Side drawers */}
-      <ReleaseStatusHistoryDrawer
-        open={historyOpen}
-        releaseId={releaseId}
-        onClose={() => setHistoryOpen(false)}
-      />
-      <ReleaseEventDrawer
-        open={eventLogOpen}
-        releaseId={releaseId}
-        onClose={() => setEventLogOpen(false)}
-      />
+      {sideDrawers}
     </Box>
   );
 }

@@ -72,9 +72,10 @@ describe('useUrlTab', () => {
   });
 
   it('two hooks with different param names do not overwrite each other', async () => {
-    // EnterpriseTabs renders inside ReleaseDetail's `enterprise` tab, so both
-    // are live on one URL. Without a distinct param they fight, and the inner
-    // strip silently drives the outer one.
+    // A page with two nested tab strips live on one URL at once needs a
+    // second param — `etab` here, illustratively — or the inner strip
+    // silently drives the outer one. (No page in this app actually nests two
+    // strips today; the capability still needs to hold if one ever does.)
     render(
       <MemoryRouter initialEntries={['/r/7?tab=enterprise&etab=members']}>
         <Routes>

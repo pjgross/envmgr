@@ -1,4 +1,4 @@
-import { matchPath } from 'react-router-dom';
+import { generatePath, matchPath } from 'react-router-dom';
 import { ENTITY_CONFIG_PAGES } from '../../pages/admin/entityConfigTabs';
 
 export type RouteMeta = { label: string; parent?: string };
@@ -139,9 +139,17 @@ function matchRoutePattern(pathname: string): string | undefined {
 export function breadcrumbsFor(pathname: string): Array<{ label: string; to?: string }> {
   const pattern = matchRoutePattern(pathname);
   if (!pattern) return [];
+  // A DYNAMIC parent (only `/incidents/:id`, today) must be resolved against
+  // the concrete pathname, not linked as the literal pattern string — a crumb
+  // whose href is `/incidents/:id` matches that route with `id === ':id'` and
+  // the detail page fetches NaN. The child's params are a superset of every
+  // ancestor's (an ancestor pattern is always a prefix of the child's), so
+  // one match against the leaf pattern is enough to resolve every ancestor.
+  const params = matchPath(pattern, pathname)?.params ?? {};
   const trail: Array<{ label: string; to?: string }> = [];
   for (let p: string | undefined = pattern; p; p = ROUTE_META[p]?.parent) {
-    trail.unshift({ label: ROUTE_META[p].label, to: p });
+    const to = p.includes(':') ? generatePath(p, params) : p;
+    trail.unshift({ label: ROUTE_META[p].label, to });
   }
   delete trail[trail.length - 1].to;
   return trail;

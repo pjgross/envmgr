@@ -32,17 +32,20 @@ const ENTERPRISE_KEYS = [
 ] as const;
 
 export function EnterpriseTabs({ release }: Props) {
-  // Rendered inside ReleaseDetail's `enterprise` tab, so both strips are
-  // live on one URL at once — `etab`, not `tab`, so they don't fight over
-  // the same query param.
-  const [tab, setTab] = useUrlTab(ENTERPRISE_KEYS, 'main', 'etab');
+  // The full-page replacement ReleaseDetail renders when release_kind is
+  // 'enterprise' (see ReleaseDetail.tsx) — this is its ONLY call site, and it
+  // fully replaces ReleaseDetail's own tab strip rather than nesting inside
+  // it, so the two can never be live together. That means this can use the
+  // default `tab` param like every other tabbed page (spec §6: one mechanism
+  // everywhere).
+  const [tab, setTab] = useUrlTab(ENTERPRISE_KEYS, 'main');
 
   return (
     <Box>
       <Paper sx={{ mb: 2 }}>
         <Tabs
           value={tab}
-          onChange={(_, v) => setTab(v)}
+          onChange={(_, v: string) => setTab(v)}
           variant="scrollable"
           scrollButtons="auto"
           sx={{ px: 2 }}

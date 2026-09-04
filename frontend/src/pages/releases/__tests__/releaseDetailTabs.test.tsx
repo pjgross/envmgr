@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from '../../../store';
 import ReleaseDetail from '../ReleaseDetail';
@@ -51,12 +51,20 @@ const RELEASE = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
+// Full URL, not just the rendered tab: a `useState` fallback would also leave
+// the clicked tab `aria-selected`, since MUI's own state still updates — only
+// the URL tells "the tab changed" apart from "the tab is also in the URL".
+function Path() {
+  const location = useLocation();
+  return <div data-testid="path">{location.pathname + location.search}</div>;
+}
+
 const renderAt = (search: string) =>
   render(
     <Provider store={store}>
       <MemoryRouter initialEntries={[`/releases/7${search}`]}>
         <Routes>
-          <Route path="/releases/:id" element={<ReleaseDetail />} />
+          <Route path="/releases/:id" element={<><ReleaseDetail /><Path /></>} />
         </Routes>
       </MemoryRouter>
     </Provider>,
@@ -95,5 +103,6 @@ describe('ReleaseDetail — the tab is in the URL', () => {
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'RAID' })).toHaveAttribute('aria-selected', 'true'),
     );
+    expect(screen.getByTestId('path')).toHaveTextContent('/releases/7?tab=raid');
   });
 });
