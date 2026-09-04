@@ -248,6 +248,75 @@ async def test_decommissions_queue_is_narrowed_by_membership_for_everyone(
 
 
 @pytest.mark.asyncio
+async def test_decommissions_queue_includes_all_three_actionable_states(
+    db_session, test_tenant, test_user
+):
+    """Spec §5: the decommissions queue is `state=warned|extension_requested
+    |due`. Seeded on BOTH sides of the filter — a decommission in each of the
+    three actionable states, plus one `torn_down` (terminal, must be
+    excluded) — because a test seeding only the included states would pass
+    with no filter at all, and one seeding only `due` would not catch
+    `warned` being dropped.
+
+    `warned` matters most: B5's decommissioning design is warn-then-act, and
+    a card that stayed silent for the whole notice period and only lit up on
+    the deadline day would surface the work at exactly the moment it is too
+    late to act on calmly.
+    """
+    from app.core.decommission_states import (
+        STATE_DUE, STATE_EXTENSION_REQUESTED, STATE_TORN_DOWN, STATE_WARNED,
+    )
+    from app.services.environment_decommission_service import decommission_state
+
+    me = await ensure_user(db_session, test_tenant.id, username='decomm-three-states')
+    group = await ensure_user_group(db_session, test_tenant.id, name='Three States Ops')
+    await add_group_member(db_session, group, me)
+    env = await ensure_environment(
+        db_session, test_tenant.id, slot=1, operations_group_id=group.id
+    )
+    now = datetime.now(timezone.utc)
+
+    due = await make_decommission(
+        db_session, test_tenant.id, environment_id=env.id,
+        scheduled_teardown_at=now - timedelta(days=1),
+    )
+    warned = await make_decommission(
+        db_session, test_tenant.id, environment_id=env.id,
+        scheduled_teardown_at=now + timedelta(days=5),
+    )
+    extension_requested = await make_decommission(
+        db_session, test_tenant.id, environment_id=env.id,
+        scheduled_teardown_at=now + timedelta(days=5),
+    )
+    extension_requested.extension_requested_at = now
+    extension_requested.extension_requested_by = me.id
+    extension_requested.extension_reason = "need more time"
+    torn_down = await make_decommission(
+        db_session, test_tenant.id, environment_id=env.id,
+        scheduled_teardown_at=now - timedelta(days=10),
+    )
+    torn_down.torn_down_at = now
+    await db_session.flush()
+
+    # Sanity-check the fixtures actually land in the states this test claims,
+    # before asserting anything about the queue built from them.
+    assert decommission_state(due, now) == STATE_DUE
+    assert decommission_state(warned, now) == STATE_WARNED
+    assert decommission_state(extension_requested, now) == STATE_EXTENSION_REQUESTED
+    assert decommission_state(torn_down, now) == STATE_TORN_DOWN
+
+    from app.services import my_work_service
+
+    res = await my_work_service.build(
+        db_session, tenant_id=test_tenant.id, user=me, now=now
+    )
+    assert res.queues["decommissions"].count == 3
+    ids = {i.id for i in res.queues["decommissions"].items}
+    assert {due.id, warned.id, extension_requested.id} <= ids
+    assert torn_down.id not in ids
+
+
+@pytest.mark.asyncio
 async def test_pir_actions_queue_counts_overdue(db_session, test_tenant, test_user):
     """`overdue` is populated only for `pir_actions`, from the same
     `is_overdue`/`worklist_query` computation `GET /pir-actions` uses."""

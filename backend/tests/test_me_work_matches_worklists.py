@@ -81,16 +81,28 @@ async def test_pir_actions_count_matches_and_a_due_today_action_is_not_overdue(
 
 
 @pytest.mark.asyncio
-async def test_a_decommission_due_today_is_warned_not_due(
+async def test_a_decommission_due_today_is_warned_and_still_counts(
     client, auth_headers, test_tenant, db_session, test_user
 ):
     """B5's rule, restated at this seam because /me/work is a second reader of
     that state machine: `decommission_state` returns WARNED, never DUE, for
     the entire calendar day a teardown is scheduled on —
     `scheduled_teardown_at >= expiry_boundary(now)` — and only flips to DUE
-    once that day has fully passed. `_decommissions_queue` counts only
-    `(due, extension_requested)`, so a decommission scheduled for TODAY must
-    NOT appear here, however urgent it looks on a calendar.
+    once that day has fully passed.
+
+    Spec §5 defines this queue as `state=warned|extension_requested|due` —
+    `_decommissions_queue` counts all three, `warned` included, deliberately:
+    B5's decommissioning design is warn-then-act, and a card that stayed
+    silent for the whole notice period and only lit up on the deadline day
+    would surface the work at exactly the moment it is too late to act on
+    calmly. So a decommission scheduled for TODAY (WARNED) must still appear
+    here, exactly like one that is genuinely DUE.
+
+    (This test used to assert the opposite — that a WARNED row must NOT
+    count — matching this queue's old, spec-incorrect filter of
+    `(due, extension_requested)` only. Corrected when `warned` was added to
+    the filter; see `my_work_service.py`'s `_decommissions_queue`
+    docstring.)
 
     `GET /decommissions` (the worklist endpoint) has no membership-narrowing
     filter at all — see `app/api/v1/decommissions.py`'s
@@ -98,12 +110,13 @@ async def test_a_decommission_due_today_is_warned_not_due(
     per-member — so there is no single filtered HTTP call to assert true
     X-Total-Count equivalence against here, unlike the other four queues.
     Both axes `_decommissions_queue` filters on are still seeded on both
-    sides instead: a genuinely DUE decommission on `test_user`'s own
-    operations group (counted), a decommission due TODAY on that same group
-    (must not count — the state filter, not membership, excludes it), and a
-    genuinely DUE decommission on a DIFFERENT group `test_user` does not
-    belong to (must not count — membership excludes it). One row surviving
-    both filters yields a total of 1.
+    sides instead: a genuinely DUE decommission AND a WARNED (due-today) one
+    on `test_user`'s own operations group (both counted — proves `warned` is
+    included, not just `due`), a TORN_DOWN one on that same group (must not
+    count — the state filter still excludes a terminal state, not just
+    membership), and a genuinely DUE decommission on a DIFFERENT group
+    `test_user` does not belong to (must not count — membership excludes
+    it). Two rows surviving both filters yields a total of 2.
     """
     group = await ensure_user_group(db_session, test_tenant.id, name="Ops")
     await add_group_member(db_session, group, test_user)
@@ -123,12 +136,20 @@ async def test_a_decommission_due_today_is_warned_not_due(
         db_session, test_tenant.id, environment_id=env.id,
         scheduled_teardown_at=yesterday,
     )
-    # Not matching: mine, but teardown is scheduled for TODAY — WARNED, not
-    # yet DUE. Proves the state filter runs, not just the membership one.
+    # Matching: mine, teardown scheduled for TODAY — WARNED, not yet DUE, but
+    # still counted (the whole point of this test after the spec fix).
     await make_decommission(
         db_session, test_tenant.id, environment_id=env.id,
         scheduled_teardown_at=today,
     )
+    # Not matching: mine, but TORN_DOWN — terminal, needs no human. Proves the
+    # state filter still excludes something, not just membership.
+    torn_down = await make_decommission(
+        db_session, test_tenant.id, environment_id=env.id,
+        scheduled_teardown_at=yesterday,
+    )
+    torn_down.torn_down_at = datetime.now(timezone.utc)
+    await db_session.flush()
     # Not matching: genuinely DUE, but on an environment `test_user` does not
     # operate. Proves the membership filter runs, not just the state one.
     await make_decommission(
@@ -137,7 +158,7 @@ async def test_a_decommission_due_today_is_warned_not_due(
     )
 
     mine = await client.get("/api/v1/me/work", headers=auth_headers)
-    assert mine.json()["queues"]["decommissions"]["count"] == 1
+    assert mine.json()["queues"]["decommissions"]["count"] == 2
 
 
 @pytest.mark.asyncio

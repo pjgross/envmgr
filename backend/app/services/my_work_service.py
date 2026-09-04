@@ -16,7 +16,9 @@ drifting from the worklist page it is supposed to mirror:
   rule.
 - `environment_decommission_service.worklist_query(..., member_user_id=...)`
   — narrowed by operations-group membership for EVERYONE, Admins included:
-  no bypass. Filtered to the two actionable states via
+  no bypass. Filtered to the three states spec §5 names (`warned`, `due`,
+  `extension_requested` — `warned` deliberately included so the notice
+  period itself shows up here, not just the deadline day) via
   `decommission_state`, the same computed-state function the worklist's own
   chip renders from.
 - `pir_finding_service.list_actions(..., owner_id=...)` — `is_overdue` on
@@ -44,7 +46,9 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.my_work import MyWorkResponse, QueueResult, WorkItem
-from app.core.decommission_states import STATE_DUE, STATE_EXTENSION_REQUESTED
+from app.core.decommission_states import (
+    STATE_DUE, STATE_EXTENSION_REQUESTED, STATE_WARNED,
+)
 from app.core.pagination import Sort
 from app.core.security import Role
 from app.db.models.user import User
@@ -139,10 +143,19 @@ async def _decommissions_queue(
     """Narrowed by operations-group membership for EVERYONE, Admins included
     — `member_user_id` is passed unconditionally, with no Admin bypass (an
     Admin in no operations group correctly sees an empty card). Filtered to
-    the two states that actually need a human: `due` (teardown day has
-    arrived) and `extension_requested` (someone is owed a decision) — using
-    `decommission_state`, the same computed function the worklist's own chip
-    renders from, never a re-derived version of it.
+    the three states spec §5 names: `warned`, `due` and
+    `extension_requested` — using `decommission_state`, the same computed
+    function the worklist's own chip renders from, never a re-derived
+    version of it.
+
+    `warned` IS INCLUDED, DELIBERATELY. B5's decommissioning design is
+    warn-then-act: the notice period exists precisely so the operating team
+    has time to complete attestations before teardown. A "waiting on me"
+    card that stayed silent for the whole notice period and only lit up on
+    the deadline day (`due`) would surface the work at exactly the moment it
+    is too late to act on calmly — the warning would be pointless. Only
+    `cancelled` and `torn_down` are excluded: both are terminal, and neither
+    needs a human to do anything more.
     """
     query = environment_decommission_service.worklist_query(
         tenant_id, now=now, member_user_id=user.id,
@@ -157,7 +170,7 @@ async def _decommissions_queue(
     )
     actionable = [
         row for row in rows
-        if views[row.id].state in (STATE_DUE, STATE_EXTENSION_REQUESTED)
+        if views[row.id].state in (STATE_WARNED, STATE_DUE, STATE_EXTENSION_REQUESTED)
     ]
     items = [
         WorkItem(
