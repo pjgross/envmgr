@@ -125,4 +125,28 @@ describe('MyWork', () => {
     expect(await screen.findAllByTestId('queue-row')).toHaveLength(5);
     expect(screen.getByText('12')).toBeInTheDocument();
   });
+
+  it('a whole-response failure does not render any card as empty', async () => {
+    // One level up from the per-queue distinction above: `/me/work` itself
+    // fails (network error, or a 5xx before any per-queue try/except on the
+    // backend even ran) — `data` never arrives at all. `data?.queues[key]
+    // ?? EMPTY_QUEUE` would hand every one of the five cards an empty,
+    // non-failed queue here, and all five would confidently say "Nothing
+    // waiting on you" about a response that never came back. No store
+    // preload this time — `data` starts genuinely null, the way it does on
+    // a real first-load failure.
+    myWorkService.getMyWork.mockRejectedValue(new Error('network down'));
+    const store = configureStore({ reducer: { myWork: myWorkReducer } });
+
+    render(
+      <Provider store={store}>
+        <MemoryRouter>
+          <MyWork />
+        </MemoryRouter>
+      </Provider>
+    );
+
+    expect(await screen.findAllByText(/couldn't load/i)).toHaveLength(5);
+    expect(screen.queryByText('Nothing waiting on you')).not.toBeInTheDocument();
+  });
 });

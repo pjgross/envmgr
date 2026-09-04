@@ -9,6 +9,22 @@ export interface QueueCardProps {
   queue: QueueResult;
   /** The existing worklist, filtered on the wire the same way this queue is. */
   viewAllHref: string;
+  /**
+   * The link's own wording — e.g. "PIR actions", "environment requests".
+   * NOT derived from `title` (`title.toLowerCase()` reads "pir actions"
+   * directly under a card headed "PIR actions"), since a couple of these
+   * are proper nouns/acronyms that don't lowercase cleanly.
+   */
+  viewAllLabel: string;
+  /**
+   * Shown under the link when it is NOT a narrowed view of "mine" — e.g.
+   * decommissions has no owner-filter the target worklist can express, so
+   * the link goes to the whole tenant's estate. Omit when the link is
+   * either an exact match or a strict superset of what this card counted
+   * (contentions/PIR actions widen only the status axis, so every item
+   * this card counted still appears there — that needs no caption).
+   */
+  viewAllCaption?: string;
   renderRow: (item: WorkItem) => ReactNode;
   /** Re-runs the whole `/me/work` call — there is no narrower retry. */
   onRetry?: () => void;
@@ -29,7 +45,15 @@ export interface QueueCardProps {
  *    (the FULL count, not `items.length`) shown separately so a reader can
  *    tell there is more before clicking "View all".
  */
-export default function QueueCard({ title, queue, viewAllHref, renderRow, onRetry }: QueueCardProps) {
+export default function QueueCard({
+  title,
+  queue,
+  viewAllHref,
+  viewAllLabel,
+  viewAllCaption,
+  renderRow,
+  onRetry,
+}: QueueCardProps) {
   return (
     <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardHeader
@@ -78,8 +102,13 @@ export default function QueueCard({ title, queue, viewAllHref, renderRow, onRetr
         )}
         <Box sx={{ mt: 2 }}>
           <MuiLink component={RouterLink} to={viewAllHref} underline="hover">
-            View all {title.toLowerCase()} →
+            View all {viewAllLabel} →
           </MuiLink>
+          {viewAllCaption && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              {viewAllCaption}
+            </Typography>
+          )}
         </Box>
       </CardContent>
     </Card>

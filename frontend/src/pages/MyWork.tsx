@@ -27,11 +27,26 @@ import type { MyWorkQueueKey, QueueResult, WorkItem } from '../types/myWork';
 
 const EMPTY_QUEUE: QueueResult = { count: 0, items: [], failed: false };
 
+// The fallback fed to EVERY card when the whole `/me/work` call failed
+// (network error, or a 5xx before any per-queue try/except on the backend
+// even ran) — as opposed to `data.queues[key].failed`, which is a single
+// queue's own worklist query failing while the rest of the response is
+// fine. Without this, `data` stays `null` and `data?.queues[key] ??
+// EMPTY_QUEUE` would hand every card an *empty*, non-failed queue: five
+// confident "Nothing waiting on you"s built from a response that never
+// arrived. Same rule as `QueueCard`'s own failed-vs-empty distinction, one
+// level up.
+const WHOLE_RESPONSE_FAILED_QUEUE: QueueResult = { count: 0, items: [], failed: true };
+
 interface QueueConfig {
   key: MyWorkQueueKey;
   title: string;
   /** The existing worklist page, filtered on the wire the same way this queue is. */
   viewAllHref: string;
+  /** The link's own wording — see `QueueCardProps.viewAllLabel`. */
+  viewAllLabel: string;
+  /** See `QueueCardProps.viewAllCaption`. */
+  viewAllCaption?: string;
 }
 
 const QUEUES: QueueConfig[] = [
@@ -42,6 +57,7 @@ const QUEUES: QueueConfig[] = [
     // own vocabulary for "requests my team must action" — exactly what
     // `_environment_requests_queue` counts via `actionable_for`.
     viewAllHref: '/environment-requests?queue=team',
+    viewAllLabel: 'environment requests',
   },
   {
     key: 'contentions',
@@ -53,8 +69,11 @@ const QUEUES: QueueConfig[] = [
     // offers open/answered/expired, not "not answered") — narrowing to
     // `state=open` would UNDER-count by dropping expired-but-undecided
     // rows, so `state` is left at its default (any) rather than picked
-    // wrong. The owner filter is the one that matters for "is this mine".
+    // wrong. The owner filter is the one that matters for "is this mine",
+    // and it is exact, so every item this card counted still shows up
+    // there — a strict superset, never a fewer-rows surprise. No caption.
     viewAllHref: '/contentions?escalation_owner=me',
+    viewAllLabel: 'contentions',
   },
   {
     key: 'decommissions',
@@ -63,9 +82,13 @@ const QUEUES: QueueConfig[] = [
     // membership-narrowing parameter on the wire — confirmed in
     // backend/tests/test_me_work_matches_worklists.py's own comment, which
     // says as much because this is the one queue of the five it cannot
-    // assert X-Total-Count equivalence for. There is no URL value to pick
-    // here, right or wrong.
+    // assert X-Total-Count equivalence for. Unlike contentions/pir_actions,
+    // this is NOT a superset of "mine" — it's the whole tenant's estate,
+    // with no owner narrowing at all, so the card carries a visible
+    // caption rather than leaving that disclosed only in this comment.
     viewAllHref: '/decommissions',
+    viewAllLabel: 'decommissions',
+    viewAllCaption: 'Shows the whole estate, not just yours.',
   },
   {
     key: 'pir_actions',
@@ -75,8 +98,11 @@ const QUEUES: QueueConfig[] = [
     // `status` filter takes exactly one value, so no single choice
     // reproduces "open or in_progress" — `status=open` would UNDER-count by
     // dropping in_progress rows. Left unset: a superset (also shows
-    // done/cancelled actions of mine) rather than a silently short list.
+    // done/cancelled actions of mine) rather than a silently short list —
+    // the owner filter is exact, so nothing this card counted is missing
+    // there. No caption.
     viewAllHref: '/pir-actions?action_owner=me',
+    viewAllLabel: 'PIR actions',
   },
   {
     key: 'incidents',
@@ -84,6 +110,7 @@ const QUEUES: QueueConfig[] = [
     // Exact match: `?status=open` is precisely what `_incidents_queue` asks
     // for, and IncidentList's `status` filter key is `status` itself.
     viewAllHref: '/incidents?status=open',
+    viewAllLabel: 'incidents',
   },
 ];
 
@@ -146,8 +173,15 @@ export default function MyWork() {
             <Grid item xs={12} md={6} lg={4} key={cfg.key}>
               <QueueCard
                 title={cfg.title}
-                queue={data?.queues[cfg.key] ?? EMPTY_QUEUE}
+                // `data`'s per-queue `failed` flag when the response arrived;
+                // WHOLE_RESPONSE_FAILED_QUEUE when it never did (`error` set,
+                // `data` still null) — never EMPTY_QUEUE in that case, or a
+                // total failure renders as five confident empty queues (see
+                // the constant's own comment above).
+                queue={data?.queues[cfg.key] ?? (error ? WHOLE_RESPONSE_FAILED_QUEUE : EMPTY_QUEUE)}
                 viewAllHref={cfg.viewAllHref}
+                viewAllLabel={cfg.viewAllLabel}
+                viewAllCaption={cfg.viewAllCaption}
                 renderRow={renderRow}
                 onRetry={refetch}
               />
