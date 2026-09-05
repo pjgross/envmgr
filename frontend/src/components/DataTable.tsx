@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import {
   DataGrid,
@@ -20,6 +20,14 @@ type DataTableProps<R extends GridValidRowModel> = Omit<
   emptyMessage?: string;
   /** Set true to render the DataGrid toolbar (density toggle, columns, export, filters). */
   showToolbar?: boolean;
+  /**
+   * Applied to the model read from localStorage, before it becomes state —
+   * never to what is saved. A page whose columns are partly tenant-defined
+   * uses this to drop entries naming a column that no longer exists, while
+   * keeping namespaced custom-field keys whose definitions may not have
+   * loaded yet. See EnvironmentList.
+   */
+  pruneStoredVisibility?: (stored: GridColumnVisibilityModel) => GridColumnVisibilityModel;
 };
 
 function loadVisibility(key: string): GridColumnVisibilityModel {
@@ -62,6 +70,7 @@ export default function DataTable<R extends GridValidRowModel>({
   userId,
   emptyMessage = 'No rows to display',
   showToolbar = true,
+  pruneStoredVisibility,
   ...rest
 }: DataTableProps<R>) {
   const fullKey = useMemo(
@@ -70,8 +79,24 @@ export default function DataTable<R extends GridValidRowModel>({
   );
 
   const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
-    () => loadVisibility(fullKey)
+    () => {
+      const stored = loadVisibility(fullKey);
+      return pruneStoredVisibility ? pruneStoredVisibility(stored) : stored;
+    }
   );
+
+  // `fullKey` changes when `userId` resolves — a page whose user comes from an
+  // async auth fetch mounts with it undefined. Reading storage only in the
+  // initialiser above would drop that user's saved preference on the floor,
+  // silently, on every such page. `pruneStoredVisibility` is deliberately not
+  // in the dependency list: an inline arrow prop is a new identity every
+  // render, which would re-read storage on every render and clobber an
+  // in-session toggle.
+  useEffect(() => {
+    const stored = loadVisibility(fullKey);
+    setColumnVisibilityModel(pruneStoredVisibility ? pruneStoredVisibility(stored) : stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullKey]);
 
   const handleVisibilityChange = useCallback(
     (next: GridColumnVisibilityModel) => {

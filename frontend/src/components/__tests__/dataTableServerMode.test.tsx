@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import DataTable from '../DataTable';
 
 const columns = [{ field: 'name', headerName: 'Name' }];
@@ -163,5 +163,74 @@ describe('DataTable server mode', () => {
       <DataTable storageKey="test-grid-client-export" rows={rows} columns={columns} showToolbar />
     );
     expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument();
+  });
+});
+
+describe('persisted column visibility', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('re-reads storage when the key changes after mount', () => {
+    // The saved model for user 7. A page whose `user` arrives from an async
+    // auth fetch mounts with userId undefined and re-renders with 7; reading
+    // storage only in the useState initialiser loses the preference silently.
+    localStorage.setItem('grid-7', JSON.stringify({ b: false }));
+    const rereadColumns = [
+      { field: 'a', headerName: 'A' },
+      { field: 'b', headerName: 'B' },
+    ];
+    const rereadRows = [{ id: 1, a: 'one', b: 'two' }];
+
+    // `disableVirtualization` is load-bearing, not decoration: the real
+    // DataGrid virtualizes columns by container width and jsdom reports zero
+    // width, so column `b`'s cells might never mount at all — and this test
+    // would then pass for the wrong reason, asserting the absence of
+    // something that was never rendered. It passes through `{...rest}`.
+    const { rerender } = render(
+      <DataTable
+        storageKey="grid"
+        rows={rereadRows}
+        columns={rereadColumns}
+        showToolbar={false}
+        disableVirtualization
+      />
+    );
+    expect(screen.getByText('two')).toBeInTheDocument();
+
+    rerender(
+      <DataTable
+        storageKey="grid"
+        userId={7}
+        rows={rereadRows}
+        columns={rereadColumns}
+        showToolbar={false}
+        disableVirtualization
+      />
+    );
+    expect(screen.queryByText('two')).not.toBeInTheDocument();
+    expect(screen.getByText('one')).toBeInTheDocument();
+  });
+
+  it('applies pruneStoredVisibility to what it reads, and only to that', () => {
+    localStorage.setItem('grid-prune', JSON.stringify({ a: false, gone: false }));
+    const pruneColumns = [{ field: 'a', headerName: 'A' }];
+    const pruneRows = [{ id: 1, a: 'one' }];
+    const prune = vi.fn((stored: Record<string, boolean>) =>
+      Object.fromEntries(Object.entries(stored).filter(([f]) => f === 'a'))
+    );
+
+    render(
+      <DataTable
+        storageKey="grid-prune"
+        rows={pruneRows}
+        columns={pruneColumns}
+        showToolbar={false}
+        disableVirtualization
+        pruneStoredVisibility={prune}
+      />
+    );
+
+    expect(prune).toHaveBeenCalledWith({ a: false, gone: false });
+    // `a` was hidden by a real stored preference and survives pruning.
+    expect(screen.queryByText('one')).not.toBeInTheDocument();
   });
 });
