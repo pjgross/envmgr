@@ -16,7 +16,12 @@ from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_system import ReleaseSystem
 from app.db.models.system import System
-from app.services import go_no_go_defaults, go_no_go_service, rollback_policy_service
+from app.services import (
+    go_no_go_defaults,
+    go_no_go_service,
+    release_readiness_service,
+    rollback_policy_service,
+)
 from tests.test_gate_readiness import _make_gate, _make_gate_type
 
 
@@ -177,6 +182,31 @@ async def test_the_snapshot_is_captured_server_side_and_does_not_move(
     reread = await go_no_go_service.get_decision(db_session, decision.id, test_tenant.id)
     assert reread.snapshot_blockers == frozen_blockers
     assert reread.snapshot_ok == frozen_ok
+
+
+@pytest.mark.asyncio
+async def test_a_no_go_adds_no_blocker_and_no_warning(
+    db_session, test_tenant, test_user, release
+):
+    """C3 is REPORTED on the readiness response, never JUDGED by it. `ok` is
+    still exactly len(blockers) == 0."""
+    before = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+
+    await go_no_go_service.record_decision(
+        db_session, release.id, test_tenant.id, test_user.id,
+        GoNoGoDecisionCreate(
+            outcome="no_go", rationale="Not shipping.",
+            decided_at=datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            attendees=[], signoffs=[], conditions=[],
+        ),
+    )
+    after = await release_readiness_service.evaluate(db_session, release.id, test_tenant.id)
+
+    assert [b.type for b in after.blockers] == [b.type for b in before.blockers]
+    assert [w.type for w in after.warnings] == [w.type for w in before.warnings]
+    assert after.ok == before.ok
+    assert after.latest_decision is not None
+    assert after.latest_decision.outcome == "no_go"
 
 
 @pytest.mark.asyncio

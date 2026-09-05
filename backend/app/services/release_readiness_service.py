@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.gate_readiness import (
+    LatestDecisionRead,
     ReadinessBlocker,
     ReadinessWarning,
     ReleaseReadinessResponse,
@@ -250,6 +251,31 @@ async def evaluate(
         [p for p in plans if p.system_id in changing_ids]
     )
 
+    # ── Go/No-Go (C3) — REPORTED here, never JUDGED. ─────────────────────
+    #
+    # go_no_go_service imports this module at module scope (to capture the
+    # snapshot in record_decision), so importing it back at module scope
+    # here would be a cycle — imported lazily instead, the same shape
+    # gate_criterion_service uses to reach back into release_gate_service.
+    # Populated last, after blockers/warnings/ok are already fixed, so it is
+    # visibly incapable of feeding them.
+    from app.services import go_no_go_service
+
+    latest_decision: Optional[LatestDecisionRead] = None
+    latest = await go_no_go_service.latest_decision_for(db, release_id, tenant_id)
+    if latest is not None:
+        conditions = await go_no_go_service.conditions_for(db, latest.id)
+        unmet_condition_count = sum(1 for c in conditions if c.met_at is None)
+        chair_names = await go_no_go_service.usernames_for(
+            db, {latest.chaired_by_user_id}
+        )
+        latest_decision = LatestDecisionRead(
+            outcome=latest.outcome,
+            decided_at=latest.decided_at,
+            chaired_by_username=chair_names.get(latest.chaired_by_user_id),
+            unmet_condition_count=unmet_condition_count,
+        )
+
     return ReleaseReadinessResponse(
         # Derived in one expression, mirroring preflight_service. `ok` cannot
         # drift from `blockers` because it IS `blockers`.
@@ -259,4 +285,5 @@ async def evaluate(
         blockers=blockers,
         warnings=warnings,
         reversibility=reversibility,
+        latest_decision=latest_decision,
     )

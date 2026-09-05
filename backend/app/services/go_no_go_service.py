@@ -282,6 +282,23 @@ async def list_decisions(
     return await fetch_page(db, query, page)
 
 
+async def latest_decision_for(
+    db: AsyncSession, release_id: int, tenant_id: int
+) -> Optional[GoNoGoDecision]:
+    """The single most recent decision for a release, by the same
+    `(decided_at desc, id desc)` order `decisions_query` uses. Exposed so
+    `release_readiness_service.evaluate` can surface it as
+    `latest_decision` — REPORTED there, never judged: nothing here feeds
+    `blockers`, `warnings` or `ok`. Returns None if no decision has been
+    recorded for this release.
+    """
+    return (
+        (await db.execute(decisions_query(release_id, tenant_id).limit(1)))
+        .scalars()
+        .first()
+    )
+
+
 async def conditions_for(db: AsyncSession, decision_id: int) -> list[GoNoGoCondition]:
     rows = (
         await db.execute(
