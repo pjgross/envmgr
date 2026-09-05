@@ -511,6 +511,19 @@ page is checked at that width — wide grids scroll inside their own container,
 never the page; the multi-tab detail pages rely on §6's scrollable tabs; the
 booking calendar and Gantt already scroll. Nothing phone-specific.
 
+**What it found (2026-09-05).** Clean everywhere `DataGrid` renders — all 17
+list pages, all 11 release tabs, all 8 environment tabs, all 7 system tabs,
+the enterprise tabs, the admin pages and the dialogs measured zero document
+overflow at a verified 1024px viewport. The defect was the 21 raw `<Table>`
+sites PR 4 never touched: 16 had no `TableContainer`, and a bare `<Table>`
+has no scroll container of its own, so it widens the DOCUMENT — and the
+`position: fixed` drawer then covers the leftmost column. Proven, not
+argued: the coverage matrix overflows by 91px at five environments (one
+column per environment), and the users table by 112px on one corporate
+email address. Both were invisible in the dev tenant, which has three
+environments and `admin@demo.com` — the same blindness that hid PR 4's
+`hideFooter` truncation.
+
 ## 8. Sequencing
 
 | PR | Delivers | Depends on |
