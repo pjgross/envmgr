@@ -10,6 +10,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -156,30 +157,32 @@ export default function UserGroupDetail() {
       )}
 
       <Paper variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Username</TableCell>
-              <TableCell>Added</TableCell>
-              {canWrite && <TableCell />}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {members.map((m) => (
-              <TableRow key={m.id}>
-                <TableCell>{m.username}</TableCell>
-                <TableCell>{new Date(m.created_at).toLocaleDateString()}</TableCell>
-                {canWrite && (
-                  <TableCell align="right">
-                    <Button size="small" color="error" onClick={() => handleRemoveMember(m.user_id)}>
-                      Remove
-                    </Button>
-                  </TableCell>
-                )}
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Username</TableCell>
+                <TableCell>Added</TableCell>
+                {canWrite && <TableCell />}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {members.map((m) => (
+                <TableRow key={m.id}>
+                  <TableCell>{m.username}</TableCell>
+                  <TableCell>{new Date(m.created_at).toLocaleDateString()}</TableCell>
+                  {canWrite && (
+                    <TableCell align="right">
+                      <Button size="small" color="error" onClick={() => handleRemoveMember(m.user_id)}>
+                        Remove
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Paper>
     </Box>
   );

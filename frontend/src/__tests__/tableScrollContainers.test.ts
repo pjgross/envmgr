@@ -10,21 +10,6 @@ const files = import.meta.glob<string>('../**/*.{ts,tsx}', {
 });
 
 /**
- * PR 5's remaining debt, emptied task by task. Every entry is a file whose
- * `<Table>` has no `<TableContainer>` yet. Delete an entry in the same commit
- * that wraps its table — the second test below fails if you forget, and fails
- * again if you delete an entry without doing the work.
- */
-const UNWRAPPED = new Set<string>([
-  '../components/admin/LifecycleTemplatesPanel.tsx',
-  '../components/systems/RehearsalsPanel.tsx',
-  '../pages/environment-groups/EnvironmentGroupDetail.tsx',
-  '../pages/projects/ProjectDetail.tsx',
-  '../pages/admin/UserGroupDetail.tsx',
-  '../pages/admin/TenantDetail.tsx',
-]);
-
-/**
  * A bare MUI `<Table>` has no scroll container. It renders
  * `<table style="width: 100%">`, which still grows past its parent when the
  * content's *minimum* width does — a column per environment, or a single
@@ -53,30 +38,11 @@ describe('every raw <Table> has a scroll container', () => {
     const offenders: string[] = [];
     for (const [path, source] of Object.entries(files)) {
       if (!isProductionFile(path)) continue;
-      if (UNWRAPPED.has(path)) continue;
       const tables = count(source, TABLE);
       if (tables === 0) continue;
       const containers = count(source, CONTAINER);
       if (containers < tables) offenders.push(`${path} (${tables} tables, ${containers} containers)`);
     }
     expect(offenders, `a <Table> with no <TableContainer>: ${offenders.join(', ')}`).toEqual([]);
-  });
-
-  it('every allowlisted file still exists and still needs wrapping', () => {
-    // A stale allowlist entry is worse than none: it silently exempts a file
-    // that was fixed, or names one that no longer exists, and the guard reads
-    // as passing either way.
-    const stale: string[] = [];
-    for (const path of UNWRAPPED) {
-      const source = files[path];
-      if (source === undefined) {
-        stale.push(`${path} (no such file)`);
-        continue;
-      }
-      if (count(source, CONTAINER) >= count(source, TABLE)) {
-        stale.push(`${path} (already wrapped — delete this entry)`);
-      }
-    }
-    expect(stale, `stale allowlist entries: ${stale.join(', ')}`).toEqual([]);
   });
 });

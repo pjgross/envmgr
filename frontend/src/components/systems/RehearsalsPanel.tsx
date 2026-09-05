@@ -32,6 +32,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -158,48 +159,50 @@ export default function RehearsalsPanel({ systemId }: Props) {
         </Alert>
       )}
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Date</TableCell>
-            <TableCell>Run by</TableCell>
-            <TableCell>Outcome</TableCell>
-            <TableCell>Freshness</TableCell>
-            <TableCell>Notes</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rehearsals.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell>{formatBookingDateTime(r.rehearsed_at)}</TableCell>
-              <TableCell>{r.rehearsed_by_username ?? '—'}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={OUTCOME_LABEL[r.outcome] ?? r.outcome}
-                  color={OUTCOME_COLOR[r.outcome]}
-                />
-              </TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={r.state === 'current' ? 'Current' : 'Stale'}
-                  color={r.state === 'current' ? 'success' : 'default'}
-                  variant={r.state === 'current' ? 'filled' : 'outlined'}
-                />
-              </TableCell>
-              <TableCell>{r.notes ?? '—'}</TableCell>
-            </TableRow>
-          ))}
-          {rehearsals.length === 0 && !rehearsalsLoading && (
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={5}>
-                <Typography color="text.secondary">No rehearsals recorded yet.</Typography>
-              </TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell>Run by</TableCell>
+              <TableCell>Outcome</TableCell>
+              <TableCell>Freshness</TableCell>
+              <TableCell>Notes</TableCell>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {rehearsals.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell>{formatBookingDateTime(r.rehearsed_at)}</TableCell>
+                <TableCell>{r.rehearsed_by_username ?? '—'}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={OUTCOME_LABEL[r.outcome] ?? r.outcome}
+                    color={OUTCOME_COLOR[r.outcome]}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={r.state === 'current' ? 'Current' : 'Stale'}
+                    color={r.state === 'current' ? 'success' : 'default'}
+                    variant={r.state === 'current' ? 'filled' : 'outlined'}
+                  />
+                </TableCell>
+                <TableCell>{r.notes ?? '—'}</TableCell>
+              </TableRow>
+            ))}
+            {rehearsals.length === 0 && !rehearsalsLoading && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">No rehearsals recorded yet.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <Dialog open={recordOpen} onClose={() => setRecordOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Record a Rollback Rehearsal</DialogTitle>
