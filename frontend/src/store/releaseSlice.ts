@@ -94,7 +94,15 @@ const initialState: ReleaseState = {
 // --- Release CRUD ---
 export const fetchReleases = createAsyncThunk(
   'release/list',
-  (filters: ReleaseListFilters = {}) => releaseService.list(filters)
+  async (filters: ReleaseListFilters = {}, { rejectWithValue }) => {
+    try {
+      return await releaseService.list(filters);
+    } catch (err) {
+      // RTK's default serializer drops response.data.detail — format it here
+      // or the page renders an HTTP status line instead of the reason.
+      return rejectWithValue(formatApiError(err, 'Failed to load releases'));
+    }
+  }
 );
 
 export const fetchRelease = createAsyncThunk('release/get', (id: number) =>
@@ -405,10 +413,12 @@ const releaseSlice = createSlice({
         // synchronously, then `rejected` for the aborted one on a
         // microtask — so without this guard, `listLoading` would flip back to
         // false (the grid's spinner flickers off) and `error` would be set
-        // to 'Aborted' while the real request is still in flight.
+        // to 'Aborted' while the real request is still in flight. `.abort()`
+        // marks meta.aborted itself, independently of rejectWithValue, so
+        // the guard still fires for an aborted request.
         if (action.meta.aborted) return;
         state.listLoading = false;
-        state.error = action.error.message ?? 'Failed to load releases';
+        state.error = (action.payload as string | undefined) ?? action.error.message ?? 'Failed to load releases';
       })
 
       // get

@@ -1,7 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, MenuItem, Paper, Stack, TextField,
+  Alert, Box, MenuItem, Paper, Stack, TextField,
 } from '@mui/material';
 import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
@@ -40,7 +40,7 @@ export const deploymentColumns: GridColDef[] = [
 export default function DeploymentList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { items, total, listLoading } = useSelector((s: RootState) => s.deployment);
+  const { items, total, listLoading, error } = useSelector((s: RootState) => s.deployment);
 
   const grid = useServerGrid({
     endpoint: 'deployments',
@@ -96,10 +96,21 @@ export default function DeploymentList() {
         </Stack>
       </Paper>
 
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <Paper variant="outlined">
         <DataTable
           storageKey="deployments-list"
-          emptyMessage="No deployments match these filters."
+          // The list is empty for one of two very different reasons — no
+          // rows matched, or the fetch never came back at all. Naming the
+          // filters here when it's actually the latter states as fact
+          // something the app does not know; the Alert above already says
+          // what went wrong.
+          emptyMessage={error ? 'Unable to load deployments.' : 'No deployments match these filters.'}
           rows={rows}
           columns={deploymentColumns}
           autoHeight

@@ -1,6 +1,7 @@
 // frontend/src/store/deploymentSlice.ts
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { deploymentService } from '../services/deploymentService';
+import { formatApiError } from '../services/apiError';
 import type {
   Deployment,
   DeploymentFilters,
@@ -35,7 +36,15 @@ const initialState: DeploymentState = {
 
 export const fetchDeployments = createAsyncThunk(
   'deployment/fetch',
-  (filters?: DeploymentFilters) => deploymentService.list(filters),
+  async (filters: DeploymentFilters | undefined, { rejectWithValue }) => {
+    try {
+      return await deploymentService.list(filters);
+    } catch (err) {
+      // RTK's default serializer drops response.data.detail — format it here
+      // or the page renders an HTTP status line instead of the reason.
+      return rejectWithValue(formatApiError(err, 'Failed to load deployments'));
+    }
+  },
 );
 export const fetchDeploymentById = createAsyncThunk(
   'deployment/fetchById',
@@ -67,10 +76,12 @@ const slice = createSlice({
       // reply. RTK dispatches `pending` for the new request synchronously,
       // then `rejected` for the aborted one on a microtask — without this
       // guard the spinner flickers off and `error` is set to 'Aborted'
-      // while the real request is still in flight.
+      // while the real request is still in flight. `.abort()` marks
+      // meta.aborted itself, independently of rejectWithValue, so the guard
+      // still fires for an aborted request.
       if (a.meta.aborted) return;
       s.listLoading = false;
-      s.error = a.error.message ?? 'Failed to load deployments';
+      s.error = (a.payload as string | undefined) ?? a.error.message ?? 'Failed to load deployments';
     });
     b.addCase(fetchDeploymentById.fulfilled, (s, a) => { s.current = a.payload; });
     b.addCase(fetchDeploymentsByBuild.fulfilled, (s, a) => {
