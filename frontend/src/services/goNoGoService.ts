@@ -4,7 +4,9 @@ import type {
   GoNoGoConditionRead,
   GoNoGoDecisionCreate,
   GoNoGoDecisionRead,
+  GoNoGoPerspectiveCreate,
   GoNoGoPerspectiveRead,
+  GoNoGoPerspectiveUpdate,
 } from '../types/goNoGo';
 
 // GET /releases/{id}/go-no-go is a reduced page contract (default 50, max
@@ -46,5 +48,22 @@ export const goNoGoService = {
       .get<GoNoGoPerspectiveRead[]>('/tenant/go-no-go-perspectives', {
         params: { include_inactive: includeInactive },
       })
+      .then((r) => r.data),
+
+  // Admin-only server-side (require_tenant_admin) — see
+  // app/api/v1/go_no_go.py's perspectives_router. A duplicate name within
+  // the tenant is a 409, not a 500 (the service pre-checks); there is no
+  // delete — a perspective is retired via `is_active: false` through update.
+  createPerspective: (data: GoNoGoPerspectiveCreate): Promise<GoNoGoPerspectiveRead> =>
+    api
+      .post<GoNoGoPerspectiveRead>('/tenant/go-no-go-perspectives', data)
+      .then((r) => r.data),
+
+  updatePerspective: (
+    id: number,
+    data: GoNoGoPerspectiveUpdate
+  ): Promise<GoNoGoPerspectiveRead> =>
+    api
+      .patch<GoNoGoPerspectiveRead>(`/tenant/go-no-go-perspectives/${id}`, data)
       .then((r) => r.data),
 };

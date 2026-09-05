@@ -5,7 +5,9 @@ import type {
   GoNoGoConditionRead,
   GoNoGoDecisionCreate,
   GoNoGoDecisionRead,
+  GoNoGoPerspectiveCreate,
   GoNoGoPerspectiveRead,
+  GoNoGoPerspectiveUpdate,
 } from '../types/goNoGo';
 
 interface GoNoGoState {
@@ -23,6 +25,9 @@ const initialState: GoNoGoState = {
   loading: false,
   error: null,
 };
+
+const sortPerspectives = (rows: GoNoGoPerspectiveRead[]): GoNoGoPerspectiveRead[] =>
+  [...rows].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
 
 // Read-only: no rejectWithValue needed, same shape as fetchComponentTypes.
 export const fetchDecisions = createAsyncThunk(
@@ -69,6 +74,35 @@ export const closeCondition = createAsyncThunk<
     return await goNoGoService.closeCondition(conditionId, met);
   } catch (err) {
     return rejectWithValue(formatApiError(err, 'Failed to update condition'));
+  }
+});
+
+// Admin-only writes on the perspective vocabulary (Task 10's gap over Task
+// 7's brief). Both reject with `formatApiError` — a duplicate name is a 409
+// whose `detail` IS the message a caller needs to see, and RTK's default
+// `miniSerializeError` would otherwise flatten it to "Request failed with
+// status code 409".
+export const createPerspective = createAsyncThunk<
+  GoNoGoPerspectiveRead,
+  GoNoGoPerspectiveCreate,
+  { rejectValue: string }
+>('goNoGo/createPerspective', async (data, { rejectWithValue }) => {
+  try {
+    return await goNoGoService.createPerspective(data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to create perspective'));
+  }
+});
+
+export const updatePerspective = createAsyncThunk<
+  GoNoGoPerspectiveRead,
+  { id: number; data: GoNoGoPerspectiveUpdate },
+  { rejectValue: string }
+>('goNoGo/updatePerspective', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await goNoGoService.updatePerspective(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update perspective'));
   }
 });
 
@@ -142,6 +176,17 @@ const goNoGoSlice = createSlice({
       .addCase(closeCondition.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload ?? 'Failed to update condition';
+      })
+      // createPerspective / updatePerspective — `perspectives` holds the
+      // WHOLE tenant vocabulary (no paging), so an in-place insert/update is
+      // safe, unlike `recordDecision` above.
+      .addCase(createPerspective.fulfilled, (state, action) => {
+        state.perspectives = sortPerspectives([...state.perspectives, action.payload]);
+      })
+      .addCase(updatePerspective.fulfilled, (state, action) => {
+        state.perspectives = sortPerspectives(
+          state.perspectives.map((p) => (p.id === action.payload.id ? action.payload : p))
+        );
       });
   },
 });

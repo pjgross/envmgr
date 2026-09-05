@@ -42,8 +42,8 @@ describe('adminNav', () => {
 
   it('lists the Releases section in the agreed order with Templates first', () => {
     expect(items(admin, 'Releases')).toEqual([
-      'Templates', 'Gate types', 'Rollback policy', 'Event types', 'Lifecycle', 'Custom fields',
-      'Scope-change rules', 'RAID settings', 'Release scope items',
+      'Templates', 'Gate types', 'Rollback policy', 'Go/No-Go Perspectives', 'Event types',
+      'Lifecycle', 'Custom fields', 'Scope-change rules', 'RAID settings', 'Release scope items',
     ]);
   });
 

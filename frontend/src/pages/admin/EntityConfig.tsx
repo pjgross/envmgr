@@ -8,6 +8,7 @@ import EnvironmentLifecyclePanel from '../../components/admin/EnvironmentLifecyc
 import EnvironmentNamingPolicyPanel from '../../components/admin/EnvironmentNamingPolicyPanel';
 import EnvironmentTiersPanel from '../../components/admin/EnvironmentTiersPanel';
 import GateTypesPanel from '../../components/admin/GateTypesPanel';
+import GoNoGoPerspectivesPanel from '../../components/admin/GoNoGoPerspectivesPanel';
 import LifecycleTemplatesPanel from '../../components/admin/LifecycleTemplatesPanel';
 import ReleaseEventTypesPanel from '../../components/admin/ReleaseEventTypesPanel';
 import RollbackPolicyPanel from '../../components/admin/RollbackPolicyPanel';
@@ -29,6 +30,8 @@ function Panel({ panel, entityType }: { panel: EntityPanel; entityType: EntityTy
       return <GateTypesPanel />;
     case 'rollback-policy':
       return <RollbackPolicyPanel />;
+    case 'go-no-go-perspectives':
+      return <GoNoGoPerspectivesPanel />;
     case 'tiers':
       return <EnvironmentTiersPanel />;
     case 'naming-policy':
