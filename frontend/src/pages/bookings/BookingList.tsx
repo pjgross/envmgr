@@ -64,7 +64,7 @@ const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | 'error' 
   closed: 'info',
 };
 
-// --- Column visibility localStorage ------------------------------------------
+// --- Custom-field column namespacing -----------------------------------------
 
 // Custom-field columns are namespaced under this prefix (see
 // buildCustomFieldColumns below) so a tenant-defined field_key can never
@@ -430,7 +430,7 @@ export function groupDivergenceWarning(
 // `field` with the static column of the same name. MUI keys its column lookup
 // by `field`, so two entries sharing one become a single column: duplicate
 // headers, and toggling visibility on one silently hides the other, which
-// `saveColumnModel` above then persists across reloads. EnvironmentList
+// DataTable's own persistence then saves across reloads. EnvironmentList
 // shipped exactly this bug when a static `owner` column met the demo tenant's
 // `owner` custom field.
 //

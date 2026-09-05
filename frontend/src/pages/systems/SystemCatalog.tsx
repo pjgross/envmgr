@@ -133,9 +133,10 @@ export const systemColumns: GridColDef<SystemResponse>[] = [
 // and without the prefix that GridColDef would share its `field` with the
 // static Description column. MUI keys its column lookup by `field`, so two
 // entries sharing one become a single column: duplicate headers, and toggling
-// visibility on one silently hides the other, which `saveColumnModel` above
-// then persists across reloads. EnvironmentList shipped exactly this bug when
-// a static `owner` column met the demo tenant's `owner` custom field.
+// visibility on one silently hides the other, which DataTable's own
+// persistence then saves across reloads. EnvironmentList shipped exactly
+// this bug when a static `owner` column met the demo tenant's `owner`
+// custom field.
 //
 // The prefix is a grid-column id only: `custom_fields` on the row is still
 // keyed by the tenant's own `field_key`, so the valueGetter reads the raw key.

@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import DataTable from '../DataTable';
 
@@ -241,5 +242,47 @@ describe('persisted column visibility', () => {
     // Only true if the model returned by `prune` — not the raw stored one —
     // was actually applied to state.
     expect(screen.getByText('one')).toBeInTheDocument();
+  });
+});
+
+describe('writes to the exact key a migrated page depends on', () => {
+  beforeEach(() => localStorage.clear());
+
+  // Task 7 moved BookingList/EnvironmentList/SystemCatalog off their own
+  // hand-rolled loadColumnModel/saveColumnModel pair (which wrote
+  // `<name>-columns-${userId ?? 'guest'}`) and onto this component, passing
+  // e.g. storageKey="bookings-list-columns" and userId={user?.id ?? 'guest'}
+  // specifically so DataTable's own key composition — `${storageKey}-${userId}`
+  // — lands on that exact pre-existing entry. `storageKeys.test.ts` pins the
+  // page-side half of that contract (the literal `storageKey` string and the
+  // `userId={user?.id ?? 'guest'}` companion appear in the page's source) but
+  // cannot see how DataTable itself turns those two props into a key. This
+  // renders a REAL DataGrid (no mock), performs an actual column-visibility
+  // toggle through the toolbar, and reads back what landed in localStorage —
+  // so it fails if `fullKey` were ever composed differently (order swapped,
+  // a separator changed, `userId` silently dropped), even though every
+  // page's own JSX would still look correct.
+  it('persists a real column-visibility change under `${storageKey}-${userId}`', async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        storageKey="bookings-list-columns"
+        userId={7}
+        rows={[{ id: 1, name: 'alpha' }]}
+        columns={[{ field: 'name', headerName: 'Name' }]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /columns/i }));
+    const nameToggle = await screen.findByRole('checkbox', { name: 'Name' });
+    await user.click(nameToggle);
+
+    // The exact historical key `bookings-list-columns-7` — not
+    // `bookings-list-columns` (userId dropped) and not `7-bookings-list-columns`
+    // (order swapped).
+    expect(localStorage.getItem('bookings-list-columns-7')).toBe(
+      JSON.stringify({ name: false })
+    );
+    expect(localStorage.getItem('bookings-list-columns')).toBeNull();
   });
 });

@@ -49,3 +49,39 @@ describe('every storageKey is unique', () => {
     expect(computed, 'a computed storageKey escapes the uniqueness check').toEqual([]);
   });
 });
+
+/**
+ * These three `storageKey` literals are not merely unique (the describe
+ * block above already guards that) — they are FROZEN. Before Task 7,
+ * BookingList/EnvironmentList/SystemCatalog each kept their own
+ * loadColumnModel/saveColumnModel pair writing directly to
+ * `<name>-columns-${userId ?? 'guest'}`. DataTable composes its own key as
+ * `${storageKey}-${userId}`, so each page now passes the historical name as
+ * `storageKey` and `user?.id ?? 'guest'` as `userId` specifically so the
+ * composed key lands on the exact entry a real user's column layout is
+ * already stored under. Renaming any literal below, or dropping its
+ * `userId={user?.id ?? 'guest'}` companion, changes nothing anyone would see
+ * on screen — it just silently starts every user back at the default column
+ * set, with their old preference still sitting under a key nothing reads any
+ * more. This is the source-level half of that guard: it cannot see how
+ * DataTable itself turns the two props into a key (a rendered test for that,
+ * against a real DataGrid, lives in
+ * `src/components/__tests__/dataTableServerMode.test.tsx`).
+ */
+describe('the three migrated hand-rolled-persistence pages keep their historical key', () => {
+  const HISTORICAL_KEYS: Record<string, string> = {
+    '../pages/bookings/BookingList.tsx': 'bookings-list-columns',
+    '../pages/environments/EnvironmentList.tsx': 'environments-list-columns',
+    '../pages/systems/SystemCatalog.tsx': 'systems-list-columns',
+  };
+
+  it.each(Object.entries(HISTORICAL_KEYS))(
+    '%s declares its historical storageKey and the guest-fallback userId',
+    (path, key) => {
+      const source = files[path];
+      expect(source, `expected to find ${path} in the glob`).toBeDefined();
+      expect(source).toContain(`storageKey="${key}"`);
+      expect(source).toContain("userId={user?.id ?? 'guest'}");
+    }
+  );
+});
