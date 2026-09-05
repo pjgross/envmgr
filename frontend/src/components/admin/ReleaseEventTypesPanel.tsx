@@ -21,8 +21,8 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import LockIcon from '@mui/icons-material/Lock';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 import { AppDispatch, RootState } from '../../store';
 import {
   fetchReleaseEventTypes,
@@ -213,7 +213,9 @@ export default function ReleaseEventTypesPanel() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-release-event-types"
+        emptyMessage="No release event types configured yet."
         rows={list}
         columns={columns}
         loading={loading}

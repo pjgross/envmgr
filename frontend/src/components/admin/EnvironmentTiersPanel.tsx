@@ -13,8 +13,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -207,7 +207,9 @@ export default function EnvironmentTiersPanel() {
         already using it. A tier in use cannot be deleted.
       </Typography>
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-environment-tiers"
+        emptyMessage="No environment tiers configured yet."
         rows={tiers}
         columns={columns}
         loading={loading}

@@ -11,8 +11,8 @@ import {
   DialogActions,
   Alert,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import {
   fetchComponentTypes,
@@ -162,7 +162,9 @@ export default function ComponentTypesPanel() {
         </Button>
       </Box>
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-component-types"
+        emptyMessage="No component types configured yet."
         rows={definitions}
         columns={columns}
         loading={loading}

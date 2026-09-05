@@ -13,8 +13,8 @@ import {
   MenuItem,
   Alert,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import {
   fetchBookingTypes,
@@ -226,7 +226,9 @@ export default function BookingTypesPanel() {
         </Button>
       </Box>
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-booking-types"
+        emptyMessage="No booking types configured yet."
         rows={bookingTypes}
         columns={columns}
         loading={loading}

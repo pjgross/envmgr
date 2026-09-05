@@ -31,8 +31,8 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import {
   fetchBookingTypes,
@@ -572,7 +572,9 @@ export default function LifecycleTemplatesPanel({
         </Button>
       </Box>
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-lifecycle-templates"
+        emptyMessage="No lifecycle templates configured yet."
         rows={templates}
         columns={columns}
         loading={loading}
