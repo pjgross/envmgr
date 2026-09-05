@@ -124,6 +124,17 @@ export default function DataTable<R extends GridValidRowModel>({
   // itself (in `rest`, spread below) always wins over this default.
   const hasNoRows = rest.rows.length === 0;
 
+  // `pagination: true` is a forced prop on the MIT DataGrid — `hideFooter`
+  // only hides the pager UI, it does not turn paging off. So a client-mode
+  // caller that hides the footer to render every row (the enterprise rollup
+  // tabs: MembersTab's three grids, SystemsRollupTab) still gets paged by
+  // this component's own `pageSize: 25` default, with no footer control left
+  // to reach the rows past the first page — a `hideFooter` caller is
+  // signalling it wants every row rendered, not a hidden 25-row window, so
+  // skip the client-mode default for it exactly like server mode already
+  // does (whose own pager MUI, not this footer, actually drives) and fall
+  // back to MUI's un-paged-looking default of 100. A caller may still pass
+  // its own smaller `initialState` if 100 is still too few.
   return (
     <DataGrid<R>
       density="standard"
@@ -131,7 +142,7 @@ export default function DataTable<R extends GridValidRowModel>({
       pageSizeOptions={[10, 25, 50, 100]}
       autoHeight={hasNoRows}
       initialState={
-        rest.paginationMode === 'server'
+        rest.paginationMode === 'server' || rest.hideFooter
           ? rest.initialState
           : {
               pagination: { paginationModel: { pageSize: 25 } },

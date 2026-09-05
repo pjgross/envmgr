@@ -167,6 +167,86 @@ describe('DataTable server mode', () => {
   });
 });
 
+describe('hideFooter does not silently cap client-mode rows at 25', () => {
+  // `pagination: true` is a forced prop on the MIT DataGrid — `hideFooter`
+  // only hides the pager UI, so before this fix a client-mode caller that
+  // hides the footer to render every row (the enterprise rollup tabs:
+  // MembersTab's three grids, SystemsRollupTab) was still paged by
+  // DataTable's own `pageSize: 25` default, with no footer control left to
+  // reach rows past the first page. With the guard, such a caller falls back
+  // to MUI's own un-paged-looking client default (100) instead.
+  //
+  // Uses the same "uncontrolled paginationModel" shape as the server-mode
+  // `initialState` tests above: with no controlled `paginationModel` prop,
+  // `initialState` (or its absence) is what determines the rendered page
+  // size, which is what makes the guard observable by rendering more than
+  // 25 rows and checking they all appear (this component doesn't render a
+  // footer to read a page-size figure from).
+  const manyRows = Array.from({ length: 40 }, (_, i) => ({ id: i, name: `row-${i}` }));
+
+  it('renders more than 25 rows when hideFooter is set, with no initialState of its own', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-hidefooter"
+        rows={manyRows}
+        columns={columns}
+        hideFooter
+        disableVirtualization
+      />
+    );
+    // If the client-mode default of 25 leaked through, row 30 would not be
+    // rendered at all — DataGrid drops rows past the current page rather
+    // than merely hiding them, footer or not.
+    expect(screen.getByText('row-30')).toBeInTheDocument();
+  });
+
+  it('still caps an ordinary client-mode grid (no hideFooter) at the 25-row default', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-no-hidefooter"
+        rows={manyRows}
+        columns={columns}
+        disableVirtualization
+      />
+    );
+    expect(screen.queryByText('row-30')).not.toBeInTheDocument();
+    expect(screen.getByText('row-24')).toBeInTheDocument();
+  });
+
+  it('lets a hideFooter caller still supply its own initialState', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-hidefooter-initial-state"
+        rows={manyRows}
+        columns={columns}
+        hideFooter
+        disableVirtualization
+        initialState={{ pagination: { paginationModel: { page: 0, pageSize: 5 } } }}
+      />
+    );
+    expect(screen.getByText('row-4')).toBeInTheDocument();
+    expect(screen.queryByText('row-5')).not.toBeInTheDocument();
+  });
+
+  it('does not disturb the existing server-mode branch of the same guard', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-hidefooter-server"
+        rows={rows}
+        columns={columns}
+        paginationMode="server"
+        rowCount={317}
+        hideFooter
+        initialState={{ pagination: { paginationModel: { page: 0, pageSize: 50 } } }}
+      />
+    );
+    // Server mode already skipped the client default before this fix — a
+    // server-mode caller's own initialState must keep working unchanged
+    // whether or not it also passes hideFooter.
+    expect(screen.getByText('alpha')).toBeInTheDocument();
+  });
+});
+
 describe('empty-state overlay is actually given room to render', () => {
   // MUI's DataGrid only reserves layout height for the noRows/noResults/
   // loading overlay when `autoHeight` is set (see DataTable.tsx's comment on
