@@ -313,6 +313,13 @@ export default function InfrastructureComponentList() {
 
       <DataTable
         storageKey="infrastructure-components-list"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
         emptyMessage="No hosts match these filters."
         rows={components}
         columns={columns}

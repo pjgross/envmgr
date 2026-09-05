@@ -247,33 +247,56 @@ describe('hideFooter does not silently cap client-mode rows at 25', () => {
   });
 });
 
-describe('empty-state overlay is actually given room to render', () => {
-  // MUI's DataGrid only reserves layout height for the noRows/noResults/
-  // loading overlay when `autoHeight` is set (see DataTable.tsx's comment on
-  // `hasNoRows` for the underlying MUI source paths) — without it, a grid
-  // with zero rows collapses its virtual scroller to ~0px and the overlay's
-  // text sits inside a box with no height. Confirmed in a real browser: the
-  // overlay's `textContent` was present but its bounding rect was 0x0 on
-  // `/pir-actions?overdue=true` and `/environments?search=zzzznomatch`
-  // before this fix, and a real, painted rect on both afterwards.
+describe('empty-state overlay: DataTable supplies no autoHeight default', () => {
+  // A wrapper-level default that flipped `autoHeight` on whenever `rows` was
+  // empty was tried and reverted (whole-branch review finding 2): it did fix
+  // the noRows overlay on the eight pages with no bounded ancestor height
+  // (confirmed in a real browser — the overlay's bounding rect was 0x0 on
+  // `/pir-actions?overdue=true` before that fix, real and painted after),
+  // but MUI's `.MuiDataGrid-autoHeight { height: auto }` rule (see
+  // GridRootStyles.js) also overrides a FIXED-height wrapper the ~15 other
+  // grids sit in, the moment `rows` is `[]` — which is every one of them on
+  // every page load, before the first fetch resolves. Those grids' empty
+  // message was already visible (their viewport height was never 0), so the
+  // wrapper-level flip degraded them for no gain. DataTable now leaves
+  // `autoHeight` entirely up to the caller; the eight affected pages
+  // (BookingList, EnvironmentList, SystemCatalog, EnvironmentRequestList,
+  // PirActionList, DecommissionWorklist, EscalationWorklist,
+  // InfrastructureComponentList) pass it themselves, unconditionally, since
+  // it is a no-op for a populated grid on those specific pages (see
+  // DataTable.tsx's comment on `autoHeight` for why).
   //
   // jsdom lays out nothing (every element reports a zero bounding rect
-  // regardless of CSS), so no assertion here can observe the actual pixel
-  // height the way the browser evidence above does. What CAN be observed in
-  // jsdom is which code path MUI took: an `autoHeight` grid stamps its root
-  // with the `MuiDataGrid-autoHeight` class (see GridRootStyles.js's
-  // `&.${gridClasses.autoHeight}` rule) and a non-`autoHeight` grid does not.
-  // That class is the mechanism this fix relies on, not a proxy for it, so
-  // asserting its presence/absence *does* prove DataTable is choosing the
-  // MUI code path this fix depends on for each case — it does not, by
-  // itself, prove a real browser paints a non-zero box, which is why the
-  // browser evidence above is recorded alongside it.
-  it('switches the grid onto the autoHeight code path when there are no rows', () => {
+  // regardless of CSS), so no assertion here can observe actual pixel
+  // height. What CAN be observed in jsdom is which code path MUI took: an
+  // `autoHeight` grid stamps its root with the `MuiDataGrid-autoHeight`
+  // class (see GridRootStyles.js's `&.${gridClasses.autoHeight}` rule) and a
+  // non-`autoHeight` grid does not.
+  it('does not switch the grid onto the autoHeight code path just because rows is empty', () => {
     const { container } = render(
       <DataTable
-        storageKey="test-grid-empty"
+        storageKey="test-grid-empty-no-default"
         rows={[]}
         columns={columns}
+        emptyMessage="No rows match these filters."
+      />
+    );
+    expect(container.querySelector('.MuiDataGrid-root')).not.toHaveClass(
+      'MuiDataGrid-autoHeight'
+    );
+  });
+
+  // The mechanism a caller-supplied `autoHeight` relies on to get the empty
+  // message the room it needs — proven correct here so the eight pages that
+  // now pass it explicitly can trust the same code path BuildList already
+  // used before this branch.
+  it('gives the noRows overlay room to render when a caller supplies autoHeight itself', () => {
+    const { container } = render(
+      <DataTable
+        storageKey="test-grid-empty-caller-autoheight"
+        rows={[]}
+        columns={columns}
+        autoHeight
         emptyMessage="No rows match these filters."
       />
     );
@@ -281,9 +304,8 @@ describe('empty-state overlay is actually given room to render', () => {
     expect(container.querySelector('.MuiDataGrid-root')).toHaveClass('MuiDataGrid-autoHeight');
   });
 
-  // Regression guard for the "must not change a working grid" constraint:
-  // a populated grid must stay on the exact code path it already used before
-  // this fix — no `autoHeight` class, no behaviour change.
+  // Regression guard: a populated grid must stay off the autoHeight code
+  // path with no explicit prop, empty rows or not.
   it('leaves a populated grid off the autoHeight code path', () => {
     const { container } = render(
       <DataTable storageKey="test-grid-populated" rows={rows} columns={columns} />
@@ -291,9 +313,10 @@ describe('empty-state overlay is actually given room to render', () => {
     expect(container.querySelector('.MuiDataGrid-root')).not.toHaveClass('MuiDataGrid-autoHeight');
   });
 
-  // A caller that sets `autoHeight` itself must still win, empty rows or not
-  // — DataTable's default must be a default, not a forced override.
-  it('lets a caller-supplied autoHeight override the default even with no rows', () => {
+  // An explicit `autoHeight={false}` must still be honoured with no rows —
+  // DataTable must never force autoHeight on regardless of what a caller
+  // asks for.
+  it('respects an explicit autoHeight={false} with no rows', () => {
     const { container } = render(
       <DataTable
         storageKey="test-grid-empty-override"
