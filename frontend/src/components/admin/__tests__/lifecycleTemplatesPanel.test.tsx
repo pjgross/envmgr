@@ -148,5 +148,15 @@ describe('LifecycleTemplatesPanel', () => {
     expect(
       within(dialog).getByRole('button', { name: /^remove transition$/i })
     ).toBeInTheDocument();
-  });
+    // 15s, not the 5s default. This is the SLOWEST test in the frontend suite:
+    // it types nine characters through `userEvent`, and each keystroke is a full
+    // event sequence that re-renders the whole template-editor dialog. Measured
+    // 910ms in isolation but 2019ms under the full suite's parallel load, and it
+    // timed out at 5000ms on a GitHub-hosted runner (PR #20) — two cores against
+    // this machine's many, so roughly 2.5x again on top of the 2019ms. Nothing
+    // about the test is wrong; the default timeout simply has no headroom for
+    // the slowest test in the suite on the slowest hardware that runs it.
+    // Prefer this over swapping `userEvent.type` for `fireEvent.change`, which
+    // would be faster but would stop exercising the real per-keystroke path.
+  }, 15000);
 });
