@@ -100,6 +100,8 @@ export function MembersTab({ release }: Props) {
         <IconButton
           size="small"
           color="error"
+          aria-label="Remove"
+          sx={{ p: 1 }}
           onClick={async () => {
             const ok = await confirm({
               title: "Remove project from enterprise?",

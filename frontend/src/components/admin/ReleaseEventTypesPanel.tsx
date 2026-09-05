@@ -175,7 +175,7 @@ export default function ReleaseEventTypesPanel() {
       renderCell: (params: GridRenderCellParams<ReleaseEventTypeResponse>) => (
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
+            <IconButton size="small" aria-label="Edit" sx={{ p: 1 }} onClick={() => openEdit(params.row)}>
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -184,6 +184,8 @@ export default function ReleaseEventTypesPanel() {
               <IconButton
                 size="small"
                 color="error"
+                aria-label="Delete"
+                sx={{ p: 1 }}
                 onClick={() => handleDelete(params.row)}
                 disabled={params.row.is_system}
               >

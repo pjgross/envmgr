@@ -778,6 +778,14 @@ describe('EnvironmentList server-side grid', () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it('names its icon-only row actions for a screen reader', async () => {
+    // A Tooltip sets aria-describedby, never an accessible NAME — a screen
+    // reader announces a bare "button". ui-audit A1.
+    renderEnvironmentList();
+    expect(await screen.findByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
+  });
+
   describe('loadColumnModel', () => {
     afterEach(() => {
       localStorage.removeItem('environments-list-columns-777');

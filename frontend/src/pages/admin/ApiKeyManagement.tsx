@@ -86,7 +86,13 @@ export default function ApiKeyManagement() {
       field: 'actions', headerName: '', width: 80, sortable: false,
       renderCell: (p) => (
         <Tooltip title="Revoke">
-          <IconButton size="small" color="error" onClick={() => handleRevoke(p.row)}>
+          <IconButton
+            size="small"
+            color="error"
+            aria-label="Revoke"
+            sx={{ p: 1 }}
+            onClick={() => handleRevoke(p.row)}
+          >
             <DeleteIcon fontSize="small" />
           </IconButton>
         </Tooltip>

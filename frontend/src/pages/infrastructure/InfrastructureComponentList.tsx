@@ -243,12 +243,18 @@ export default function InfrastructureComponentList() {
       renderCell: (params: GridRenderCellParams<InfrastructureComponentResponse>) => (
         <Box onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
+            <IconButton size="small" aria-label="Edit" sx={{ p: 1 }} onClick={() => openEdit(params.row)}>
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+            <IconButton
+              size="small"
+              color="error"
+              aria-label="Delete"
+              sx={{ p: 1 }}
+              onClick={() => setDeleteTarget(params.row)}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Tooltip>

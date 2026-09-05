@@ -108,6 +108,8 @@ export default function ReleaseTemplateLibrary() {
           <Tooltip title="Edit template">
             <IconButton
               size="small"
+              aria-label="Edit template"
+              sx={{ p: 1 }}
               onClick={() => navigate(`/admin/releases/templates/${params.row.id}`)}
             >
               <EditIcon fontSize="small" />
@@ -117,6 +119,8 @@ export default function ReleaseTemplateLibrary() {
             <IconButton
               size="small"
               color="primary"
+              aria-label="Create release from this template"
+              sx={{ p: 1 }}
               onClick={() => {
                 setInstantiateTarget(params.row);
                 setReleaseName('');
@@ -130,6 +134,8 @@ export default function ReleaseTemplateLibrary() {
             <IconButton
               size="small"
               color="error"
+              aria-label="Delete template"
+              sx={{ p: 1 }}
               onClick={() => handleDelete(params.row)}
             >
               <DeleteIcon fontSize="small" />

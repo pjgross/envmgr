@@ -719,7 +719,12 @@ export default function LifecycleTemplatesPanel({
                     label="Counts as failure"
                   />
                 )}
-                <IconButton size="small" onClick={() => removeState(i)}>
+                <IconButton
+                  size="small"
+                  aria-label="Remove state"
+                  sx={{ p: 1 }}
+                  onClick={() => removeState(i)}
+                >
                   <DeleteIcon fontSize="small" />
                 </IconButton>
               </Box>
@@ -794,7 +799,12 @@ export default function LifecycleTemplatesPanel({
                     sx={{ width: 180 }}
                     placeholder="e.g. Submit"
                   />
-                  <IconButton size="small" onClick={() => removeTransition(i)}>
+                  <IconButton
+                    size="small"
+                    aria-label="Remove transition"
+                    sx={{ p: 1 }}
+                    onClick={() => removeTransition(i)}
+                  >
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Box>
