@@ -1,15 +1,18 @@
 """Phase 9 C3 — Go/No-Go decision record."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.api.v1.schemas.go_no_go import GoNoGoDecisionCreate, GoNoGoSignoffCreate
 from app.db.models.go_no_go import GoNoGoPerspective
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
-from app.services import go_no_go_defaults, go_no_go_service
+from app.db.models.release_system import ReleaseSystem
+from app.db.models.system import System
+from app.services import go_no_go_defaults, go_no_go_service, rollback_policy_service
 from tests.test_gate_readiness import _make_gate, _make_gate_type
 
 
@@ -160,3 +163,75 @@ async def test_the_snapshot_is_captured_server_side_and_does_not_move(
     reread = await go_no_go_service.get_decision(db_session, decision.id, test_tenant.id)
     assert reread.snapshot_blockers == frozen_blockers
     assert reread.snapshot_ok == frozen_ok
+
+
+@pytest.mark.asyncio
+async def test_a_blocking_rehearsal_finding_still_populates_the_snapshot_field(
+    db_session, test_tenant, test_user, release
+):
+    """release_readiness_service._add() routes a rehearsal finding to
+    `blockers`, not `warnings`, the moment a tenant sets
+    require_current_rehearsal=True. snapshot_rehearsal_state must not go
+    blank for exactly the tenant that treats a stale/missing rehearsal as a
+    blocker — that would make snapshot_blockers name a rehearsal problem
+    while snapshot_rehearsal_state claims there is none."""
+    system = System(tenant_id=test_tenant.id, name="Payments API")
+    db_session.add(system)
+    await db_session.flush()
+    db_session.add(ReleaseSystem(
+        tenant_id=test_tenant.id, release_id=release.id,
+        system_id=system.id, role="changing",
+    ))
+    await rollback_policy_service.update_policy(
+        db_session, test_tenant.id, require_current_rehearsal=True,
+    )
+    await db_session.flush()
+
+    decision = await go_no_go_service.record_decision(
+        db_session, release.id, test_tenant.id, test_user.id,
+        GoNoGoDecisionCreate(
+            outcome="go", rationale="Proceeding despite the rehearsal gap.",
+            decided_at=datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            attendees=[], signoffs=[], conditions=[],
+        ),
+    )
+    assert decision.snapshot_rehearsal_state == "rehearsal_missing"
+    assert any(b["type"] == "rehearsal_missing" for b in decision.snapshot_blockers)
+
+
+@pytest.mark.asyncio
+async def test_a_naive_decided_at_is_normalized_to_utc_before_being_stored(
+    db_session, test_tenant, test_user, release
+):
+    """decided_at is validated as UTC-assumed when naive (§2.11: backdating is
+    legitimate). What gets STORED on the DateTime(timezone=True) column must
+    be that same normalized value — not the original naive input — or the
+    round-trip becomes dialect-dependent."""
+    decision = await go_no_go_service.record_decision(
+        db_session, release.id, test_tenant.id, test_user.id,
+        GoNoGoDecisionCreate(
+            outcome="go", rationale="All clear.",
+            decided_at=datetime(2026, 9, 5, 10, 0),  # naive
+            attendees=[], signoffs=[], conditions=[],
+        ),
+    )
+    assert decision.decided_at.tzinfo is not None
+    assert decision.decided_at == datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_a_future_decided_at_is_refused(
+    db_session, test_tenant, test_user, release
+):
+    """Backdating is legitimate; postdating is not — C3 records a decision
+    that was TAKEN."""
+    with pytest.raises(HTTPException) as exc_info:
+        await go_no_go_service.record_decision(
+            db_session, release.id, test_tenant.id, test_user.id,
+            GoNoGoDecisionCreate(
+                outcome="go", rationale="All clear.",
+                decided_at=datetime.now(timezone.utc) + timedelta(days=1),
+                attendees=[], signoffs=[], conditions=[],
+            ),
+        )
+    assert exc_info.value.status_code == 422

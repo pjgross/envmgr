@@ -108,13 +108,20 @@ async def _assert_users_exist(
 
 
 def _rehearsal_state_from(verdict) -> Optional[str]:
-    """The rehearsal-related finding's `type`, from the verdict's warnings,
-    or None if there is none. Read from `release_readiness_service.evaluate`
-    directly rather than guessed: `rehearsal_missing`/`rehearsal_stale` are
-    the only two rehearsal finding types it emits."""
-    for warning in verdict.warnings:
-        if warning.type in REHEARSAL_FINDING_TYPES:
-            return warning.type
+    """The rehearsal-related finding's `type`, from EITHER the verdict's
+    warnings or its blockers, or None if there is none.
+    release_readiness_service.evaluate's `_add()` routes a rehearsal finding
+    to `blockers` instead of `warnings` the moment a tenant sets
+    `require_current_rehearsal=True` — scanning only `warnings` would freeze
+    this field as None for exactly the tenant that treats a stale or missing
+    rehearsal as a blocker, indistinguishable from "no rehearsal concern at
+    all" while `snapshot_blockers` on the same row names one. Read from
+    `release_readiness_service.evaluate` directly rather than guessed:
+    `rehearsal_missing`/`rehearsal_stale` are the only two rehearsal finding
+    types it emits, in either list."""
+    for finding in (*verdict.warnings, *verdict.blockers):
+        if finding.type in REHEARSAL_FINDING_TYPES:
+            return finding.type
     return None
 
 
@@ -137,7 +144,7 @@ async def record_decision(
         decided_at = decided_at.replace(tzinfo=timezone.utc)
     if decided_at > now:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "decided_at cannot be in the future"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "decided_at cannot be in the future"
         )
 
     # 3. Every perspective_id named by a sign-off exists in this tenant.
@@ -161,7 +168,7 @@ async def record_decision(
         release_id=release.id,
         outcome=data.outcome,
         rationale=data.rationale,
-        decided_at=data.decided_at,
+        decided_at=decided_at,
         chaired_by_user_id=user_id,
         attendees=list(data.attendees),
         snapshot_ok=verdict.ok,
