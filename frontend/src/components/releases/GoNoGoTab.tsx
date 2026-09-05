@@ -20,15 +20,15 @@
  * — never filtered, hidden or summarised down to agreement with the
  * decision's own outcome.
  *
- * Recording a new decision is Task 9's dialog — deliberately NOT built here.
- * TODO(Task 9): add a "Record decision" action to this tab (e.g. beside the
- * "Decision History" heading below) that opens `RecordGoNoGoDialog` and
- * calls `dispatch(fetchDecisions(...))` again on success — the same
- * re-fetch-the-page pattern `recordDecision`'s slice comment already
- * documents, since a freshly recorded decision need not belong on whatever
- * page/sort the grid currently holds.
+ * Recording a new decision is `RecordDecisionDialog`, opened from the
+ * "Record decision" button beside the "Decision History" heading below. On
+ * success it calls `grid.refetch()` — the same re-fetch-the-page pattern
+ * `recordDecision`'s slice comment documents (no optimistic insert, since a
+ * freshly recorded decision need not belong on whatever page/sort the grid
+ * currently holds), reusing the grid's own current params rather than
+ * re-deriving them.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Alert,
@@ -36,6 +36,7 @@ import {
   Button,
   Chip,
   Paper,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -51,6 +52,7 @@ import type { AppDispatch, RootState } from '../../store';
 import { closeCondition, fetchDecisions } from '../../store/goNoGoSlice';
 import { formatBookingDateTime } from '../../utils/datetime';
 import type { GoNoGoDecisionRead } from '../../types/goNoGo';
+import RecordDecisionDialog from './RecordDecisionDialog';
 
 interface Props {
   releaseId: number;
@@ -151,6 +153,7 @@ export default function GoNoGoTab({ releaseId }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((s: RootState) => s.auth.user);
   const { decisions, total, loading, error } = useSelector((s: RootState) => s.goNoGo);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const grid = useServerGrid({
     endpoint: 'go-no-go',
@@ -204,9 +207,12 @@ export default function GoNoGoTab({ releaseId }: Props) {
         </Alert>
       )}
 
-      <Typography variant="h6" gutterBottom>
-        Decision History
-      </Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+        <Typography variant="h6">Decision History</Typography>
+        <Button variant="contained" onClick={() => setDialogOpen(true)}>
+          Record decision
+        </Button>
+      </Stack>
 
       <Paper variant="outlined" sx={{ mb: 3 }}>
         <DataTable<DecisionRow>
@@ -354,6 +360,13 @@ export default function GoNoGoTab({ releaseId }: Props) {
           Record a decision to see its sign-offs and conditions here.
         </Typography>
       )}
+
+      <RecordDecisionDialog
+        releaseId={releaseId}
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onRecorded={() => grid.refetch()}
+      />
     </Box>
   );
 }
