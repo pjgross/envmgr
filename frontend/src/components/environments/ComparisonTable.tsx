@@ -8,7 +8,7 @@
  */
 import { Fragment } from 'react';
 import {
-  Chip, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Chip, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography,
 } from '@mui/material';
 import type {
   DifferenceKind, HostShapeEntry, SubsystemComparison,
@@ -93,51 +93,53 @@ export default function ComparisonTable({ rows, leftName, rightName, reference }
   });
 
   return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          <TableCell>Subsystem</TableCell>
-          <TableCell>{leftName}</TableCell>
-          <TableCell>{rightName}</TableCell>
-          <TableCell>Differences</TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {[...bySystem.entries()].map(([systemId, group]) => (
-          // A keyed Fragment, not `<>`: the shorthand cannot take a key, and
-          // React warns on every group without one.
-          <Fragment key={systemId}>
-            <TableRow>
-              <TableCell colSpan={4} sx={{ bgcolor: 'action.hover' }}>
-                <Typography variant="subtitle2">{group.name}</Typography>
-              </TableCell>
-            </TableRow>
-            {group.rows.map((row) => (
-              <TableRow key={row.subsystem_id}>
-                <TableCell>{row.name}</TableCell>
-                <TableCell><Side side={row.left} /></TableCell>
-                <TableCell><Side side={row.right} /></TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
-                    {row.presence !== 'both' && (
-                      <Chip size="small" color="warning"
-                            label={missingLabel(row, leftName, rightName, reference)} />
-                    )}
-                    {row.differences
-                      .filter((kind) => kind !== 'presence')
-                      .map((kind) => (
-                        <Chip key={kind} size="small" label={KIND_LABEL[kind]} />
-                      ))}
-                    {row.differences.length === 0 && (
-                      <Typography variant="caption" color="text.secondary">Match</Typography>
-                    )}
-                  </Stack>
+    <TableContainer>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Subsystem</TableCell>
+            <TableCell>{leftName}</TableCell>
+            <TableCell>{rightName}</TableCell>
+            <TableCell>Differences</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {[...bySystem.entries()].map(([systemId, group]) => (
+            // A keyed Fragment, not `<>`: the shorthand cannot take a key, and
+            // React warns on every group without one.
+            <Fragment key={systemId}>
+              <TableRow>
+                <TableCell colSpan={4} sx={{ bgcolor: 'action.hover' }}>
+                  <Typography variant="subtitle2">{group.name}</Typography>
                 </TableCell>
               </TableRow>
-            ))}
-          </Fragment>
-        ))}
-      </TableBody>
-    </Table>
+              {group.rows.map((row) => (
+                <TableRow key={row.subsystem_id}>
+                  <TableCell>{row.name}</TableCell>
+                  <TableCell><Side side={row.left} /></TableCell>
+                  <TableCell><Side side={row.right} /></TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                      {row.presence !== 'both' && (
+                        <Chip size="small" color="warning"
+                              label={missingLabel(row, leftName, rightName, reference)} />
+                      )}
+                      {row.differences
+                        .filter((kind) => kind !== 'presence')
+                        .map((kind) => (
+                          <Chip key={kind} size="small" label={KIND_LABEL[kind]} />
+                        ))}
+                      {row.differences.length === 0 && (
+                        <Typography variant="caption" color="text.secondary">Match</Typography>
+                      )}
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </Fragment>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }

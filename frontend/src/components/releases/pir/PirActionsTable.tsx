@@ -6,8 +6,8 @@
  * filtering live.
  */
 import {
-  Chip, IconButton, Stack, Table, TableBody, TableCell, TableHead, TableRow, Tooltip,
-  Typography,
+  Chip, IconButton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Tooltip, Typography,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -50,58 +50,60 @@ export default function PirActionsTable({ actions, onEdit, onDelete }: Props) {
     );
   }
   return (
-    <Table size="small" sx={{ mt: 1 }}>
-      <TableHead>
-        <TableRow>
-          <TableCell>Action</TableCell>
-          <TableCell>Owner</TableCell>
-          <TableCell>Due</TableCell>
-          <TableCell>Status</TableCell>
-          <TableCell align="right" />
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {actions.map((action) => (
-          <TableRow key={action.id}>
-            <TableCell>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <span>{action.title}</span>
-                {/* The server's verdict, never re-derived. `is_overdue` came from
-                    one clock per request; comparing `due_date` here would let a
-                    browser with a wrong clock manufacture a queue of overdue
-                    rows nobody can clear. */}
-                {action.is_overdue && <Chip size="small" color="error" label="Overdue" />}
-              </Stack>
-              {action.detail && (
-                <Typography variant="caption" color="text.secondary" display="block">
-                  {action.detail}
-                </Typography>
-              )}
-            </TableCell>
-            {/* The owner's NAME travels with the row. Never `#5`, and never
-                resolved here against a separately-fetched, capped user list. */}
-            <TableCell>{action.owner_username ?? '—'}</TableCell>
-            <TableCell>{formatDue(action.due_date)}</TableCell>
-            <TableCell>
-              <Chip size="small" color={STATUS_COLOURS[action.status]}
-                    label={STATUS_LABELS[action.status]} />
-            </TableCell>
-            <TableCell align="right">
-              <Tooltip title="Edit action">
-                <IconButton size="small" aria-label="Edit action" onClick={() => onEdit(action)}>
-                  <EditIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Delete action">
-                <IconButton size="small" aria-label="Delete action"
-                            onClick={() => onDelete(action)}>
-                  <DeleteIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-            </TableCell>
+    <TableContainer sx={{ mt: 1 }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Action</TableCell>
+            <TableCell>Owner</TableCell>
+            <TableCell>Due</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right" />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHead>
+        <TableBody>
+          {actions.map((action) => (
+            <TableRow key={action.id}>
+              <TableCell>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <span>{action.title}</span>
+                  {/* The server's verdict, never re-derived. `is_overdue` came from
+                      one clock per request; comparing `due_date` here would let a
+                      browser with a wrong clock manufacture a queue of overdue
+                      rows nobody can clear. */}
+                  {action.is_overdue && <Chip size="small" color="error" label="Overdue" />}
+                </Stack>
+                {action.detail && (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {action.detail}
+                  </Typography>
+                )}
+              </TableCell>
+              {/* The owner's NAME travels with the row. Never `#5`, and never
+                  resolved here against a separately-fetched, capped user list. */}
+              <TableCell>{action.owner_username ?? '—'}</TableCell>
+              <TableCell>{formatDue(action.due_date)}</TableCell>
+              <TableCell>
+                <Chip size="small" color={STATUS_COLOURS[action.status]}
+                      label={STATUS_LABELS[action.status]} />
+              </TableCell>
+              <TableCell align="right">
+                <Tooltip title="Edit action">
+                  <IconButton size="small" aria-label="Edit action" onClick={() => onEdit(action)}>
+                    <EditIcon fontSize="inherit" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete action">
+                  <IconButton size="small" aria-label="Delete action"
+                              onClick={() => onDelete(action)}>
+                    <DeleteIcon fontSize="inherit" />
+                  </IconButton>
+                </Tooltip>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }

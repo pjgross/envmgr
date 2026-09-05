@@ -239,7 +239,10 @@ export default function RaidTab({ releaseId }: Props) {
           {showHeatMap ? 'Hide' : 'Show'} probability × impact heat-map
         </Button>
         <Collapse in={showHeatMap}>
-          <Paper variant="outlined" sx={{ p: 2, mt: 1, display: 'inline-block' }}>
+          <Paper
+            variant="outlined"
+            sx={{ p: 2, mt: 1, display: 'inline-block', maxWidth: '100%', overflowX: 'auto' }}
+          >
             <RaidHeatMap config={config} heatmap={summary?.heatmap} />
           </Paper>
         </Collapse>

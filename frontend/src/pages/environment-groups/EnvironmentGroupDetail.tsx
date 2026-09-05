@@ -11,6 +11,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -178,34 +179,36 @@ export default function EnvironmentGroupDetail() {
       </Typography>
 
       <Paper variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Environment</TableCell>
-              <TableCell>Added</TableCell>
-              {canWrite && <TableCell />}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {members.map((m) => (
-              <TableRow key={m.id}>
-                {/* environment_name travels with the member row the API
-                    returned — never resolved against useAllEnvironments,
-                    which is capped, so a miss there would render `—` and
-                    lose information no truncation banner can recover. */}
-                <TableCell>{m.environment_name}</TableCell>
-                <TableCell>{new Date(m.created_at).toLocaleDateString()}</TableCell>
-                {canWrite && (
-                  <TableCell align="right">
-                    <Button size="small" color="error" onClick={() => handleRemoveMember(m.id)}>
-                      Remove
-                    </Button>
-                  </TableCell>
-                )}
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Environment</TableCell>
+                <TableCell>Added</TableCell>
+                {canWrite && <TableCell />}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {members.map((m) => (
+                <TableRow key={m.id}>
+                  {/* environment_name travels with the member row the API
+                      returned — never resolved against useAllEnvironments,
+                      which is capped, so a miss there would render `—` and
+                      lose information no truncation banner can recover. */}
+                  <TableCell>{m.environment_name}</TableCell>
+                  <TableCell>{new Date(m.created_at).toLocaleDateString()}</TableCell>
+                  {canWrite && (
+                    <TableCell align="right">
+                      <Button size="small" color="error" onClick={() => handleRemoveMember(m.id)}>
+                        Remove
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Paper>
     </Box>
   );

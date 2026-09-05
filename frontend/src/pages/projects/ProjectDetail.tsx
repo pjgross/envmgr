@@ -12,6 +12,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -480,38 +481,40 @@ export default function ProjectDetail() {
       </Box>
 
       <Paper variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Environment</TableCell>
-              <TableCell>Starts</TableCell>
-              <TableCell>Ends</TableCell>
-              <TableCell>Notes</TableCell>
-              {canWrite && <TableCell />}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {agreements.map((a) => (
-              <TableRow key={a.id}>
-                <TableCell>
-                  <Link component={RouterLink} to={`/environments/${a.environment_id}`}>
-                    {a.environment_name}
-                  </Link>
-                </TableCell>
-                <TableCell>{a.starts_at ? new Date(a.starts_at).toLocaleDateString() : '—'}</TableCell>
-                <TableCell>{a.ends_at ? new Date(a.ends_at).toLocaleDateString() : '—'}</TableCell>
-                <TableCell>{a.notes ?? '—'}</TableCell>
-                {canWrite && (
-                  <TableCell align="right">
-                    <Button size="small" color="error" onClick={() => handleRemoveAgreement(a.id)}>
-                      Remove
-                    </Button>
-                  </TableCell>
-                )}
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Environment</TableCell>
+                <TableCell>Starts</TableCell>
+                <TableCell>Ends</TableCell>
+                <TableCell>Notes</TableCell>
+                {canWrite && <TableCell />}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {agreements.map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell>
+                    <Link component={RouterLink} to={`/environments/${a.environment_id}`}>
+                      {a.environment_name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{a.starts_at ? new Date(a.starts_at).toLocaleDateString() : '—'}</TableCell>
+                  <TableCell>{a.ends_at ? new Date(a.ends_at).toLocaleDateString() : '—'}</TableCell>
+                  <TableCell>{a.notes ?? '—'}</TableCell>
+                  {canWrite && (
+                    <TableCell align="right">
+                      <Button size="small" color="error" onClick={() => handleRemoveAgreement(a.id)}>
+                        Remove
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Paper>
     </Box>
   );

@@ -8,6 +8,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
@@ -67,48 +68,50 @@ export default function EnvironmentsPanel({
           + Add Environment
         </Button>
       </Box>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Environment</TableCell>
-            <TableCell>Start</TableCell>
-            <TableCell>End</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Actions</TableCell>
-            <TableCell />
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {envBookings.map((b) => (
-            <TableRow
-              key={b.id}
-              sx={b.id === highlightBookingId ? { bgcolor: 'action.hover' } : undefined}
-            >
-              <TableCell>
-                <RouterLink to={`/bookings/${b.id}`}>
-                  {b.environment_name ?? `#${b.environment_id}`}
-                </RouterLink>
-              </TableCell>
-              <TableCell>{formatBookingDateTime(b.start_date)}</TableCell>
-              <TableCell>{formatBookingDateTime(b.end_date)}</TableCell>
-              <TableCell>
-                <Chip size="small" label={b.status} />
-              </TableCell>
-              <TableCell>
-                <TransitionButtons
-                  transitions={transitionsByBooking[b.id] ?? []}
-                  onTransition={(to, label) => onTransition(b.id, to, label)}
-                />
-              </TableCell>
-              <TableCell>
-                <IconButton size="small" onClick={() => onRemove(b.id)}>
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </TableCell>
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Environment</TableCell>
+              <TableCell>Start</TableCell>
+              <TableCell>End</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Actions</TableCell>
+              <TableCell />
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {envBookings.map((b) => (
+              <TableRow
+                key={b.id}
+                sx={b.id === highlightBookingId ? { bgcolor: 'action.hover' } : undefined}
+              >
+                <TableCell>
+                  <RouterLink to={`/bookings/${b.id}`}>
+                    {b.environment_name ?? `#${b.environment_id}`}
+                  </RouterLink>
+                </TableCell>
+                <TableCell>{formatBookingDateTime(b.start_date)}</TableCell>
+                <TableCell>{formatBookingDateTime(b.end_date)}</TableCell>
+                <TableCell>
+                  <Chip size="small" label={b.status} />
+                </TableCell>
+                <TableCell>
+                  <TransitionButtons
+                    transitions={transitionsByBooking[b.id] ?? []}
+                    onTransition={(to, label) => onTransition(b.id, to, label)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <IconButton size="small" onClick={() => onRemove(b.id)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </Paper>
   );
 }

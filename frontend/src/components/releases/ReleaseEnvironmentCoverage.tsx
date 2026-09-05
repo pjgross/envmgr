@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Checkbox, Chip, Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Alert, Box, Button, Checkbox, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { releaseService } from '../../services/releaseService';
@@ -132,61 +132,63 @@ export default function ReleaseEnvironmentCoverage({ releaseId, onBook, onBookMa
         </Typography>
       )}
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>System</TableCell>
-            {data.environments.map((e) => (
-              <TableCell key={e.environment_id} align="center">
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                  <Checkbox
-                    size="small"
-                    checked={selected.has(e.environment_id)}
-                    onChange={() => toggleEnv(e.environment_id)}
-                    inputProps={{ 'aria-label': `Select ${e.name}` }}
-                  />
-                  <span>{e.name} ({e.covered_system_ids.length}/{data.needed_systems.length})</span>
-                  <Button size="small" variant="outlined" onClick={() => onBook(e.environment_id)}>
-                    Book
-                  </Button>
-                </Box>
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {data.needed_systems.map((s) => {
-            const isGap = uncoveredSet.has(s.system_id);
-            return (
-              <TableRow key={s.system_id} sx={isGap ? { bgcolor: 'warning.light' } : undefined}>
-                <TableCell>
-                  {s.system_name}{' '}
-                  <Chip
-                    size="small"
-                    label={RELEASE_SYSTEM_ROLE_LABELS[s.role as ReleaseSystemRole]}
-                    color={RELEASE_SYSTEM_ROLE_COLORS[s.role as ReleaseSystemRole]}
-                    sx={{ ml: 0.5 }}
-                  />
-                  {isGap && (
-                    <Typography component="span" variant="caption" color="warning.dark" sx={{ ml: 1 }}>
-                      no environment
-                    </Typography>
-                  )}
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>System</TableCell>
+              {data.environments.map((e) => (
+                <TableCell key={e.environment_id} align="center">
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                    <Checkbox
+                      size="small"
+                      checked={selected.has(e.environment_id)}
+                      onChange={() => toggleEnv(e.environment_id)}
+                      inputProps={{ 'aria-label': `Select ${e.name}` }}
+                    />
+                    <span>{e.name} ({e.covered_system_ids.length}/{data.needed_systems.length})</span>
+                    <Button size="small" variant="outlined" onClick={() => onBook(e.environment_id)}>
+                      Book
+                    </Button>
+                  </Box>
                 </TableCell>
-                {data.environments.map((e) => (
-                  <TableCell key={e.environment_id} align="center">
-                    {e.covered_system_ids.includes(s.system_id) ? (
-                      <CheckIcon fontSize="small" color="success" />
-                    ) : (
-                      ''
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {data.needed_systems.map((s) => {
+              const isGap = uncoveredSet.has(s.system_id);
+              return (
+                <TableRow key={s.system_id} sx={isGap ? { bgcolor: 'warning.light' } : undefined}>
+                  <TableCell>
+                    {s.system_name}{' '}
+                    <Chip
+                      size="small"
+                      label={RELEASE_SYSTEM_ROLE_LABELS[s.role as ReleaseSystemRole]}
+                      color={RELEASE_SYSTEM_ROLE_COLORS[s.role as ReleaseSystemRole]}
+                      sx={{ ml: 0.5 }}
+                    />
+                    {isGap && (
+                      <Typography component="span" variant="caption" color="warning.dark" sx={{ ml: 1 }}>
+                        no environment
+                      </Typography>
                     )}
                   </TableCell>
-                ))}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+                  {data.environments.map((e) => (
+                    <TableCell key={e.environment_id} align="center">
+                      {e.covered_system_ids.includes(s.system_id) ? (
+                        <CheckIcon fontSize="small" color="success" />
+                      ) : (
+                        ''
+                      )}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </Box>
   );
 }

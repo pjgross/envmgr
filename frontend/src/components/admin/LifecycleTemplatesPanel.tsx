@@ -24,6 +24,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -1043,42 +1044,44 @@ export default function LifecycleTemplatesPanel({
                         <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
                           {s.label || s.key}
                         </Typography>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Role</TableCell>
-                              <TableCell align="center">Admit</TableCell>
-                              <TableCell align="center">Reject</TableCell>
-                              <TableCell align="center">Remove</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {ALL_ROLES.map((role) => (
-                              <TableRow key={role}>
-                                <TableCell>{role}</TableCell>
-                                {(
-                                  [
-                                    'membership.admit',
-                                    'membership.reject',
-                                    'membership.remove',
-                                  ] as const
-                                ).map((action) => (
-                                  <TableCell key={action} align="center" padding="checkbox">
-                                    <Checkbox
-                                      size="small"
-                                      checked={(
-                                        actionPermissions[s.key]?.[action] ?? []
-                                      ).includes(role)}
-                                      onChange={(e) =>
-                                        toggleActionPermission(s.key, action, role, e.target.checked)
-                                      }
-                                    />
-                                  </TableCell>
-                                ))}
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Role</TableCell>
+                                <TableCell align="center">Admit</TableCell>
+                                <TableCell align="center">Reject</TableCell>
+                                <TableCell align="center">Remove</TableCell>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHead>
+                            <TableBody>
+                              {ALL_ROLES.map((role) => (
+                                <TableRow key={role}>
+                                  <TableCell>{role}</TableCell>
+                                  {(
+                                    [
+                                      'membership.admit',
+                                      'membership.reject',
+                                      'membership.remove',
+                                    ] as const
+                                  ).map((action) => (
+                                    <TableCell key={action} align="center" padding="checkbox">
+                                      <Checkbox
+                                        size="small"
+                                        checked={(
+                                          actionPermissions[s.key]?.[action] ?? []
+                                        ).includes(role)}
+                                        onChange={(e) =>
+                                          toggleActionPermission(s.key, action, role, e.target.checked)
+                                        }
+                                      />
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
                       </Paper>
                     ))
                 )}
