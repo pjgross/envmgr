@@ -613,6 +613,39 @@ async def test_a_duplicate_perspective_name_for_the_same_tenant_is_409_not_500(
     assert dup.status_code == 409, dup.text
 
 
+# ── Structural sweeps (Task 6) ────────────────────────────────────────────────
+
+def test_no_edit_or_delete_route_exists_for_a_decision():
+    """Decisions are append-only. A wrong one is superseded by recording
+    another; an editable record with a frozen snapshot is a contradiction.
+
+    Excludes routes containing "conditions" (PATCH /go-no-go-conditions/{id}
+    is the one deliberate mutation this record allows — closing/reopening a
+    condition, never the decision itself) and "perspectives" (the tenant-
+    configurable vocabulary CRUD, which is meant to be writable)."""
+    from app.main import app
+    offenders = [
+        f"{method} {route.path}"
+        for route in app.routes
+        for method in getattr(route, "methods", set())
+        if "go-no-go" in getattr(route, "path", "")
+        and "conditions" not in getattr(route, "path", "")
+        and "perspectives" not in getattr(route, "path", "")
+        and method in {"PATCH", "PUT", "DELETE"}
+    ]
+    assert offenders == [], f"a decision must not be editable: {offenders}"
+
+
+def test_the_decision_list_has_a_unique_tiebreaker():
+    """Removing the id tiebreaker leaves paging GREEN on both engines — six
+    rows sharing a decided_at page identically with and without it — so this
+    is asserted structurally, the same exception contention_service.
+    worklist_query and pir_finding_service.worklist_query already carry."""
+    from app.services.go_no_go_service import decisions_query
+    compiled = str(decisions_query(release_id=1, tenant_id=1))
+    assert "go_no_go_decision.id" in compiled.split("ORDER BY")[-1]
+
+
 @pytest.mark.asyncio
 async def test_a_name_duplicating_another_tenants_perspective_is_accepted(
     client, auth_headers, second_tenant_factory
