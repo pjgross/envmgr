@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Paper, Chip, Stack } from "@mui/material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { GridColDef } from "@mui/x-data-grid";
 import { enterpriseRollupService } from "../../../services/enterpriseRollupService";
+import DataTable from "../../../components/DataTable";
 import type { ReleaseResponse } from "../../../types/release";
 import type { SystemRollupRow } from "../../../types/enterpriseReport";
 
@@ -36,7 +37,9 @@ export function SystemsRollupTab({ release }: Props) {
 
   return (
     <Paper>
-      <DataGrid
+      <DataTable
+        storageKey="enterprise-systems-rollup"
+        emptyMessage="No systems across this enterprise release."
         rows={rows.map((r) => ({ id: r.systemId, ...r }))}
         columns={cols}
         autoHeight

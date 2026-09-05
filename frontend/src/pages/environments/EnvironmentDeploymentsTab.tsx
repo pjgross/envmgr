@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { DataGrid, GridColDef, GridRowParams } from '@mui/x-data-grid';
+import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import { Paper } from '@mui/material';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchDeployments } from '../../store/deploymentSlice';
 import DeploymentStatusChip from '../../components/deployments/DeploymentStatusChip';
 import type { DeploymentStatus } from '../../types/deployment';
+import DataTable from '../../components/DataTable';
 
 interface Props {
   envId: number;
@@ -47,7 +48,9 @@ export default function EnvironmentDeploymentsTab({ envId }: Props) {
 
   return (
     <Paper variant="outlined">
-      <DataGrid
+      <DataTable
+        storageKey="environment-deployments-tab"
+        emptyMessage="No deployments recorded against this environment."
         rows={rows}
         columns={cols}
         autoHeight

@@ -3,9 +3,10 @@ import {
   Paper, Stack, Typography, Button, Chip, IconButton,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { GridColDef } from "@mui/x-data-grid";
 import { useDispatch, useSelector } from "react-redux";
 import type { RootState, AppDispatch } from "../../../store";
+import DataTable from "../../../components/DataTable";
 import type { ReleaseResponse } from "../../../types/release";
 import {
   fetchMemberships,
@@ -141,17 +142,38 @@ export function MembersTab({ release }: Props) {
         </Button>
       </Stack>
       <Paper>
-        <DataGrid rows={pending} columns={pendingCols} autoHeight hideFooter />
+        <DataTable
+          storageKey="enterprise-members-pending"
+          emptyMessage="No pending admission requests."
+          rows={pending}
+          columns={pendingCols}
+          autoHeight
+          hideFooter
+        />
       </Paper>
 
       <Typography variant="h6">Accepted members</Typography>
       <Paper>
-        <DataGrid rows={accepted} columns={acceptedCols} autoHeight hideFooter />
+        <DataTable
+          storageKey="enterprise-members-accepted"
+          emptyMessage="No members have been admitted yet."
+          rows={accepted}
+          columns={acceptedCols}
+          autoHeight
+          hideFooter
+        />
       </Paper>
 
       <Typography variant="h6">History</Typography>
       <Paper>
-        <DataGrid rows={history} columns={historyCols} autoHeight hideFooter />
+        <DataTable
+          storageKey="enterprise-members-history"
+          emptyMessage="No membership history yet."
+          rows={history}
+          columns={historyCols}
+          autoHeight
+          hideFooter
+        />
       </Paper>
 
       <RequestAdmissionDialog
