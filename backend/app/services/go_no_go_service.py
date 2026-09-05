@@ -16,6 +16,7 @@ THE SNAPSHOT IS CAPTURED SERVER-SIDE. `record_decision` calls
 snapshot fields, so there is no request shape that could substitute a
 client-supplied verdict for the real one.
 """
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -24,9 +25,12 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.go_no_go import (
+    GoNoGoConditionRead,
     GoNoGoDecisionCreate,
+    GoNoGoDecisionRead,
     GoNoGoPerspectiveCreate,
     GoNoGoPerspectiveUpdate,
+    GoNoGoSignoffRead,
 )
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.go_no_go import (
@@ -338,6 +342,108 @@ async def usernames_for(db: AsyncSession, user_ids) -> dict[int, str]:
         await db.execute(select(User.id, User.username).where(User.id.in_(ids)))
     ).all()
     return {uid: username for uid, username in rows}
+
+
+async def _signoffs_for_decisions(
+    db: AsyncSession, decision_ids: set[int]
+) -> dict[int, list[GoNoGoSignoff]]:
+    """One query for every sign-off on the given decisions, grouped by
+    `decision_id` — the batched sibling of `signoffs_for`, which stays as
+    the single-decision reader `record_decision`'s own tests exercise."""
+    if not decision_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(GoNoGoSignoff)
+            .where(GoNoGoSignoff.decision_id.in_(decision_ids))
+            .order_by(GoNoGoSignoff.decision_id, GoNoGoSignoff.id)
+        )
+    ).scalars().all()
+    by_decision: dict[int, list[GoNoGoSignoff]] = defaultdict(list)
+    for row in rows:
+        by_decision[row.decision_id].append(row)
+    return by_decision
+
+
+async def _conditions_for_decisions(
+    db: AsyncSession, decision_ids: set[int]
+) -> dict[int, list[GoNoGoCondition]]:
+    """As `_signoffs_for_decisions`, for conditions."""
+    if not decision_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(GoNoGoCondition)
+            .where(GoNoGoCondition.decision_id.in_(decision_ids))
+            .order_by(GoNoGoCondition.decision_id, GoNoGoCondition.id)
+        )
+    ).scalars().all()
+    by_decision: dict[int, list[GoNoGoCondition]] = defaultdict(list)
+    for row in rows:
+        by_decision[row.decision_id].append(row)
+    return by_decision
+
+
+async def reads_for_decisions(
+    db: AsyncSession, tenant_id: int, decisions: list[GoNoGoDecision]
+) -> list[GoNoGoDecisionRead]:
+    """The wire-shaped form of a page of decisions — batched across the
+    WHOLE page, mirroring `rollback_plan_service.reads_for_plans`'s shape:
+    one query for every decision's sign-offs, one for every decision's
+    conditions, and one `usernames_for` call over the union of every user id
+    on the page (chairs, signatories, condition owners, condition closers).
+    `usernames_for` is called exactly ONCE PER RESPONSE here, never once per
+    row — the PIR programme's `gap_warnings_for_bookings` note, and the
+    shape this function replaces: the route layer originally called a
+    single-decision builder once per row, at up to three unbatched queries
+    each (up to 1500 for a full 500-row page).
+
+    BOTH `POST` (a one-element list) and `GET`'s page call this — never a
+    second, divergent construction site — so `unmet_condition_count` and
+    every resolved name are built from exactly one code path and cannot
+    drift between the two routes.
+    """
+    decision_ids = {d.id for d in decisions}
+    signoffs_by_decision = await _signoffs_for_decisions(db, decision_ids)
+    conditions_by_decision = await _conditions_for_decisions(db, decision_ids)
+
+    user_ids: set[int] = {d.chaired_by_user_id for d in decisions}
+    for signoffs in signoffs_by_decision.values():
+        user_ids.update(s.user_id for s in signoffs)
+    for conditions in conditions_by_decision.values():
+        user_ids.update(c.owner_user_id for c in conditions if c.owner_user_id is not None)
+        user_ids.update(c.met_by_user_id for c in conditions if c.met_by_user_id is not None)
+    names = await usernames_for(db, user_ids)
+
+    reads = []
+    for decision in decisions:
+        signoffs = signoffs_by_decision.get(decision.id, [])
+        conditions = conditions_by_decision.get(decision.id, [])
+
+        read = GoNoGoDecisionRead.model_validate(decision)
+        read.chaired_by_username = names.get(decision.chaired_by_user_id)
+        read.signoffs = [
+            GoNoGoSignoffRead.model_validate(s).model_copy(
+                update={"username": names.get(s.user_id)}
+            )
+            for s in signoffs
+        ]
+        read.conditions = [
+            GoNoGoConditionRead.model_validate(c).model_copy(
+                update={
+                    "owner_username": names.get(c.owner_user_id)
+                    if c.owner_user_id is not None
+                    else None,
+                    "met_by_username": names.get(c.met_by_user_id)
+                    if c.met_by_user_id is not None
+                    else None,
+                }
+            )
+            for c in conditions
+        ]
+        read.unmet_condition_count = sum(1 for c in conditions if c.met_at is None)
+        reads.append(read)
+    return reads
 
 
 async def get_condition(

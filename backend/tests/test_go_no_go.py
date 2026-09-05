@@ -487,3 +487,128 @@ async def test_closing_a_condition_is_owner_or_admin_rm_only(
         headers=auth_headers,
     )
     assert resp.status_code == 200, resp.text
+
+
+# ── Perspective CRUD HTTP endpoints (fix round 1) ────────────────────────────
+#
+# Following backend/tests/integration/test_gate_types_api.py's house pattern:
+# `client` + `auth_headers` (Admin) + `member_headers` (Developer), asserting
+# the write gate and status codes explicitly rather than trusting the code.
+
+@pytest.mark.asyncio
+async def test_a_tenant_member_can_read_the_seeded_perspectives_in_sort_order(
+    client, auth_headers, member_headers, db_session, test_tenant
+):
+    await go_no_go_defaults.seed_go_no_go_perspective_defaults_for_tenant(
+        db_session, test_tenant.id
+    )
+    await db_session.commit()
+
+    resp = await client.get(
+        "/api/v1/tenant/go-no-go-perspectives", headers=member_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert [p["name"] for p in resp.json()] == ["Quality", "Process", "Acceptance"]
+
+
+@pytest.mark.asyncio
+async def test_a_non_admin_cannot_create_or_update_a_perspective(
+    client, auth_headers, member_headers
+):
+    resp = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Legal"},
+        headers=member_headers,
+    )
+    assert resp.status_code == 403, resp.text
+
+    created = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Legal"},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    perspective_id = created.json()["id"]
+
+    updated = await client.patch(
+        f"/api/v1/tenant/go-no-go-perspectives/{perspective_id}",
+        json={"is_active": False},
+        headers=member_headers,
+    )
+    assert updated.status_code == 403, updated.text
+
+
+@pytest.mark.asyncio
+async def test_an_admin_can_create_and_deactivate_a_perspective(client, auth_headers):
+    created = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Security", "description": "Security sign-off.", "sort_order": 40},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["name"] == "Security"
+    assert body["is_active"] is True
+    perspective_id = body["id"]
+
+    updated = await client.patch(
+        f"/api/v1/tenant/go-no-go-perspectives/{perspective_id}",
+        json={"is_active": False},
+        headers=auth_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["is_active"] is False
+    # The unchanged fields prove `exclude_unset` semantics: an omitted key
+    # means "leave alone", not "reset to a default".
+    assert updated.json()["name"] == "Security"
+    assert updated.json()["sort_order"] == 40
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_perspective_name_for_the_same_tenant_is_409_not_500(
+    client, auth_headers
+):
+    first = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Compliance"},
+        headers=auth_headers,
+    )
+    assert first.status_code == 201, first.text
+
+    dup = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Compliance"},
+        headers=auth_headers,
+    )
+    assert dup.status_code == 409, dup.text
+
+
+@pytest.mark.asyncio
+async def test_a_name_duplicating_another_tenants_perspective_is_accepted(
+    client, auth_headers, second_tenant_factory
+):
+    """The uniqueness constraint is per-tenant (`uq_go_no_go_perspective_
+    tenant_name`), not global."""
+    other_tenant, other_user = await second_tenant_factory()
+
+    first = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Ops"},
+        headers=auth_headers,
+    )
+    assert first.status_code == 201, first.text
+
+    login = await client.post("/api/v1/auth/login", json={
+        "username": other_user.username,
+        "password": "password123",
+        "tenant_slug": other_tenant.slug,
+    })
+    assert login.status_code == 200, login.text
+    other_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    second = await client.post(
+        "/api/v1/tenant/go-no-go-perspectives",
+        json={"name": "Ops"},
+        headers=other_headers,
+    )
+    assert second.status_code == 201, second.text

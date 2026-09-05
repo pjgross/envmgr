@@ -132,10 +132,15 @@ class GoNoGoPerspectiveRead(BaseModel):
 
 class GoNoGoDecisionRead(BaseModel):
     """An append-only decision, read back with its children and resolved
-    names. `unmet_condition_count` is computed by the route layer from
-    `conditions` (a condition with `met_at is None`) rather than stored —
-    the count moves the moment a condition closes, with no cache to
-    invalidate.
+    names. `unmet_condition_count` is computed by
+    `go_no_go_service.reads_for_decisions` from `conditions` (a condition
+    with `met_at is None`) rather than stored — the count moves the moment a
+    condition closes, with no cache to invalidate. Every field defaulted
+    below has no equivalent ORM attribute, so `model_validate` can build
+    straight off the bare `GoNoGoDecision` row before `reads_for_decisions`
+    overwrites them with the real, batched values — the same reason
+    `GoNoGoSignoffRead.username` and `GoNoGoConditionRead.owner_username`
+    default to `None`.
     """
 
     id: int

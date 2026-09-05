@@ -103,10 +103,8 @@ from app.api.v1.schemas.rollback import (
     RollbackPlanRead,
 )
 from app.api.v1.schemas.go_no_go import (
-    GoNoGoConditionRead,
     GoNoGoDecisionCreate,
     GoNoGoDecisionRead,
-    GoNoGoSignoffRead,
 )
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
@@ -1785,50 +1783,6 @@ GO_NO_GO_SORTS = {
 }
 
 
-async def _go_no_go_decision_read(
-    db: AsyncSession, tenant_id: int, decision: GoNoGoDecision
-) -> GoNoGoDecisionRead:
-    """The wire-shaped form of one decision — resolved usernames and the
-    `unmet_condition_count` computed HERE, at the route layer, following
-    `PirActionResponse`'s pattern (`app/api/v1/pir.py`): the read schema
-    defaults `chaired_by_username`/`signoffs`/`conditions`/
-    `unmet_condition_count` so `model_validate` can build straight off the
-    ORM row, and this function overwrites them with the real values.
-    """
-    signoffs = await go_no_go_service.signoffs_for(db, decision.id)
-    conditions = await go_no_go_service.conditions_for(db, decision.id)
-
-    user_ids = {decision.chaired_by_user_id}
-    user_ids.update(s.user_id for s in signoffs)
-    user_ids.update(c.owner_user_id for c in conditions if c.owner_user_id is not None)
-    user_ids.update(c.met_by_user_id for c in conditions if c.met_by_user_id is not None)
-    names = await go_no_go_service.usernames_for(db, user_ids)
-
-    read = GoNoGoDecisionRead.model_validate(decision)
-    read.chaired_by_username = names.get(decision.chaired_by_user_id)
-    read.signoffs = [
-        GoNoGoSignoffRead.model_validate(s).model_copy(
-            update={"username": names.get(s.user_id)}
-        )
-        for s in signoffs
-    ]
-    read.conditions = [
-        GoNoGoConditionRead.model_validate(c).model_copy(
-            update={
-                "owner_username": names.get(c.owner_user_id)
-                if c.owner_user_id is not None
-                else None,
-                "met_by_username": names.get(c.met_by_user_id)
-                if c.met_by_user_id is not None
-                else None,
-            }
-        )
-        for c in conditions
-    ]
-    read.unmet_condition_count = sum(1 for c in conditions if c.met_at is None)
-    return read
-
-
 @router.post(
     "/{release_id}/go-no-go",
     response_model=GoNoGoDecisionRead,
@@ -1847,14 +1801,21 @@ async def record_go_no_go_decision(
     decision = await go_no_go_service.record_decision(
         db, release_id, tenant_id, current_user.id, data
     )
-    return await _go_no_go_decision_read(db, tenant_id, decision)
+    reads = await go_no_go_service.reads_for_decisions(db, tenant_id, [decision])
+    return reads[0]
 
 
 @router.get("/{release_id}/go-no-go", response_model=list[GoNoGoDecisionRead])
 async def list_go_no_go_decisions(
     release_id: int,
     response: Response,
-    page: Page = Depends(pagination()),
+    # A reduced page contract, not the shared 500/1000 default: this endpoint
+    # does per-row work after the query (go_no_go_service.reads_for_decisions
+    # loads every signoff/condition on the page), the same reasoning
+    # RELEASE_SORTS' own list endpoint and environment_health_service.
+    # history_query follow — see app/core/pagination.py's pagination()
+    # docstring.
+    page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(GO_NO_GO_SORTS, default="decided_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -1869,4 +1830,4 @@ async def list_go_no_go_decisions(
         db, release_id, tenant_id, page=page, sort=sort
     )
     set_total_count(response, total)
-    return [await _go_no_go_decision_read(db, tenant_id, d) for d in decisions]
+    return await go_no_go_service.reads_for_decisions(db, tenant_id, decisions)
