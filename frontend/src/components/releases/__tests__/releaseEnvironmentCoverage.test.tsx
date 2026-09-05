@@ -6,7 +6,7 @@
  * performs no layout, so this asserts the STRUCTURE that makes the overflow
  * scroll inside the table instead of moving the document.
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import ReleaseEnvironmentCoverage from '../ReleaseEnvironmentCoverage';
@@ -53,7 +53,10 @@ describe('ReleaseEnvironmentCoverage scrolls inside itself', () => {
 
     render(<ReleaseEnvironmentCoverage releaseId={1} onBook={vi.fn()} onBookMany={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText('Env_8')).toBeInTheDocument());
+    // The visible label is `Env_8 (2/2)` — name and coverage count are split
+    // across JSX expressions, so an exact text matcher cannot match it. The
+    // checkbox's aria-label is exact and is a name the component commits to.
+    await screen.findByLabelText('Select Env_8');
     // 8 environments + the leading "System" column.
     expect(screen.getAllByRole('columnheader')).toHaveLength(9);
   });
