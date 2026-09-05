@@ -37,6 +37,7 @@ import contentionForecastReducer from './contentionForecastSlice';
 import gateTypeReducer from './gateTypeSlice';
 import rollbackReducer from './rollbackSlice';
 import myWorkReducer from './myWorkSlice';
+import goNoGoReducer from './goNoGoSlice';
 
 export const store = configureStore({
   reducer: {
@@ -78,6 +79,7 @@ export const store = configureStore({
     gateType: gateTypeReducer,
     rollback: rollbackReducer,
     myWork: myWorkReducer,
+    goNoGo: goNoGoReducer,
   },
 });
 
