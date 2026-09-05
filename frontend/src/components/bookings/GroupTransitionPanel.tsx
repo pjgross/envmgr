@@ -8,6 +8,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
@@ -190,37 +191,39 @@ export default function GroupTransitionPanel({
         )
       )}
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Environment</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {bookings.map((b) => (
-            <TableRow key={b.id}>
-              <TableCell>
-                <RouterLink to={`/bookings/${b.id}`}>
-                  {b.environment_name ?? `#${b.environment_id}`}
-                </RouterLink>
-              </TableCell>
-              <TableCell>
-                <Chip size="small" label={b.status} />
-              </TableCell>
-              <TableCell>
-                <TransitionButtons
-                  transitions={memberTransitions[b.id] ?? []}
-                  onTransition={(toState, label) => {
-                    void onMemberTransition?.(b.id, toState, label);
-                  }}
-                />
-              </TableCell>
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Environment</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {bookings.map((b) => (
+              <TableRow key={b.id}>
+                <TableCell>
+                  <RouterLink to={`/bookings/${b.id}`}>
+                    {b.environment_name ?? `#${b.environment_id}`}
+                  </RouterLink>
+                </TableCell>
+                <TableCell>
+                  <Chip size="small" label={b.status} />
+                </TableCell>
+                <TableCell>
+                  <TransitionButtons
+                    transitions={memberTransitions[b.id] ?? []}
+                    onTransition={(toState, label) => {
+                      void onMemberTransition?.(b.id, toState, label);
+                    }}
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </Paper>
   );
 }

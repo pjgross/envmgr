@@ -29,6 +29,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
@@ -109,28 +110,30 @@ export default function EnvironmentProjectsPanel({
       )}
 
       {agreements.length > 0 && (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Project</TableCell>
-              <TableCell>Window</TableCell>
-              <TableCell>Notes</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {agreements.map((a) => (
-              <TableRow key={a.id}>
-                <TableCell>
-                  <Link component={RouterLink} to={`/projects/${a.project_id}`}>
-                    {a.project_name}
-                  </Link>
-                </TableCell>
-                <TableCell>{formatWindow(a.starts_at, a.ends_at)}</TableCell>
-                <TableCell>{a.notes ?? '—'}</TableCell>
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Project</TableCell>
+                <TableCell>Window</TableCell>
+                <TableCell>Notes</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {agreements.map((a) => (
+                <TableRow key={a.id}>
+                  <TableCell>
+                    <Link component={RouterLink} to={`/projects/${a.project_id}`}>
+                      {a.project_name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{formatWindow(a.starts_at, a.ends_at)}</TableCell>
+                  <TableCell>{a.notes ?? '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
     </Paper>
   );
