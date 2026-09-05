@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { DataGrid, GridColDef, GridRenderCellParams, GridValueGetterParams } from '@mui/x-data-grid';
+import { GridColDef, GridRenderCellParams, GridValueGetterParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
 import {
   clearJustCreated,
@@ -19,6 +19,7 @@ import ApiKeyCreateDialog from '../../components/apikeys/ApiKeyCreateDialog';
 import ApiKeyCreatedDialog from '../../components/apikeys/ApiKeyCreatedDialog';
 import type { ApiKey, ApiKeyCreatePayload } from '../../types/apiKey';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 export default function ApiKeyManagement() {
   const dispatch = useDispatch<AppDispatch>();
@@ -105,7 +106,9 @@ export default function ApiKeyManagement() {
       />
 
       <Paper variant="outlined">
-        <DataGrid
+        <DataTable
+          storageKey="admin-api-keys"
+          emptyMessage="No API keys have been issued."
           rows={items}
           columns={cols}
           autoHeight

@@ -20,7 +20,6 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { AppDispatch, RootState } from '../../../store';
 import {
@@ -33,6 +32,7 @@ import { useSnackbar } from '../../../hooks/useSnackbar';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { toIsoDatetime } from '../../../utils/dates';
 import PageHeader from '../../../components/layout/PageHeader';
+import DataTable from '../../../components/DataTable';
 
 export default function ReleaseTemplateLibrary() {
   const dispatch = useDispatch<AppDispatch>();
@@ -155,7 +155,9 @@ export default function ReleaseTemplateLibrary() {
         }
       />
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-release-templates"
+        emptyMessage="No release templates yet."
         rows={templates}
         columns={columns}
         loading={loading}
