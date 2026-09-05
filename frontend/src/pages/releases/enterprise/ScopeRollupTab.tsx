@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import {
   Paper, Stack, TextField, MenuItem, Button,
 } from "@mui/material";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { GridColDef } from "@mui/x-data-grid";
 import { useDispatch, useSelector } from "react-redux";
 import type { AppDispatch, RootState } from "../../../store";
 import { fetchScopeChangeKinds } from "../../../store/scopeChangeRulesSlice";
 import { enterpriseRollupService } from "../../../services/enterpriseRollupService";
 import type { ScopeRollupItem } from "../../../types/enterpriseReport";
 import type { ReleaseResponse } from "../../../types/release";
+import DataTable from "../../../components/DataTable";
 
 interface Props {
   release: ReleaseResponse;
@@ -79,7 +80,9 @@ export function ScopeRollupTab({ release, onNavigateToReport }: Props & TabChang
         )}
       </Stack>
       <Paper>
-        <DataGrid
+        <DataTable
+          storageKey="enterprise-scope-rollup"
+          emptyMessage="No scope items across this enterprise release."
           rows={rows.map((r) => ({ id: r.releaseChangeId, ...r }))}
           columns={cols}
           autoHeight

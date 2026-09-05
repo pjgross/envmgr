@@ -778,6 +778,36 @@ describe('EnvironmentList server-side grid', () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it('names its icon-only row actions for a screen reader', async () => {
+    // Corrected (this branch established it against Tooltip.js twice): a
+    // MUI Tooltip's `describeChild` defaults to `false`, so for a string
+    // `title` it sets `aria-label` on its child — an accessible NAME, not
+    // `aria-describedby` — and only switches to `aria-describedby` when a
+    // caller opts into `describeChild`, which nothing here does.
+    //
+    // This particular assertion does NOT discriminate whether the accessible
+    // name actually comes from the Edit/Delete buttons' own explicit
+    // `aria-label="Edit"`/`"Delete"` (EnvironmentList.tsx) or from MUI's
+    // Tooltip fallback: both the button's own prop and its Tooltip's
+    // `title` read the identical string, and `children.props` is spread
+    // after Tooltip's computed `aria-label` in Tooltip.js's
+    // `childrenProps`, so the explicit prop always wins when both agree —
+    // deleting the explicit `aria-label` here would leave the test green,
+    // Tooltip's fallback supplying the same name. The tests that DO
+    // discriminate: `membersTab.test.tsx`'s "Remove" IconButton has no
+    // Tooltip at all, so its name can only come from its own `aria-label`;
+    // `releaseEventTypesPanel.test.tsx`'s Delete button is wrapped
+    // `<Tooltip><span><IconButton disabled .../></span></Tooltip>` — Tooltip
+    // clones only its immediate child, so its fallback `aria-label` lands on
+    // the `<span>`, never on the button, and the button's own explicit
+    // `aria-label` is the ONLY source of its name; that test also varies the
+    // Tooltip's `title` per row while asserting the name stays constant,
+    // which a fallback-supplied name could not do.
+    renderEnvironmentList();
+    expect(await screen.findByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeInTheDocument();
+  });
+
   describe('loadColumnModel', () => {
     afterEach(() => {
       localStorage.removeItem('environments-list-columns-777');
@@ -829,6 +859,16 @@ describe('EnvironmentList server-side grid', () => {
       const model = loadColumnModel(777);
 
       expect(model).toEqual({ owner: false });
+    });
+
+    it('reads the key DataTable will write, so a saved layout survives the migration', () => {
+      // The page stored preferences under `environments-list-columns-<id>`
+      // before this grid moved to DataTable. DataTable composes its key as
+      // `${storageKey}-${userId}`, so the page must pass
+      // storageKey="environments-list-columns" and userId={user?.id ?? 'guest'}
+      // — anything else silently abandons every existing user's layout.
+      localStorage.setItem('environments-list-columns-777', JSON.stringify({ status: false }));
+      expect(loadColumnModel(777, ['name', 'tier', 'owner', 'status'])).toEqual({ status: false });
     });
   });
 });

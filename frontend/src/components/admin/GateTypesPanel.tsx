@@ -16,8 +16,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -292,7 +292,9 @@ export default function GateTypesPanel() {
         is hidden from pickers but still shown on gates already using it.
       </Typography>
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-gate-types"
+        emptyMessage="No gate types configured yet."
         rows={gateTypes}
         columns={columns}
         loading={loading}

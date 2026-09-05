@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import DataTable from '../DataTable';
 
 const columns = [{ field: 'name', headerName: 'Name' }];
@@ -163,5 +164,287 @@ describe('DataTable server mode', () => {
       <DataTable storageKey="test-grid-client-export" rows={rows} columns={columns} showToolbar />
     );
     expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument();
+  });
+});
+
+describe('hideFooter does not silently cap client-mode rows at 25', () => {
+  // `pagination: true` is a forced prop on the MIT DataGrid — `hideFooter`
+  // only hides the pager UI, so before this fix a client-mode caller that
+  // hides the footer to render every row (the enterprise rollup tabs:
+  // MembersTab's three grids, SystemsRollupTab) was still paged by
+  // DataTable's own `pageSize: 25` default, with no footer control left to
+  // reach rows past the first page. With the guard, such a caller falls back
+  // to MUI's own un-paged-looking client default (100) instead.
+  //
+  // Uses the same "uncontrolled paginationModel" shape as the server-mode
+  // `initialState` tests above: with no controlled `paginationModel` prop,
+  // `initialState` (or its absence) is what determines the rendered page
+  // size, which is what makes the guard observable by rendering more than
+  // 25 rows and checking they all appear (this component doesn't render a
+  // footer to read a page-size figure from).
+  const manyRows = Array.from({ length: 40 }, (_, i) => ({ id: i, name: `row-${i}` }));
+
+  it('renders more than 25 rows when hideFooter is set, with no initialState of its own', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-hidefooter"
+        rows={manyRows}
+        columns={columns}
+        hideFooter
+        disableVirtualization
+      />
+    );
+    // If the client-mode default of 25 leaked through, row 30 would not be
+    // rendered at all — DataGrid drops rows past the current page rather
+    // than merely hiding them, footer or not.
+    expect(screen.getByText('row-30')).toBeInTheDocument();
+  });
+
+  it('still caps an ordinary client-mode grid (no hideFooter) at the 25-row default', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-no-hidefooter"
+        rows={manyRows}
+        columns={columns}
+        disableVirtualization
+      />
+    );
+    expect(screen.queryByText('row-30')).not.toBeInTheDocument();
+    expect(screen.getByText('row-24')).toBeInTheDocument();
+  });
+
+  it('lets a hideFooter caller still supply its own initialState', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-hidefooter-initial-state"
+        rows={manyRows}
+        columns={columns}
+        hideFooter
+        disableVirtualization
+        initialState={{ pagination: { paginationModel: { page: 0, pageSize: 5 } } }}
+      />
+    );
+    expect(screen.getByText('row-4')).toBeInTheDocument();
+    expect(screen.queryByText('row-5')).not.toBeInTheDocument();
+  });
+
+  it('does not disturb the existing server-mode branch of the same guard', () => {
+    render(
+      <DataTable
+        storageKey="test-grid-hidefooter-server"
+        rows={rows}
+        columns={columns}
+        paginationMode="server"
+        rowCount={317}
+        hideFooter
+        initialState={{ pagination: { paginationModel: { page: 0, pageSize: 50 } } }}
+      />
+    );
+    // Server mode already skipped the client default before this fix — a
+    // server-mode caller's own initialState must keep working unchanged
+    // whether or not it also passes hideFooter.
+    expect(screen.getByText('alpha')).toBeInTheDocument();
+  });
+});
+
+describe('empty-state overlay: DataTable supplies no autoHeight default', () => {
+  // A wrapper-level default that flipped `autoHeight` on whenever `rows` was
+  // empty was tried and reverted (whole-branch review finding 2): it did fix
+  // the noRows overlay on the eight pages with no bounded ancestor height
+  // (confirmed in a real browser — the overlay's bounding rect was 0x0 on
+  // `/pir-actions?overdue=true` before that fix, real and painted after),
+  // but MUI's `.MuiDataGrid-autoHeight { height: auto }` rule (see
+  // GridRootStyles.js) also overrides a FIXED-height wrapper the ~15 other
+  // grids sit in, the moment `rows` is `[]` — which is every one of them on
+  // every page load, before the first fetch resolves. Those grids' empty
+  // message was already visible (their viewport height was never 0), so the
+  // wrapper-level flip degraded them for no gain. DataTable now leaves
+  // `autoHeight` entirely up to the caller; the eight affected pages
+  // (BookingList, EnvironmentList, SystemCatalog, EnvironmentRequestList,
+  // PirActionList, DecommissionWorklist, EscalationWorklist,
+  // InfrastructureComponentList) pass it themselves, unconditionally, since
+  // it is a no-op for a populated grid on those specific pages (see
+  // DataTable.tsx's comment on `autoHeight` for why).
+  //
+  // jsdom lays out nothing (every element reports a zero bounding rect
+  // regardless of CSS), so no assertion here can observe actual pixel
+  // height. What CAN be observed in jsdom is which code path MUI took: an
+  // `autoHeight` grid stamps its root with the `MuiDataGrid-autoHeight`
+  // class (see GridRootStyles.js's `&.${gridClasses.autoHeight}` rule) and a
+  // non-`autoHeight` grid does not.
+  it('does not switch the grid onto the autoHeight code path just because rows is empty', () => {
+    const { container } = render(
+      <DataTable
+        storageKey="test-grid-empty-no-default"
+        rows={[]}
+        columns={columns}
+        emptyMessage="No rows match these filters."
+      />
+    );
+    expect(container.querySelector('.MuiDataGrid-root')).not.toHaveClass(
+      'MuiDataGrid-autoHeight'
+    );
+  });
+
+  // The mechanism a caller-supplied `autoHeight` relies on to get the empty
+  // message the room it needs — proven correct here so the eight pages that
+  // now pass it explicitly can trust the same code path BuildList already
+  // used before this branch.
+  it('gives the noRows overlay room to render when a caller supplies autoHeight itself', () => {
+    const { container } = render(
+      <DataTable
+        storageKey="test-grid-empty-caller-autoheight"
+        rows={[]}
+        columns={columns}
+        autoHeight
+        emptyMessage="No rows match these filters."
+      />
+    );
+    expect(screen.getByText('No rows match these filters.')).toBeInTheDocument();
+    expect(container.querySelector('.MuiDataGrid-root')).toHaveClass('MuiDataGrid-autoHeight');
+  });
+
+  // Regression guard: a populated grid must stay off the autoHeight code
+  // path with no explicit prop, empty rows or not.
+  it('leaves a populated grid off the autoHeight code path', () => {
+    const { container } = render(
+      <DataTable storageKey="test-grid-populated" rows={rows} columns={columns} />
+    );
+    expect(container.querySelector('.MuiDataGrid-root')).not.toHaveClass('MuiDataGrid-autoHeight');
+  });
+
+  // An explicit `autoHeight={false}` must still be honoured with no rows —
+  // DataTable must never force autoHeight on regardless of what a caller
+  // asks for.
+  it('respects an explicit autoHeight={false} with no rows', () => {
+    const { container } = render(
+      <DataTable
+        storageKey="test-grid-empty-override"
+        rows={[]}
+        columns={columns}
+        autoHeight={false}
+      />
+    );
+    expect(container.querySelector('.MuiDataGrid-root')).not.toHaveClass('MuiDataGrid-autoHeight');
+  });
+});
+
+describe('persisted column visibility', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('re-reads storage when the key changes after mount', () => {
+    // The saved model for user 7. A page whose `user` arrives from an async
+    // auth fetch mounts with userId undefined and re-renders with 7; reading
+    // storage only in the useState initialiser loses the preference silently.
+    localStorage.setItem('grid-7', JSON.stringify({ b: false }));
+    const rereadColumns = [
+      { field: 'a', headerName: 'A' },
+      { field: 'b', headerName: 'B' },
+    ];
+    const rereadRows = [{ id: 1, a: 'one', b: 'two' }];
+
+    // `disableVirtualization` is load-bearing, not decoration: the real
+    // DataGrid virtualizes columns by container width and jsdom reports zero
+    // width, so column `b`'s cells might never mount at all — and this test
+    // would then pass for the wrong reason, asserting the absence of
+    // something that was never rendered. It passes through `{...rest}`.
+    const { rerender } = render(
+      <DataTable
+        storageKey="grid"
+        rows={rereadRows}
+        columns={rereadColumns}
+        showToolbar={false}
+        disableVirtualization
+      />
+    );
+    expect(screen.getByText('two')).toBeInTheDocument();
+
+    rerender(
+      <DataTable
+        storageKey="grid"
+        userId={7}
+        rows={rereadRows}
+        columns={rereadColumns}
+        showToolbar={false}
+        disableVirtualization
+      />
+    );
+    expect(screen.queryByText('two')).not.toBeInTheDocument();
+    expect(screen.getByText('one')).toBeInTheDocument();
+  });
+
+  it('applies pruneStoredVisibility to what it reads, and only to that', () => {
+    localStorage.setItem('grid-prune', JSON.stringify({ a: false, gone: false }));
+    const pruneColumns = [{ field: 'a', headerName: 'A' }];
+    const pruneRows = [{ id: 1, a: 'one' }];
+    // Deliberately FLIPS `a` from hidden to visible, and drops the stale
+    // `gone` key. If the pruned *return value* were computed and then
+    // discarded (state set from the raw stored model instead), `a` would
+    // stay hidden and 'one' would not render — so this is the case that
+    // tells "applied" apart from "computed but ignored", not just whether
+    // `prune` was called.
+    const prune = vi.fn((stored: Record<string, boolean>) =>
+      Object.fromEntries(
+        Object.entries({ ...stored, a: true }).filter(([f]) => f === 'a')
+      )
+    );
+
+    render(
+      <DataTable
+        storageKey="grid-prune"
+        rows={pruneRows}
+        columns={pruneColumns}
+        showToolbar={false}
+        disableVirtualization
+        pruneStoredVisibility={prune}
+      />
+    );
+
+    expect(prune).toHaveBeenCalledWith({ a: false, gone: false });
+    // Only true if the model returned by `prune` — not the raw stored one —
+    // was actually applied to state.
+    expect(screen.getByText('one')).toBeInTheDocument();
+  });
+});
+
+describe('writes to the exact key a migrated page depends on', () => {
+  beforeEach(() => localStorage.clear());
+
+  // Task 7 moved BookingList/EnvironmentList/SystemCatalog off their own
+  // hand-rolled loadColumnModel/saveColumnModel pair (which wrote
+  // `<name>-columns-${userId ?? 'guest'}`) and onto this component, passing
+  // e.g. storageKey="bookings-list-columns" and userId={user?.id ?? 'guest'}
+  // specifically so DataTable's own key composition — `${storageKey}-${userId}`
+  // — lands on that exact pre-existing entry. `storageKeys.test.ts` pins the
+  // page-side half of that contract (the literal `storageKey` string and the
+  // `userId={user?.id ?? 'guest'}` companion appear in the page's source) but
+  // cannot see how DataTable itself turns those two props into a key. This
+  // renders a REAL DataGrid (no mock), performs an actual column-visibility
+  // toggle through the toolbar, and reads back what landed in localStorage —
+  // so it fails if `fullKey` were ever composed differently (order swapped,
+  // a separator changed, `userId` silently dropped), even though every
+  // page's own JSX would still look correct.
+  it('persists a real column-visibility change under `${storageKey}-${userId}`', async () => {
+    const user = userEvent.setup();
+    render(
+      <DataTable
+        storageKey="bookings-list-columns"
+        userId={7}
+        rows={[{ id: 1, name: 'alpha' }]}
+        columns={[{ field: 'name', headerName: 'Name' }]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /columns/i }));
+    const nameToggle = await screen.findByRole('checkbox', { name: 'Name' });
+    await user.click(nameToggle);
+
+    // The exact historical key `bookings-list-columns-7` — not
+    // `bookings-list-columns` (userId dropped) and not `7-bookings-list-columns`
+    // (order swapped).
+    expect(localStorage.getItem('bookings-list-columns-7')).toBe(
+      JSON.stringify({ name: false })
+    );
+    expect(localStorage.getItem('bookings-list-columns')).toBeNull();
   });
 });

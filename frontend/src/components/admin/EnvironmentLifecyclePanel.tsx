@@ -14,8 +14,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 
 import type { AppDispatch, RootState } from '../../store';
 import {
@@ -295,7 +295,9 @@ export default function EnvironmentLifecyclePanel() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-environment-lifecycle-steps"
+        emptyMessage="No lifecycle steps configured yet."
         rows={adminSteps}
         columns={columns}
         loading={adminStepsLoading}

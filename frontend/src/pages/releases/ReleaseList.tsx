@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -55,7 +56,7 @@ export function apiProjectId(urlValue: string | number | undefined): number | un
 export default function ReleaseList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { list, total, backlog, loading, listLoading } = useSelector((s: RootState) => s.release);
+  const { list, total, backlog, loading, listLoading, error } = useSelector((s: RootState) => s.release);
   const currentUserId = useSelector((s: RootState) => s.auth.user?.id);
 
   const [tab, setTab] = useState(0);
@@ -173,6 +174,12 @@ export default function ReleaseList() {
         <Tab label="Releases" />
         <Tab label="Backlog" />
       </Tabs>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {tab === 0 && (
         <>
@@ -298,7 +305,12 @@ export default function ReleaseList() {
               rows={list}
               columns={releaseColumns}
               loading={listLoading}
-              emptyMessage="No releases yet"
+              // The list is empty for one of two very different reasons — no
+              // releases yet, or the fetch never came back at all. Naming
+              // the former when it's actually the latter states as fact
+              // something the app does not know; the Alert above already
+              // says what went wrong.
+              emptyMessage={error ? 'Unable to load releases.' : 'No releases yet'}
               onRowClick={(params) => navigate(`/releases/${params.row.id}`)}
               paginationMode="server"
               sortingMode="server"

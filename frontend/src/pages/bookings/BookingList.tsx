@@ -15,13 +15,12 @@ import {
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import {
-  DataGrid,
   GridColDef,
-  GridColumnVisibilityModel,
   GridRenderCellParams,
   GridValueGetterParams,
 } from '@mui/x-data-grid';
 import { format } from 'date-fns';
+import DataTable from '../../components/DataTable';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
@@ -65,29 +64,13 @@ const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | 'error' 
   closed: 'info',
 };
 
-// --- Column visibility localStorage ------------------------------------------
+// --- Custom-field column namespacing -----------------------------------------
 
 // Custom-field columns are namespaced under this prefix (see
 // buildCustomFieldColumns below) so a tenant-defined field_key can never
 // collide with a static column's `field` — see the module-level comment
 // there for why that matters.
 const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
-
-function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `bookings-list-columns-${userId ?? 'guest'}`;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return {};
-    return JSON.parse(raw) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `bookings-list-columns-${userId ?? 'guest'}`;
-  localStorage.setItem(key, JSON.stringify(model));
-}
 
 // --- Project filter -----------------------------------------------------------
 
@@ -447,7 +430,7 @@ export function groupDivergenceWarning(
 // `field` with the static column of the same name. MUI keys its column lookup
 // by `field`, so two entries sharing one become a single column: duplicate
 // headers, and toggling visibility on one silently hides the other, which
-// `saveColumnModel` above then persists across reloads. EnvironmentList
+// DataTable's own persistence then saves across reloads. EnvironmentList
 // shipped exactly this bug when a static `owner` column met the demo tenant's
 // `owner` custom field.
 //
@@ -517,9 +500,6 @@ export default function BookingList() {
   });
 
   const [formOpen, setFormOpen] = useState(false);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
-    () => loadColumnModel(user?.id)
-  );
 
   // Kebab menu state: tracks which row's menu is open and the anchor element
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; rowId: number } | null>(null);
@@ -575,13 +555,6 @@ export default function BookingList() {
     } catch (err: unknown) {
       setTransitionError(formatApiError(err, 'Transition failed'));
     }
-  };
-
-  // --- Column visibility ---
-
-  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
-    setColumnVisibilityModel(model);
-    saveColumnModel(user?.id, model);
   };
 
   // --- Columns ---
@@ -765,12 +738,20 @@ export default function BookingList() {
       )}
 
       {/* DataGrid */}
-      <DataGrid
+      <DataTable
+        storageKey="bookings-list-columns"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
+        userId={user?.id ?? 'guest'}
+        emptyMessage="No bookings match these filters."
         rows={bookings}
         columns={columns}
         loading={isInitialLoading}
-        columnVisibilityModel={columnVisibilityModel}
-        onColumnVisibilityModelChange={handleColumnVisibilityChange}
         rowCount={total}
         paginationMode="server"
         sortingMode="server"
@@ -779,8 +760,8 @@ export default function BookingList() {
         // own `filterable` — not on whether a toolbar is rendered — so
         // without it every header's menu offers a filter that would
         // silently filter the loaded page while the footer keeps showing
-        // the true server `rowCount`. See DataTable.tsx's server-mode
-        // default for the same guard.
+        // the true server `rowCount`. DataTable defaults this on in server
+        // mode; kept explicit because `{...rest}` lets a caller override it.
         disableColumnFilter
         paginationModel={grid.paginationModel}
         onPaginationModelChange={grid.onPaginationModelChange}

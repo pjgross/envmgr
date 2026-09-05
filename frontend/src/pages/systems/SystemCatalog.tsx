@@ -17,9 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import {
-  DataGrid,
   GridColDef,
-  GridColumnVisibilityModel,
   GridRenderCellParams,
   GridValueGetterParams,
 } from '@mui/x-data-grid';
@@ -29,6 +27,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
 
+import DataTable from '../../components/DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchSystems, createSystem, updateSystem, deleteSystem } from '../../store/systemSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
@@ -52,26 +51,6 @@ const emptyForm: SystemFormValues = { name: '', description: '', github_reposito
 // collide with a static column's `field` — see the module-level comment
 // there for why that matters.
 const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
-
-function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `systems-list-columns-${userId ?? 'guest'}`;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return {};
-    return JSON.parse(raw) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `systems-list-columns-${userId ?? 'guest'}`;
-  try {
-    localStorage.setItem(key, JSON.stringify(model));
-  } catch {
-    // quota exceeded or storage unavailable — silently skip persistence
-  }
-}
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "systems"): `name` ALONE. `description` and `github_repository_url` are
@@ -154,9 +133,10 @@ export const systemColumns: GridColDef<SystemResponse>[] = [
 // and without the prefix that GridColDef would share its `field` with the
 // static Description column. MUI keys its column lookup by `field`, so two
 // entries sharing one become a single column: duplicate headers, and toggling
-// visibility on one silently hides the other, which `saveColumnModel` above
-// then persists across reloads. EnvironmentList shipped exactly this bug when
-// a static `owner` column met the demo tenant's `owner` custom field.
+// visibility on one silently hides the other, which DataTable's own
+// persistence then saves across reloads. EnvironmentList shipped exactly
+// this bug when a static `owner` column met the demo tenant's `owner`
+// custom field.
 //
 // The prefix is a grid-column id only: `custom_fields` on the row is still
 // keyed by the tenant's own `field_key`, so the valueGetter reads the raw key.
@@ -208,9 +188,6 @@ export default function SystemCatalog() {
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   const user = useSelector((state: RootState) => state.auth.user);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
-    () => loadColumnModel(user?.id)
-  );
 
   useEffect(() => {
     dispatch(fetchDefinitions('system'));
@@ -247,12 +224,18 @@ export default function SystemCatalog() {
       renderCell: (params: GridRenderCellParams<SystemResponse>) => (
         <Box onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
+            <IconButton size="small" aria-label="Edit" sx={{ p: 1 }} onClick={() => openEdit(params.row)}>
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+            <IconButton
+              size="small"
+              color="error"
+              aria-label="Delete"
+              sx={{ p: 1 }}
+              onClick={() => setDeleteTarget(params.row)}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -261,14 +244,6 @@ export default function SystemCatalog() {
     };
     return [...staticCols, ...buildCustomFieldColumns(customFieldDefs), actionsCol];
   }, [customFieldDefs, openEdit]);
-
-  const handleColumnVisibilityChange = useCallback(
-    (model: GridColumnVisibilityModel) => {
-      setColumnVisibilityModel(model);
-      saveColumnModel(user?.id, model);
-    },
-    [user?.id]
-  );
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -352,13 +327,21 @@ export default function SystemCatalog() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="systems-list-columns"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
+        userId={user?.id ?? 'guest'}
+        emptyMessage="No systems match these filters."
         rows={systems}
         columns={columns}
         loading={listLoading && systems.length === 0}
         onRowClick={(params) => navigate(`/systems/${params.row.id}`)}
-        columnVisibilityModel={columnVisibilityModel}
-        onColumnVisibilityModelChange={handleColumnVisibilityChange}
         rowCount={total}
         paginationMode="server"
         sortingMode="server"
@@ -367,7 +350,8 @@ export default function SystemCatalog() {
         // own `filterable` — not on whether a toolbar is rendered — so
         // without it every header's menu offers a filter that would
         // silently filter the loaded page while the footer keeps showing
-        // the true server `rowCount`.
+        // the true server `rowCount`. DataTable defaults this on in server
+        // mode; kept explicit because `{...rest}` lets a caller override it.
         disableColumnFilter
         paginationModel={grid.paginationModel}
         onPaginationModelChange={grid.onPaginationModelChange}

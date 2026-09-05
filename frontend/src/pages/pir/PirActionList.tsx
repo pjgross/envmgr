@@ -31,7 +31,7 @@ import { useSelector } from 'react-redux';
 import {
   Alert, Box, Chip, FormControl, InputLabel, MenuItem, Select, Stack, Typography,
 } from '@mui/material';
-import { DataGrid, type GridColDef } from '@mui/x-data-grid';
+import { type GridColDef } from '@mui/x-data-grid';
 import { Link as RouterLink } from 'react-router-dom';
 
 import type { RootState } from '../../store';
@@ -40,6 +40,7 @@ import { pirService } from '../../services/pirService';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { PirActionRow, PirActionStatus } from '../../types/pir';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 const STATUS_LABELS: Record<PirActionStatus, string> = {
   open: 'Open',
@@ -277,7 +278,16 @@ export default function PirActionList() {
 
       {loadError && <Alert severity="error" sx={{ mb: 2 }}>{loadError}</Alert>}
 
-      <DataGrid
+      <DataTable
+        storageKey="pir-actions-list"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
+        emptyMessage="No PIR actions match these filters."
         rows={rows}
         columns={columns}
         getRowHeight={() => 'auto'}

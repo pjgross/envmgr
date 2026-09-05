@@ -1,7 +1,7 @@
 /** RaidRollupTab — enterprise-wide RAID aggregation across member releases. */
 import { useEffect, useState } from 'react';
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
-import { DataGrid, GridColDef } from '@mui/x-data-grid';
+import { GridColDef } from '@mui/x-data-grid';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../../store';
 import { fetchRaidConfig } from '../../../store/raidSlice';
@@ -10,6 +10,7 @@ import type { RaidRollupResponse, RaidRag } from '../../../types/raid';
 import { RAID_TYPE_LABELS } from '../../../types/raid';
 import type { ReleaseResponse } from '../../../types/release';
 import { RAID_TYPES, ragChipSx } from '../../../components/releases/raid/raidConstants';
+import DataTable from '../../../components/DataTable';
 
 interface Props {
   release: ReleaseResponse;
@@ -94,7 +95,9 @@ export function RaidRollupTab({ release }: Props) {
       <Box>
         <Typography variant="subtitle2" gutterBottom>Top risks &amp; issues by severity</Typography>
         <Paper>
-          <DataGrid
+          <DataTable
+            storageKey="enterprise-raid-rollup"
+            emptyMessage="No risks across this enterprise release."
             rows={rollup.top_risks.map((r, idx) => ({ id: `${r.release_id}-${r.ref_code}-${idx}`, ...r }))}
             columns={cols}
             autoHeight

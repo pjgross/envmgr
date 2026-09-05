@@ -56,7 +56,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid, type GridColDef } from '@mui/x-data-grid';
+import { type GridColDef } from '@mui/x-data-grid';
 
 import type { RootState } from '../../store';
 import { contentionService } from '../../services/contentionService';
@@ -64,6 +64,7 @@ import { formatApiError } from '../../services/apiError';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { Escalation, EscalationState } from '../../types/contention';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 const STATE_CHIP: Record<EscalationState, { label: string; color: 'info' | 'success' | 'warning' }> = {
   open: { label: 'Open', color: 'info' },
@@ -500,7 +501,16 @@ export default function EscalationWorklist() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="contentions-list"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
+        emptyMessage="No contentions match these filters."
         rows={rows}
         columns={columns}
         getRowHeight={() => 'auto'}

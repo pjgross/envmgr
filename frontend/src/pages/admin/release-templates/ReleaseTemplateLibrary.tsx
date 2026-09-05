@@ -20,7 +20,6 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import { AppDispatch, RootState } from '../../../store';
 import {
@@ -33,6 +32,7 @@ import { useSnackbar } from '../../../hooks/useSnackbar';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { toIsoDatetime } from '../../../utils/dates';
 import PageHeader from '../../../components/layout/PageHeader';
+import DataTable from '../../../components/DataTable';
 
 export default function ReleaseTemplateLibrary() {
   const dispatch = useDispatch<AppDispatch>();
@@ -108,6 +108,8 @@ export default function ReleaseTemplateLibrary() {
           <Tooltip title="Edit template">
             <IconButton
               size="small"
+              aria-label="Edit template"
+              sx={{ p: 1 }}
               onClick={() => navigate(`/admin/releases/templates/${params.row.id}`)}
             >
               <EditIcon fontSize="small" />
@@ -117,6 +119,8 @@ export default function ReleaseTemplateLibrary() {
             <IconButton
               size="small"
               color="primary"
+              aria-label="Create release from this template"
+              sx={{ p: 1 }}
               onClick={() => {
                 setInstantiateTarget(params.row);
                 setReleaseName('');
@@ -130,6 +134,8 @@ export default function ReleaseTemplateLibrary() {
             <IconButton
               size="small"
               color="error"
+              aria-label="Delete template"
+              sx={{ p: 1 }}
               onClick={() => handleDelete(params.row)}
             >
               <DeleteIcon fontSize="small" />
@@ -155,7 +161,9 @@ export default function ReleaseTemplateLibrary() {
         }
       />
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-release-templates"
+        emptyMessage="No release templates yet."
         rows={templates}
         columns={columns}
         loading={loading}

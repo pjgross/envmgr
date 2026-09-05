@@ -10,7 +10,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Box, Button, Chip } from '@mui/material';
-import { DataGrid, type GridColDef } from '@mui/x-data-grid';
+import { type GridColDef } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 
 import type { AppDispatch, RootState } from '../../store';
@@ -18,6 +18,7 @@ import { fetchEnvironmentRequests } from '../../store/environmentRequestSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { EnvironmentRequestResponse } from '../../types/environmentRequest';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "environment-requests" and the backend's REQUEST_SORTS): status, kind,
@@ -147,7 +148,16 @@ export default function EnvironmentRequestList() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="environment-requests-list"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
+        emptyMessage="No environment requests match these filters."
         rows={requests}
         columns={environmentRequestColumns}
         loading={loading && requests.length === 0}

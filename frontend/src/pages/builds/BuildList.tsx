@@ -1,13 +1,14 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Box, Paper, Stack, TextField } from '@mui/material';
-import { DataGrid, GridColDef, GridRowParams } from '@mui/x-data-grid';
+import { Alert, Box, Paper, Stack, TextField } from '@mui/material';
+import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchBuilds } from '../../store/buildSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import type { PipelineStep } from '../../types/build';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 function latestStepSummary(steps: PipelineStep[]): string {
   if (steps.length === 0) return '—';
@@ -44,7 +45,7 @@ export const buildColumns: GridColDef[] = [
 export default function BuildList() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { items, total, listLoading } = useSelector((s: RootState) => s.build);
+  const { items, total, listLoading, error } = useSelector((s: RootState) => s.build);
 
   const grid = useServerGrid({
     endpoint: 'builds',
@@ -114,8 +115,21 @@ export default function BuildList() {
         </Stack>
       </Paper>
 
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
       <Paper variant="outlined">
-        <DataGrid
+        <DataTable
+          storageKey="builds-list"
+          // The list is empty for one of two very different reasons — no
+          // rows matched, or the fetch never came back at all. Naming the
+          // filters here when it's actually the latter states as fact
+          // something the app does not know; the Alert above already says
+          // what went wrong.
+          emptyMessage={error ? 'Unable to load builds.' : 'No builds match these filters.'}
           rows={rows}
           columns={buildColumns}
           autoHeight

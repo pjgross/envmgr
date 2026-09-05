@@ -31,8 +31,8 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
+import DataTable from '../DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import {
   fetchBookingTypes,
@@ -572,7 +572,9 @@ export default function LifecycleTemplatesPanel({
         </Button>
       </Box>
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-lifecycle-templates"
+        emptyMessage="No lifecycle templates configured yet."
         rows={templates}
         columns={columns}
         loading={loading}
@@ -717,7 +719,12 @@ export default function LifecycleTemplatesPanel({
                     label="Counts as failure"
                   />
                 )}
-                <IconButton size="small" onClick={() => removeState(i)}>
+                <IconButton
+                  size="small"
+                  aria-label="Remove state"
+                  sx={{ p: 1 }}
+                  onClick={() => removeState(i)}
+                >
                   <DeleteIcon fontSize="small" />
                 </IconButton>
               </Box>
@@ -792,7 +799,12 @@ export default function LifecycleTemplatesPanel({
                     sx={{ width: 180 }}
                     placeholder="e.g. Submit"
                   />
-                  <IconButton size="small" onClick={() => removeTransition(i)}>
+                  <IconButton
+                    size="small"
+                    aria-label="Remove transition"
+                    sx={{ p: 1 }}
+                    onClick={() => removeTransition(i)}
+                  >
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Box>

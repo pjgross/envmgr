@@ -13,7 +13,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
 
 import type { AppDispatch, RootState } from '../../store';
@@ -25,6 +24,7 @@ import {
 } from '../../store/userGroupSlice';
 import type { UserGroupResponse } from '../../types/userGroup';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 // This grid is client-side: no sortingMode="server" or paginationMode="server"
 // below, so every click sorts the rows already in the browser and none of it
@@ -209,7 +209,9 @@ export default function UserGroups() {
         }
       />
 
-      <DataGrid
+      <DataTable
+        storageKey="admin-user-groups"
+        emptyMessage="No user groups yet."
         rows={groups}
         columns={columns}
         loading={loading}
@@ -219,6 +221,8 @@ export default function UserGroups() {
         // userGroupColumns above); without this a raw DataGrid still offers a
         // Filter menu on them that would silently filter only the fetched
         // window instead of the server-paged set. docs/pagination.md.
+        // DataTable defaults this on for paginationMode="server" only, and
+        // this grid is client-mode over a capped fetch — so it stays explicit.
         disableColumnFilter
         pageSizeOptions={[10, 25]}
         onRowClick={(params) => navigate(`/admin/user-groups/${params.row.id}`)}

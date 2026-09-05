@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider } from 'react-redux';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -121,5 +121,32 @@ describe('LifecycleTemplatesPanel', () => {
       ).toBeInTheDocument()
     );
     expect(screen.queryByText(/request failed with status code/i)).not.toBeInTheDocument();
+  });
+
+  // Neither of these two icon buttons is wrapped in a Tooltip at all — unlike
+  // the grid-row Edit/Delete pairs elsewhere in this PR, there is no MUI
+  // fallback name here. Before this PR neither button had an accessible name.
+  it('names the state and transition remove buttons in the template editor for a screen reader', async () => {
+    renderPanel();
+
+    await userEvent.click(screen.getByRole('button', { name: /new template/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    // Two states with real keys — Add Transition stays disabled below two.
+    await userEvent.click(within(dialog).getByRole('button', { name: /add state/i }));
+    await userEvent.click(within(dialog).getByRole('button', { name: /add state/i }));
+    const keyFields = within(dialog).getAllByLabelText('Key');
+    await userEvent.type(keyFields[0], 'draft');
+    await userEvent.type(keyFields[1], 'done');
+
+    expect(
+      within(dialog).getAllByRole('button', { name: /^remove state$/i })
+    ).toHaveLength(2);
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /add transition/i }));
+
+    expect(
+      within(dialog).getByRole('button', { name: /^remove transition$/i })
+    ).toBeInTheDocument();
   });
 });

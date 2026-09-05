@@ -19,7 +19,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { DataGrid, GridColDef, GridRenderCellParams, GridValueGetterParams } from '@mui/x-data-grid';
+import { GridColDef, GridRenderCellParams, GridValueGetterParams } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -43,6 +43,7 @@ import {
   type InfrastructureComponentUpdate,
 } from '../../types/infrastructureComponent';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 interface FormValues {
   name: string;
@@ -242,12 +243,18 @@ export default function InfrastructureComponentList() {
       renderCell: (params: GridRenderCellParams<InfrastructureComponentResponse>) => (
         <Box onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
+            <IconButton size="small" aria-label="Edit" sx={{ p: 1 }} onClick={() => openEdit(params.row)}>
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
           <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => setDeleteTarget(params.row)}>
+            <IconButton
+              size="small"
+              color="error"
+              aria-label="Delete"
+              sx={{ p: 1 }}
+              onClick={() => setDeleteTarget(params.row)}
+            >
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -304,7 +311,16 @@ export default function InfrastructureComponentList() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="infrastructure-components-list"
+        // No ancestor here has a definite height, so a populated grid
+        // already sizes itself to its content with no `autoHeight` set —
+        // passing it explicitly changes nothing for that case. It is load-
+        // bearing for the EMPTY case: without it, MUI collapses the noRows
+        // overlay to a zero-height box (see DataTable.tsx's comment on
+        // `autoHeight`).
+        autoHeight
+        emptyMessage="No hosts match these filters."
         rows={components}
         columns={columns}
         loading={listLoading && components.length === 0}

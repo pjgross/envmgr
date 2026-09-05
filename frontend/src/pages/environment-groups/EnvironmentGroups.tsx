@@ -12,7 +12,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
 
 import type { AppDispatch, RootState } from '../../store';
@@ -24,6 +23,7 @@ import {
 } from '../../store/environmentGroupSlice';
 import type { EnvironmentGroupResponse } from '../../types/environmentGroup';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 // Sortable fields (whitelist-backed, see ENVIRONMENT_GROUP_SORTS): `name` and
 // `created_at` ONLY. `member_count` is a correlated subquery — not backed by a
@@ -196,7 +196,9 @@ export default function EnvironmentGroups() {
         }
       />
 
-      <DataGrid
+      <DataTable
+        storageKey="environment-groups-list"
+        emptyMessage="No environment groups yet."
         rows={groups}
         columns={columns}
         loading={loading}
@@ -206,6 +208,8 @@ export default function EnvironmentGroups() {
         // environmentGroupColumns above); without this a raw DataGrid still
         // offers a Filter menu on them that would silently filter only the
         // fetched window instead of the server-paged set. docs/pagination.md.
+        // DataTable defaults this on for paginationMode="server" only, and
+        // this grid is client-mode over a capped fetch — so it stays explicit.
         disableColumnFilter
         pageSizeOptions={[10, 25]}
         onRowClick={(params) => navigate(`/environment-groups/${params.row.id}`)}
