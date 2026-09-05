@@ -89,6 +89,47 @@ class GoNoGoConditionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GoNoGoConditionClose(BaseModel):
+    """PATCH body for `/go-no-go-conditions/{id}`. `met=False` reopens a
+    condition marked met in error — the same clear-the-fields shape
+    `go_no_go_service.close_condition` implements."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    met: bool
+
+
+class GoNoGoPerspectiveCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = None
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class GoNoGoPerspectiveUpdate(BaseModel):
+    # Optional fields + exclude_unset in the service: an omitted key means
+    # "leave alone", same rule EnvironmentUpdate/GateTypeUpdate follow.
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class GoNoGoPerspectiveRead(BaseModel):
+    id: int
+    tenant_id: int
+    name: str
+    description: Optional[str]
+    sort_order: int
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class GoNoGoDecisionRead(BaseModel):
     """An append-only decision, read back with its children and resolved
     names. `unmet_condition_count` is computed by the route layer from

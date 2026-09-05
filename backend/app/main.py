@@ -262,3 +262,19 @@ app.include_router(
     prefix="/api/v1/tenant",
     tags=["Rollback policy"],
 )
+
+from app.api.v1 import go_no_go as go_no_go_router
+
+# The `/releases/{id}/go-no-go` decision routes live on releases_router
+# (registered above). This router carries only the two things that address
+# their own id directly with no `/releases` prefix: closing a condition
+# (`/go-no-go-conditions/{id}`) and the perspective vocabulary CRUD.
+app.include_router(go_no_go_router.router, prefix="/api/v1", tags=["Go/No-Go"])
+app.include_router(
+    # Its own tag, not "Tenant Admin": reads are open to any tenant member
+    # (see app/api/v1/go_no_go.py), only POST/PATCH are admin-only — same
+    # split as rollback_policy_router and gate_types_router above.
+    go_no_go_router.perspectives_router,
+    prefix="/api/v1/tenant",
+    tags=["Go/No-Go"],
+)

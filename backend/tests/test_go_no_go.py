@@ -289,3 +289,201 @@ async def test_closing_a_condition_does_not_touch_the_decision(
 
     reread = await go_no_go_service.get_decision(db_session, decision.id, test_tenant.id)
     assert (reread.outcome, reread.rationale, list(reread.snapshot_blockers)) == before
+
+
+# ── HTTP endpoints (Task 4) ──────────────────────────────────────────────────
+#
+# Following backend/tests/test_c4_records_never_refuses.py's shape: `client` +
+# `auth_headers` (test_user is Admin in test_tenant), and the local `release`
+# fixture above — NOT the conftest `tenant`/`system` fixtures, which point at
+# a different tenant ("Phase3 Org").
+
+async def _rm_headers(client, db_session, test_tenant) -> dict:
+    """Bearer token headers for a Release Manager user in test_tenant.
+
+    No shared fixture for this role exists in conftest.py (only `member_headers`
+    for a Developer); built locally the way
+    test_booking_standard_field_permissions.py does.
+    """
+    from app.core.security import get_password_hash
+    from app.db.models.user import User
+
+    user = User(
+        tenant_id=test_tenant.id,
+        username="gonogorm",
+        email="gonogorm@test.com",
+        password_hash=get_password_hash("password123"),
+        role="Release Manager",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/auth/login", json={
+        "username": user.username,
+        "password": "password123",
+        "tenant_slug": test_tenant.slug,
+    })
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}, user
+
+
+def _decision_payload(decided_at: datetime, **overrides) -> dict:
+    payload = {
+        "outcome": "go",
+        "rationale": "All clear.",
+        "decided_at": decided_at.isoformat(),
+        "attendees": [],
+        "signoffs": [],
+        "conditions": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.asyncio
+async def test_post_go_no_go_returns_201_with_the_decision(
+    client, auth_headers, test_user, release
+):
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc)),
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["outcome"] == "go"
+    assert body["release_id"] == release.id
+    assert body["chaired_by_username"] == test_user.username
+    assert body["signoffs"] == []
+    assert body["conditions"] == []
+    assert body["unmet_condition_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_go_no_go_returns_history_newest_first_with_total_count(
+    client, auth_headers, release
+):
+    earlier = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+    later = datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc)
+    for when, rationale in ((earlier, "First meeting."), (later, "Second meeting.")):
+        resp = await client.post(
+            f"/api/v1/releases/{release.id}/go-no-go",
+            json=_decision_payload(when, rationale=rationale),
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+
+    resp = await client.get(
+        f"/api/v1/releases/{release.id}/go-no-go", headers=auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["X-Total-Count"] == "2"
+    body = resp.json()
+    assert [d["rationale"] for d in body] == ["Second meeting.", "First meeting."]
+
+
+@pytest.mark.asyncio
+async def test_get_go_no_go_with_an_unknown_sort_by_is_422_not_a_silent_fallback(
+    client, auth_headers, release
+):
+    resp = await client.get(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        params={"sort_by": "nonsense"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_recording_a_decision_is_admin_or_release_manager_only(
+    client, auth_headers, member_headers, db_session, test_tenant, release
+):
+    """A Developer gets 403; Admin and Release Manager both succeed —
+    `require_role(Role.RELEASE_MANAGER)` already grants an Admin bypass."""
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc)),
+        headers=member_headers,
+    )
+    assert resp.status_code == 403
+
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(
+            datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc), rationale="Admin recorded this."
+        ),
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    rm_headers, _ = await _rm_headers(client, db_session, test_tenant)
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(
+            datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc), rationale="RM recorded this."
+        ),
+        headers=rm_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+
+@pytest.mark.asyncio
+async def test_patch_go_no_go_condition_closes_it(client, auth_headers, test_user, release):
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(
+            datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            outcome="conditional_go",
+            rationale="Go once the smoke pack passes.",
+            conditions=[{"text": "Smoke pack green in UAT", "owner_user_id": test_user.id}],
+        ),
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    condition_id = resp.json()["conditions"][0]["id"]
+
+    resp = await client.patch(
+        f"/api/v1/go-no-go-conditions/{condition_id}",
+        json={"met": True},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["met_at"] is not None
+    assert body["met_by_username"] == test_user.username
+
+
+@pytest.mark.asyncio
+async def test_closing_a_condition_is_owner_or_admin_rm_only(
+    client, member_headers, auth_headers, test_user, release
+):
+    """The Developer created for `member_headers` is neither the condition's
+    owner (test_user is) nor Admin/RM, so closing it 403s; the owner (Admin
+    here, satisfying both branches) still succeeds."""
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(
+            datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            outcome="conditional_go",
+            rationale="Go once the smoke pack passes.",
+            conditions=[{"text": "Smoke pack green in UAT", "owner_user_id": test_user.id}],
+        ),
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    condition_id = resp.json()["conditions"][0]["id"]
+
+    resp = await client.patch(
+        f"/api/v1/go-no-go-conditions/{condition_id}",
+        json={"met": True},
+        headers=member_headers,
+    )
+    assert resp.status_code == 403
+
+    resp = await client.patch(
+        f"/api/v1/go-no-go-conditions/{condition_id}",
+        json={"met": True},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text

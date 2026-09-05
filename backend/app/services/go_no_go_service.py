@@ -20,10 +20,14 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.go_no_go import GoNoGoDecisionCreate
+from app.api.v1.schemas.go_no_go import (
+    GoNoGoDecisionCreate,
+    GoNoGoPerspectiveCreate,
+    GoNoGoPerspectiveUpdate,
+)
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.go_no_go import (
     GoNoGoCondition,
@@ -334,3 +338,121 @@ async def usernames_for(db: AsyncSession, user_ids) -> dict[int, str]:
         await db.execute(select(User.id, User.username).where(User.id.in_(ids)))
     ).all()
     return {uid: username for uid, username in rows}
+
+
+async def get_condition(
+    db: AsyncSession, condition_id: int, tenant_id: int
+) -> GoNoGoCondition:
+    """Tenant-scoped load, via the parent decision's `tenant_id` — the same
+    join `close_condition` uses, since `GoNoGoCondition` carries no
+    `tenant_id` of its own. Exposed so the route layer can load-then-check
+    (`assert_may_close_condition`) before mutating, the shape
+    `contention_service.get_escalation_by_id` + `assert_may_decide`
+    established: a cross-tenant id 404s before the owner-or-admin question
+    is ever asked, rather than a 403 that would confirm the record exists.
+    """
+    condition = (
+        await db.execute(
+            select(GoNoGoCondition)
+            .join(GoNoGoDecision, GoNoGoDecision.id == GoNoGoCondition.decision_id)
+            .where(
+                GoNoGoCondition.id == condition_id,
+                GoNoGoDecision.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if condition is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Condition not found")
+    return condition
+
+
+def assert_may_close_condition(condition: GoNoGoCondition, current_user: User) -> None:
+    """The condition's OWNER, or Admin/Release Manager — §5's table.
+
+    Mirrors `contention_service.assert_may_decide`'s owner-or-admin shape,
+    widened to a second role because that is what the spec names here (a
+    contention has no equivalent "Release Manager may always decide" rule).
+    A condition with no owner (`owner_user_id is None`) can only ever be
+    closed by Admin/RM — there is no "owner" branch to fall into.
+    """
+    if condition.owner_user_id is not None and current_user.id == condition.owner_user_id:
+        return
+    if current_user.is_master_admin or current_user.role in ("Admin", "Release Manager"):
+        return
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        "Only the condition's owner, or an Admin/Release Manager, may close this condition",
+    )
+
+
+# ── Perspectives (tenant-configurable vocabulary) ───────────────────────────
+#
+# Reads are open to any tenant member; writes are Admin-only — the route
+# layer enforces that via `require_tenant_admin()`, not this module. No
+# delete: retirement is `is_active=False` through the update path, the same
+# reason `GoNoGoPerspective` carries no `deleted_at` column at all.
+
+async def _assert_perspective_name_free(
+    db: AsyncSession, tenant_id: int, name: str, exclude_id: Optional[int] = None
+) -> None:
+    query = select(GoNoGoPerspective.id).where(
+        GoNoGoPerspective.tenant_id == tenant_id,
+        func.lower(GoNoGoPerspective.name) == name.lower(),
+    )
+    if exclude_id is not None:
+        query = query.where(GoNoGoPerspective.id != exclude_id)
+    if (await db.execute(query)).first() is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"A perspective named {name} already exists"
+        )
+
+
+async def list_perspectives(
+    db: AsyncSession, tenant_id: int, *, include_inactive: bool = True
+) -> list[GoNoGoPerspective]:
+    query = select(GoNoGoPerspective).where(GoNoGoPerspective.tenant_id == tenant_id)
+    if not include_inactive:
+        query = query.where(GoNoGoPerspective.is_active.is_(True))
+    query = query.order_by(GoNoGoPerspective.sort_order, GoNoGoPerspective.id)
+    return list((await db.execute(query)).scalars().all())
+
+
+async def get_perspective(
+    db: AsyncSession, perspective_id: int, tenant_id: int
+) -> GoNoGoPerspective:
+    row = (
+        await db.execute(
+            select(GoNoGoPerspective).where(
+                GoNoGoPerspective.id == perspective_id,
+                GoNoGoPerspective.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Perspective not found")
+    return row
+
+
+async def create_perspective(
+    db: AsyncSession, tenant_id: int, data: GoNoGoPerspectiveCreate
+) -> GoNoGoPerspective:
+    await _assert_perspective_name_free(db, tenant_id, data.name)
+    row = GoNoGoPerspective(tenant_id=tenant_id, **data.model_dump())
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def update_perspective(
+    db: AsyncSession, perspective_id: int, tenant_id: int, data: GoNoGoPerspectiveUpdate
+) -> GoNoGoPerspective:
+    row = await get_perspective(db, perspective_id, tenant_id)
+    fields = data.model_dump(exclude_unset=True)  # omitted key means "leave alone"
+    if "name" in fields:
+        await _assert_perspective_name_free(
+            db, tenant_id, fields["name"], exclude_id=perspective_id
+        )
+    for key, value in fields.items():
+        setattr(row, key, value)
+    await db.flush()
+    return row
