@@ -63,5 +63,10 @@
     "sortable": ["title", "status", "due_date", "created_at", "release", "owner"],
     "default": "due_date",
     "default_dir": "asc"
+  },
+  "go-no-go": {
+    "sortable": ["decided_at", "outcome"],
+    "default": "decided_at",
+    "default_dir": "desc"
   }
 }
