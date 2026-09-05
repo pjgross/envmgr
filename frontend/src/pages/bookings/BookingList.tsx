@@ -15,13 +15,12 @@ import {
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import {
-  DataGrid,
   GridColDef,
-  GridColumnVisibilityModel,
   GridRenderCellParams,
   GridValueGetterParams,
 } from '@mui/x-data-grid';
 import { format } from 'date-fns';
+import DataTable from '../../components/DataTable';
 import { AppDispatch, RootState } from '../../store';
 import { fetchBookings } from '../../store/bookingSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
@@ -72,22 +71,6 @@ const STATUS_COLORS: Record<string, 'default' | 'warning' | 'success' | 'error' 
 // collide with a static column's `field` — see the module-level comment
 // there for why that matters.
 const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
-
-function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `bookings-list-columns-${userId ?? 'guest'}`;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return {};
-    return JSON.parse(raw) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `bookings-list-columns-${userId ?? 'guest'}`;
-  localStorage.setItem(key, JSON.stringify(model));
-}
 
 // --- Project filter -----------------------------------------------------------
 
@@ -517,9 +500,6 @@ export default function BookingList() {
   });
 
   const [formOpen, setFormOpen] = useState(false);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
-    () => loadColumnModel(user?.id)
-  );
 
   // Kebab menu state: tracks which row's menu is open and the anchor element
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; rowId: number } | null>(null);
@@ -575,13 +555,6 @@ export default function BookingList() {
     } catch (err: unknown) {
       setTransitionError(formatApiError(err, 'Transition failed'));
     }
-  };
-
-  // --- Column visibility ---
-
-  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
-    setColumnVisibilityModel(model);
-    saveColumnModel(user?.id, model);
   };
 
   // --- Columns ---
@@ -765,12 +738,13 @@ export default function BookingList() {
       )}
 
       {/* DataGrid */}
-      <DataGrid
+      <DataTable
+        storageKey="bookings-list-columns"
+        userId={user?.id ?? 'guest'}
+        emptyMessage="No bookings match these filters."
         rows={bookings}
         columns={columns}
         loading={isInitialLoading}
-        columnVisibilityModel={columnVisibilityModel}
-        onColumnVisibilityModelChange={handleColumnVisibilityChange}
         rowCount={total}
         paginationMode="server"
         sortingMode="server"
@@ -779,8 +753,8 @@ export default function BookingList() {
         // own `filterable` — not on whether a toolbar is rendered — so
         // without it every header's menu offers a filter that would
         // silently filter the loaded page while the footer keeps showing
-        // the true server `rowCount`. See DataTable.tsx's server-mode
-        // default for the same guard.
+        // the true server `rowCount`. DataTable defaults this on in server
+        // mode; kept explicit because `{...rest}` lets a caller override it.
         disableColumnFilter
         paginationModel={grid.paginationModel}
         onPaginationModelChange={grid.onPaginationModelChange}

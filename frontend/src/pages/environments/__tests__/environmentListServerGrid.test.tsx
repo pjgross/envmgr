@@ -830,5 +830,15 @@ describe('EnvironmentList server-side grid', () => {
 
       expect(model).toEqual({ owner: false });
     });
+
+    it('reads the key DataTable will write, so a saved layout survives the migration', () => {
+      // The page stored preferences under `environments-list-columns-<id>`
+      // before this grid moved to DataTable. DataTable composes its key as
+      // `${storageKey}-${userId}`, so the page must pass
+      // storageKey="environments-list-columns" and userId={user?.id ?? 'guest'}
+      // — anything else silently abandons every existing user's layout.
+      localStorage.setItem('environments-list-columns-777', JSON.stringify({ status: false }));
+      expect(loadColumnModel(777, ['name', 'tier', 'owner', 'status'])).toEqual({ status: false });
+    });
   });
 });

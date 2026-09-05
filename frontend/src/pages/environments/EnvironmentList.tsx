@@ -21,7 +21,6 @@ import {
   InputLabel,
 } from '@mui/material';
 import {
-  DataGrid,
   GridColDef,
   GridColumnVisibilityModel,
   GridRenderCellParams,
@@ -32,6 +31,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 
+import DataTable from '../../components/DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import {
   fetchEnvironments,
@@ -152,6 +152,35 @@ const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
 // stays correct if a static column is ever added, renamed or removed.
 const STATIC_COLUMN_FIELDS = () => environmentColumns.map((c) => c.field as string);
 
+// The filtering half of loadColumnModel, on an already-read model. DataTable
+// reads localStorage itself and hands the parsed model here, so the rule lives
+// in one place rather than being restated on either side of the wrapper.
+// eslint-disable-next-line react-refresh/only-export-components
+export function pruneStoredColumnModel(
+  stored: GridColumnVisibilityModel,
+  knownStaticFields: readonly string[] = STATIC_COLUMN_FIELDS()
+): GridColumnVisibilityModel {
+  const known = new Set(knownStaticFields);
+  // A `cf_`-prefixed key always belongs to the custom-field namespace, so
+  // it's kept regardless of whether *this* tenant's currently-loaded
+  // definitions include it — those load asynchronously (see
+  // fetchDefinitions in the component below), and dropping a namespaced
+  // entry just because definitions haven't arrived yet on this render
+  // would silently discard a real saved preference. A non-namespaced key
+  // is kept only if it names a column that still exists today; this is
+  // what stops a stale entry surviving indefinitely once its column is
+  // gone. Note it does NOT retroactively fix an entry whose key was
+  // already reused by a *new* static column of the same name before this
+  // fix shipped (see EnvironmentList's commit message) — that key is
+  // legitimately "known" either way, so it can't be told apart from a
+  // real preference for the new column.
+  return Object.fromEntries(
+    Object.entries(stored).filter(
+      ([field]) => field.startsWith(CUSTOM_FIELD_COLUMN_PREFIX) || known.has(field)
+    )
+  );
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function loadColumnModel(
   userId: number | string | undefined,
@@ -163,36 +192,9 @@ export function loadColumnModel(
     if (!raw) return {};
     const parsed = (JSON.parse(raw) ?? {}) as Record<string, boolean>;
     if (typeof parsed !== 'object' || parsed === null) return {};
-    const known = new Set(knownStaticFields);
-    // A `cf_`-prefixed key always belongs to the custom-field namespace, so
-    // it's kept regardless of whether *this* tenant's currently-loaded
-    // definitions include it — those load asynchronously (see
-    // fetchDefinitions in the component below), and dropping a namespaced
-    // entry just because definitions haven't arrived yet on this render
-    // would silently discard a real saved preference. A non-namespaced key
-    // is kept only if it names a column that still exists today; this is
-    // what stops a stale entry surviving indefinitely once its column is
-    // gone. Note it does NOT retroactively fix an entry whose key was
-    // already reused by a *new* static column of the same name before this
-    // fix shipped (see EnvironmentList's commit message) — that key is
-    // legitimately "known" either way, so it can't be told apart from a
-    // real preference for the new column.
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        ([field]) => field.startsWith(CUSTOM_FIELD_COLUMN_PREFIX) || known.has(field)
-      )
-    );
+    return pruneStoredColumnModel(parsed as GridColumnVisibilityModel, knownStaticFields);
   } catch {
     return {};
-  }
-}
-
-function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `environments-list-columns-${userId ?? 'guest'}`;
-  try {
-    localStorage.setItem(key, JSON.stringify(model));
-  } catch {
-    // quota exceeded or storage unavailable — silently skip persistence
   }
 }
 
@@ -484,9 +486,6 @@ export default function EnvironmentList() {
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   const user = useSelector((state: RootState) => state.auth.user);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
-    () => loadColumnModel(user?.id)
-  );
 
   useEffect(() => {
     dispatch(fetchDefinitions('environment'));
@@ -542,14 +541,6 @@ export default function EnvironmentList() {
     };
     return [...staticCols, ...buildCustomFieldColumns(customFieldDefs), actionsCol];
   }, [customFieldDefs, openEdit]);
-
-  const handleColumnVisibilityChange = useCallback(
-    (model: GridColumnVisibilityModel) => {
-      setColumnVisibilityModel(model);
-      saveColumnModel(user?.id, model);
-    },
-    [user?.id]
-  );
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -810,13 +801,19 @@ export default function EnvironmentList() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="environments-list-columns"
+        userId={user?.id ?? 'guest'}
+        emptyMessage="No environments match these filters."
+        // The stored model may name a column that no longer exists — a `cf_`
+        // key is kept regardless (its tenant definitions load asynchronously),
+        // a plain key only if it still names a real column. Same rule as the
+        // exported loadColumnModel, which this reuses rather than restates.
+        pruneStoredVisibility={pruneStoredColumnModel}
         rows={environments}
         columns={columns}
         loading={listLoading && environments.length === 0}
         onRowClick={(params) => navigate(`/environments/${params.row.id}`)}
-        columnVisibilityModel={columnVisibilityModel}
-        onColumnVisibilityModelChange={handleColumnVisibilityChange}
         rowCount={total}
         paginationMode="server"
         sortingMode="server"
@@ -825,8 +822,8 @@ export default function EnvironmentList() {
         // own `filterable` — not on whether a toolbar is rendered — so
         // without it every header's menu offers a filter that would
         // silently filter the loaded page while the footer keeps showing
-        // the true server `rowCount`. See DataTable.tsx's server-mode
-        // default for the same guard.
+        // the true server `rowCount`. DataTable defaults this on in server
+        // mode; kept explicit because `{...rest}` lets a caller override it.
         disableColumnFilter
         paginationModel={grid.paginationModel}
         onPaginationModelChange={grid.onPaginationModelChange}

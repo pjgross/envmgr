@@ -17,9 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import {
-  DataGrid,
   GridColDef,
-  GridColumnVisibilityModel,
   GridRenderCellParams,
   GridValueGetterParams,
 } from '@mui/x-data-grid';
@@ -29,6 +27,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
 
+import DataTable from '../../components/DataTable';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchSystems, createSystem, updateSystem, deleteSystem } from '../../store/systemSlice';
 import { fetchDefinitions } from '../../store/customFieldSlice';
@@ -52,26 +51,6 @@ const emptyForm: SystemFormValues = { name: '', description: '', github_reposito
 // collide with a static column's `field` — see the module-level comment
 // there for why that matters.
 const CUSTOM_FIELD_COLUMN_PREFIX = 'cf_';
-
-function loadColumnModel(userId: number | string | undefined): GridColumnVisibilityModel {
-  const key = `systems-list-columns-${userId ?? 'guest'}`;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return {};
-    return JSON.parse(raw) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-function saveColumnModel(userId: number | string | undefined, model: GridColumnVisibilityModel) {
-  const key = `systems-list-columns-${userId ?? 'guest'}`;
-  try {
-    localStorage.setItem(key, JSON.stringify(model));
-  } catch {
-    // quota exceeded or storage unavailable — silently skip persistence
-  }
-}
 
 // Sortable fields (whitelist-backed, see frontend/src/constants/sortWhitelists.json
 // "systems"): `name` ALONE. `description` and `github_repository_url` are
@@ -208,9 +187,6 @@ export default function SystemCatalog() {
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   const user = useSelector((state: RootState) => state.auth.user);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>(
-    () => loadColumnModel(user?.id)
-  );
 
   useEffect(() => {
     dispatch(fetchDefinitions('system'));
@@ -261,14 +237,6 @@ export default function SystemCatalog() {
     };
     return [...staticCols, ...buildCustomFieldColumns(customFieldDefs), actionsCol];
   }, [customFieldDefs, openEdit]);
-
-  const handleColumnVisibilityChange = useCallback(
-    (model: GridColumnVisibilityModel) => {
-      setColumnVisibilityModel(model);
-      saveColumnModel(user?.id, model);
-    },
-    [user?.id]
-  );
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -352,13 +320,14 @@ export default function SystemCatalog() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="systems-list-columns"
+        userId={user?.id ?? 'guest'}
+        emptyMessage="No systems match these filters."
         rows={systems}
         columns={columns}
         loading={listLoading && systems.length === 0}
         onRowClick={(params) => navigate(`/systems/${params.row.id}`)}
-        columnVisibilityModel={columnVisibilityModel}
-        onColumnVisibilityModelChange={handleColumnVisibilityChange}
         rowCount={total}
         paginationMode="server"
         sortingMode="server"
@@ -367,7 +336,8 @@ export default function SystemCatalog() {
         // own `filterable` — not on whether a toolbar is rendered — so
         // without it every header's menu offers a filter that would
         // silently filter the loaded page while the footer keeps showing
-        // the true server `rowCount`.
+        // the true server `rowCount`. DataTable defaults this on in server
+        // mode; kept explicit because `{...rest}` lets a caller override it.
         disableColumnFilter
         paginationModel={grid.paginationModel}
         onPaginationModelChange={grid.onPaginationModelChange}
