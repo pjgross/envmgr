@@ -106,11 +106,30 @@ export default function DataTable<R extends GridValidRowModel>({
     [fullKey]
   );
 
+  // MUI's DataGrid only reserves room for the noRows/noResults/loading overlay
+  // when `autoHeight` is set: both the empty-content-height fallback in
+  // useGridVirtualScroller and the overlay's own height fallback in
+  // GridOverlays are gated on `rootProps.autoHeight`, so a grid that renders
+  // zero rows without that prop collapses its virtual scroller (and the
+  // overlay riding on top of it) to ~0px — the overlay's text is in the DOM
+  // but its box has no height, so nobody sees it. None of these pages give
+  // the grid an explicit height of its own (no fixed-height wrapper, no
+  // definite-height ancestor for the grid's `height: 100%` to resolve
+  // against), so a POPULATED grid here already sizes itself to its content —
+  // exactly what `autoHeight` does. Turning it on only once there are no rows
+  // to show therefore changes nothing visible for a grid that already has
+  // rows; it only switches on, for the empty case, the same "give the overlay
+  // room" logic that already renders correctly on pages that pass
+  // `autoHeight` explicitly (e.g. BuildList). A caller that sets `autoHeight`
+  // itself (in `rest`, spread below) always wins over this default.
+  const hasNoRows = rest.rows.length === 0;
+
   return (
     <DataGrid<R>
       density="standard"
       disableRowSelectionOnClick
       pageSizeOptions={[10, 25, 50, 100]}
+      autoHeight={hasNoRows}
       initialState={
         rest.paginationMode === 'server'
           ? rest.initialState
