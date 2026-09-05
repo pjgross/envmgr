@@ -180,6 +180,15 @@ export interface ReleaseListFilters {
    * value is a 422, never an ignored param.
    */
   implemented?: boolean;
+  /**
+   * Only non-terminal (`true`) or terminal (`false`) releases, resolved
+   * server-side from EACH RELEASE'S OWN lifecycle template — a tenant may
+   * run several (Major/Minor/Emergency/Enterprise) — never a hardcoded
+   * status. Omit for no filter. Replaces the old `status=in_progress`
+   * approximation the Dashboard's "Open releases" tile used, which only
+   * counted one of five non-terminal statuses.
+   */
+  open?: boolean;
   limit?: number;
   offset?: number;
   sort_by?: string;

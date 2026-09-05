@@ -23,6 +23,7 @@ import GavelIcon from '@mui/icons-material/Gavel';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import FolderIcon from '@mui/icons-material/Folder';
 import WorkspacesIcon from '@mui/icons-material/Workspaces';
+import InboxIcon from '@mui/icons-material/Inbox';
 
 /** Minimal user shape the nav needs — decoupled from the store's User type. */
 export interface NavUser {
@@ -32,6 +33,9 @@ export interface NavUser {
 
 export type NavRole = 'admin' | 'masterAdmin' | 'adminOrMaster';
 
+/** Keys a `NavItem` can hand off to a badge data source (Task 7 introduces the first one). */
+export type NavBadgeKey = 'my-work';
+
 export interface NavItem {
   label: string;
   path: string;
@@ -39,6 +43,8 @@ export interface NavItem {
   requires?: NavRole;
   /** One line for the /admin hub cards. Unused in the app tree. */
   description?: string;
+  /** Looked up in `NavDrawerProps.badges` by whoever renders the tree — see NavDrawer.tsx. */
+  badge?: NavBadgeKey;
 }
 
 export interface NavGroup {
@@ -69,12 +75,16 @@ export function userSatisfies(user: NavUser | null, requires?: NavRole): boolean
  * The app tree. Order here is the render order. Labels are sentence case and
  * never repeat their group's name — the group header already says it.
  *
- * Deliberately absent: "My work" (PR 3 — a nav entry with no route behind it
- * is the "connected to nothing" class) and "Release templates" (admin
- * configuration, see adminNavConfig).
+ * Deliberately absent: "Release templates" (admin configuration, see
+ * adminNavConfig).
  */
 export const appNav: NavEntry[] = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
+  // Ungrouped and top-level, next to Dashboard — one click from anywhere.
+  // `badge: 'my-work'` is looked up against live data by whoever renders
+  // this tree (AppLayout supplies it to NavDrawer); nothing here is wired to
+  // a data source, keeping this file pure declaration.
+  { label: 'My work', path: '/my-work', icon: <InboxIcon />, badge: 'my-work' },
   {
     label: 'Catalogue',
     icon: <AccountTreeIcon />,

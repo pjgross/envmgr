@@ -10,7 +10,7 @@ Everything here is tenant-scoped on the way in. `get_finding` filters
 caller with any finding id reads another tenant's review.
 """
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -468,6 +468,7 @@ def worklist_query(
     *,
     now: datetime,
     status: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = None,
     owner_id: Optional[int] = None,
     overdue: Optional[bool] = None,
     release_id: Optional[int] = None,
@@ -491,6 +492,15 @@ def worklist_query(
 
     The `User` join is OUTER: sorting by owner must not drop the unowned
     actions, which are exactly the rows a worklist exists to surface.
+
+    `status` (ONE value) is `GET /pir-actions`' own filter — unchanged.
+    `statuses` (many) is a SEPARATE parameter, added for
+    `my_work_service._pir_actions_queue` (PR 3's dashboard fix wave, finding
+    5): "not yet closed" is `PirAction.status IN (open, in_progress)`, which
+    an equality filter cannot express. Both may not usefully be combined by
+    a caller — nothing here rejects it, but the two AND together, which is
+    only ever an accidental empty set unless `status` happens to be one of
+    the values already in `statuses`.
     """
     boundary = expiry_boundary(now)
     query = (
@@ -509,6 +519,8 @@ def worklist_query(
     )
     if status is not None:
         query = query.where(PirAction.status == status)
+    if statuses is not None:
+        query = query.where(PirAction.status.in_(list(statuses)))
     if owner_id is not None:
         query = query.where(PirAction.owner_id == owner_id)
     if release_id is not None:
@@ -549,6 +561,7 @@ async def list_actions(
     *,
     now: datetime,
     status: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = None,
     owner_id: Optional[int] = None,
     overdue: Optional[bool] = None,
     release_id: Optional[int] = None,
@@ -561,10 +574,15 @@ async def list_actions(
     `is_overdue` on the row and the `overdue` filter inside the query are given
     the SAME `now`, so a row cannot be selected as overdue and then render as
     not — one clock per request, not one per decision.
+
+    `statuses` — see `worklist_query`'s own comment — is the IN-filter
+    `my_work_service._pir_actions_queue` uses to window its query to ITEM_CAP
+    rows instead of loading a user's entire action history and filtering in
+    Python.
     """
     query = worklist_query(
-        tenant_id, now=now, status=status, owner_id=owner_id, overdue=overdue,
-        release_id=release_id, incident_id=incident_id, sort=sort,
+        tenant_id, now=now, status=status, statuses=statuses, owner_id=owner_id,
+        overdue=overdue, release_id=release_id, incident_id=incident_id, sort=sort,
     )
     rows, total = await fetch_page_rows(db, query, page)
 

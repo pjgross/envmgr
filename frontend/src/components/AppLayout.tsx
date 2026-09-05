@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate, useLocation, Outlet, Link as RouterLink } from 'react-router-dom';
 import {
@@ -30,10 +30,11 @@ import { RootState } from '../store';
 import { authService } from '../services/authService';
 import { logout } from '../store/authSlice';
 import { setLastAppRoute, setNavGroupOpen, setThemeMode, type ThemeModePreference } from '../store/uiSlice';
+import { useMyWork } from '../hooks/useMyWork';
 import ErrorFallback from './ErrorFallback';
 import { ADMIN_ROOT, visibleAppNav } from './navConfig';
 import { visibleAdminNav } from './adminNavConfig';
-import NavDrawer, { groupContaining } from './NavDrawer';
+import NavDrawer, { groupContaining, type NavBadges } from './NavDrawer';
 
 const DRAWER_WIDTH = 240;
 
@@ -49,6 +50,39 @@ export default function AppLayout() {
   const isDesktop = useMediaQuery(muiTheme.breakpoints.up('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+
+  // Task 7's nav badge. `useMyWork`'s own effect fetches once on THIS
+  // mount; the effect below re-fetches on every subsequent route change —
+  // together that is "on mount and on every route change", never a timer.
+  const { data: myWorkData, total: myWorkTotal, refetch: refetchMyWork } = useMyWork();
+  // A failed queue's `count` is always 0 — set EXPLICITLY by every failing
+  // construction on the backend (`QueueResult.count` has no schema default
+  // at all; only `failed` does), never inferred — so it drops out of
+  // `myWorkTotal` on its own — meaning "everything failed" and
+  // "nothing is waiting" render identically unless something else marks the
+  // difference. `attention` is that difference: true whenever at least one
+  // queue could not be evaluated, independent of whether the total (a
+  // correct sum of the queues that DID succeed) happens to be zero.
+  // Guarded against a malformed `data.queues` rather than trusting the
+  // response shape, since this renders on every page — see the report for
+  // why this guard exists.
+  const myWorkAttention = Boolean(myWorkData?.queues) && Object.values(myWorkData!.queues).some((q) => q.failed);
+  const badges: NavBadges = { 'my-work': { total: myWorkTotal, attention: myWorkAttention } };
+  const myWorkRouteMounted = useRef(false);
+  useEffect(() => {
+    // Skip the very first run: `useMyWork`'s own mount effect already fired
+    // the initial fetch, so refetching here too would double it.
+    if (!myWorkRouteMounted.current) {
+      myWorkRouteMounted.current = true;
+      return;
+    }
+    refetchMyWork();
+    // Keyed on PATHNAME only, not the full location: several pages write
+    // their own resolved default sort/filter back into the URL on mount
+    // (e.g. EnvironmentRequestList — see CLAUDE.md), which changes
+    // `location.search` moments after a real navigation and would otherwise
+    // fire a second, spurious refetch for the same route change.
+  }, [location.pathname, refetchMyWork]);
 
   const adminMode =
     location.pathname === ADMIN_ROOT || location.pathname.startsWith(ADMIN_ROOT + '/');
@@ -234,6 +268,7 @@ export default function AppLayout() {
             onToggleGroup={toggleGroup}
             onNavigate={navigateAndClose}
             header={adminMode ? adminHeader : undefined}
+            badges={adminMode ? undefined : badges}
           />
         </Box>
       </Drawer>

@@ -36,6 +36,7 @@ import environmentLifecyclePolicyReducer from './environmentLifecyclePolicySlice
 import contentionForecastReducer from './contentionForecastSlice';
 import gateTypeReducer from './gateTypeSlice';
 import rollbackReducer from './rollbackSlice';
+import myWorkReducer from './myWorkSlice';
 
 export const store = configureStore({
   reducer: {
@@ -76,6 +77,7 @@ export const store = configureStore({
     contentionForecast: contentionForecastReducer,
     gateType: gateTypeReducer,
     rollback: rollbackReducer,
+    myWork: myWorkReducer,
   },
 });
 

@@ -16,6 +16,7 @@ from app.db.models.booking_lifecycle import (
 )
 from app.db.models.lifecycle import LifecycleTemplate
 from app.api.v1.schemas.booking import BookingCreate
+from app.core.booking_states import INACTIVE_BOOKING_STATUSES
 from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.core.protection_levels import PROTECTION_SOFT
@@ -50,6 +51,15 @@ async def check_overlap(
     """
     Find bookings that overlap with [start, end] for this environment.
     Overlap condition: existing.start_date < end AND existing.end_date > start
+
+    STRICT (`<`/`>`), NOT INCLUSIVE. Deliberately different from
+    `list_bookings`' overlap clause below (`<=`/`>=`), which exists to answer
+    "is anything live at this exact instant" for the dashboard's zero-width
+    "live now" probe. Here, a booking ending exactly when a new one starts is
+    a clean handoff, not a conflict — treating a touching boundary as
+    overlapping would refuse back-to-back bookings on the same environment.
+    Do not "unify" these two without re-deriving which behaviour each caller
+    needs.
     """
     query = (
         select(Booking)
@@ -324,6 +334,7 @@ async def list_bookings(
     project_id: Optional[int] = None,
     agreement_gap: Optional[bool] = None,
     protection: Optional[str] = None,
+    active: Optional[bool] = None,
     page: Optional[Page] = None,
     sort: Optional[Sort] = None,
     *,
@@ -343,9 +354,35 @@ async def list_bookings(
     if environment_id is not None:
         query = query.where(Booking.environment_id == environment_id)
     if start is not None and end is not None:
-        query = query.where(Booking.start_date < end, Booking.end_date > start)
+        # Interval overlap, decomposed rather than using GREATEST/LEAST —
+        # SQLite has neither (see contention_forecast_service.overlapping_pairs).
+        # `<=`/`>=` on both sides, not `<`/`>`, so a zero-width probe (start ==
+        # end, which is what the "live now" dashboard tile sends) still
+        # matches a booking spanning — or starting or ending exactly at —
+        # that instant. INCLUSIVE, deliberately different from
+        # `check_overlap`'s strict `<`/`>` above (that one decides whether a
+        # NEW booking conflicts with an existing one; a touching boundary is
+        # a clean handoff there, not an overlap). Do not "unify" the two.
+        query = query.where(Booking.start_date <= end, Booking.end_date >= start)
     if booking_status is not None:
         query = query.where(Booking.status == booking_status)
+    if active is not None:
+        # `?start=&end=` alone answers "is anything booked over this window",
+        # including a booking nobody has submitted yet (draft) or one that
+        # was refused (rejected) — dates say nothing about whether a claim is
+        # real. This is a SEPARATE filter from `booking_status` (which pins
+        # ONE exact status) because "not draft/rejected/closed" cannot be
+        # expressed as an equality: it is the codebase's own
+        # `INACTIVE_BOOKING_STATUSES` set, notin'd (true) or exactly matched
+        # (false) so the two values partition the estate rather than leaving
+        # a gap either can miss. The Dashboard's "Bookings live now" tile and
+        # its link both pass `active=true` for exactly this reason — a
+        # booking nobody has submitted is not a live claim on the
+        # environment, whatever its dates say.
+        if active:
+            query = query.where(Booking.status.notin_(INACTIVE_BOOKING_STATUSES))
+        else:
+            query = query.where(Booking.status.in_(INACTIVE_BOOKING_STATUSES))
     # Sorting by protection_level needs the same join as the three filters
     # below, even with none of them present — BOOKING_SORTS whitelists
     # BookingRequest.protection_level (app/api/v1/bookings.py), and a bare

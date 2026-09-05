@@ -51,7 +51,7 @@ async def test_actionable_matches_an_independently_computed_set(
     Both requests are raised by someone else, so the self-exclusion clause
     treats them identically — the included/excluded split here is driven
     entirely by GROUP MEMBERSHIP, which is what makes this test discriminate
-    on `_actionable_clause`'s membership EXISTS specifically. (Self-exclusion
+    on `actionable_clause`'s membership EXISTS specifically. (Self-exclusion
     and terminal-state exclusion are each covered by their own dedicated test
     below.)
     """
@@ -165,7 +165,7 @@ async def test_actionable_includes_new_environment_requests_for_admin(
     """The Admin bypass: a `new_environment` request has no
     `operations_group_id` yet (it's what the request is asking for), so no
     membership check can apply to it. It routes to every Admin instead —
-    that's the entire point of `_actionable_clause`'s `if is_admin:` branch.
+    that's the entire point of `actionable_clause`'s `if is_admin:` branch.
 
     `test_user` (from `auth_headers`) is already role='Admin', so this alone
     exercises the branch — no second actor needed.

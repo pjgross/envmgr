@@ -28,12 +28,12 @@ describe('incidentService.list', () => {
     // given in `{ params }` with no mapping layer in between — so the object
     // below is exactly the object `mockGet` receives; there is no
     // transformation for this assertion to catch going wrong at runtime.
-    // Unlike changeRequestService, the param type here is
-    // `Record<string, unknown>`, not a named interface, so there isn't even
-    // an excess-property check for `tsc` to enforce — a renamed or dropped
-    // key would not be caught by this test, nor by `npx tsc --noEmit`. This
-    // test cannot fail at runtime as written; it exists to pin the contract
-    // the page conversion depends on, not to guard against regression.
+    // `list` is now typed against `IncidentListFilters` (PR 3's dashboard fix
+    // wave, finding M8) rather than `Record<string, unknown>` — a renamed or
+    // invented key is a `tsc` excess-property error at the call site, the
+    // same protection `releaseService.list`'s `ReleaseListFilters` already
+    // had. This test still exists to pin the runtime contract (the object
+    // travels unmodified), which `tsc` alone cannot prove.
     mockGet.mockResolvedValue({ data: [], headers: { 'x-total-count': '0' } });
 
     await incidentService.list({

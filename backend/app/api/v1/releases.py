@@ -205,6 +205,13 @@ async def list_releases(
         description="Only releases past their implementation date "
                     "(COALESCE(actual_date, target_date) <= now). Omit for no filter.",
     ),
+    open: Optional[bool] = Query(
+        None,
+        description="Only non-terminal (open=true) or terminal (open=false) "
+                    "releases, resolved from each release's own lifecycle "
+                    "template (a tenant may run several — Major/Minor/"
+                    "Emergency/Enterprise). Omit for no filter.",
+    ),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
     db: AsyncSession = Depends(get_db),
@@ -226,6 +233,7 @@ async def list_releases(
         project_id=project_id,
         scope_window=scope_window,
         implemented=implemented,
+        open=open,
         now=now,
         limit=page.limit,
         offset=page.offset,

@@ -161,7 +161,13 @@ export default function IncidentList() {
 
   const grid = useServerGrid({
     endpoint: 'incidents',
-    filterKeys: ['status', 'severity', 'system_id'],
+    // `open` has no filter UI on this page — it exists so the Dashboard's
+    // "Open incidents" tile can link here with `?open=true` already in the
+    // URL and land on the SAME rows it counted. Without this in filterKeys,
+    // useServerGrid never reads it out of the URL, `fetchIncidents` never
+    // gets it, and the tile and the page it links to would silently
+    // disagree — the same failure BookingList's `start`/`end` entries guard.
+    filterKeys: ['status', 'severity', 'system_id', 'open'],
     onFetch: (params) => dispatch(fetchIncidents(params)),
     total,
     totalPending: listLoading,
@@ -243,6 +249,18 @@ export default function IncidentList() {
             </MenuItem>
           ))}
         </TextField>
+        {/* `open` has no dropdown of its own (see filterKeys' comment above)
+            — without this chip, the Dashboard's "Open incidents" tile could
+            land a user on a filtered grid with every visible control
+            reading "All", no way to tell it is filtered, let alone clear it. */}
+        {grid.filters.open !== undefined && (
+          <Chip
+            label={grid.filters.open === 'false' ? 'Closed only · clear' : 'Open only · clear'}
+            size="small"
+            color="info"
+            onDelete={() => grid.setFilter('open', '')}
+          />
+        )}
       </Box>
 
       <Box sx={{ height: 600, width: '100%' }}>

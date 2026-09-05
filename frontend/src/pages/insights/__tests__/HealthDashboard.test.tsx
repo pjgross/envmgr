@@ -85,11 +85,24 @@ describe('HealthDashboard', () => {
     renderDashboard();
     expect(await screen.findByText('Staging-US')).toBeInTheDocument();
   });
-  it('says so when the overview was truncated, because the alert list is derived from it', async () => {
-    // GET /environments/health is capped server-side. The alert banner is built
-    // by filtering the fetched rows, so a truncated fetch can hide an alerting
-    // environment entirely — presenting that as the whole picture is the bug.
-    vi.mocked(environmentHealthService.overview).mockResolvedValueOnce({
+  it('says so when the overview was truncated, because the grid rows are derived from it', async () => {
+    // GET /environments/health is capped server-side. This page's own table
+    // rows are built from that fetch, so a truncated fetch can leave a row
+    // out of the grid entirely — presenting that as the whole picture is the
+    // bug this truncation banner exists to prevent.
+    //
+    // The page now has TWO independent callers of `overview()` per render —
+    // its own table fetch, and the extracted `HealthAlertBanner`'s own fetch
+    // (mounted as a child, so its effect fires first — see the note on
+    // `HealthDashboard.tsx`). `mockResolvedValueOnce` is a FIFO queue on the
+    // shared mock, so a single queued response would go to whichever
+    // component's effect happens to run first, leaving the OTHER caller
+    // reading the plain two-row default fixture below instead — exactly the
+    // kind of ordering-dependent flake this file's lack of a
+    // `mockReset`-per-test setup makes easy to introduce silently. Queuing
+    // the same truncated response twice makes both callers see it,
+    // regardless of firing order.
+    const truncatedResponse = {
       rows: [
         {
           environment_id: 1,
@@ -103,7 +116,10 @@ describe('HealthDashboard', () => {
         },
       ] satisfies EnvironmentHealthOverviewRow[],
       total: 900,
-    });
+    };
+    vi.mocked(environmentHealthService.overview)
+      .mockResolvedValueOnce(truncatedResponse)
+      .mockResolvedValueOnce(truncatedResponse);
 
     renderDashboard();
 

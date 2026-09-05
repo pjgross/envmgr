@@ -179,6 +179,23 @@ export function apiProtection(urlValue: string | number | undefined): 'soft' | '
   return undefined;
 }
 
+// --- Live-now filter (PR 3 dashboard fix wave, finding 1) --------------------
+
+/**
+ * `?active=` on `GET /bookings` — see `list_bookings` in
+ * backend/app/api/v1/bookings.py. This page has no dropdown for it (only the
+ * Dashboard's "Bookings live now" tile and "Bookings starting soon" preview
+ * ever send it), which is exactly why the chip below exists: a filter with
+ * no visible control is a filter a reader cannot explain or clear — the
+ * failure this whole finding is about.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function apiActive(urlValue: string | number | undefined): boolean | undefined {
+  if (urlValue === 'true') return true;
+  if (urlValue === 'false') return false;
+  return undefined;
+}
+
 const PROTECTION_FILTER_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'All bookings', value: PROTECTION_FILTER_NONE },
   ...PROTECTION_LEVELS.map((level) => ({ label: PROTECTION_LABELS[level], value: level })),
@@ -473,7 +490,18 @@ export default function BookingList() {
   const grid = useServerGrid({
     endpoint: 'bookings',
     // `booking_status`, not `status` — the wire name differs from the label.
-    filterKeys: ['booking_status', 'project_id', 'agreement_gap', 'protection'],
+    // `start`/`end`/`active` (Task 1's overlap filter, plus the "genuinely
+    // live" narrowing added for the dashboard fix wave) have no dropdown on
+    // this page — they exist so the Dashboard's "Bookings live now" tile can
+    // link here with `?start=&end=&active=true` already in the URL and land
+    // on the SAME rows it counted. Without this in filterKeys, useServerGrid
+    // never reads them out of the URL, `fetchBookings` gets called with
+    // none of them, and the tile and the page it links to would silently
+    // disagree — the exact failure this task's own brief calls out. The
+    // "Live now · clear" chip below is this filter's only visible control.
+    filterKeys: [
+      'booking_status', 'project_id', 'agreement_gap', 'protection', 'start', 'end', 'active',
+    ],
     onFetch: (params) =>
       dispatch(
         fetchBookings({
@@ -481,6 +509,7 @@ export default function BookingList() {
           project_id: apiProjectId(params.project_id),
           agreement_gap: apiAgreementGap(params.agreement_gap),
           protection: apiProtection(params.protection),
+          active: apiActive(params.active),
         })
       ),
     total,
@@ -701,6 +730,24 @@ export default function BookingList() {
             </MenuItem>
           ))}
         </TextField>
+        {/* `start`/`end`/`active` have no dropdown of their own (see
+            filterKeys' comment above) — without this chip, a link from the
+            Dashboard's "Bookings live now" tile could land a user on a
+            filtered grid where every visible control still reads "All",
+            with no way to tell the grid is filtered at all, let alone clear
+            it. */}
+        {grid.filters.start && grid.filters.end && (
+          <Chip
+            label="Live now · clear"
+            size="small"
+            color="info"
+            onDelete={() => {
+              grid.setFilter('start', '');
+              grid.setFilter('end', '');
+              grid.setFilter('active', '');
+            }}
+          />
+        )}
       </Box>
 
       {/* Error */}

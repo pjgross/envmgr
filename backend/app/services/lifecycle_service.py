@@ -1,8 +1,9 @@
 import copy
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.booking_lifecycle import BookingType
@@ -87,6 +88,70 @@ async def list_templates(
         stmt = stmt.where(LifecycleTemplate.entity_type == entity_type)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def terminal_status_clause(
+    db: AsyncSession,
+    tenant_id: int,
+    entity_type: str,
+    *,
+    template_id_column: ColumnElement,
+    status_column: ColumnElement,
+    terminal: bool,
+) -> ColumnElement:
+    """A SQL predicate selecting rows whose status IS (or is not) terminal,
+    resolved from the TENANT'S OWN lifecycle template(s) for `entity_type` —
+    never a hardcoded status list ("open" is not a real status anywhere in
+    this codebase; it never occurs in `Incident.status` or `Release.status`).
+
+    Each row's own `template_id_column` decides which template's states
+    apply — the same value `_resolve_template`/its release equivalent used to
+    validate that row's transitions — so a tenant with more than one active
+    template for an entity type (releases: Major/Minor/Emergency/Enterprise)
+    is judged against the template it actually runs on, not a merged or
+    default-only view. A NULL `template_id_column` (only possible for
+    incidents, whose column is nullable) is resolved against the tenant's
+    default template, mirroring `incident_service._resolve_template`'s own
+    fallback when no explicit template was recorded.
+
+    Filters entirely in SQL: the terminal-key SETS are resolved once, in
+    Python, from a handful of template rows (never per candidate row), and
+    then folded into plain equality/membership comparisons — no JSON
+    functions, no regex, nothing dialect-specific. That is what lets this
+    compose correctly with `pagination()`: the predicate applies before
+    LIMIT/OFFSET, so `X-Total-Count` describes the filtered set, not a
+    Python-side slice of it.
+
+    A tenant with no template at all for this entity type (only reachable in
+    tests — production seeds one at tenant creation) can classify no row
+    either way, so this returns `false()` for both `terminal=True` and
+    `terminal=False` rather than guessing.
+    """
+    templates = await list_templates(db, tenant_id, entity_type)
+    terminal_keys_by_id: dict[int, set[str]] = {
+        t.id: {s["key"] for s in t.definition.get("states", []) if s.get("is_terminal")}
+        for t in templates
+    }
+    default_template = next((t for t in templates if t.is_default), None)
+
+    def _branch(keys: set[str]) -> ColumnElement:
+        is_terminal_status = status_column.in_(keys) if keys else false()
+        return is_terminal_status if terminal else ~is_terminal_status
+
+    branches = [
+        and_(template_id_column == tid, _branch(keys))
+        for tid, keys in terminal_keys_by_id.items()
+    ]
+    if default_template is not None:
+        branches.append(
+            and_(
+                template_id_column.is_(None),
+                _branch(terminal_keys_by_id[default_template.id]),
+            )
+        )
+    if not branches:
+        return false()
+    return or_(*branches)
 
 
 async def get_template(

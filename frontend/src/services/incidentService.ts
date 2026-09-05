@@ -2,10 +2,14 @@ import api from './api';
 import type { Paged } from '../types/pagination';
 import type {
   IncidentListRow, IncidentDetail, IncidentCreate, IncidentUpdate, IncidentPirCitation,
+  IncidentListFilters,
 } from '../types/incident';
 
 export const incidentService = {
-  list: (params: Record<string, unknown> = {}): Promise<Paged<IncidentListRow>> =>
+  // Typed against IncidentListFilters, not Record<string, unknown> — the
+  // untyped seam is where a fabricated `?status=open` (never a real
+  // incident status) lived undetected; see IncidentListFilters' own comment.
+  list: (params: IncidentListFilters = {}): Promise<Paged<IncidentListRow>> =>
     api.get<IncidentListRow[]>('/incidents', { params }).then((r) => ({
       rows: r.data,
       total: Number(r.headers['x-total-count'] ?? r.data.length),

@@ -194,16 +194,19 @@ export const fetchDecommissionWorklist = createAsyncThunk<
     page: number;
     pageSize: number;
     state?: DecommissionState;
+    /** See decommissionService.listWorklist's own comment. */
+    mine?: boolean;
     sortBy?: 'scheduled_teardown_at' | 'warned_at' | 'environment';
     sortDir?: 'asc' | 'desc';
   },
   { rejectValue: string }
 >(
   'decommission/fetchWorklist',
-  async ({ page, pageSize, state, sortBy, sortDir }, { rejectWithValue }) => {
+  async ({ page, pageSize, state, mine, sortBy, sortDir }, { rejectWithValue }) => {
     try {
       return await decommissionService.listWorklist({
         state,
+        mine,
         limit: pageSize,
         offset: page * pageSize,
         sort_by: sortBy,

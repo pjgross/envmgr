@@ -33,6 +33,7 @@ const adminEntityRoutes: Record<string, RouteMeta> = Object.fromEntries(
 
 export const ROUTE_META: Record<string, RouteMeta> = {
   '/dashboard': { label: 'Dashboard' },
+  '/my-work': { label: 'My work' },
 
   // Catalogue
   '/systems': { label: 'Systems' },

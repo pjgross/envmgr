@@ -119,6 +119,17 @@ async def list_incidents(
         conds.append(Incident.detected_at >= filters["date_from"])
     if filters.get("date_to"):
         conds.append(Incident.detected_at <= filters["date_to"])
+    if filters.get("open") is not None:
+        # "open" = non-terminal, resolved from the tenant's OWN incident
+        # lifecycle template(s) (`is_terminal` on each state) — never a
+        # hardcoded status. "open" is not itself a status value; see
+        # lifecycle_service.terminal_status_clause.
+        conds.append(await lifecycle_service.terminal_status_clause(
+            db, tenant_id, "incident",
+            template_id_column=Incident.lifecycle_template_id,
+            status_column=Incident.status,
+            terminal=not filters["open"],
+        ))
     query = select(Incident).where(and_(*conds))
     query = apply_sort(query, sort).order_by(Incident.detected_at.desc(), Incident.id)
     return await fetch_page(db, query, page)

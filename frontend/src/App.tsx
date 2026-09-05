@@ -29,6 +29,7 @@ const ContentionEscalations = lazy(
   () => import('./pages/contentions/EscalationWorklist')
 );
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const MyWork = lazy(() => import('./pages/MyWork'));
 const PirActionList = lazy(() => import('./pages/pir/PirActionList'));
 const DecommissionWorklist = lazy(() => import('./pages/decommissions/DecommissionWorklist'));
 const DeploymentDetail = lazy(() => import('./pages/deployments/DeploymentDetail'));
@@ -144,6 +145,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route element={isAuthenticated ? <AppLayout /> : <Navigate to="/login" />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/my-work" element={<MyWork />} />
             <Route path="/insights/dora" element={<DoraDashboard />} />
             <Route path="/insights/health" element={<HealthDashboard />} />
 

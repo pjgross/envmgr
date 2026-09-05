@@ -2,7 +2,9 @@
 
 > Status: design approved 2026-09-02; §6 amended 2026-09-03 before PR 2
 > (one tab mechanism, `routeMeta` stays static, the segment form becomes a
-> route-level redirect — see §6 and §11).
+> route-level redirect — see §6 and §11); §5 amended 2026-09-04 before PR 3
+> (`GET /bookings` has no range params and PR 3 adds them; the decommission
+> narrowing does not exist and PR 3 adds it; `/me/work` degrades per queue).
 >
 > A five-PR frontend programme. It replaces the two disagreeing admin menus with
 > one admin mode, restructures the main navigation, turns the Phase-0 placeholder
@@ -235,9 +237,39 @@ already have the filters:
 |---|---|---|
 | Environment requests to action | `GET /environment-requests?actionable=true` | operating-team members; Admin |
 | Contentions I must decide | `GET /contentions?state=open&owner_user_id=<me>` | the named owner |
-| Decommissions needing action | `GET /decommissions?state=warned\|extension_requested\|due`, narrowed to environments whose operations group contains me (Admin: all) | ops-team members; Admin |
+| Decommissions needing action | `GET /decommissions?state=warned\|extension_requested\|due`, narrowed to environments whose operations group contains me | ops-team members (Admin included, by membership only — see below) |
 | PIR actions I own | `GET /pir-actions?owner_id=<me>&status=open`; overdue counted separately | the owner |
-| Open incidents | `GET /incidents?status=open` | everyone — incidents have no assignee |
+| Open incidents | `GET /incidents?open=true` | everyone — incidents have no assignee |
+
+**AMENDED 2026-09-04, before PR 3: `?status=open` IS NOT A REAL STATUS AND
+NEVER WAS.** This table's "open incidents" row, and the dashboard tile of the
+same name in §5.2, both said `?status=open`. The default incident lifecycle
+(`incident_defaults.py`) names seven states — `new`, `investigating`,
+`identified`, `fix_scheduled`, `resolved`, `closed`, `cancelled` — and `open`
+is none of them. Against the running demo tenant, `GET
+/incidents?status=open&limit=1` returns `X-Total-Count: 0` regardless of how
+many incidents exist, so `/my-work`'s incidents card and the dashboard tile
+were both permanently empty.
+
+**How this survived a green suite: an equivalence test proves two sides
+agree, not that either is right.** `test_me_work_matches_worklists.py`'s
+incident test seeded rows with the factory default `status="open"` — a value
+`create_incident` can never actually produce, since it always assigns the
+lifecycle's initial state — and then asserted `/me/work`'s count equalled
+`GET /incidents?status=open`'s count. Both sides read the same fabricated
+value, so the test stayed green while describing a status that cannot occur
+in real data. Fixed by seeding realistic statuses (the initial state and a
+real terminal one) and asserting against the new filter instead.
+
+Statuses are per-tenant (lifecycle-template driven), so no fixed status list
+can be hardcoded client- or server-side. Every lifecycle state already
+carries `is_terminal` (`incident_defaults.py`, and `release_defaults.py` for
+the sibling case in §5.2), so PR 3 adds a server-resolved, tenant-agnostic
+filter instead: `GET /incidents` and `GET /releases` both gain `?open=` (a
+plain bool; omit for no filter), resolved per row from that row's OWN
+lifecycle template — `lifecycle_service.terminal_status_clause` — never a
+hardcoded set of statuses. Filtered in SQL, before pagination, same rule as
+the bookings range filter above.
 
 Each queue is a card: count, the five most urgent rows (soonest deadline,
 then oldest), and "View all →" to the existing worklist **with the same filter
@@ -275,6 +307,34 @@ Rules:
   `environment_service.assert_may_edit_handover` is built on; it is the third
   reader of membership after the two B3b established, and follows their
   tenant scoping and Admin bypass.
+
+  **AMENDED 2026-09-04, before PR 3: "(Admin: all)" is WRONG and is struck.**
+  The codebase already decided this question for the sibling queue, and
+  decided it the other way. `environment_request_service._actionable_clause`'s
+  docstring says it "deliberately does NOT fold in the Admin group-bypass …
+  folding the bypass in would return the whole tenant for every Admin, making
+  the queue useless for the one user most likely to need it. The bypass exists
+  so a transition is never impossible — it is not a claim about whose queue a
+  request belongs in." That reasoning is about a PERSONAL queue, which is
+  exactly what `/my-work` is, so the decommission queue follows it: narrowed
+  by membership for everyone, Admins included. An Admin who is in no
+  operations group sees an empty decommissions card, and that is correct —
+  nothing is waiting on *them*. `/decommissions`, the estate-wide worklist,
+  stays unnarrowed; the narrowing parameter is optional and `/me/work` is its
+  only caller.
+
+  **This section's narrowing DOES NOT EXIST YET and is not reuse.** `environment_decommission_service.worklist_query`'s signature is
+  `(tenant_id, *, now, sort, state)` — there is no membership parameter. PR 3
+  ADDS one (optional, so `/decommissions`' own unnarrowed listing is
+  unchanged), and the addition must match B3b's two existing membership
+  readers on tenant scoping and the Admin bypass, because B3b's rule is that
+  those readers "must stay in step". `/decommissions` gains the capability
+  too; it is not private to `/me/work`.
+
+- **`environment_request_service._actionable_clause` is promoted to public**
+  (`actionable_clause`). The underscore said it had one caller; it is about to
+  have two, and a private reach-in from another service is how a predicate
+  quietly acquires a second definition.
 - Items carry display names with the row (environment name, release name,
   owner username), never ids — `usernames_for` is not tenant-qualified, per
   A4/C2.
@@ -283,16 +343,62 @@ The nav badge on *My work* is the sum of the five counts, fetched on mount and
 on every route change through a `useMyWork` hook backed by `uiSlice`. No
 polling.
 
+**One failing queue does not blank the page** (added 2026-09-04). Five queues
+answer in one response, so `/me/work` returns the queues that succeeded and
+marks the one that did not, rather than failing the whole request. A dashboard
+that goes blank because a single worklist is unhappy is worse than one showing
+four of five and saying so. The frontend renders a failed queue's card with a
+retry, never as an empty queue — "nothing waiting on you" must never be the
+rendering of "we could not tell".
+
 ### 5.2 Dashboard
 
 The Phase-0 text goes. The page becomes:
 
 - **Four live tiles**, each a link to the filtered list: *Active environments*
-  (`GET /environments?status=active`), *Bookings live now*
-  (`GET /bookings?start=<now>&end=<now>` semantics via the existing range
-  params — half-open `[start, end)`), *Releases in flight* (non-terminal
-  status), *Open incidents*. Counts read `X-Total-Count` from a `limit=1`
-  fetch of the existing list endpoint; no aggregation endpoint is invented.
+  (`GET /environments?status=active`), *Bookings live now*, *Open releases*
+  (`GET /releases?open=true`), *Open incidents* (`GET /incidents?open=true`).
+  Counts read `X-Total-Count` from a `limit=1` fetch of the existing list
+  endpoint; no aggregation endpoint is invented.
+
+  **AMENDED 2026-09-04, before PR 3: both "non-terminal status" tiles used a
+  single hardcoded status, not "non-terminal".** *Releases in flight* (as
+  first shipped) counted only `?status=in_progress` — real, but one of five
+  non-terminal statuses (draft/submitted/approved/in_progress/
+  ready_for_release), under-counting every release still in draft or
+  awaiting approval. *Open incidents* counted `?status=open`, which is not a
+  status at all (see the incidents-queue amendment above) and always read
+  zero. Both are now `?open=true` against the `GET /incidents` /
+  `GET /releases` filter PR 3 adds, resolved from each row's own lifecycle
+  template rather than one hardcoded value — see
+  `lifecycle_service.terminal_status_clause`. The releases tile is relabelled
+  **"Open releases"** to say what it now counts, the same rule that produced
+  its original "in progress" rename.
+
+  **AMENDED 2026-09-04, before PR 3: `GET /bookings` HAS NO RANGE PARAMS.**
+  This section said the tile used "the existing range params"; it does not —
+  `start_date`/`end_date` appear only in `BOOKING_SORTS`, the sort whitelist.
+  Sending `?start=&end=` would be **silently dropped** by FastAPI and the tile
+  would count every booking in the tenant while looking right. That is the
+  third instance of this exact trap here, after `/releases/calendar`'s date
+  range and the Projects grid's `?project_id=`.
+
+  PR 3 therefore ADDS `start`/`end` filters to `GET /bookings`, with three
+  rules the endpoint's existing shape forces:
+
+  - **Filtered in SQL, never after the query.** The endpoint is paged, so a
+    Python-side filter would window the pre-filter set and quietly return the
+    wrong page — the standing rule in docs/pagination.md.
+  - **The test is interval OVERLAP, not "starts within".** A booking running
+    1-10 September is live on the 4th; filtering on `start_date` alone would
+    miss it. This is the correction `/releases/calendar` needed, and
+    `contention_forecast_service.overlapping_pairs` is the local precedent —
+    including its rule that `GREATEST`/`LEAST` are unavailable on SQLite and a
+    decomposed comparison is used instead.
+  - **A zero-width probe must match.** The "live now" tile asks
+    `?start=<now>&end=<now>`, an empty range. Overlap must be defined so a
+    booking spanning that instant still matches, or the tile silently reads
+    zero. Half-open `[start, end)` is kept for ranges with width.
 - **Coming up**: bookings starting in the next 7 days and releases whose
   target date falls in the next 14, from the calendar range endpoints.
 - **Needs attention**: the existing `ContentionHorizon` widget and the
@@ -435,7 +541,18 @@ Named tests for the promises, in the pattern this codebase already uses:
   sides of the filter and assert the count equals the worklist's
   `X-Total-Count` under the same filter and clock; on both engines. A PIR
   action due today is **not** overdue; a decommission whose teardown day is
-  today is `warned`, not `due`.
+  today is `warned`, not `due`. This is the test that gives §5's "no restated
+  predicates" rule teeth: without it, "the counts call the existing seams" is
+  a sentence nothing checks, and a second implementation could drift for
+  months while both surfaces look right in isolation.
+- **`GET /bookings`'s new range filter is asserted on OVERLAP, not on start**:
+  a booking spanning the queried range matches even though it begins before
+  it, and a zero-width probe (`start == end`) matches a booking spanning that
+  instant. A test that only seeds bookings starting inside the range passes
+  with a wrong `start_date >= :start` implementation.
+- **Three runs, not one.** PR 3 is the first in this programme with backend
+  code, so "the full suite" means SQLite, PostgreSQL and the frontend. A
+  green frontend run says nothing about either backend leg.
 - **Membership narrowing on decommissions**: a user in no group sees an empty
   decommission queue; an Admin sees all; a member sees only their group's
   environments.
@@ -480,6 +597,11 @@ programme closes; CLAUDE.md gets one banner paragraph at the end of PR 5.
 - **Tenant settings JSON stays.** Nothing reads named keys through the UI;
   inventing a form for an opaque blob would be a guess.
 - **Redirects live one release.** Test bookmarks are the only consumers.
+- **`/me/work` degrades per queue rather than failing whole** (added
+  2026-09-04). Considered and declined: 500 on any queue's failure (one
+  unhappy worklist blanks a landing page), and silently omitting a failed
+  queue (indistinguishable from an empty one, so "nothing waiting on you"
+  would be a lie the user cannot detect).
 - **A tab is a query param, not a route segment** (amended 2026-09-03, before
   PR 2). Considered and declined: keeping both, with the rule "a tab a drawer
   item targets is a segment, a tab a page owns is a query param" — defensible,

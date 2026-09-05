@@ -64,6 +64,66 @@ async def test_soft_delete_hides_from_list_and_get(db_session, tenant, user):
 
 
 @pytest.mark.asyncio
+async def test_list_incidents_open_filter_is_non_terminal_not_a_status(
+    db_session, tenant, user
+):
+    """`open=` resolves to "non-terminal" from the tenant's OWN incident
+    lifecycle template (`is_terminal` on its states) — "open" is not itself
+    an incident status. Seeds three genuinely-produced statuses via
+    `create_incident`/`transition` (never a fabricated `status="open"`):
+    `new` (initial, non-terminal), `resolved` (non-terminal — a real trap,
+    since it reads like it should be terminal), and `closed` (terminal).
+    """
+    await seed_incident_defaults_for_tenant(db_session, tenant.id)
+    await db_session.flush()
+
+    new_inc = await incident_service.create_incident(
+        db_session, IncidentCreate(title="new", severity="P2"), tenant.id, user.id
+    )
+    resolved_inc = await incident_service.create_incident(
+        db_session, IncidentCreate(title="resolved", severity="P2"), tenant.id, user.id
+    )
+    await incident_service.transition(
+        db_session, resolved_inc.id, "investigating", tenant.id, user.id, "Admin"
+    )
+    await incident_service.transition(
+        db_session, resolved_inc.id, "resolved", tenant.id, user.id, "Admin"
+    )
+    closed_inc = await incident_service.create_incident(
+        db_session, IncidentCreate(title="closed", severity="P2"), tenant.id, user.id
+    )
+    await incident_service.transition(
+        db_session, closed_inc.id, "investigating", tenant.id, user.id, "Admin"
+    )
+    await incident_service.transition(
+        db_session, closed_inc.id, "resolved", tenant.id, user.id, "Admin"
+    )
+    await incident_service.transition(
+        db_session, closed_inc.id, "closed", tenant.id, user.id, "Admin"
+    )
+
+    open_rows, open_count = await incident_service.list_incidents(
+        db_session, tenant.id, {"open": True}
+    )
+    assert open_count == 2
+    assert {r.id for r in open_rows} == {new_inc.id, resolved_inc.id}
+
+    closed_rows, closed_count = await incident_service.list_incidents(
+        db_session, tenant.id, {"open": False}
+    )
+    assert closed_count == 1
+    assert closed_rows[0].id == closed_inc.id
+
+    # `status="open"` was never a real status — asserting it here pins the
+    # regression this filter exists to fix, not just the new behaviour.
+    stale_rows, stale_count = await incident_service.list_incidents(
+        db_session, tenant.id, {"status": "open"}
+    )
+    assert stale_count == 0
+    assert stale_rows == []
+
+
+@pytest.mark.asyncio
 async def test_detail_hydrates_links_transitions_and_epic_grouping(db_session, tenant, user):
     await seed_incident_defaults_for_tenant(db_session, tenant.id)
     await db_session.flush()

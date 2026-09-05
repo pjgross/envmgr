@@ -260,6 +260,7 @@ async def list_releases(
     project_id: Optional[int] = None,
     scope_window: Optional[str] = None,
     implemented: Optional[bool] = None,
+    open: Optional[bool] = None,
     has_target_date: bool = False,
     date_overlaps_range: bool = False,
     now: Optional[datetime] = None,
@@ -332,6 +333,18 @@ async def list_releases(
             went_live <= moment if implemented
             else or_(went_live > moment, went_live.is_(None))
         )
+    if open is not None:
+        # "open" = non-terminal, resolved from EACH RELEASE'S OWN lifecycle
+        # template (`is_terminal` on its states) — a tenant may run several
+        # release lifecycles at once (Major/Minor/Emergency/Enterprise), and
+        # "in progress" differs between them. "open" is not itself a status
+        # value; see lifecycle_service.terminal_status_clause.
+        base_where.append(await lifecycle_service.terminal_status_clause(
+            db, tenant_id, "release",
+            template_id_column=Release.lifecycle_template_id,
+            status_column=Release.status,
+            terminal=not open,
+        ))
     if scope_window == "actionable":
         # `open` or `closing_soon` — both mean the cutoff has not passed.
         # `closed` is now >= scope_deadline; `shipped` and `no_cutoff` are

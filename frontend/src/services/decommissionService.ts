@@ -84,6 +84,14 @@ export const decommissionService = {
   // each collided with it in turn.
   listWorklist: (params?: {
     state?: DecommissionState;
+    /**
+     * `true`: only decommissions on an environment the caller operates —
+     * the same membership rule `/me/work`'s decommissions queue uses. OMIT
+     * for the whole tenant's estate (this endpoint's original behaviour).
+     * Added for PR 3's dashboard fix wave, finding 6 — `/decommissions` did
+     * not expose the narrowing spec §5's amendment said it would.
+     */
+    mine?: boolean;
     limit?: number;
     offset?: number;
     sort_by?: 'scheduled_teardown_at' | 'warned_at' | 'environment';

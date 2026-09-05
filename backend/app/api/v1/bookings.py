@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, Query, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -198,8 +198,13 @@ def _request_summary(req) -> BookingRequestSummary:
 async def list_bookings(
     response: Response,
     environment_id: Optional[int] = None,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
+    start: Optional[datetime] = Query(
+        None,
+        description="Overlap window start. With `end`, returns bookings whose "
+        "own interval overlaps it — NOT bookings that start inside it. "
+        "Supplying exactly one of `start`/`end` is a 422.",
+    ),
+    end: Optional[datetime] = Query(None, description="Overlap window end."),
     booking_status: Optional[str] = None,
     project_id: Optional[int] = Query(None),
     agreement_gap: Optional[bool] = Query(
@@ -219,11 +224,31 @@ async def list_bookings(
             "ignored param."
         ),
     ),
+    active: Optional[bool] = Query(
+        None,
+        description=(
+            "true: exclude draft/rejected/closed bookings — the codebase's "
+            "own INACTIVE_BOOKING_STATUSES set — so `?start=&end=` answers "
+            "'is anything genuinely booked here', not 'is any row's dates "
+            "overlapping, submitted or not'. false: the exact complement "
+            "(only those three statuses). OMIT for no filter."
+        ),
+    ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if (start is None) != (end is None):
+        # A half-specified range is far more likely a caller bug than an
+        # intent to filter on an open-ended window — silently ignoring it
+        # (FastAPI's default for an unrecognised param) is the exact failure
+        # this filter exists to close, so treat a half-specified one the
+        # same way.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="start and end must both be supplied, or neither.",
+        )
     now = datetime.now(timezone.utc)
     bookings, total, contention_states = await booking_service.list_bookings(
         db,
@@ -235,6 +260,7 @@ async def list_bookings(
         project_id=project_id,
         agreement_gap=agreement_gap,
         protection=protection,
+        active=active,
         page=page,
         sort=sort,
         now=now,

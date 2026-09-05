@@ -27,6 +27,14 @@ export const bookingService = {
      * from `Optional[Literal["soft","hard"]]`.
      */
     protection?: 'soft' | 'hard';
+    /**
+     * `true` = exclude draft/rejected/closed bookings (the codebase's own
+     * `INACTIVE_BOOKING_STATUSES`) — "is anything GENUINELY booked here",
+     * not just "does any row's dates overlap". `false` is the exact
+     * complement. OMIT for every status, same convention as
+     * `agreement_gap`/`protection` above.
+     */
+    active?: boolean;
     limit?: number;
     offset?: number;
     sort_by?: string;
