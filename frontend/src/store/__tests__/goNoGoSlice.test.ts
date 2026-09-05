@@ -9,9 +9,19 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import goNoGoReducer, { closeCondition, fetchDecisions } from '../goNoGoSlice';
+import goNoGoReducer, {
+  closeCondition,
+  fetchDecisions,
+  fetchPerspectives,
+  createPerspective,
+  updatePerspective,
+} from '../goNoGoSlice';
 import { goNoGoService } from '../../services/goNoGoService';
-import type { GoNoGoConditionRead, GoNoGoDecisionRead } from '../../types/goNoGo';
+import type {
+  GoNoGoConditionRead,
+  GoNoGoDecisionRead,
+  GoNoGoPerspectiveRead,
+} from '../../types/goNoGo';
 
 vi.mock('../../services/goNoGoService', () => ({
   goNoGoService: {
@@ -19,6 +29,8 @@ vi.mock('../../services/goNoGoService', () => ({
     record: vi.fn(),
     closeCondition: vi.fn(),
     listPerspectives: vi.fn(),
+    createPerspective: vi.fn(),
+    updatePerspective: vi.fn(),
   },
 }));
 
@@ -141,5 +153,69 @@ describe('goNoGoSlice — closeCondition.fulfilled', () => {
     expect(closeCondition.fulfilled.match(result)).toBe(true);
 
     expect(store.getState().goNoGo.decisions.find((d) => d.id === 1)!.conditions).toEqual(before);
+  });
+});
+
+function perspective(over: Partial<GoNoGoPerspectiveRead> = {}): GoNoGoPerspectiveRead {
+  return {
+    id: 1,
+    tenant_id: 1,
+    name: 'Quality',
+    description: null,
+    sort_order: 10,
+    is_active: true,
+    ...over,
+  };
+}
+
+describe('goNoGoSlice — createPerspective / updatePerspective', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('createPerspective.rejected carries formatApiError\'s message into action.payload', async () => {
+    // The 409 case Task 7's brief called "the whole point": a real AxiosError
+    // shape, so a regression back to `action.error.message` (the default
+    // serializer, which drops response.data.detail) would fail this test
+    // rather than passing an entire green suite.
+    vi.mocked(goNoGoService.createPerspective).mockRejectedValueOnce({
+      isAxiosError: true,
+      message: 'Request failed with status code 409',
+      response: {
+        status: 409,
+        data: { detail: 'A perspective named Quality already exists' },
+      },
+    });
+
+    const store = makeStore();
+    const result = await store.dispatch(
+      createPerspective({ name: 'Quality', description: null, sort_order: 10, is_active: true })
+    );
+
+    expect(createPerspective.rejected.match(result)).toBe(true);
+    expect(result.payload).toBe('A perspective named Quality already exists');
+    expect(result.payload).not.toMatch(/status code/i);
+  });
+
+  it('updatePerspective.fulfilled replaces the right perspective, leaving its siblings untouched', async () => {
+    const store = makeStore();
+    vi.mocked(goNoGoService.listPerspectives).mockResolvedValueOnce([
+      perspective({ id: 1, name: 'Quality', sort_order: 10 }),
+      perspective({ id: 2, name: 'Process', sort_order: 20 }),
+    ]);
+    await store.dispatch(fetchPerspectives(true));
+
+    const updated = perspective({ id: 2, name: 'Process', sort_order: 20, is_active: false });
+    vi.mocked(goNoGoService.updatePerspective).mockResolvedValueOnce(updated);
+
+    const result = await store.dispatch(
+      updatePerspective({ id: 2, data: { is_active: false } })
+    );
+    expect(updatePerspective.fulfilled.match(result)).toBe(true);
+
+    const { perspectives } = store.getState().goNoGo;
+    expect(perspectives).toHaveLength(2);
+    // The named perspective was replaced with the server's version...
+    expect(perspectives.find((p) => p.id === 2)).toEqual(updated);
+    // ...and its sibling was neither appended to nor overwritten.
+    expect(perspectives.find((p) => p.id === 1)).toEqual(perspective({ id: 1, name: 'Quality', sort_order: 10 }));
   });
 });
