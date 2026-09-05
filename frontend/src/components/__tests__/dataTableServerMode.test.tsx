@@ -214,8 +214,16 @@ describe('persisted column visibility', () => {
     localStorage.setItem('grid-prune', JSON.stringify({ a: false, gone: false }));
     const pruneColumns = [{ field: 'a', headerName: 'A' }];
     const pruneRows = [{ id: 1, a: 'one' }];
+    // Deliberately FLIPS `a` from hidden to visible, and drops the stale
+    // `gone` key. If the pruned *return value* were computed and then
+    // discarded (state set from the raw stored model instead), `a` would
+    // stay hidden and 'one' would not render — so this is the case that
+    // tells "applied" apart from "computed but ignored", not just whether
+    // `prune` was called.
     const prune = vi.fn((stored: Record<string, boolean>) =>
-      Object.fromEntries(Object.entries(stored).filter(([f]) => f === 'a'))
+      Object.fromEntries(
+        Object.entries({ ...stored, a: true }).filter(([f]) => f === 'a')
+      )
     );
 
     render(
@@ -230,7 +238,8 @@ describe('persisted column visibility', () => {
     );
 
     expect(prune).toHaveBeenCalledWith({ a: false, gone: false });
-    // `a` was hidden by a real stored preference and survives pruning.
-    expect(screen.queryByText('one')).not.toBeInTheDocument();
+    // Only true if the model returned by `prune` — not the raw stored one —
+    // was actually applied to state.
+    expect(screen.getByText('one')).toBeInTheDocument();
   });
 });
