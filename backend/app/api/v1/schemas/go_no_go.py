@@ -57,3 +57,62 @@ class GoNoGoDecisionCreate(BaseModel):
         if v not in OUTCOME_VALUES:
             raise ValueError(f"outcome must be one of {OUTCOME_VALUES}")
         return v
+
+
+class GoNoGoSignoffRead(BaseModel):
+    id: int
+    decision_id: int
+    perspective_id: int
+    user_id: int
+    # Resolved server-side and travelling WITH the row — never `#N`. Defaulted
+    # only so `model_validate` can build straight off the ORM row (which has
+    # no such attribute) before the route layer overwrites it with the real,
+    # `go_no_go_service.usernames_for`-resolved value.
+    username: Optional[str] = None
+    verdict: str
+    dissent_note: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoNoGoConditionRead(BaseModel):
+    id: int
+    decision_id: int
+    text: str
+    owner_user_id: Optional[int]
+    owner_username: Optional[str] = None
+    due_date: Optional[date]
+    met_at: Optional[datetime]
+    met_by_user_id: Optional[int]
+    met_by_username: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GoNoGoDecisionRead(BaseModel):
+    """An append-only decision, read back with its children and resolved
+    names. `unmet_condition_count` is computed by the route layer from
+    `conditions` (a condition with `met_at is None`) rather than stored —
+    the count moves the moment a condition closes, with no cache to
+    invalidate.
+    """
+
+    id: int
+    tenant_id: int
+    release_id: int
+    outcome: str
+    rationale: str
+    decided_at: datetime
+    chaired_by_user_id: int
+    chaired_by_username: Optional[str] = None
+    attendees: list[int]
+    snapshot_ok: bool
+    snapshot_blockers: list[dict]
+    snapshot_warnings: list[dict]
+    snapshot_reversibility: Optional[str]
+    snapshot_rehearsal_state: Optional[str]
+    signoffs: list[GoNoGoSignoffRead] = Field(default_factory=list)
+    conditions: list[GoNoGoConditionRead] = Field(default_factory=list)
+    unmet_condition_count: int = 0
+
+    model_config = ConfigDict(from_attributes=True)

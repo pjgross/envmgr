@@ -6,7 +6,11 @@ import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.api.v1.schemas.go_no_go import GoNoGoDecisionCreate, GoNoGoSignoffCreate
+from app.api.v1.schemas.go_no_go import (
+    GoNoGoConditionCreate,
+    GoNoGoDecisionCreate,
+    GoNoGoSignoffCreate,
+)
 from app.db.models.go_no_go import GoNoGoPerspective
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
@@ -54,6 +58,16 @@ async def release(db_session, test_tenant, test_user) -> Release:
     db_session.add(r)
     await db_session.flush()
     return r
+
+
+@pytest_asyncio.fixture
+async def other_tenant_user(second_tenant_factory):
+    """A user in a SECOND tenant, built from conftest.py's
+    `second_tenant_factory` — not the `tenant` fixture, which is a different
+    tenant ("Phase3 Org") from `test_tenant` ("Test Org") and would let this
+    test mix tenants silently rather than deliberately."""
+    _, user = await second_tenant_factory()
+    return user
 
 
 async def _add_failing_blocking_gate(db_session, release, test_tenant) -> None:
@@ -235,3 +249,43 @@ async def test_a_future_decided_at_is_refused(
             ),
         )
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_signatory_outside_the_tenant_still_resolves(
+    db_session, test_tenant, other_tenant_user, release, test_user
+):
+    """Under master-admin impersonation a chair or signatory legitimately sits
+    outside the decision's own tenant. A `User.tenant_id ==` join renders them
+    as nobody — losing the one name a governance record exists to hold. This
+    has already bitten A3, A4, B5 and C2."""
+    names = await go_no_go_service.usernames_for(db_session, [other_tenant_user.id])
+    assert names[other_tenant_user.id] == other_tenant_user.username
+
+
+@pytest.mark.asyncio
+async def test_closing_a_condition_does_not_touch_the_decision(
+    db_session, test_tenant, test_user, release
+):
+    """Conditions are the ONE mutable part of an append-only record: closing
+    one records a later FACT ABOUT the decision, not a rewrite of it."""
+    decision = await go_no_go_service.record_decision(
+        db_session, release.id, test_tenant.id, test_user.id,
+        GoNoGoDecisionCreate(
+            outcome="conditional_go", rationale="Go once the smoke pack passes.",
+            decided_at=datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            attendees=[], signoffs=[],
+            conditions=[GoNoGoConditionCreate(text="Smoke pack green in UAT")],
+        ),
+    )
+    before = (decision.outcome, decision.rationale, list(decision.snapshot_blockers))
+
+    conditions = await go_no_go_service.conditions_for(db_session, decision.id)
+    closed = await go_no_go_service.close_condition(
+        db_session, conditions[0].id, test_tenant.id, test_user.id, met=True
+    )
+    assert closed.met_at is not None
+    assert closed.met_by_user_id == test_user.id
+
+    reread = await go_no_go_service.get_decision(db_session, decision.id, test_tenant.id)
+    assert (reread.outcome, reread.rationale, list(reread.snapshot_blockers)) == before

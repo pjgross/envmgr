@@ -20,10 +20,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.go_no_go import GoNoGoDecisionCreate
+from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.go_no_go import (
     GoNoGoCondition,
     GoNoGoDecision,
@@ -230,3 +231,106 @@ async def get_decision(
     if decision is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Decision not found")
     return decision
+
+
+def decisions_query(
+    release_id: int, tenant_id: int, *, sort: Optional[Sort] = None
+) -> Select:
+    """The decision-history query for one release, EXPOSED so a structural
+    test (Task 6) can assert the `id` tiebreaker directly — the seam
+    `contention_service.worklist_query` and `pir_finding_service.
+    worklist_query` exist for. Two decisions can share a `decided_at`
+    (backdating is legitimate, and a batch import or two meetings recorded
+    against the same clock time both tie), so dropping the tiebreaker would
+    page identically on both engines until that happens and then silently
+    duplicate or drop a row.
+
+    `sort` is accepted for the same reason `pir_finding_service.
+    worklist_query` takes it — a future sortable column costs no interface
+    change — though nothing yet whitelists one via `sorting()`; `apply_sort`
+    is a no-op when `sort` is None. Chained BEFORE the `decided_at`/`id`
+    tiebreaker, never instead of it.
+    """
+    query = select(GoNoGoDecision).where(
+        GoNoGoDecision.release_id == release_id,
+        GoNoGoDecision.tenant_id == tenant_id,
+    )
+    return apply_sort(query, sort).order_by(
+        GoNoGoDecision.decided_at.desc(), GoNoGoDecision.id.desc()
+    )
+
+
+async def list_decisions(
+    db: AsyncSession,
+    release_id: int,
+    tenant_id: int,
+    page: Optional[Page] = None,
+    sort: Optional[Sort] = None,
+) -> tuple[list[GoNoGoDecision], int]:
+    """One release's decision history, newest first, plus the unwindowed
+    total. Every filter is in SQL, before the window, so `X-Total-Count`
+    describes the release's full history rather than the page."""
+    query = decisions_query(release_id, tenant_id, sort=sort)
+    return await fetch_page(db, query, page)
+
+
+async def conditions_for(db: AsyncSession, decision_id: int) -> list[GoNoGoCondition]:
+    rows = (
+        await db.execute(
+            select(GoNoGoCondition)
+            .where(GoNoGoCondition.decision_id == decision_id)
+            .order_by(GoNoGoCondition.id)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+async def close_condition(
+    db: AsyncSession, condition_id: int, tenant_id: int, user_id: int, met: bool
+) -> GoNoGoCondition:
+    """The ONE mutation this append-only record allows. Closing (or
+    reopening — `met=False` clears the fields again, for a condition marked
+    met in error) a condition records a later FACT ABOUT the decision; it
+    must never touch `outcome`, `rationale` or the frozen snapshot, none of
+    which this function reads or writes.
+
+    `GoNoGoCondition` carries no `tenant_id` of its own — tenant scoping goes
+    through its parent decision via the join below.
+    """
+    condition = (
+        await db.execute(
+            select(GoNoGoCondition)
+            .join(GoNoGoDecision, GoNoGoDecision.id == GoNoGoCondition.decision_id)
+            .where(
+                GoNoGoCondition.id == condition_id,
+                GoNoGoDecision.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if condition is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Condition not found")
+    if met:
+        condition.met_at = datetime.now(timezone.utc)
+        condition.met_by_user_id = user_id
+    else:
+        condition.met_at = None
+        condition.met_by_user_id = None
+    await db.flush()
+    return condition
+
+
+async def usernames_for(db: AsyncSession, user_ids) -> dict[int, str]:
+    """Batched id -> username. Deliberately NOT tenant-qualified — the rule
+    A3's `acknowledged_by_username`, A4's `usernames_for`, B5's and C2's all
+    follow. Under master-admin impersonation a chair or signatory can
+    legitimately sit outside the decision's own tenant, and a
+    `User.tenant_id ==` join would render them as nobody — losing the one
+    name a governance record exists to hold.
+    """
+    ids = {i for i in user_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(select(User.id, User.username).where(User.id.in_(ids)))
+    ).all()
+    return {uid: username for uid, username in rows}
