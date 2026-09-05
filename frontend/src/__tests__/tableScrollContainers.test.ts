@@ -16,10 +16,6 @@ const files = import.meta.glob<string>('../**/*.{ts,tsx}', {
  * again if you delete an entry without doing the work.
  */
 const UNWRAPPED = new Set<string>([
-  '../components/releases/RollbackPanel.tsx',
-  '../components/releases/ScopeImportDialog.tsx',
-  '../components/releases/ReleaseSystemsTab.tsx',
-  '../components/releases/pir/PirActionsTable.tsx',
   '../components/bookings/EnvironmentsPanel.tsx',
   '../components/bookings/GroupTransitionPanel.tsx',
   '../components/environments/ComparisonTable.tsx',

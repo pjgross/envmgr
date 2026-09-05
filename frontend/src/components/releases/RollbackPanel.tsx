@@ -25,6 +25,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
@@ -241,91 +242,93 @@ export default function RollbackPanel({ releaseId }: Props) {
         readiness verdict.
       </Typography>
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Component</TableCell>
-            <TableCell>Reversibility</TableCell>
-            <TableCell>Est. time</TableCell>
-            <TableCell>Steps</TableCell>
-            <TableCell>Agreement</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {changingComponents.map((c) => {
-            const plan = planBySystemId.get(c.system_id) ?? null;
-            return (
-              <TableRow key={c.id}>
-                <TableCell>{c.system_name ?? `#${c.system_id}`}</TableCell>
-                <TableCell>
-                  {plan ? (
-                    <Chip
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Component</TableCell>
+              <TableCell>Reversibility</TableCell>
+              <TableCell>Est. time</TableCell>
+              <TableCell>Steps</TableCell>
+              <TableCell>Agreement</TableCell>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {changingComponents.map((c) => {
+              const plan = planBySystemId.get(c.system_id) ?? null;
+              return (
+                <TableRow key={c.id}>
+                  <TableCell>{c.system_name ?? `#${c.system_id}`}</TableCell>
+                  <TableCell>
+                    {plan ? (
+                      <Chip
+                        size="small"
+                        label={REVERSIBILITY_LABEL[plan.reversibility] ?? plan.reversibility}
+                        color={REVERSIBILITY_COLOR[plan.reversibility]}
+                      />
+                    ) : (
+                      <Chip size="small" label="No plan" variant="outlined" />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {plan?.estimated_minutes != null ? `${plan.estimated_minutes} min` : '—'}
+                  </TableCell>
+                  <TableCell sx={{ maxWidth: 320, whiteSpace: 'pre-wrap' }}>
+                    {plan?.steps ?? '—'}
+                  </TableCell>
+                  <TableCell>
+                    {plan?.agreed_by_username ? (
+                      <Typography variant="body2">Agreed by {plan.agreed_by_username}</Typography>
+                    ) : plan ? (
+                      <Button size="small" onClick={() => handleAgree(plan)}>
+                        Agree
+                      </Button>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button
                       size="small"
-                      label={REVERSIBILITY_LABEL[plan.reversibility] ?? plan.reversibility}
-                      color={REVERSIBILITY_COLOR[plan.reversibility]}
-                    />
-                  ) : (
-                    <Chip size="small" label="No plan" variant="outlined" />
-                  )}
-                </TableCell>
-                <TableCell>
-                  {plan?.estimated_minutes != null ? `${plan.estimated_minutes} min` : '—'}
-                </TableCell>
-                <TableCell sx={{ maxWidth: 320, whiteSpace: 'pre-wrap' }}>
-                  {plan?.steps ?? '—'}
-                </TableCell>
-                <TableCell>
-                  {plan?.agreed_by_username ? (
-                    <Typography variant="body2">Agreed by {plan.agreed_by_username}</Typography>
-                  ) : plan ? (
-                    <Button size="small" onClick={() => handleAgree(plan)}>
-                      Agree
-                    </Button>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      —
-                    </Typography>
-                  )}
-                </TableCell>
-                <TableCell align="right">
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      setPlanDialogTarget({
-                        systemId: c.system_id,
-                        systemName: c.system_name,
-                        plan,
-                      })
-                    }
-                  >
-                    {plan ? 'Edit' : 'Create plan'}
-                  </Button>
-                  {plan && (
-                    <IconButton
-                      size="small"
-                      color="error"
-                      aria-label={`Delete rollback plan for ${c.system_name ?? c.system_id}`}
-                      onClick={() => handleDelete(plan)}
+                      onClick={() =>
+                        setPlanDialogTarget({
+                          systemId: c.system_id,
+                          systemName: c.system_name,
+                          plan,
+                        })
+                      }
                     >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  )}
+                      {plan ? 'Edit' : 'Create plan'}
+                    </Button>
+                    {plan && (
+                      <IconButton
+                        size="small"
+                        color="error"
+                        aria-label={`Delete rollback plan for ${c.system_name ?? c.system_id}`}
+                        onClick={() => handleDelete(plan)}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {changingComponents.length === 0 && !plansLoading && (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <Typography color="text.secondary">
+                    This release has no changing components yet.
+                  </Typography>
                 </TableCell>
               </TableRow>
-            );
-          })}
-          {changingComponents.length === 0 && !plansLoading && (
-            <TableRow>
-              <TableCell colSpan={6}>
-                <Typography color="text.secondary">
-                  This release has no changing components yet.
-                </Typography>
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <Typography variant="h6" sx={{ mt: 4 }} gutterBottom>
         Rollback History
@@ -335,35 +338,37 @@ export default function RollbackPanel({ releaseId }: Props) {
           {authorisationsError}
         </Alert>
       )}
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>When</TableCell>
-            <TableCell>Trigger</TableCell>
-            <TableCell>Rationale</TableCell>
-            <TableCell>Systems</TableCell>
-            <TableCell>Recorded by</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {authorisations.map((a) => (
-            <TableRow key={a.id}>
-              <TableCell>{formatBookingDateTime(a.decided_at)}</TableCell>
-              <TableCell>{a.trigger}</TableCell>
-              <TableCell>{a.rationale}</TableCell>
-              <TableCell>{a.system_names.join(', ') || '—'}</TableCell>
-              <TableCell>{a.decided_by_username ?? '—'}</TableCell>
-            </TableRow>
-          ))}
-          {authorisations.length === 0 && (
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={5}>
-                <Typography color="text.secondary">No rollbacks recorded yet.</Typography>
-              </TableCell>
+              <TableCell>When</TableCell>
+              <TableCell>Trigger</TableCell>
+              <TableCell>Rationale</TableCell>
+              <TableCell>Systems</TableCell>
+              <TableCell>Recorded by</TableCell>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {authorisations.map((a) => (
+              <TableRow key={a.id}>
+                <TableCell>{formatBookingDateTime(a.decided_at)}</TableCell>
+                <TableCell>{a.trigger}</TableCell>
+                <TableCell>{a.rationale}</TableCell>
+                <TableCell>{a.system_names.join(', ') || '—'}</TableCell>
+                <TableCell>{a.decided_by_username ?? '—'}</TableCell>
+              </TableRow>
+            ))}
+            {authorisations.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography color="text.secondary">No rollbacks recorded yet.</Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       {planDialogTarget && (
         <RollbackPlanDialog

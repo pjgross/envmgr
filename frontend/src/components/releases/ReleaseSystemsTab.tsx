@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow,
+  IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -123,47 +123,49 @@ export default function ReleaseSystemsTab({ releaseId }: Props) {
         </Button>
       </Box>
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>System</TableCell>
-            <TableCell>Role</TableCell>
-            <TableCell>Deployment date</TableCell>
-            <TableCell align="right" />
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {orderedRows.length === 0 && !loading && (
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={4}>
-                <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                  No systems linked yet.
-                </Typography>
-              </TableCell>
+              <TableCell>System</TableCell>
+              <TableCell>Role</TableCell>
+              <TableCell>Deployment date</TableCell>
+              <TableCell align="right" />
             </TableRow>
-          )}
-          {orderedRows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.system_name ?? `#${row.system_id}`}</TableCell>
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={RELEASE_SYSTEM_ROLE_LABELS[row.role]}
-                  color={RELEASE_SYSTEM_ROLE_COLORS[row.role]}
-                />
-              </TableCell>
-              <TableCell>
-                {row.deployment_date ? new Date(row.deployment_date).toLocaleDateString() : '—'}
-              </TableCell>
-              <TableCell align="right">
-                <IconButton size="small" color="error" onClick={() => handleRemove(row)} aria-label="remove system">
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {orderedRows.length === 0 && !loading && (
+              <TableRow>
+                <TableCell colSpan={4}>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                    No systems linked yet.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
+            {orderedRows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.system_name ?? `#${row.system_id}`}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={RELEASE_SYSTEM_ROLE_LABELS[row.role]}
+                    color={RELEASE_SYSTEM_ROLE_COLORS[row.role]}
+                  />
+                </TableCell>
+                <TableCell>
+                  {row.deployment_date ? new Date(row.deployment_date).toLocaleDateString() : '—'}
+                </TableCell>
+                <TableCell align="right">
+                  <IconButton size="small" color="error" onClick={() => handleRemove(row)} aria-label="remove system">
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Add impacted system</DialogTitle>

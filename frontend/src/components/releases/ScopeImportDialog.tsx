@@ -18,6 +18,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   Typography,
@@ -143,24 +144,26 @@ export default function ScopeImportDialog({ open, onClose, releaseId, onImported
                 {result.errors.length ? `, ${result.errors.length} error(s)` : ''}
               </Alert>
               {result.errors.length > 0 && (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Row</TableCell>
-                      <TableCell>Field</TableCell>
-                      <TableCell>Message</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {result.errors.map((e, i) => (
-                      <TableRow key={`${e.row}-${e.field}-${i}`}>
-                        <TableCell>{e.row}</TableCell>
-                        <TableCell>{e.field}</TableCell>
-                        <TableCell>{e.message}</TableCell>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Row</TableCell>
+                        <TableCell>Field</TableCell>
+                        <TableCell>Message</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {result.errors.map((e, i) => (
+                        <TableRow key={`${e.row}-${e.field}-${i}`}>
+                          <TableCell>{e.row}</TableCell>
+                          <TableCell>{e.field}</TableCell>
+                          <TableCell>{e.message}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Box>
           )}
