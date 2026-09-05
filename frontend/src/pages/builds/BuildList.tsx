@@ -1,13 +1,14 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { Box, Paper, Stack, TextField } from '@mui/material';
-import { DataGrid, GridColDef, GridRowParams } from '@mui/x-data-grid';
+import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchBuilds } from '../../store/buildSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import ComputedColumnHeader from '../../components/ComputedColumnHeader';
 import type { PipelineStep } from '../../types/build';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 function latestStepSummary(steps: PipelineStep[]): string {
   if (steps.length === 0) return '—';
@@ -115,7 +116,9 @@ export default function BuildList() {
       </Paper>
 
       <Paper variant="outlined">
-        <DataGrid
+        <DataTable
+          storageKey="builds-list"
+          emptyMessage="No builds match these filters."
           rows={rows}
           columns={buildColumns}
           autoHeight

@@ -56,7 +56,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { DataGrid, type GridColDef } from '@mui/x-data-grid';
+import { type GridColDef } from '@mui/x-data-grid';
 
 import type { RootState } from '../../store';
 import { contentionService } from '../../services/contentionService';
@@ -64,6 +64,7 @@ import { formatApiError } from '../../services/apiError';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import type { Escalation, EscalationState } from '../../types/contention';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 const STATE_CHIP: Record<EscalationState, { label: string; color: 'info' | 'success' | 'warning' }> = {
   open: { label: 'Open', color: 'info' },
@@ -500,7 +501,9 @@ export default function EscalationWorklist() {
         </Alert>
       )}
 
-      <DataGrid
+      <DataTable
+        storageKey="contentions-list"
+        emptyMessage="No contentions match these filters."
         rows={rows}
         columns={columns}
         getRowHeight={() => 'auto'}

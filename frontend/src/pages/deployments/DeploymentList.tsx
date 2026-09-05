@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, MenuItem, Paper, Stack, TextField,
 } from '@mui/material';
-import { DataGrid, GridColDef, GridRowParams } from '@mui/x-data-grid';
+import { GridColDef, GridRowParams } from '@mui/x-data-grid';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchDeployments } from '../../store/deploymentSlice';
 import { useServerGrid } from '../../hooks/useServerGrid';
 import DeploymentStatusChip from '../../components/deployments/DeploymentStatusChip';
 import type { DeploymentStatus } from '../../types/deployment';
 import PageHeader from '../../components/layout/PageHeader';
+import DataTable from '../../components/DataTable';
 
 const STATUS_OPTIONS: DeploymentStatus[] = [
   'pending', 'in_progress', 'success', 'failed', 'rolled_back',
@@ -96,7 +97,9 @@ export default function DeploymentList() {
       </Paper>
 
       <Paper variant="outlined">
-        <DataGrid
+        <DataTable
+          storageKey="deployments-list"
+          emptyMessage="No deployments match these filters."
           rows={rows}
           columns={deploymentColumns}
           autoHeight
