@@ -20,6 +20,7 @@ import {
   Select,
   MenuItem,
   FormControl,
+  TableContainer,
 } from '@mui/material';
 import {
   fetchUsers,
@@ -152,82 +153,84 @@ export default function UserManagement() {
         <CircularProgress />
       ) : (
         <Paper>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Username</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell>{user.username}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <FormControl size="small" disabled={!user.is_active}>
-                      <Select
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                      >
-                        <MenuItem value="Viewer">Viewer</MenuItem>
-                        <MenuItem value="Developer">Developer</MenuItem>
-                        <MenuItem value="Test Manager">Test Manager</MenuItem>
-                        <MenuItem value="Release Manager">Release Manager</MenuItem>
-                        <MenuItem value="Admin">Admin</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={user.is_active ? 'Active' : 'Inactive'}
-                      color={user.is_active ? 'success' : 'default'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      sx={{ mr: 1 }}
-                      onClick={() => openEdit(user)}
-                    >
-                      Edit
-                    </Button>
-                    {user.is_active ? (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="error"
-                        onClick={() => handleDeactivate(user)}
-                      >
-                        Deactivate
-                      </Button>
-                    ) : (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="success"
-                        onClick={() => handleReactivate(user.id)}
-                      >
-                        Reactivate
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {users.length === 0 && (
+          <TableContainer>
+            <Table>
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={5} align="center">
-                    No users found
-                  </TableCell>
+                  <TableCell>Username</TableCell>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {users.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell>{user.username}</TableCell>
+                    <TableCell>{user.email}</TableCell>
+                    <TableCell>
+                      <FormControl size="small" disabled={!user.is_active}>
+                        <Select
+                          value={user.role}
+                          onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                        >
+                          <MenuItem value="Viewer">Viewer</MenuItem>
+                          <MenuItem value="Developer">Developer</MenuItem>
+                          <MenuItem value="Test Manager">Test Manager</MenuItem>
+                          <MenuItem value="Release Manager">Release Manager</MenuItem>
+                          <MenuItem value="Admin">Admin</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={user.is_active ? 'Active' : 'Inactive'}
+                        color={user.is_active ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        sx={{ mr: 1 }}
+                        onClick={() => openEdit(user)}
+                      >
+                        Edit
+                      </Button>
+                      {user.is_active ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          onClick={() => handleDeactivate(user)}
+                        >
+                          Deactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          onClick={() => handleReactivate(user.id)}
+                        >
+                          Reactivate
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {users.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      No users found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Paper>
       )}
 
