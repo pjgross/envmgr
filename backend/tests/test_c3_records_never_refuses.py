@@ -133,13 +133,13 @@ async def release(db_session, test_tenant, test_user) -> Release:
     return r
 
 
-@pytest_asyncio.fixture
-async def release_with_no_go_decision(client, auth_headers, release) -> Release:
-    """The release above, carrying one recorded `no_go` decision — the worst
-    case: a future implementer reasoning "well, obviously you can't ship
-    after a no_go" is exactly the refusal this whole guard exists to catch."""
+async def _record_no_go(client, auth_headers, release_id: int) -> None:
+    """POST one `no_go` decision on `release_id` — factored out so the
+    transition test (fix round 1) can call this itself, BETWEEN its own
+    before/after reads, rather than receiving a release that already has
+    the decision baked in by a fixture."""
     resp = await client.post(
-        f"/api/v1/releases/{release.id}/go-no-go",
+        f"/api/v1/releases/{release_id}/go-no-go",
         json={
             "outcome": "no_go",
             "rationale": "C3 guard: recorded deliberately to prove nothing downstream refuses.",
@@ -151,6 +151,14 @@ async def release_with_no_go_decision(client, auth_headers, release) -> Release:
         headers=auth_headers,
     )
     assert resp.status_code == 201, resp.text
+
+
+@pytest_asyncio.fixture
+async def release_with_no_go_decision(client, auth_headers, release) -> Release:
+    """The release above, carrying one recorded `no_go` decision — the worst
+    case: a future implementer reasoning "well, obviously you can't ship
+    after a no_go" is exactly the refusal this whole guard exists to catch."""
+    await _record_no_go(client, auth_headers, release.id)
     return release
 
 
@@ -158,12 +166,20 @@ async def release_with_no_go_decision(client, auth_headers, release) -> Release:
 
 @pytest.mark.asyncio
 async def test_every_release_transition_allowed_before_is_still_allowed(
-    client, auth_headers, release_with_no_go_decision
+    client, auth_headers, release
 ):
-    """Compares the computed allowed-transitions set before and after a
-    `no_go` is recorded, then actually walks the first of them, proving the
-    computed answer and the real write path agree."""
-    release_id = release_with_no_go_decision.id
+    """Compares the computed allowed-transitions set from BEFORE any
+    decision exists on this release to AFTER a `no_go` is recorded on it —
+    genuinely across the write, not two reads both taken post-decision —
+    then actually walks one of them, proving the computed answer and the
+    real write path agree.
+
+    Uses the plain `release` fixture (no decision yet) rather than
+    `release_with_no_go_decision`: that fixture already POSTs the decision
+    before the test body runs, which would make `status_before` a read
+    taken AFTER the decision too, and the equality assertion would hold no
+    matter what `record_decision` did to the release."""
+    release_id = release.id
 
     lifecycle_resp = await client.get(
         f"/api/v1/releases/{release_id}/lifecycle", headers=auth_headers
@@ -178,8 +194,10 @@ async def test_every_release_transition_allowed_before_is_still_allowed(
     before = lifecycle_service.get_allowed_transitions(definition, status_before, "Admin")
     assert before, "fixture must offer at least one real transition to compare"
 
-    # The decision is already recorded by the fixture; re-read to prove the
-    # comparison is meaningful (status genuinely unchanged by recording it).
+    # NOW record the no_go — everything above ran with no decision on the
+    # release at all.
+    await _record_no_go(client, auth_headers, release_id)
+
     release_resp_after = await client.get(f"/api/v1/releases/{release_id}", headers=auth_headers)
     status_after = release_resp_after.json()["status"]
     after = lifecycle_service.get_allowed_transitions(definition, status_after, "Admin")

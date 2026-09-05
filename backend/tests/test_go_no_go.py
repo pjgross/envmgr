@@ -615,6 +615,29 @@ async def test_a_duplicate_perspective_name_for_the_same_tenant_is_409_not_500(
 
 # ── Structural sweeps (Task 6) ────────────────────────────────────────────────
 
+def _flatten_routes(routes):
+    """Yield the real `APIRoute`/`Route` objects beneath `routes`.
+
+    On this repo's pinned fastapi==0.141.1, `include_router()` wraps every
+    included router as a `fastapi.routing._IncludedRouter`, which has
+    NEITHER `.path` NOR `.methods` — the real routes live one level down, at
+    `route.original_router.routes`. A naive `for route in app.routes`
+    comprehension therefore matches zero routes for every one of the ~57
+    included routers in this app (all of `go_no_go.py`'s routes included),
+    so `getattr(route, "methods", set())` silently yields an empty set and
+    any "no offending route" assertion built on it passes VACUOUSLY —
+    exactly the class of defect this whole task exists to rule out, just
+    not caught the first time round. Recurses in case a router is ever
+    nested more than one level deep (not currently true in this app, but
+    cheap to make robust)."""
+    for route in routes:
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            yield from _flatten_routes(original_router.routes)
+        else:
+            yield route
+
+
 def test_no_edit_or_delete_route_exists_for_a_decision():
     """Decisions are append-only. A wrong one is superseded by recording
     another; an editable record with a frozen snapshot is a contradiction.
@@ -626,7 +649,7 @@ def test_no_edit_or_delete_route_exists_for_a_decision():
     from app.main import app
     offenders = [
         f"{method} {route.path}"
-        for route in app.routes
+        for route in _flatten_routes(app.routes)
         for method in getattr(route, "methods", set())
         if "go-no-go" in getattr(route, "path", "")
         and "conditions" not in getattr(route, "path", "")
