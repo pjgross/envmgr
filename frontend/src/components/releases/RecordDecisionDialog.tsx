@@ -331,7 +331,17 @@ export default function RecordDecisionDialog({ releaseId, open, onClose, onRecor
           {!readinessLoading && !readinessFailed && readiness && (
             <Alert severity={readiness.blockers.length > 0 ? 'warning' : 'success'}>
               <Typography variant="body2" fontWeight="medium">
-                {readiness.ok
+                {/* Gated on blockers.length === 0 && warnings.length === 0,
+                    NOT on readiness.ok: `ok` is server-defined as
+                    `len(blockers) == 0` alone (release_readiness_service.py)
+                    and says nothing about warnings. Both C4 policy flags
+                    default off, so a release with a missing/stale rehearsal
+                    ordinarily reads ok=True with a `rehearsal_missing`
+                    WARNING — gating this text on `ok` would print "No
+                    blockers or warnings" directly above a rehearsal answer
+                    saying otherwise, on the one screen that exists to show
+                    the chair the true state before they sign. */}
+                {readiness.blockers.length === 0 && readiness.warnings.length === 0
                   ? 'No blockers or warnings in the current verdict.'
                   : `${readiness.blockers.length} blocker(s), ${readiness.warnings.length} warning(s) in the current verdict.`}
               </Typography>

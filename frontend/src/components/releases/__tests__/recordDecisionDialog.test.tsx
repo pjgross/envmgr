@@ -70,8 +70,13 @@ const PERSPECTIVES: GoNoGoPerspectiveRead[] = [
   },
 ];
 
+// The backend computes `ok` purely from `len(blockers) == 0`
+// (release_readiness_service.py) — it says nothing about warnings. Both C4
+// policy flags default off, so a release with a missing rehearsal
+// ordinarily emits exactly this shape: ok=True, no blockers, one WARNING.
+// `ok: false` here would be a state the real backend can never produce.
 const READINESS_WITH_MISSING_REHEARSAL: ReleaseReadinessResponse = {
-  ok: false,
+  ok: true,
   release_id: 1,
   checked_at: '2026-09-05T00:00:00Z',
   blockers: [],
@@ -145,6 +150,15 @@ describe('RecordDecisionDialog', () => {
     expect(
       screen.getByText(/no rollback rehearsal has been recorded/i)
     ).toBeInTheDocument();
+
+    // `ok: true` here (matching what the backend actually emits with both
+    // C4 policy flags off) must never be read as "nothing to see" — the
+    // banner must not claim a clean verdict while the very next line says
+    // the rehearsal is missing. Gating on `readiness.ok` alone reproduces
+    // exactly this self-contradiction.
+    expect(
+      screen.queryByText(/no blockers or warnings in the current verdict/i)
+    ).not.toBeInTheDocument();
   });
 
   it('answers the rehearsal question positively when the verdict has no rehearsal finding', async () => {
@@ -188,6 +202,21 @@ describe('RecordDecisionDialog', () => {
     expect(screen.getByText(/admin/i)).toBeInTheDocument();
     // No perspective table renders at all in this state.
     expect(screen.queryByText('Quality')).not.toBeInTheDocument();
+  });
+
+  it('does not disable Record when there are zero active perspectives — C3 does not police the completeness of its own record', async () => {
+    vi.mocked(goNoGoService.listPerspectives).mockResolvedValue([
+      { ...PERSPECTIVES[0], is_active: false },
+    ]);
+
+    renderDialog();
+    await screen.findByText(/no active go\/no-go perspectives are configured/i);
+
+    // `canSave` never references perspectives or signoffs by design — a
+    // meeting where nobody signed is still a real decision worth recording.
+    await userEvent.type(screen.getByLabelText(/rationale/i), 'No sign-offs configured yet');
+
+    expect(screen.getByRole('button', { name: /^record go$/i })).toBeEnabled();
   });
 
   it('sends outcome, rationale, decided_at, attendees, signoffs and conditions — and no snapshot fields', async () => {
