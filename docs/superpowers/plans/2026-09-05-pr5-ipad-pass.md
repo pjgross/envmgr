@@ -58,7 +58,7 @@ Recorded here because the spec anticipated "fixes found" without knowing what th
 
 | File | Responsibility |
 |---|---|
-| `frontend/src/__tests__/tableScrollContainers.test.ts` | Source sweep: in every production file, the number of `<Table` elements equals the number of `<TableContainer` elements. Carries the shrinking allowlist of not-yet-wrapped files, which Task 7 empties. |
+| `frontend/src/__tests__/tableScrollContainers.test.ts` | Source sweep: in every production file, the number of `<Table` elements equals the number of `<TableContainer` elements. Carries the shrinking allowlist of not-yet-wrapped files, which Task 6 empties. |
 
 **Modified — the sixteen unwrapped tables (17 `<Table>` instances)**
 
@@ -380,15 +380,11 @@ git commit -m "fix: scroll the release environment-coverage matrix inside its ow
 - Consumes: `UNWRAPPED` from Task 1.
 - Produces: nothing later tasks depend on.
 
-- [ ] **Step 1: Read the component's data source before writing the test**
+- [ ] **Step 1: Write the failing test**
 
-Run: `sed -n '1,80p' frontend/src/pages/admin/UserManagement.tsx`
+`UserManagement` reads `state.tenantAdmin.users` (a `UserResponse[]`) and dispatches `fetchUsers()` on mount, which calls `tenantAdminService.listUsers()` and expects `{ rows, total }`. It also uses `useSnackbar` (needs notistack's `SnackbarProvider`) and `PageHeader` (needs a Router). The render harness below is the house pattern from `incidentPirCitations.test.tsx:222-246`.
 
-This page has no existing test. Note how it loads users (Redux thunk vs. direct service call) and mock **that** seam — the plan does not guess it for you, because guessing it is how a test ends up asserting against a component that never rendered. If it reads from a Redux slice, build a real store with `configureStore` and that slice's reducer, preloaded with two users, exactly as `rollbackPanel.test.tsx` does for `rollbackSlice`.
-
-- [ ] **Step 2: Write the failing test**
-
-Create `frontend/src/pages/admin/__tests__/userManagement.test.tsx`, filling in the mock seam you identified in Step 1:
+Create `frontend/src/pages/admin/__tests__/userManagement.test.tsx`:
 
 ```tsx
 /**
@@ -399,25 +395,76 @@ Create `frontend/src/pages/admin/__tests__/userManagement.test.tsx`, filling in 
  * below it and, with no scroll container, the DOCUMENT widens instead.
  * jsdom performs no layout, so this asserts the structure that confines it.
  */
+import { configureStore } from '@reduxjs/toolkit';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { Provider } from 'react-redux';
+import { MemoryRouter } from 'react-router-dom';
+import { SnackbarProvider } from 'notistack';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// …imports, store construction and/or service mock per Step 1…
+import UserManagement from '../UserManagement';
+import tenantAdminReducer from '../../../store/tenantAdminSlice';
+import { tenantAdminService } from '../../../services/tenantAdminService';
+import type { UserResponse } from '../../../types';
+
+vi.mock('../../../services/tenantAdminService', () => ({
+  tenantAdminService: { listUsers: vi.fn() },
+}));
+
+const user = (id: number, username: string, email: string): UserResponse => ({
+  id,
+  username,
+  email,
+  role: 'Developer',
+  tenant_id: 1,
+  is_active: true,
+  is_master_admin: false,
+  created_at: '2026-09-05T00:00:00Z',
+  notification_preferences: null,
+});
+
+// One ordinary corporate address — the value is the point of the test, not
+// decoration. This is the string that produced the measured 112px overflow.
+const users = [
+  user(1, 'admin', 'admin@demo.com'),
+  user(
+    2,
+    'christopher.fetherstonhaugh',
+    'christopher.fetherstonhaugh@global-payments-platform.example.com',
+  ),
+];
+
+const renderUserManagement = () => {
+  const store = configureStore({
+    reducer: { tenantAdmin: tenantAdminReducer },
+    preloadedState: {
+      tenantAdmin: { users, usersTotal: users.length, settings: null, loading: false, error: null },
+    },
+  } as Parameters<typeof configureStore>[0]);
+  return render(
+    <Provider store={store}>
+      <SnackbarProvider>
+        <MemoryRouter initialEntries={['/admin/users']}>
+          <UserManagement />
+        </MemoryRouter>
+      </SnackbarProvider>
+    </Provider>,
+  );
+};
 
 describe('UserManagement scrolls inside itself', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    // The mount-time fetch must resolve, or its rejection replaces the
+    // preloaded rows with an error state and the table never renders.
+    vi.mocked(tenantAdminService.listUsers).mockResolvedValue({
+      rows: users,
+      total: users.length,
+    } as Awaited<ReturnType<typeof tenantAdminService.listUsers>>);
+  });
+
   it('renders its table inside a TableContainer, so a long email scrolls the table and not the page', async () => {
-    // Seed one user whose email is long enough to have caused the measured
-    // overflow — the value is the point of the test, not decoration.
-    renderUserManagement([
-      { id: 1, username: 'admin', email: 'admin@demo.com', role: 'Admin', is_active: true },
-      {
-        id: 2,
-        username: 'christopher.fetherstonhaugh',
-        email: 'christopher.fetherstonhaugh@global-payments-platform.example.com',
-        role: 'Developer',
-        is_active: true,
-      },
-    ]);
+    renderUserManagement();
 
     const table = await screen.findByRole('table');
     expect(
@@ -426,17 +473,24 @@ describe('UserManagement scrolls inside itself', () => {
         'and the fixed drawer then covers the Username column',
     ).not.toBeNull();
   });
+
+  it('still renders every user', async () => {
+    renderUserManagement();
+
+    expect(await screen.findByText('admin')).toBeInTheDocument();
+    expect(screen.getByText('christopher.fetherstonhaugh')).toBeInTheDocument();
+  });
 });
 ```
 
-Write `renderUserManagement` as a local helper in this file, matching the seam from Step 1. Match the `User` shape the page actually consumes — read it from `frontend/src/types/`, do not invent fields.
+If `tenantAdminSlice`'s default export is not the reducer, import the reducer by whatever name that file exports — check with `grep -n "export default\|export const tenantAdminSlice" frontend/src/store/tenantAdminSlice.ts` rather than assuming.
 
-- [ ] **Step 3: Run it to verify it fails**
+- [ ] **Step 2: Run it to verify it fails**
 
 Run: `npm test -- --run src/pages/admin/__tests__/userManagement.test.tsx`
 Expected: FAIL on `.MuiTableContainer-root` being null. If it instead fails to find a `table` role at all, the mock seam is wrong — fix that before continuing, because a test that never renders the component cannot detect the fix either.
 
-- [ ] **Step 4: Wrap the table, inside the Paper**
+- [ ] **Step 3: Wrap the table, inside the Paper**
 
 In `frontend/src/pages/admin/UserManagement.tsx`, add `TableContainer` to the existing `@mui/material` import block, then:
 
@@ -452,21 +506,21 @@ In `frontend/src/pages/admin/UserManagement.tsx`, add `TableContainer` to the ex
 
 The container goes **inside** the Paper: the surface should not scroll, only its contents.
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test -- --run src/pages/admin/__tests__/userManagement.test.tsx`
-Expected: PASS.
+Expected: PASS, 2 tests.
 
-- [ ] **Step 6: Shorten the allowlist**
+- [ ] **Step 5: Shorten the allowlist**
 
 Delete `'../pages/admin/UserManagement.tsx',` from `UNWRAPPED`.
 
-- [ ] **Step 7: Run the whole suite, lint and build**
+- [ ] **Step 6: Run the whole suite, lint and build**
 
 Run: `npm test -- --run && npm run lint && npm run build`
 Expected: all green.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add frontend/src/pages/admin/UserManagement.tsx \
