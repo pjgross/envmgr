@@ -267,7 +267,15 @@ describe('RecordDecisionDialog', () => {
 
     await waitFor(() => expect(onRecorded).toHaveBeenCalled());
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-  });
+    // 20s, not the 5s default. This test timed out on CI (PR #22) despite
+    // passing locally: 1031ms in isolation, 2451ms under parallel load on a
+    // 279s CI suite (12× wall-clock slowdown vs 23s local). The test drives the
+    // entire form through `userEvent` — rationale, attendees, sign-offs, and
+    // conditions — and each keystroke re-renders the dialog. Nothing about the
+    // test is wrong; the CI runner provides no headroom for the suite's slowest
+    // test. Prefer this over swapping `userEvent.type` for `fireEvent.change`,
+    // which would be faster but would stop exercising the real per-keystroke path.
+  }, 20000);
 
   it("shows the server's detail on a rejected save, not the generic Axios message (real AxiosError shape)", async () => {
     const axiosError = Object.assign(new Error('Request failed with status code 422'), {
