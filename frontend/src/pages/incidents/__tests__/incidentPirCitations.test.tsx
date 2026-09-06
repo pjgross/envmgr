@@ -40,6 +40,41 @@ describe('LinkIncidentToPirDialog', () => {
       expect.objectContaining({ implemented: true })));
   });
 
+  it('does not cap the initial fetch at a fixed page size', async () => {
+    // The old `limit: 200` capped page: past it, an older causal release could
+    // never be selected at all. Search now does that filtering, server-side —
+    // there is no reason left for this dialog to ask for a fixed window.
+    open();
+    await waitFor(() => expect(releases.list).toHaveBeenCalled());
+    expect(releases.list).toHaveBeenCalledWith({ implemented: true });
+  });
+
+  it('sends typed text to the server as `search`, debounced, not filtered client-side', async () => {
+    open();
+    await screen.findByDisplayValue('Release 24.3');
+    releases.list.mockClear();
+    await userEvent.type(screen.getByLabelText(/release/i), 'legacy migration');
+    // Not on every keystroke — only after the debounce window elapses.
+    expect(releases.list).not.toHaveBeenCalled();
+    await waitFor(() => expect(releases.list).toHaveBeenCalledWith(
+      { implemented: true, search: 'legacy migration' }), { timeout: 1000 });
+  });
+
+  it('does not let a later, still-unfiltered fetch override a release the user already picked',
+    async () => {
+      // The very first (unfiltered) fetch is also what preselects the causal
+      // release once it resolves. If it resolved AFTER the user had already
+      // typed and picked something else, it must not stomp that choice.
+      let resolveFirst: (v: { rows: unknown[]; total: number }) => void = () => {};
+      releases.list.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveFirst = resolve; }));
+      open();
+      await userEvent.type(screen.getByLabelText(/release/i), 'Release 24.2');
+      resolveFirst({ rows: [{ id: 7, name: 'Release 24.3' }], total: 1 });
+      await waitFor(() => {}, { timeout: 350 }); // let the debounce elapse
+      expect(screen.queryByDisplayValue('Release 24.3')).not.toBeInTheDocument();
+    });
+
   it('does not claim a release has no findings before one is chosen', async () => {
     // Two different absences. With no release selected there is no review to
     // have findings, and asserting "this release's review has none" is a claim
