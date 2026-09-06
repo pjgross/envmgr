@@ -364,6 +364,45 @@ async def usernames_for(db: AsyncSession, user_ids) -> dict[int, str]:
     return {uid: username for uid, username in rows}
 
 
+async def perspective_names_for(
+    db: AsyncSession, tenant_id: int, perspective_ids
+) -> dict[int, str]:
+    """Batched id -> name, TENANT-SCOPED — unlike `usernames_for` above. A
+    perspective is a tenant-owned configuration row, not a cross-tenant user
+    identity, so there is no impersonation case that needs an unscoped join;
+    scoping it also means a perspective id from a different tenant (which
+    should never reach here, since `_assert_perspectives_exist` already
+    checked every id against this same tenant at record time) resolves to
+    nothing rather than leaking another tenant's vocabulary.
+
+    DECISION RECORDED HERE, per the whole-branch review: a sign-off stores
+    `perspective_id`, not the name at signing time, so this always resolves
+    the perspective's CURRENT name — a rename (`update_perspective`) changes
+    what every past decision's sign-off table displays, including one
+    recorded years earlier. This is deliberate, not a staleness bug: the
+    perspective is the same configured concept, renamed, and the sign-off
+    means "this person attested to that concept", not "this person saw the
+    literal string 'Quality' on the day they signed". A perspective is never
+    deleted (see `GoNoGoPerspective`'s docstring), only retired via
+    `is_active=False`, so a resolved name never goes missing outright, and
+    this lookup deliberately does not filter on `is_active` — a retired
+    perspective's past sign-offs must keep resolving its name exactly like
+    an active one's.
+    """
+    ids = {i for i in perspective_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(GoNoGoPerspective.id, GoNoGoPerspective.name).where(
+                GoNoGoPerspective.tenant_id == tenant_id,
+                GoNoGoPerspective.id.in_(ids),
+            )
+        )
+    ).all()
+    return {pid: name for pid, name in rows}
+
+
 async def _signoffs_for_decisions(
     db: AsyncSession, decision_ids: set[int]
 ) -> dict[int, list[GoNoGoSignoff]]:
@@ -410,13 +449,15 @@ async def reads_for_decisions(
     """The wire-shaped form of a page of decisions — batched across the
     WHOLE page, mirroring `rollback_plan_service.reads_for_plans`'s shape:
     one query for every decision's sign-offs, one for every decision's
-    conditions, and one `usernames_for` call over the union of every user id
-    on the page (chairs, signatories, condition owners, condition closers).
-    `usernames_for` is called exactly ONCE PER RESPONSE here, never once per
-    row — the PIR programme's `gap_warnings_for_bookings` note, and the
-    shape this function replaces: the route layer originally called a
-    single-decision builder once per row, at up to three unbatched queries
-    each (up to 1500 for a full 500-row page).
+    conditions, one `usernames_for` call over the union of every user id on
+    the page (chairs, attendees, signatories, condition owners, condition
+    closers), and one `perspective_names_for` call over the union of every
+    sign-off's perspective id. Both name lookups are called exactly ONCE PER
+    RESPONSE here, never once per row — the PIR programme's
+    `gap_warnings_for_bookings` note, and the shape this function replaces:
+    the route layer originally called a single-decision builder once per
+    row, at up to three unbatched queries each (up to 1500 for a full
+    500-row page).
 
     BOTH `POST` (a one-element list) and `GET`'s page call this — never a
     second, divergent construction site — so `unmet_condition_count` and
@@ -428,12 +469,19 @@ async def reads_for_decisions(
     conditions_by_decision = await _conditions_for_decisions(db, decision_ids)
 
     user_ids: set[int] = {d.chaired_by_user_id for d in decisions}
+    for d in decisions:
+        user_ids.update(d.attendees)
     for signoffs in signoffs_by_decision.values():
         user_ids.update(s.user_id for s in signoffs)
     for conditions in conditions_by_decision.values():
         user_ids.update(c.owner_user_id for c in conditions if c.owner_user_id is not None)
         user_ids.update(c.met_by_user_id for c in conditions if c.met_by_user_id is not None)
     names = await usernames_for(db, user_ids)
+
+    perspective_ids: set[int] = set()
+    for signoffs in signoffs_by_decision.values():
+        perspective_ids.update(s.perspective_id for s in signoffs)
+    perspective_names = await perspective_names_for(db, tenant_id, perspective_ids)
 
     reads = []
     for decision in decisions:
@@ -442,9 +490,15 @@ async def reads_for_decisions(
 
         read = GoNoGoDecisionRead.model_validate(decision)
         read.chaired_by_username = names.get(decision.chaired_by_user_id)
+        read.attendee_usernames = [
+            names.get(uid, f"User #{uid}") for uid in decision.attendees
+        ]
         read.signoffs = [
             GoNoGoSignoffRead.model_validate(s).model_copy(
-                update={"username": names.get(s.user_id)}
+                update={
+                    "username": names.get(s.user_id),
+                    "perspective_name": perspective_names.get(s.perspective_id),
+                }
             )
             for s in signoffs
         ]

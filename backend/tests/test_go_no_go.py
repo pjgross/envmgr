@@ -698,3 +698,49 @@ async def test_a_name_duplicating_another_tenants_perspective_is_accepted(
         headers=other_headers,
     )
     assert second.status_code == 201, second.text
+
+
+# ── Final fix wave — whole-branch review finding 1 (read shape) ──────────────
+
+@pytest.mark.asyncio
+async def test_a_signoffs_perspective_name_resolves_and_survives_a_rename(
+    db_session, test_tenant, test_user, release
+):
+    """Finding 1: a sign-off's perspective was never resolved to a name
+    anywhere. `perspective_names_for` resolves the perspective's CURRENT
+    name — the decision recorded in its own docstring — so renaming the
+    perspective changes what an OLD decision's sign-off displays too."""
+    await go_no_go_defaults.seed_go_no_go_perspective_defaults_for_tenant(
+        db_session, test_tenant.id
+    )
+    quality = (await db_session.execute(
+        select(GoNoGoPerspective).where(
+            GoNoGoPerspective.tenant_id == test_tenant.id,
+            GoNoGoPerspective.name == "Quality",
+        )
+    )).scalar_one()
+
+    decision = await go_no_go_service.record_decision(
+        db_session, release.id, test_tenant.id, test_user.id,
+        GoNoGoDecisionCreate(
+            outcome="go", rationale="Fine.",
+            decided_at=datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            attendees=[test_user.id],
+            signoffs=[GoNoGoSignoffCreate(
+                perspective_id=quality.id, user_id=test_user.id, verdict="go",
+            )],
+            conditions=[],
+        ),
+    )
+
+    reads = await go_no_go_service.reads_for_decisions(db_session, test_tenant.id, [decision])
+    assert reads[0].signoffs[0].perspective_name == "Quality"
+    assert reads[0].attendee_usernames == [test_user.username]
+
+    quality.name = "Quality (renamed)"
+    await db_session.flush()
+
+    reads_again = await go_no_go_service.reads_for_decisions(
+        db_session, test_tenant.id, [decision]
+    )
+    assert reads_again[0].signoffs[0].perspective_name == "Quality (renamed)"

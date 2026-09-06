@@ -8,7 +8,11 @@
  * unlike /tenant/users (the false analogy a B3a reviewer caught: show,
  * don't hide, for a non-admin). There is no delete — a perspective is
  * retired via the Active toggle, never removed, so sign-offs already
- * recorded against it keep resolving its name.
+ * recorded against it keep resolving its name, via
+ * `go_no_go_service.perspective_names_for` (see that function's docstring:
+ * it resolves the perspective's CURRENT name, so a rename here changes what
+ * every past decision's sign-off table displays too — a deliberate choice,
+ * not a staleness bug).
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';

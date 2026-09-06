@@ -64,6 +64,7 @@ function decision(over: Partial<GoNoGoDecisionRead> = {}): GoNoGoDecisionRead {
     chaired_by_user_id: 1,
     chaired_by_username: 'alice',
     attendees: [],
+    attendee_usernames: [],
     snapshot_ok: true,
     snapshot_blockers: [],
     snapshot_warnings: [],

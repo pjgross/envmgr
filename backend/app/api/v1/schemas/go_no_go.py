@@ -69,6 +69,12 @@ class GoNoGoSignoffRead(BaseModel):
     # no such attribute) before the route layer overwrites it with the real,
     # `go_no_go_service.usernames_for`-resolved value.
     username: Optional[str] = None
+    # Resolved server-side the same way, from `go_no_go_service.
+    # perspective_names_for` — see that function's docstring for the
+    # deliberate choice of resolving the perspective's CURRENT name against
+    # every past decision that named it, rather than freezing the name at
+    # signing time.
+    perspective_name: Optional[str] = None
     verdict: str
     dissent_note: Optional[str]
 
@@ -152,6 +158,11 @@ class GoNoGoDecisionRead(BaseModel):
     chaired_by_user_id: int
     chaired_by_username: Optional[str] = None
     attendees: list[int]
+    # Resolved 1:1 with `attendees`, same order, from `usernames_for` — the
+    # whole-branch review's finding 2: attendees were captured and returned
+    # but never resolved to a name anywhere, which is what made them
+    # unrenderable without falling back to a bare `#N`.
+    attendee_usernames: list[str] = Field(default_factory=list)
     snapshot_ok: bool
     snapshot_blockers: list[dict]
     snapshot_warnings: list[dict]

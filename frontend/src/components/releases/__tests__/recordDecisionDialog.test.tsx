@@ -103,6 +103,7 @@ const DECISION_RESPONSE: GoNoGoDecisionRead = {
   chaired_by_user_id: 1,
   chaired_by_username: 'alice',
   attendees: [1],
+  attendee_usernames: ['alice'],
   snapshot_ok: true,
   snapshot_blockers: [],
   snapshot_warnings: [],

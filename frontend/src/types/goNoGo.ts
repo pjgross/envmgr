@@ -42,6 +42,10 @@ export interface GoNoGoSignoffRead {
   perspective_id: number;
   user_id: number;
   username: string | null;
+  // Resolved server-side, from the perspective's CURRENT name — see
+  // `go_no_go_service.perspective_names_for`'s docstring: a rename changes
+  // what an old decision's sign-off displays too, deliberately.
+  perspective_name: string | null;
   verdict: string;
   dissent_note: string | null;
 }
@@ -84,6 +88,8 @@ export interface GoNoGoDecisionRead {
   chaired_by_user_id: number;
   chaired_by_username: string | null;
   attendees: number[];
+  // Resolved 1:1 with `attendees`, same order.
+  attendee_usernames: string[];
   snapshot_ok: boolean;
   snapshot_blockers: GoNoGoSnapshotFinding[];
   snapshot_warnings: GoNoGoSnapshotFinding[];
