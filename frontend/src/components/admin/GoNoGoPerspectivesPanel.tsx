@@ -42,7 +42,7 @@ import type { GoNoGoPerspectiveRead } from '../../types/goNoGo';
 
 export default function GoNoGoPerspectivesPanel() {
   const dispatch = useDispatch<AppDispatch>();
-  const { perspectives, loading } = useSelector((s: RootState) => s.goNoGo);
+  const { perspectives, perspectivesLoading } = useSelector((s: RootState) => s.goNoGo);
 
   const user = useSelector((s: RootState) => s.auth.user);
   const canWrite = user?.role === 'Admin' || user?.is_master_admin === true;
@@ -190,7 +190,7 @@ export default function GoNoGoPerspectivesPanel() {
         emptyMessage="No perspectives configured yet."
         rows={perspectives}
         columns={columns}
-        loading={loading}
+        loading={perspectivesLoading}
         autoHeight
         disableRowSelectionOnClick
         pageSizeOptions={[10, 25]}

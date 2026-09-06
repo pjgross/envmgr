@@ -229,7 +229,13 @@ export const goNoGoColumns: GridColDef<DecisionRow>[] = [
 export default function GoNoGoTab({ releaseId }: Props) {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((s: RootState) => s.auth.user);
-  const { decisions, total, loading, error } = useSelector((s: RootState) => s.goNoGo);
+  // listLoading/listError are the ONLY state this grid and its Alert read —
+  // fetchPerspectives (dispatched by the record-decision dialog on mount)
+  // and closeCondition each write to their own, separate slot, so neither
+  // can spin this grid or falsely announce a failed list load (finding 6).
+  const { decisions, total, listLoading, listError, conditionError } = useSelector(
+    (s: RootState) => s.goNoGo
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const grid = useServerGrid({
@@ -248,7 +254,7 @@ export default function GoNoGoTab({ releaseId }: Props) {
         })
       ),
     total,
-    totalPending: loading,
+    totalPending: listLoading,
   });
 
   const rows: DecisionRow[] = useMemo(
@@ -280,9 +286,9 @@ export default function GoNoGoTab({ releaseId }: Props) {
 
   return (
     <Box>
-      {error && (
+      {listError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {listError}
         </Alert>
       )}
 
@@ -301,16 +307,18 @@ export default function GoNoGoTab({ releaseId }: Props) {
           // decisions have been recorded, or the fetch never came back at
           // all. Naming "no decisions" here when it's actually the latter
           // states as fact something the app does not know; the Alert
-          // above already says what went wrong.
+          // above already says what went wrong. Driven by `listError` only
+          // — a failed closeCondition or perspective fetch must never flip
+          // this to the load-failure message (finding 6).
           emptyMessage={
-            error
+            listError
               ? 'Unable to load go/no-go decisions.'
               : 'No go/no-go decisions have been recorded for this release yet.'
           }
           rows={rows}
           columns={goNoGoColumns}
           autoHeight
-          loading={loading}
+          loading={listLoading}
           rowCount={total}
           paginationMode="server"
           sortingMode="server"
@@ -412,6 +420,12 @@ export default function GoNoGoTab({ releaseId }: Props) {
             )}
           </Paper>
 
+          {conditionError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {conditionError}
+            </Alert>
+          )}
+
           <Typography variant="subtitle1" gutterBottom>
             Sign-offs
           </Typography>
@@ -512,7 +526,7 @@ export default function GoNoGoTab({ releaseId }: Props) {
         </Box>
       )}
 
-      {!latest && !loading && !error && (
+      {!latest && !listLoading && !listError && (
         <Typography color="text.secondary">
           Record a decision to see its sign-offs and conditions here.
         </Typography>

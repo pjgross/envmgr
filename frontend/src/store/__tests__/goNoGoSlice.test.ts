@@ -237,15 +237,15 @@ describe('goNoGoSlice — createPerspective / updatePerspective', () => {
 // releaseSlice's own `describe('releaseSlice — aborted fetches', ...)` is
 // the direct-reducer test style this block follows.
 describe('goNoGoSlice — aborted fetches', () => {
-  it('fetchDecisions: leaves error null and the loaded page untouched when aborted', () => {
+  it('fetchDecisions: leaves listError null and the loaded page untouched when aborted', () => {
     const loaded = goNoGoReducer(undefined, {
       type: fetchDecisions.fulfilled.type,
       payload: { rows: [decision()], total: 1 },
     });
-    expect(loaded.error).toBeNull();
+    expect(loaded.listError).toBeNull();
 
     const midFlight = goNoGoReducer(loaded, { type: fetchDecisions.pending.type });
-    expect(midFlight.loading).toBe(true);
+    expect(midFlight.listLoading).toBe(true);
 
     const afterAbort = goNoGoReducer(midFlight, {
       type: fetchDecisions.rejected.type,
@@ -255,8 +255,8 @@ describe('goNoGoSlice — aborted fetches', () => {
 
     // Still mid-flight for the SUPERSEDING request — the stale abort must
     // not flip this back to false.
-    expect(afterAbort.loading).toBe(true);
-    expect(afterAbort.error).toBeNull();
+    expect(afterAbort.listLoading).toBe(true);
+    expect(afterAbort.listError).toBeNull();
     expect(afterAbort.decisions).toEqual([decision()]);
     expect(afterAbort.total).toBe(1);
   });
@@ -270,16 +270,16 @@ describe('goNoGoSlice — aborted fetches', () => {
       meta: { aborted: false },
     });
 
-    expect(afterFailure.loading).toBe(false);
-    expect(afterFailure.error).toBe('Network error');
+    expect(afterFailure.listLoading).toBe(false);
+    expect(afterFailure.listError).toBe('Network error');
   });
 
-  it('fetchPerspectives: leaves error null and the loaded list untouched when aborted', () => {
+  it('fetchPerspectives: leaves perspectivesError null and the loaded list untouched when aborted', () => {
     const loaded = goNoGoReducer(undefined, {
       type: fetchPerspectives.fulfilled.type,
       payload: [perspective()],
     });
-    expect(loaded.error).toBeNull();
+    expect(loaded.perspectivesError).toBeNull();
 
     const midFlight = goNoGoReducer(loaded, { type: fetchPerspectives.pending.type });
 
@@ -289,8 +289,8 @@ describe('goNoGoSlice — aborted fetches', () => {
       meta: { aborted: true },
     });
 
-    expect(afterAbort.loading).toBe(true);
-    expect(afterAbort.error).toBeNull();
+    expect(afterAbort.perspectivesLoading).toBe(true);
+    expect(afterAbort.perspectivesError).toBeNull();
     expect(afterAbort.perspectives).toEqual([perspective()]);
   });
 
@@ -303,7 +303,45 @@ describe('goNoGoSlice — aborted fetches', () => {
       meta: { aborted: false },
     });
 
-    expect(afterFailure.loading).toBe(false);
-    expect(afterFailure.error).toBe('Network error');
+    expect(afterFailure.perspectivesLoading).toBe(false);
+    expect(afterFailure.perspectivesError).toBe('Network error');
+  });
+});
+
+// Finding 6 of the whole-branch review: a failed closeCondition (e.g. a 403
+// from a Developer who isn't a condition's owner) previously wrote to the
+// SAME `error`/`loading` the history grid's emptyMessage and spinner read,
+// so it falsely announced "Unable to load go/no-go decisions." even though
+// the list load had succeeded. closeCondition now writes only
+// `conditionError`, never `listError`/`listLoading`.
+describe('goNoGoSlice — closeCondition does not corrupt the list state', () => {
+  it('a rejected closeCondition sets conditionError and leaves listLoading/listError untouched', async () => {
+    const store = await loadTwoDecisions();
+    const before = store.getState().goNoGo;
+    expect(before.listLoading).toBe(false);
+    expect(before.listError).toBeNull();
+
+    vi.mocked(goNoGoService.closeCondition).mockRejectedValueOnce({
+      isAxiosError: true,
+      message: 'Request failed with status code 403',
+      response: { status: 403, data: { detail: 'Only the owner may close this condition' } },
+    });
+
+    const result = await store.dispatch(closeCondition({ conditionId: 11, met: true }));
+    expect(closeCondition.rejected.match(result)).toBe(true);
+
+    const after = store.getState().goNoGo;
+    expect(after.conditionError).toBe('Only the owner may close this condition');
+    // The list's own loading/error are untouched — the load itself never
+    // failed, and there is no reason the grid should say it did.
+    expect(after.listLoading).toBe(false);
+    expect(after.listError).toBeNull();
+    expect(after.decisions).toEqual(before.decisions);
+  });
+
+  it('fetchPerspectives does not move listLoading — opening the record-decision dialog must not spin the history grid', () => {
+    const midFlight = goNoGoReducer(undefined, { type: fetchPerspectives.pending.type });
+    expect(midFlight.listLoading).toBe(false);
+    expect(midFlight.perspectivesLoading).toBe(true);
   });
 });

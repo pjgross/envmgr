@@ -7,7 +7,7 @@
  * columns and hide the rest — exactly the columns these tests need to read
  * (`outcome`, `unmet_condition_count`).
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -238,5 +238,61 @@ describe('GoNoGoTab', () => {
     expect(
       screen.queryByText('No go/no-go decisions have been recorded for this release yet.')
     ).not.toBeInTheDocument();
+  });
+
+  it('a failed closeCondition does not flip the grid to the load-failure message — finding 6', async () => {
+    mocked.list.mockResolvedValue({
+      rows: [
+        decision({
+          id: 1,
+          decided_at: '2026-09-01T10:00:00Z',
+          unmet_condition_count: 1,
+          conditions: [
+            {
+              id: 8,
+              decision_id: 1,
+              text: 'Confirm the database backup completed',
+              owner_user_id: 3,
+              owner_username: 'carol',
+              due_date: null,
+              met_at: null,
+              met_by_user_id: null,
+              met_by_username: null,
+            },
+          ],
+        }),
+      ],
+      total: 1,
+    });
+    mocked.closeCondition.mockRejectedValueOnce({
+      isAxiosError: true,
+      message: 'Request failed with status code 403',
+      response: {
+        status: 403,
+        data: { detail: "Only the condition's owner, or an Admin/Release Manager, may close this condition" },
+      },
+    });
+
+    renderTab();
+
+    await screen.findByText('Confirm the database backup completed');
+    await waitFor(() => expect(getLastDataGridProps()?.rows).toHaveLength(1));
+
+    fireEvent.click(screen.getByText('Mark met'));
+
+    await screen.findByText(
+      "Only the condition's owner, or an Admin/Release Manager, may close this condition"
+    );
+
+    // The history grid itself is untouched: still one row, and its
+    // emptyMessage still means "nothing recorded", not "the load failed" —
+    // a closeCondition failure previously wrote to the SAME shared error the
+    // grid's own emptyMessage read.
+    expect(getLastDataGridProps()?.rows).toHaveLength(1);
+    const props = getLastDataGridProps() as { emptyMessage?: string } | null;
+    const message = (
+      props as unknown as { slots?: { noRowsOverlay?: () => { props: { message: string } } } }
+    )?.slots?.noRowsOverlay?.().props.message;
+    expect(message).toBe('No go/no-go decisions have been recorded for this release yet.');
   });
 });
