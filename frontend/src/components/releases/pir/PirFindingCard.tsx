@@ -21,10 +21,12 @@ interface Props {
   onEditAction: (finding: PirFinding, action: PirAction) => void;
   onDeleteAction: (finding: PirFinding, action: PirAction) => void;
   onRemoveCitation: (finding: PirFinding, incidentId: number) => void;
+  onCiteIncident: (finding: PirFinding) => void;
 }
 
 export default function PirFindingCard({
   finding, onEdit, onDelete, onAddAction, onEditAction, onDeleteAction, onRemoveCitation,
+  onCiteIncident,
 }: Props) {
   return (
     <Card variant="outlined" sx={{ mb: 2 }}>
@@ -71,9 +73,22 @@ export default function PirFindingCard({
           onRemove={(incidentId) => onRemoveCitation(finding, incidentId)}
         />
 
-        <Button size="small" sx={{ mt: 1 }} onClick={() => onAddAction(finding)}>
-          Add action
-        </Button>
+        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+          <Button size="small" onClick={() => onAddAction(finding)}>
+            Add action
+          </Button>
+          {/* An incident is evidence something went WRONG — offered only here,
+              never on a went-well finding, matching the rule the server itself
+              enforces on the composite incident-side endpoint. Rendered
+              regardless of whether any citation already exists: with none yet,
+              `PirIncidentCitations` renders nothing, and this is the only route
+              back to citing one from the release side. */}
+          {finding.kind === 'went_wrong' && (
+            <Button size="small" onClick={() => onCiteIncident(finding)}>
+              Cite an incident
+            </Button>
+          )}
+        </Stack>
       </CardContent>
     </Card>
   );
