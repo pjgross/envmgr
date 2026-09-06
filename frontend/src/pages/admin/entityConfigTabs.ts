@@ -21,6 +21,7 @@ export type EntityPanel =
   | 'event-types'
   | 'gate-types'
   | 'rollback-policy'
+  | 'go-no-go-perspectives'
   | 'tiers'
   | 'naming-policy'
   | 'lifecycle-policy';
@@ -144,6 +145,12 @@ export const ENTITY_CONFIG_PAGES: EntityConfigPage[] = [
         label: 'Rollback policy',
         panel: 'rollback-policy',
         description: 'Whether a missing plan or stale rehearsal warns or blocks.',
+      },
+      {
+        key: 'go-no-go-perspectives',
+        label: 'Go/No-Go Perspectives',
+        panel: 'go-no-go-perspectives',
+        description: 'The sign-off vocabulary a Go/No-Go decision is recorded against.',
       },
       {
         key: 'event-types',

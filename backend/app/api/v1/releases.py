@@ -26,7 +26,8 @@ from app.core.pagination import (
     sorting,
 )
 from app.db.base import get_db
-from app.core.security import get_current_user, require_tenant_admin
+from app.core.security import get_current_user, require_role, require_tenant_admin, Role
+from app.db.models.go_no_go import GoNoGoDecision
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_gate import ReleaseGate
@@ -42,6 +43,7 @@ from app.services import (
     release_system_service,
     project_service,
     gate_evidence_service,
+    go_no_go_service,
     release_readiness_service,
     rollback_authorisation_service,
     rollback_plan_service,
@@ -99,6 +101,10 @@ from app.api.v1.schemas.rollback import (
     RollbackAuthorisationRead,
     RollbackPlanCreate,
     RollbackPlanRead,
+)
+from app.api.v1.schemas.go_no_go import (
+    GoNoGoDecisionCreate,
+    GoNoGoDecisionRead,
 )
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
@@ -1754,3 +1760,74 @@ async def create_rollback_authorisation(
         db, tenant_id, [auth]
     )
     return reads[0]
+
+
+# ── Go/No-Go decisions (Phase 9 C3) ───────────────────────────────────────────
+#
+# Registered after every `/{release_id}` and `/{release_id}/...` route already
+# in this file, with the same "no hazard" reasoning the rollback-authorisation
+# routes above document: `/{release_id}/go-no-go` starts with the int-typed
+# release_id segment exactly like every route above it, so there is no
+# B6-style "literal segment swallowed by a bare `/{release_id}` catch-all"
+# risk — this router has no such catch-all ahead of a literal second segment.
+# Checked against every route registered on `router` above (the grep at the
+# top of this file's diff), not just the immediate neighbours.
+#
+# NOTHING HERE REFUSES ANYTHING beyond the input validation
+# `go_no_go_service.record_decision` already does — C3 records a decision a
+# human took; it does not gate a transition, a deployment or `can-deploy`.
+
+GO_NO_GO_SORTS = {
+    "decided_at": GoNoGoDecision.decided_at,
+    "outcome": GoNoGoDecision.outcome,
+}
+
+
+@router.post(
+    "/{release_id}/go-no-go",
+    response_model=GoNoGoDecisionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def record_go_no_go_decision(
+    release_id: int,
+    data: GoNoGoDecisionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role(Role.RELEASE_MANAGER)),
+):
+    """Admin or Release Manager — `require_role` already grants both (an
+    Admin always satisfies any `require_role` check), so no widened
+    dependency is needed here."""
+    tenant_id = current_user.active_tenant_id
+    decision = await go_no_go_service.record_decision(
+        db, release_id, tenant_id, current_user.id, data
+    )
+    reads = await go_no_go_service.reads_for_decisions(db, tenant_id, [decision])
+    return reads[0]
+
+
+@router.get("/{release_id}/go-no-go", response_model=list[GoNoGoDecisionRead])
+async def list_go_no_go_decisions(
+    release_id: int,
+    response: Response,
+    # A reduced page contract, not the shared 500/1000 default: this endpoint
+    # does per-row work after the query (go_no_go_service.reads_for_decisions
+    # loads every signoff/condition on the page), the same reasoning
+    # RELEASE_SORTS' own list endpoint and environment_health_service.
+    # history_query follow — see app/core/pagination.py's pagination()
+    # docstring.
+    page: Page = Depends(pagination(default_limit=50, max_limit=200)),
+    sort: Sort = Depends(sorting(GO_NO_GO_SORTS, default="decided_at", default_dir="desc")),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Any tenant member may read. `default_dir="desc"` is deliberate:
+    newest-first is this list's natural order (also `decisions_query`'s own
+    tiebreaker direction), and omitting it would silently flip the default
+    page to oldest-first the moment `sort_dir` is unset."""
+    tenant_id = current_user.active_tenant_id
+    await _require_release(db, release_id, tenant_id)
+    decisions, total = await go_no_go_service.list_decisions(
+        db, release_id, tenant_id, page=page, sort=sort
+    )
+    set_total_count(response, total)
+    return await go_no_go_service.reads_for_decisions(db, tenant_id, decisions)

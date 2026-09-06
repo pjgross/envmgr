@@ -19,7 +19,7 @@ from app.api.v1.environments import ENVIRONMENT_SORTS
 from app.api.v1.incidents import INCIDENT_SORTS
 from app.api.v1.infrastructure_components import INFRASTRUCTURE_SORTS
 from app.api.v1.pir_actions import PIR_ACTION_SORTS
-from app.api.v1.releases import RELEASE_SORTS
+from app.api.v1.releases import GO_NO_GO_SORTS, RELEASE_SORTS
 from app.api.v1.systems import SYSTEM_SORTS
 from app.services.contention_service import ESCALATION_SORTS
 from app.services.environment_decommission_service import DECOMMISSION_SORTS
@@ -60,6 +60,11 @@ WHITELISTS = {
     # sorting(PIR_ACTION_SORTS, default="due_date") with no `default_dir`, so
     # the shared "asc" applies — soonest-due first is what a worklist is for.
     "pir-actions": (PIR_ACTION_SORTS, "due_date", "asc"),
+    # C3's decision history: `GET /releases/{id}/go-no-go` takes
+    # sorting(GO_NO_GO_SORTS, default="decided_at", default_dir="desc") —
+    # newest-first, the same tiebreaker direction `decisions_query` sorts by
+    # — and `GoNoGoTab.tsx` sorts it server-side.
+    "go-no-go": (GO_NO_GO_SORTS, "decided_at", "desc"),
     # "tenant-groups" is deliberately absent, the same way "environment-tiers"
     # is: USER_GROUP_SORTS and the endpoint's sorting() stay in place as a
     # valid API contract, but UserGroups.tsx renders a client-side DataGrid

@@ -1903,6 +1903,33 @@ the incident page, and "every action on this release" on the PIR tab. Either wir
 them; a filter the URL accepts and the page ignores is worse than no filter, because it looks like
 it worked.
 
+## What C3 (Go/No-Go decision record) adds
+
+`GET /releases/{id}/go-no-go` — the decision history for one release — is
+bounded on its own contract, `pagination(default_limit=50, max_limit=200)`
+rather than the shared 500/1000 default, for the same reason
+`environment_health_service.history_query` and `RELEASE_SORTS`' own list
+endpoint take a reduced one: the endpoint does per-row work after the query
+(`go_no_go_service.reads_for_decisions` loads every sign-off and condition on
+the page). It is sortable via `sorting(GO_NO_GO_SORTS, default="decided_at",
+default_dir="desc")` — `decided_at` and `outcome` are both real, sortable
+columns — and orders `apply_sort(...).order_by(GoNoGoDecision.decided_at.desc(),
+GoNoGoDecision.id.desc())`. The `id` tiebreaker is not decoration: two
+decisions can share a `decided_at` (backdating is legitimate, and a batch
+import or two meetings recorded against the same clock time both tie), so
+`LIMIT`/`OFFSET` would duplicate and drop rows across pages the moment that
+happens. The query lives in an exposed `go_no_go_service.decisions_query` for
+exactly the reason `contention_service.worklist_query` and
+`pir_finding_service.worklist_query` do.
+
+**`unmet_condition_count` is permanently unsortable, continuing the set.** It
+is computed after the page is fetched — `reads_for_decisions` counts each
+decision's still-open conditions (`met_at IS NULL`) once the row set is
+already in hand — so no single column backs it for a `sort_by` to name, the
+same shape as `conflicts`, `agreement_gap` and the rest of the set this
+document already tracks. A sortable header on it would 422 the moment someone
+clicked it.
+
 ## Known gap: calendar and timeline silently truncate
 
 `GET /releases/calendar` and `GET /releases/timeline` call `release_service.list_releases` with

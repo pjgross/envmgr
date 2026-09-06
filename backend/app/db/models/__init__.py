@@ -95,6 +95,12 @@ from app.db.models.rollback import (  # noqa: F401
     RollbackRehearsal,
     RollbackPolicy,
 )
+from app.db.models.go_no_go import (  # noqa: F401
+    GoNoGoPerspective,
+    GoNoGoDecision,
+    GoNoGoSignoff,
+    GoNoGoCondition,
+)
 
 # This will be expanded as we add more models
 __all__ = [

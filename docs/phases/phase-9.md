@@ -1,8 +1,8 @@
 # Phase 9: Release Governance & Deployment Safety
 
 > Status: 🟡 **IN PROGRESS** — sub-projects **C2 (Typed gates, evidence,
-> waivers)** and **C4 (Rollback governance)** are complete; C1, C3, C5–C9 are
-> not started. | Roadmap: [../plan.md](../plan.md)
+> waivers)**, **C3 (Go/No-Go decision record)** and **C4 (Rollback governance)**
+> are complete; C1, C5–C9 are not started. | Roadmap: [../plan.md](../plan.md)
 
 Phase 9 answers [requirements.md §2.11](../requirements.md), which is roughly 48
 capability rows — Phase-7-sized or larger. It was decomposed into nine clusters,
@@ -20,7 +20,7 @@ for the decomposition as originally recorded.
 |---|---|---|---|---|
 | C1 | Intake + risk scoring | `environment_request`'s request-on-a-lifecycle-template pattern | C2 (risk selects gate types) | Not started |
 | C2 | **Typed gates, evidence, waivers** | `ReleaseGate`, `GateCriterion`, templates | — | ✅ Complete |
-| C3 | Go/No-Go decision record | nothing | C2, C4 | Not started |
+| C3 | **Go/No-Go decision record** | nothing | C2, C4 | ✅ Complete |
 | C4 | **Rollback governance** | nothing | C2 (folds into the same verdict) | ✅ Complete |
 | C5 | Deployment execution records | Phase 4 tracking, `can-deploy` | C2 (pre-deploy checklist is a gate) | Not started |
 | C6 | Hyper-care + closeout | The **PIR findings/actions/citations** work (2026-09-02) is the retro half — findings, trackable actions, a tenant-wide action worklist, incidents cited as evidence. Supersedes Phase 5 SP4. | C3 | Not started |
@@ -178,6 +178,141 @@ type a gate with, and the feature reads as broken rather than unconfigured. Spec
   future RBAC/OAuth upgrade this codebase does not have yet. C2 did not
   attempt a narrower version of that rule — the same call B3b, B4 and B5 each
   made about their own approval-shaped actions.
+
+## C3 — Go/No-Go decision record — ✅ COMPLETE 2026-09-06
+
+Four tables, none of them present before this sub-project: a tenant-configurable
+**perspective** (`go_no_go_perspective`: name, description, sort order —
+seeded with §2.11's three, *Quality*/*Process*/*Acceptance*); a **decision**
+(`go_no_go_decision`: outcome `go`/`conditional_go`/`no_go`, rationale,
+`decided_at`, chair, attendees, and a frozen readiness snapshot — §4 below); a
+**sign-off** per perspective per signatory (`go_no_go_signoff`: verdict, an
+optional dissent note); and a **condition** a conditional go is conditional on
+(`go_no_go_condition`: text, owner, due date, met/unmet). Migration `gonogo` is
+additive: four creates, no column changes on any existing table except the
+readiness response's new field (below), which is not a column at all.
+Perspectives are seeded per tenant by the migration **and** by
+`tenant_service.create_tenant` — C2's `gate_type` pattern exactly, so **there is
+no standing deploy step**. The one tenant that still needs
+`seed_go_no_go_perspective_defaults_for_tenant` run by hand is one restored from
+a backup predating the migration; the seeder is idempotent.
+
+`POST`/`GET /releases/{id}/go-no-go` record and read the history (bounded,
+`pagination()` + `sorting()`, ordered `decided_at DESC, id DESC`);
+`PATCH /go-no-go-conditions/{id}` closes a condition; `/tenant/go-no-go-perspectives`
+is admin-write, member-read CRUD for the perspective vocabulary. A composite
+`POST` writes the decision, its sign-offs and its conditions in one transaction
+and validates before it creates anything — the PIR citation endpoint's lesson
+about `get_db`'s rollback not being observable by the shared-session test
+fixture, taken directly. `ReleaseReadinessResponse` — C2's response shape,
+served on both `GET /api/v1/releases/{id}/readiness` (JWT) and
+`GET /api/v1/webhooks/release-ready` (API key, scope `webhooks:release`) — gains
+one additive field, `latest_decision` (outcome, `decided_at`, chair's username,
+unmet condition count, or null). It is **reported, not judged**: it contributes
+no blocker and no warning, and `ok` is still exactly `len(blockers) == 0`.
+
+On release detail, a twelfth tab (`?tab=go-no-go`) holding the decision history,
+a *Record decision* dialog that shows the live readiness verdict as it is about
+to be frozen, and the latest decision's conditions with a close control. An
+admin panel manages perspectives under the existing `/admin/releases` entity
+config.
+
+**C3 RECORDS; IT REFUSES NOTHING.** No release transition is blocked, no
+deployment is refused, `can-deploy` is untouched, and a recorded `no_go`
+changes no behaviour anywhere in the product.
+`backend/tests/test_c3_records_never_refuses.py` is the guard — the **eighth**
+sub-project running whose central promise is a named test rather than an
+absence in the diff, after A3, A4, B2, B4, C2, C4 and the PIR work (B5 is not
+in that count — see the correction to the PIR entry below). Spec:
+[docs/superpowers/specs/2026-09-05-go-no-go-decision-design.md](../superpowers/specs/2026-09-05-go-no-go-decision-design.md).
+
+### What C3 established, and what will bite if forgotten
+
+- **C3 RECORDS; IT REFUSES NOTHING — AND THIS EXTENDS TO NOT POLICING ITS OWN
+  COMPLETENESS.** A decision with zero sign-offs is recordable, because a
+  meeting where nobody signed is a real thing and refusing to record it would
+  be C3 refusing something. The UI shows which perspectives are unsigned; the
+  API does not insist. Anyone adding "a decision requires three sign-offs" is
+  adding the first refusal this sub-project deliberately does not have.
+- **THE SNAPSHOT IS STORED — the one deliberate exception to this codebase's
+  compute-on-read rule.** Every other sub-project computes state on read and
+  stores nothing, because a stored value would be falsified by the next edit
+  (A4's escalation state, B5's decommission state, B2's quarantine, C2's
+  waiver liveness, C4's reversibility rollup). A decision record is different:
+  it is evidence of what was known **when the decision was taken**, and a
+  readiness verdict that silently recomputed on read would render a release
+  that shipped over three blockers as clean the moment those blockers cleared
+  — an audit record that rewrites itself is evidence of nothing. So
+  `snapshot_ok`/`snapshot_blockers`/`snapshot_warnings`/`snapshot_reversibility`/
+  `snapshot_rehearsal_state` are captured **server-side** at record time by
+  calling `release_readiness_service.evaluate()` — the same single evaluator
+  C2 established, never a second implementation and never a client-supplied
+  value. Verified in the browser: flipping `require_current_rehearsal` moved
+  live readiness from `ok=true`/0 blockers/3 warnings to `ok=false`/1
+  blocker/2 warnings while the recorded decision's snapshot stayed
+  byte-identical. **The snapshot is of the moment of RECORDING, not of
+  `decided_at`** — a meeting held Tuesday and recorded Thursday freezes
+  Thursday's verdict, because Tuesday's is not reconstructible; nothing in
+  this codebase stores the history of a gate's state. A backdated
+  `decided_at` therefore does not mean a backdated snapshot, and the API and
+  UI both say so beside the frozen figures rather than implying a precision
+  the record does not have.
+- **DECISIONS ARE APPEND-ONLY; CONDITIONS ARE THE ONE MUTABLE PART.** There is
+  no `PATCH` and no `DELETE` for a decision, and no `deleted_at` column — a
+  wrong decision is corrected by recording another, the same escape-hatch
+  shape A4 gives a wrong contention owner and B5 gives a decommission that
+  should not have been raised. An editable record with a frozen snapshot
+  would be a contradiction: the snapshot would describe a decision whose text
+  had since changed. Closing a condition records a **later fact about** the
+  decision — it does not rewrite what was decided; `outcome`, `rationale` and
+  the sign-offs never change once recorded. A structural sweep asserts no
+  edit or delete route exists for a decision at all.
+- **THE OUTCOME IS THE CHAIR'S, NOT A FOLD OF THE SIGN-OFFS.** `outcome: go`
+  beside a `no_go` sign-off and a dissent note is legal and round-trips
+  intact — it is exactly what §2.11's "dissents" asks for: a decision taken
+  over someone's objection, with the objection on the record. A computed
+  outcome could not express this; the outcome and the dissent would
+  contradict each other by construction. The UI must never hide a dissent
+  because the outcome disagrees with it.
+- **`snapshot_rehearsal_state` MUST BE READ FROM WARNINGS AND BLOCKERS, NOT
+  JUST ONE.** `release_readiness_service`'s rehearsal finding routes to
+  `blockers` when `require_current_rehearsal` is on and to `warnings`
+  otherwise, so a reader that only inspects one list goes blank for exactly
+  the tenants that treat the rollback question as non-optional.
+- **PERSPECTIVES ARE TENANT-CONFIGURABLE, SO NOTHING MAY ASSUME "QUALITY"
+  EXISTS.** No code path, message, report or test fixture may hardcode a
+  perspective name. Two different people signing the *same* perspective is
+  deliberately allowed (two test leads may both attest quality) — "is this
+  perspective signed" is a question about whether any sign-off exists for it,
+  never about a single row.
+- **`unmet_condition_count` IS PERMANENTLY UNSORTABLE** — computed after the
+  page is fetched, the same shape as every other post-query column recorded
+  in [docs/pagination.md](../pagination.md). The `GET /releases/{id}/go-no-go`
+  list's `id` tiebreaker is not decoration either: two decisions can share a
+  `decided_at`, and `LIMIT`/`OFFSET` duplicates and drops rows across pages
+  the moment ties exist.
+- **Every username travels with its row, resolved through a lookup that is
+  NOT tenant-qualified.** Under master-admin impersonation a chair or
+  signatory can legitimately sit outside the decision's own tenant, and a
+  `User.tenant_id ==` join would render them as nobody — the same trap that
+  bit A3's `acknowledged_by_username`, A4's `usernames_for`, B5's and C2's
+  `approved_by_username`.
+- **Deviations on record (§2.11):** there is no Business Sponsor role and C3
+  does not add one — this product's roles are load-bearing in permission
+  checks across the whole application, and adding a sixth would touch far
+  more than C3; the sponsor is whoever signs the *Acceptance* perspective.
+  And the "required question" about testing the rollback is **answered from
+  C4's rehearsal state, not asked** of a human — asking someone to retype
+  what the system already computes is how a chip and a verdict come to
+  disagree.
+- **CLAUDE.md's PIR entry had a stale ordinal, found while writing this
+  entry.** It called itself "the seventh sub-project" while listing seven
+  predecessors including B5 — which does not belong in that series at all,
+  since B5 *acts* (it sets `DECOMMISSIONED` and refuses a booking past
+  teardown) and its guard asserts those are the only changes, a different
+  claim from "refuses nothing." Corrected there to six predecessors (A3, A4,
+  B2, B4, C2, C4) so "seventh" and its own list agree, which is what makes
+  C3 the eighth.
 
 ## C4 — Rollback governance — ✅ COMPLETE 2026-08-21
 

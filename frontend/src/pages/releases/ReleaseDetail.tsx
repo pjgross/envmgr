@@ -12,6 +12,7 @@
  *   deployments: Deployments
  *   pir: PIR (Post-Implementation Review)
  *   rollback: Rollback
+ *   go-no-go: Go/No-Go
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -49,6 +50,7 @@ import ReleaseStatusHistoryDrawer from '../../components/releases/ReleaseStatusH
 import ReleaseEventDrawer from '../../components/releases/ReleaseEventDrawer';
 import ReadinessBanner from '../../components/releases/ReadinessBanner';
 import RollbackPanel from '../../components/releases/RollbackPanel';
+import GoNoGoTab from '../../components/releases/GoNoGoTab';
 import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
 import { EnterpriseMembershipTab } from './project/EnterpriseMembershipTab';
 import { useSnackbar } from '../../hooks/useSnackbar';
@@ -76,6 +78,7 @@ const RELEASE_TABS = [
   { key: 'deployments', label: 'Deployments' },
   { key: 'pir', label: 'PIR' },
   { key: 'rollback', label: 'Rollback' },
+  { key: 'go-no-go', label: 'Go/No-Go' },
 ] as const;
 
 export default function ReleaseDetail() {
@@ -226,6 +229,7 @@ export default function ReleaseDetail() {
       {activeTab === 'deployments' && <ReleaseDeploymentsTab releaseId={releaseId} />}
       {activeTab === 'pir' && <ReleasePirTab releaseId={releaseId} />}
       {activeTab === 'rollback' && <RollbackPanel releaseId={releaseId} />}
+      {activeTab === 'go-no-go' && <GoNoGoTab releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}
