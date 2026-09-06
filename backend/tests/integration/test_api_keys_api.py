@@ -1,4 +1,6 @@
 """/api/v1/api-keys — create (raw shown once), list, revoke."""
+import json
+
 import pytest
 
 
@@ -31,3 +33,20 @@ async def test_create_list_revoke_roundtrip(client, auth_headers):
     # List — no longer appears
     r = await client.get("/api/v1/api-keys", headers=auth_headers)
     assert all(k["id"] != key_id for k in r.json())
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_unknown_scope(client, auth_headers):
+    # A typo'd scope must 422 at create time, naming the offending scope
+    # and the valid ones — the whole point being that the plaintext key
+    # is otherwise shown once and every call with it silently 403s later
+    # with no hint a typo was the cause.
+    r = await client.post(
+        "/api/v1/api-keys", headers=auth_headers,
+        json={"name": "Typo", "scopes": ["webhooks:deploymnet"]},
+    )
+    assert r.status_code == 422, r.text
+    detail = json.dumps(r.json())
+    assert "webhooks:deploymnet" in detail
+    assert "webhooks:deployment" in detail
+    assert "webhooks:release" in detail

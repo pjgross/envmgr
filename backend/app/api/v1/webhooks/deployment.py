@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.api_scopes import WEBHOOKS_DEPLOYMENT
 from app.core.security import api_key_auth
 from app.db.base import get_db
 from app.services import deployment_service
@@ -18,7 +19,7 @@ router = APIRouter()
 async def ingest_deployment(
     payload: DeploymentWebhookPayload,
     db: AsyncSession = Depends(get_db),
-    api_key=Depends(api_key_auth(required_scope="webhooks:deployment")),
+    api_key=Depends(api_key_auth(required_scope=WEBHOOKS_DEPLOYMENT)),
 ):
     return await deployment_service.ingest(
         db,

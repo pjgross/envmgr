@@ -1,0 +1,4 @@
+{
+  "webhooks:deployment": "CI/CD deployment webhook",
+  "webhooks:release": "Release gate readiness webhook"
+}

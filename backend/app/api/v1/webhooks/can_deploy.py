@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.preflight import CanDeployResponse
+from app.core.api_scopes import WEBHOOKS_DEPLOYMENT
 from app.core.security import api_key_auth
 from app.db.base import get_db
 from app.services import preflight_service
@@ -26,7 +27,7 @@ async def can_deploy(
     release_id: int | None = Query(None),
     booking_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    api_key=Depends(api_key_auth(required_scope="webhooks:deployment")),
+    api_key=Depends(api_key_auth(required_scope=WEBHOOKS_DEPLOYMENT)),
 ):
     return await preflight_service.evaluate(
         db,
