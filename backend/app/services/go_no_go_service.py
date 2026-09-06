@@ -253,11 +253,14 @@ def decisions_query(
     page identically on both engines until that happens and then silently
     duplicate or drop a row.
 
-    `sort` is accepted for the same reason `pir_finding_service.
-    worklist_query` takes it — a future sortable column costs no interface
-    change — though nothing yet whitelists one via `sorting()`; `apply_sort`
-    is a no-op when `sort` is None. Chained BEFORE the `decided_at`/`id`
-    tiebreaker, never instead of it.
+    `sort` is real, not a placeholder: `GO_NO_GO_SORTS` in `api/v1/releases.py`
+    whitelists `decided_at` and `outcome` via `sorting()`, and the `GET`
+    route's `sort` dependency is threaded through `list_decisions` straight
+    into this call. `apply_sort` is a no-op only when the caller passes no
+    `sort` at all — the case `latest_decision_for` below relies on. Chained
+    BEFORE the `decided_at`/`id` tiebreaker, never instead of it, so a caller
+    that does sort still gets a total order rather than one that only
+    resolves ties on the sorted field.
     """
     query = select(GoNoGoDecision).where(
         GoNoGoDecision.release_id == release_id,
