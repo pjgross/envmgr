@@ -287,7 +287,11 @@ export default function PirActionList() {
         // overlay to a zero-height box (see DataTable.tsx's comment on
         // `autoHeight`).
         autoHeight
-        emptyMessage="No PIR actions match these filters."
+        // The list is empty for one of two very different reasons — no rows
+        // matched, or the fetch never came back at all. Naming the filters
+        // here when it's actually the latter states as fact something the
+        // app does not know; the Alert above already says what went wrong.
+        emptyMessage={loadError ? 'Unable to load PIR actions.' : 'No PIR actions match these filters.'}
         rows={rows}
         columns={columns}
         getRowHeight={() => 'auto'}

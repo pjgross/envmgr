@@ -337,7 +337,11 @@ export default function SystemCatalog() {
         // `autoHeight`).
         autoHeight
         userId={user?.id ?? 'guest'}
-        emptyMessage="No systems match these filters."
+        // The list is empty for one of two very different reasons — no rows
+        // matched, or the fetch never came back at all. Naming the filters
+        // here when it's actually the latter states as fact something the
+        // app does not know; the Alert above already says what went wrong.
+        emptyMessage={error ? 'Unable to load systems.' : 'No systems match these filters.'}
         rows={systems}
         columns={columns}
         loading={listLoading && systems.length === 0}
