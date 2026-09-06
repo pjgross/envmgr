@@ -309,7 +309,22 @@ async def add_citation(
     citing twice updates the note and returns the same row rather than surfacing
     `uq_pir_finding_incident` to the browser as a bare 500 — the shape C4's
     rollback-plan revive bug took.
+
+    An incident cites a `went_wrong` finding only — citing a production
+    failure against a "keep doing this" item would file it in the good
+    column. `incidents.py`'s composite endpoint enforces this itself before
+    it ever reaches here (its `finding_id` path already knows the finding's
+    kind, and its new-finding path always creates `went_wrong`), but this is
+    the only check for the release-side route, so it must live here too —
+    matching that endpoint's status and wording rather than inventing a
+    second convention for the same rule.
     """
+    if finding.kind != "went_wrong":
+        raise HTTPException(
+            status_code=422,
+            detail="an incident is evidence of something going wrong; "
+                   "cite it against a went_wrong finding",
+        )
     incident = (await db.execute(select(Incident).where(
         Incident.id == incident_id,
         Incident.tenant_id == tenant_id,
