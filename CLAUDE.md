@@ -452,9 +452,19 @@ async def my_endpoint(current_user=Depends(require_tenant_admin())): ...
 from app.core.security import require_role, Role
 async def my_endpoint(current_user=Depends(require_role(Role.RELEASE_MANAGER))): ...
 
-# Publish event (outbox pattern)
+# Publish event (outbox pattern). SIX required args, none defaulted — `db`,
+# `aggregate_type` and `tenant_id` are easy to forget and it is a TypeError
+# without them. Do NOT commit inside; get_db's auto-commit is what makes the
+# event row land atomically with the business write.
 from app.core.events import publish_event
-await publish_event(event_type="BookingCreated", aggregate_id=booking.id, payload={...})
+await publish_event(
+    db,
+    event_type="BookingCreated",
+    aggregate_id=booking.id,
+    aggregate_type="Booking",
+    payload={...},
+    tenant_id=current_user.active_tenant_id,
+)
 ```
 
 ```typescript
