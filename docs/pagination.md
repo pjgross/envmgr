@@ -1188,6 +1188,20 @@ mutated.
   picker fetches* below. The recorded count was wrong: it was four each, not two.
 - **Truncation copy is duplicated** across the picker call sites rather than shared.
 
+## Currency of the two lists below — READ THIS FIRST
+
+**Both lists stopped being maintained after the A4 branch (2026-08-09), where the running tally
+stood at 63 endpoints. The reproducible grep at the top of this file now returns 73.** A
+verification pass on 2026-09-06 checked every *claim* the two lists make and found them accurate —
+nothing listed as bounded is unbounded, and nothing listed as unbounded is bounded. **The problem
+is omission, not error:** work since A4 (B1–B6, C1–C4, the PIR work) added list endpoints that
+were never folded in, and both lists read as exhaustive.
+
+The eight found by that pass are recorded in place below — one bounded (`GET /gate-types`) and
+seven structurally bounded. **A full re-audit of all 73 against these lists is still open work.**
+Until it happens, treat an endpoint's *absence* from either list as "not yet assessed", never as
+"not applicable".
+
 ## Bounded so far
 
 Twenty-eight endpoints now go through the primitive — the original twenty-two, five that a
@@ -1198,6 +1212,7 @@ by sub-project C1 from the "own ad hoc limit" group further down:
 |---|---|---|
 | `GET /environments/` | `environment_service.list_environments` | 1000 |
 | `GET /environment-tiers/` | `environment_tier_service.list_tiers` — new with this branch's governance-fields work, not part of the 51/28/24 counts below, which predate it **‡** | 1000 |
+| `GET /gate-types` | `gate_type_service.list_types` — sub-project C2 (2026-08-20); `sorting(GATE_TYPE_SORTS, "display_order")`. **Recorded by the 2026-09-06 verification pass, not by C2 itself** — it postdates the running tally and was missing from this table entirely **‡** | 1000 |
 | `GET /systems/` | `system_service.list_systems` | 1000 |
 | `GET /incidents` | `incident_service.list_incidents` | 1000 |
 | `GET /bookings/` | `booking_service.list_bookings` | 1000 |
@@ -1367,14 +1382,14 @@ settled on the action routes, not the worklist read). `DecommissionWorklist.tsx`
 `"decommissions"` entry (`scheduled_teardown_at`, `warned_at`, `environment`; default
 `scheduled_teardown_at` ascending) — so, unlike `projects` and `environment-groups`, this one
 belongs in the two-sided contract by the same logic as `environment-requests` and
-`contention-escalations`. **It is enforced on only one side.** A frontend test
+`contention-escalations`. **It was once enforced on only one side; that gap is now CLOSED.** A frontend test
 (`DecommissionWorklist.test.tsx`, *"offers no column the server would answer with a 422"*) checks
 the grid's columns against the JSON file directly, the same as `releaseColumnsSortable.test.ts`
-does for releases — but `backend/tests/test_sort_whitelist_contract.py`'s `WHITELISTS` dict, the
-thing that checks the JSON against `DECOMMISSION_SORTS` itself, has no `"decommissions"` entry.
-Someone widening `DECOMMISSION_SORTS` without updating the JSON (or the reverse) would pass CI
-today, unlike the same mistake on `environment-requests` or `contention-escalations`. Disclosed
-here rather than fixed — this is a documentation pass, not a code change.
+does for releases — and `backend/tests/test_sort_whitelist_contract.py`'s `WHITELISTS` dict now
+carries `"decommissions": (DECOMMISSION_SORTS, "scheduled_teardown_at", "asc")` (line 58), so the
+JSON is checked against the backend constant too. Widening `DECOMMISSION_SORTS` without updating
+the JSON, or the reverse, now fails CI — exactly as it does for `environment-requests` and
+`contention-escalations`. `"pir-actions"` and `"go-no-go"` are in that dict as well.
 
 None of the three sortable columns is unique — `scheduled_teardown_at` ties are ordinary (a batch
 of environments decommissioned together shares one date) and `warned_at` ties for the same reason
@@ -1725,6 +1740,26 @@ Single-entity structure or history, added by this pass:
   writer returns early if `from_status == to_status`), so row count tracks genuine transitions of
   that one item, not tenant volume.
 
+**Added by the 2026-09-06 verification pass** — seven endpoints from B5, C2 and C4 that belong in
+this group and were never recorded. All are unbounded today, all are structurally or
+configuration-bounded, and none was a defect; they were simply written after the running tally
+lapsed. Listed so a future re-audit does not rediscover them as news:
+
+- `GET /releases/{release_id}/rollback-plans` (C4) — one plan per changing component on one
+  release. Its sibling `GET /releases/{id}/systems` is already in the bounded table; this is the
+  same shape.
+- `GET /releases/{release_id}/rollback-authorisations` (C4) — bounded by how many times one
+  release is actually rolled back. The route already carries a comment arguing exactly this, which
+  is the reasoning this group exists to record.
+- `GET /systems/{system_id}/rollback-rehearsals` (C4) — rehearsal history for one system.
+- `GET /gates/{gate_id}/evidence` (C2) — evidence rows attached to one gate.
+- `GET /go-no-go-perspectives` (C3) — a tenant-wide catalogue seeded with three entries, same
+  class as `component_types`.
+- `GET /tenant/decommission-steps` (B5) — a tenant-wide attestation checklist.
+- `GET /booking-requests/{request_id}/groups/{group_id}/allowed-transitions` (A2) — the group
+  variant of `bookings/{id}/allowed-transitions` above, which IS recorded here; the group form
+  never was. It predates A4, so this one is an ordinary omission rather than tally drift.
+
 **Already capped by their own ad hoc limit — not the shared primitive, and no `X-Total-Count`.**
 This was missed by earlier passes because "unbounded" was read as "returns everything with no
 cap"; it already had a cap, just not the shared one, so a scan for a bare `list(...)` return
@@ -1882,7 +1917,13 @@ finding), so the shape is a fixed number of queries, not an N+1.
 
 Both are recorded rather than fixed, because both need a change this branch did not scope.
 
-**The citation dialog's release picker reads a paged slice, at the endpoint's ceiling.**
+**~~The citation dialog's release picker reads a paged slice, at the endpoint's ceiling.~~
+FIXED 2026-09-06 (`d24e8720`)** — the dialog now debounces typed text into `GET /releases`'
+`search` parameter and no longer fetches a fixed slice. **Note the diagnosis below was wrong on one
+point:** it says "the endpoint has no `search` parameter" and proposes adding one. `GET /releases`
+has supported `search` since long before this was written (`backend/app/api/v1/releases.py:204`) —
+only the dialog was not using it, so the fix was frontend-only. The rest of the analysis stands and
+is kept because the reasoning is the reusable part:
 `LinkIncidentToPirDialog` calls `releaseService.list({ implemented: true, limit: 200 })`, and
 `GET /releases` is `pagination(default_limit=50, max_limit=200)` — so 200 is the most the endpoint
 will serve, over a set that only grows. Past 200 implemented releases, three things follow: the
@@ -1929,12 +1970,3 @@ already in hand — so no single column backs it for a `sort_by` to name, the
 same shape as `conflicts`, `agreement_gap` and the rest of the set this
 document already tracks. A sortable header on it would 422 the moment someone
 clicked it.
-
-## Known gap: calendar and timeline silently truncate
-
-`GET /releases/calendar` and `GET /releases/timeline` call `release_service.list_releases` with
-a hardcoded `limit=500` and discard the total. A tenant with more than 500 releases in the
-requested date range gets a calendar or Gantt view that silently drops rows past the 500th, with
-no header or error to say so. This was found during the sweep and is out of its scope — it needs
-the same `page`/`X-Total-Count` treatment as everything else in the table above, or at minimum a
-truncation signal to the client.
