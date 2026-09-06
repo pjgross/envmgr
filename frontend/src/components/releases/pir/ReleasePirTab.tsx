@@ -22,6 +22,7 @@ import {
   Alert, Box, Button, CircularProgress, Divider, FormControlLabel, Paper, Stack, Switch,
   TextField, Typography,
 } from '@mui/material';
+import CiteIncidentDialog from './CiteIncidentDialog';
 import PirActionDialog from './PirActionDialog';
 import PirFindingCard from './PirFindingCard';
 import PirFindingDialog from './PirFindingDialog';
@@ -60,6 +61,9 @@ export default function ReleasePirTab({ releaseId }: Props) {
   });
   const [actionDialog, setActionDialog] = useState<ActionDialogState>({
     open: false, findingId: 0, action: null,
+  });
+  const [citeDialog, setCiteDialog] = useState<{ open: boolean; findingId: number }>({
+    open: false, findingId: 0,
   });
 
   const load = useCallback(async () => {
@@ -184,6 +188,7 @@ export default function ReleasePirTab({ releaseId }: Props) {
           onEditAction={(f, a) => setActionDialog({ open: true, findingId: f.id, action: a })}
           onDeleteAction={handleDeleteAction}
           onRemoveCitation={handleRemoveCitation}
+          onCiteIncident={(f) => setCiteDialog({ open: true, findingId: f.id })}
         />
       ))}
       <Button onClick={() => setFindingDialog({ open: true, kind, finding: null })}>
@@ -240,6 +245,13 @@ export default function ReleasePirTab({ releaseId }: Props) {
         findingId={actionDialog.findingId}
         onClose={() => setActionDialog((s) => ({ ...s, open: false }))}
         onSaved={load}
+      />
+      <CiteIncidentDialog
+        open={citeDialog.open}
+        releaseId={releaseId}
+        findingId={citeDialog.findingId}
+        onClose={() => setCiteDialog((s) => ({ ...s, open: false }))}
+        onCited={load}
       />
       {confirmDialog}
     </Box>

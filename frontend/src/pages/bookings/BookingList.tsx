@@ -748,7 +748,11 @@ export default function BookingList() {
         // `autoHeight`).
         autoHeight
         userId={user?.id ?? 'guest'}
-        emptyMessage="No bookings match these filters."
+        // The list is empty for one of two very different reasons — no rows
+        // matched, or the fetch never came back at all. Naming the filters
+        // here when it's actually the latter states as fact something the
+        // app does not know; the Alert above already says what went wrong.
+        emptyMessage={error ? 'Unable to load bookings.' : 'No bookings match these filters.'}
         rows={bookings}
         columns={columns}
         loading={isInitialLoading}

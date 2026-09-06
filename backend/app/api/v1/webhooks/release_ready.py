@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.schemas.gate_readiness import ReleaseReadinessResponse
+from app.core.api_scopes import WEBHOOKS_RELEASE
 from app.core.security import api_key_auth
 from app.db.base import get_db
 from app.services import release_readiness_service
@@ -30,6 +31,6 @@ router = APIRouter()
 async def release_ready(
     release_id: int = Query(...),
     db: AsyncSession = Depends(get_db),
-    api_key=Depends(api_key_auth(required_scope="webhooks:release")),
+    api_key=Depends(api_key_auth(required_scope=WEBHOOKS_RELEASE)),
 ):
     return await release_readiness_service.evaluate(db, release_id, api_key.tenant_id)

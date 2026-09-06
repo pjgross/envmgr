@@ -817,7 +817,11 @@ export default function EnvironmentList() {
         // `autoHeight`).
         autoHeight
         userId={user?.id ?? 'guest'}
-        emptyMessage="No environments match these filters."
+        // The list is empty for one of two very different reasons — no rows
+        // matched, or the fetch never came back at all. Naming the filters
+        // here when it's actually the latter states as fact something the
+        // app does not know; the Alert above already says what went wrong.
+        emptyMessage={error ? 'Unable to load environments.' : 'No environments match these filters.'}
         // The stored model may name a column that no longer exists — a `cf_`
         // key is kept regardless (its tenant definitions load asynchronously),
         // a plain key only if it still names a real column. Same rule as the

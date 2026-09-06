@@ -96,6 +96,26 @@ async def test_an_incident_from_another_tenant_cannot_be_cited(db_session, tenan
 
 
 @pytest.mark.asyncio
+async def test_an_incident_cannot_be_cited_against_a_went_well_finding(db_session, tenant, user):
+    """An incident is evidence that something failed. Citing one against a
+    'keep doing this' finding would file a production failure in the good
+    column, so `add_citation` refuses it itself — the release-side route
+    (`POST /releases/{id}/pir/findings/{id}/incidents`) has no check of its
+    own and relies entirely on this one; the incident-side composite endpoint
+    enforces the same rule before it ever calls in here.
+    """
+    pir = await _pir(db_session, tenant.id, user.id)
+    f = await pir_finding_service.create_finding(
+        db_session, tenant.id, pir, PirFindingCreate(kind="went_well", title="Kept CAB tight"),
+        user.id)
+    inc = await _incident(db_session, tenant.id)
+    with pytest.raises(HTTPException) as exc:
+        await pir_finding_service.add_citation(db_session, tenant.id, f, inc.id, None)
+    assert exc.value.status_code == 422
+    assert "went_wrong" in exc.value.detail
+
+
+@pytest.mark.asyncio
 async def test_removing_a_citation_hard_deletes_it(db_session, tenant, user):
     from app.db.models.pir_finding import PirFindingIncident
     pir = await _pir(db_session, tenant.id, user.id)

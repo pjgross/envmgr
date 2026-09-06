@@ -4,11 +4,13 @@ import {
   FormControlLabel, Stack, TextField, Typography,
 } from '@mui/material';
 import type { ApiKeyCreatePayload } from '../../types/apiKey';
+import apiKeyScopes from '../../constants/apiKeyScopes.json';
 
-const AVAILABLE_SCOPES = [
-  { key: 'webhooks:deployment', label: 'CI/CD deployment webhook' },
-  { key: 'webhooks:release', label: 'Release gate readiness webhook' },
-] as const;
+// The keys here must match the backend's KNOWN_SCOPES exactly — a scope
+// typo saves happily otherwise, and every call made with the key then
+// 403s with no hint a typo was the cause. Enforced by
+// backend/tests/test_api_scope_contract.py.
+const AVAILABLE_SCOPES = Object.entries(apiKeyScopes).map(([key, label]) => ({ key, label }));
 
 interface Props {
   open: boolean;

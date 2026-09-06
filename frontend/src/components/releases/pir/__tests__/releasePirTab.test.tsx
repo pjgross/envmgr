@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ReleasePirTab from '../ReleasePirTab';
 import api from '../../../../services/api';
+import { incidentService } from '../../../../services/incidentService';
 import { pirService } from '../../../../services/pirService';
 import type { PIR } from '../../../../types/pir';
 
@@ -16,11 +17,16 @@ vi.mock('../../../../services/pirService', () => ({
   },
 }));
 
+vi.mock('../../../../services/incidentService', () => ({
+  incidentService: { list: vi.fn() },
+}));
+
 // The owner picker reads GET /tenant/users/lite straight through `api`, the
 // same way GatesTable and ContentionVerdict do.
 vi.mock('../../../../services/api', () => ({ default: { get: vi.fn() } }));
 
 const mocked = pirService as unknown as Record<string, ReturnType<typeof vi.fn>>;
+const mockedIncidents = incidentService as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockedApi = api as unknown as { get: ReturnType<typeof vi.fn> };
 
 const pir = (overrides: Partial<PIR> = {}): PIR => ({
@@ -58,6 +64,13 @@ beforeEach(() => {
   // trap only the tests that open the action dialog ever reach.
   (mockedApi.get as ReturnType<typeof vi.fn>)
     .mockResolvedValue({ data: [{ id: 5, username: 'alice' }] });
+  mockedIncidents.list.mockResolvedValue({
+    rows: [
+      { id: 41, title: 'Checkout 500s', severity: 'P1', status: 'open' },
+      { id: 42, title: 'Payment timeouts', severity: 'P2', status: 'resolved' },
+    ],
+    total: 2,
+  });
 });
 
 describe('ReleasePirTab', () => {
@@ -136,6 +149,63 @@ describe('ReleasePirTab', () => {
     // The note is still shown — as text, not as a tooltip no touch or keyboard
     // user can reach.
     expect(screen.getByText(/root incident/)).toBeInTheDocument();
+  });
+
+  it('offers "Cite an incident" only on a went-wrong finding', async () => {
+    // The went-well finding above must not grow this control — an incident is
+    // evidence something went WRONG, and the server refuses citing it against
+    // a "keep doing this" item.
+    mocked.getForRelease.mockResolvedValue(pir());
+    renderTab();
+    await screen.findByText('Canary caught it');
+    expect(screen.getAllByRole('button', { name: /cite an incident/i })).toHaveLength(1);
+  });
+
+  it('cites an incident chosen from the picker and re-reads the PIR', async () => {
+    mocked.getForRelease.mockResolvedValue(pir());
+    mocked.citeIncident.mockResolvedValue([]);
+    renderTab();
+    await screen.findByText('Canary caught it');
+    await userEvent.click(screen.getByRole('button', { name: /cite an incident/i }));
+    await userEvent.click(await screen.findByLabelText(/^incident/i));
+    await userEvent.click(await screen.findByRole('option', { name: /Payment timeouts/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^cite$/i }));
+    await waitFor(() => expect(mocked.citeIncident).toHaveBeenCalledWith(
+      3, 11, { incident_id: 42, note: null }));
+    await waitFor(() => expect(mocked.getForRelease).toHaveBeenCalledTimes(2));
+  });
+
+  it('sends a trimmed note, or null when left blank, when citing an incident', async () => {
+    mocked.getForRelease.mockResolvedValue(pir());
+    mocked.citeIncident.mockResolvedValue([]);
+    renderTab();
+    await screen.findByText('Canary caught it');
+    await userEvent.click(screen.getByRole('button', { name: /cite an incident/i }));
+    await userEvent.click(await screen.findByLabelText(/^incident/i));
+    await userEvent.click(await screen.findByRole('option', { name: /Checkout 500s/i }));
+    await userEvent.type(screen.getByLabelText(/^note$/i), '  same root cause  ');
+    await userEvent.click(screen.getByRole('button', { name: /^cite$/i }));
+    await waitFor(() => expect(mocked.citeIncident).toHaveBeenCalledWith(
+      3, 11, { incident_id: 41, note: 'same root cause' }));
+  });
+
+  it('does not add a client-side "already cited" refusal', async () => {
+    // The server is idempotent on (finding, incident) — re-citing updates the
+    // note and returns the existing row rather than erroring. An already-cited
+    // incident must still be selectable and submittable.
+    mocked.getForRelease.mockResolvedValue(pir());
+    mocked.citeIncident.mockResolvedValue([]);
+    renderTab();
+    await screen.findByText('Canary caught it');
+    await userEvent.click(screen.getByRole('button', { name: /cite an incident/i }));
+    await userEvent.click(await screen.findByLabelText(/^incident/i));
+    const option = await screen.findByRole('option', { name: /Checkout 500s/i });
+    await userEvent.click(option);
+    const citeButton = screen.getByRole('button', { name: /^cite$/i });
+    expect(citeButton).not.toBeDisabled();
+    await userEvent.click(citeButton);
+    await waitFor(() => expect(mocked.citeIncident).toHaveBeenCalledWith(
+      3, 11, { incident_id: 41, note: null }));
   });
 
   it('offers to create a PIR when the release has none, and creates it', async () => {
@@ -228,6 +298,13 @@ describe('ReleasePirTab', () => {
       await userEvent.click(
         screen.getByRole('button', { name: /remove evidence checkout 500s/i }));
     }],
+    ['citing an incident', async () => {
+      mocked.citeIncident.mockResolvedValue([]);
+      await userEvent.click(screen.getByRole('button', { name: /cite an incident/i }));
+      await userEvent.click(await screen.findByLabelText(/^incident/i));
+      await userEvent.click(await screen.findByRole('option', { name: /Payment timeouts/i }));
+      await userEvent.click(screen.getByRole('button', { name: /^cite$/i }));
+    }],
   ])('re-reads the PIR after %s', async (_label, act) => {
     // "Every mutation re-reads the whole PIR rather than patching local state"
     // is the rule that stops a locally-patched row disagreeing with the
@@ -256,5 +333,26 @@ describe('ReleasePirTab', () => {
     await userEvent.click(screen.getAllByRole('button', { name: /delete finding/i })[0]);
     await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
     expect(await screen.findByText(/kind cannot be changed/i)).toBeInTheDocument();
+  });
+
+  it('shows the server error text when citing an incident is refused', async () => {
+    mocked.getForRelease.mockResolvedValue(pir());
+    mocked.citeIncident.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 422,
+        data: { detail: 'an incident is evidence of something going wrong; '
+          + 'cite it against a went_wrong finding' },
+      },
+      message: 'Request failed with status code 422',
+    });
+    renderTab();
+    await screen.findByText('Canary caught it');
+    await userEvent.click(screen.getByRole('button', { name: /cite an incident/i }));
+    await userEvent.click(await screen.findByLabelText(/^incident/i));
+    await userEvent.click(await screen.findByRole('option', { name: /Checkout 500s/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^cite$/i }));
+    expect(await screen.findByText(/cite it against a went_wrong finding/i))
+      .toBeInTheDocument();
   });
 });

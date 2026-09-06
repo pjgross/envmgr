@@ -18,10 +18,17 @@
  * live release, so a release whose actual date nobody recorded is still
  * reviewable through the API.
  *
+ * The typed text is sent to the server as `?search=`, not filtered client-side
+ * over a fetched page: `GET /releases` already supports server-side search, and
+ * filtering a capped page in the browser made a release past that cap
+ * permanently unreachable, however precisely someone typed its name. The
+ * search text is debounced 300ms before it drives a fetch — the same window
+ * `useServerGrid`'s own text-filter debounce uses for grid search boxes.
+ *
  * A release with no PIR yet is not an error and shows no warning: the PIR is
  * created as part of the citation, in one call, in one transaction.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, FormControlLabel, FormLabel, MenuItem, Radio, RadioGroup, Stack, TextField,
@@ -50,6 +57,13 @@ export default function LinkIncidentToPirDialog({
 }: Props) {
   const [releases, setReleases] = useState<ReleaseOption[]>([]);
   const [releaseId, setReleaseId] = useState<number | null>(null);
+  const [releaseSearch, setReleaseSearch] = useState('');
+  const [debouncedReleaseSearch, setDebouncedReleaseSearch] = useState('');
+  const releaseSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set the moment the user types anything, so a slow first (unfiltered) fetch
+  // that only resolves afterwards cannot preselect the causal release out from
+  // under someone already searching for something else.
+  const userTouchedReleaseSearch = useRef(false);
   const [findings, setFindings] = useState<PirFinding[]>([]);
   const [mode, setMode] = useState<Mode>('new');
   const [findingId, setFindingId] = useState<number | ''>('');
@@ -69,17 +83,41 @@ export default function LinkIncidentToPirDialog({
     setFirstAction('');
     setNote('');
     setError(null);
-    releaseService.list({ implemented: true, limit: 200 })
+    setReleaseId(null);
+    setReleaseSearch('');
+    setDebouncedReleaseSearch('');
+    userTouchedReleaseSearch.current = false;
+  }, [open]);
+
+  // Debounce the typed search text before it drives a server call.
+  useEffect(() => {
+    if (releaseSearchTimer.current) clearTimeout(releaseSearchTimer.current);
+    releaseSearchTimer.current = setTimeout(() => setDebouncedReleaseSearch(releaseSearch), 300);
+    return () => {
+      if (releaseSearchTimer.current) clearTimeout(releaseSearchTimer.current);
+    };
+  }, [releaseSearch]);
+
+  useEffect(() => {
+    if (!open) return;
+    const params: Parameters<typeof releaseService.list>[0] = { implemented: true };
+    if (debouncedReleaseSearch) params.search = debouncedReleaseSearch;
+    releaseService.list(params)
       .then((paged) => {
         const rows = paged.rows as unknown as ReleaseOption[];
         setReleases(rows);
-        // Default to the CAUSAL release, and only if it is actually on offer —
-        // preselecting a release the picker cannot show would submit an id the
-        // user never saw.
-        setReleaseId(rows.some((r) => r.id === defaultReleaseId) ? defaultReleaseId : null);
+        // Preselect the CAUSAL release only against the first, unfiltered
+        // fetch, and only if it is actually on offer — preselecting a release
+        // the picker cannot show would submit an id the user never saw. Once
+        // the user has typed anything, a fetch settling later must not
+        // override a choice they have already made.
+        if (debouncedReleaseSearch === '' && !userTouchedReleaseSearch.current) {
+          setReleaseId((current) => (current !== null ? current
+            : rows.some((r) => r.id === defaultReleaseId) ? defaultReleaseId : null));
+        }
       })
       .catch((err) => setError(formatApiError(err)));
-  }, [open, defaultReleaseId]);
+  }, [open, debouncedReleaseSearch, defaultReleaseId]);
 
   useEffect(() => {
     if (!open || releaseId === null) {
@@ -144,9 +182,12 @@ export default function LinkIncidentToPirDialog({
 
           <Autocomplete
             options={releases}
+            filterOptions={(x) => x}
             getOptionLabel={(r) => r.name}
             value={releases.find((r) => r.id === releaseId) ?? null}
             onChange={(_, v) => setReleaseId(v ? v.id : null)}
+            inputValue={releaseSearch}
+            onInputChange={(_, v) => { userTouchedReleaseSearch.current = true; setReleaseSearch(v); }}
             renderInput={(params) => <TextField {...params} label="Release" required />}
           />
 

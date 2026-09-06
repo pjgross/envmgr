@@ -320,7 +320,11 @@ export default function InfrastructureComponentList() {
         // overlay to a zero-height box (see DataTable.tsx's comment on
         // `autoHeight`).
         autoHeight
-        emptyMessage="No hosts match these filters."
+        // The list is empty for one of two very different reasons — no rows
+        // matched, or the fetch never came back at all. Naming the filters
+        // here when it's actually the latter states as fact something the
+        // app does not know; the Alert above already says what went wrong.
+        emptyMessage={error ? 'Unable to load hosts.' : 'No hosts match these filters.'}
         rows={components}
         columns={columns}
         loading={listLoading && components.length === 0}
