@@ -219,3 +219,90 @@ describe('goNoGoSlice — createPerspective / updatePerspective', () => {
     expect(perspectives.find((p) => p.id === 1)).toEqual(perspective({ id: 1, name: 'Quality', sort_order: 10 }));
   });
 });
+
+// Fix round 1: the Go/No-Go tab never loaded its history in the running app
+// — a permanent "Unable to load go/no-go decisions." Alert, on first mount
+// and every remount, even though a direct API call returned 200 with
+// X-Total-Count: 0. Root cause: useServerGrid deliberately aborts the
+// previous in-flight request (frontend/src/hooks/useServerGrid.ts:308-321),
+// and React StrictMode's double effect fires that abort on first mount. RTK
+// dispatches `pending` for the new request synchronously, then `rejected`
+// (meta.aborted: true) for the aborted one on a microtask, which — with no
+// guard — stamped `error` with a false failure while the real request was
+// still in flight. `fetchPerspectives` is exposed to the identical trap: it
+// is dispatched from the record-decision dialog on mount. Two sibling
+// slices already carry this guard and its comment: buildSlice.
+// fetchBuilds.rejected and bookingSlice.fetchBookings.rejected;
+// releaseSlice's own `describe('releaseSlice — aborted fetches', ...)` is
+// the direct-reducer test style this block follows.
+describe('goNoGoSlice — aborted fetches', () => {
+  it('fetchDecisions: leaves error null and the loaded page untouched when aborted', () => {
+    const loaded = goNoGoReducer(undefined, {
+      type: fetchDecisions.fulfilled.type,
+      payload: { rows: [decision()], total: 1 },
+    });
+    expect(loaded.error).toBeNull();
+
+    const midFlight = goNoGoReducer(loaded, { type: fetchDecisions.pending.type });
+    expect(midFlight.loading).toBe(true);
+
+    const afterAbort = goNoGoReducer(midFlight, {
+      type: fetchDecisions.rejected.type,
+      error: { message: 'Aborted' },
+      meta: { aborted: true },
+    });
+
+    // Still mid-flight for the SUPERSEDING request — the stale abort must
+    // not flip this back to false.
+    expect(afterAbort.loading).toBe(true);
+    expect(afterAbort.error).toBeNull();
+    expect(afterAbort.decisions).toEqual([decision()]);
+    expect(afterAbort.total).toBe(1);
+  });
+
+  it('fetchDecisions: still records a genuine (non-aborted) failure', () => {
+    const midFlight = goNoGoReducer(undefined, { type: fetchDecisions.pending.type });
+
+    const afterFailure = goNoGoReducer(midFlight, {
+      type: fetchDecisions.rejected.type,
+      error: { message: 'Network error' },
+      meta: { aborted: false },
+    });
+
+    expect(afterFailure.loading).toBe(false);
+    expect(afterFailure.error).toBe('Network error');
+  });
+
+  it('fetchPerspectives: leaves error null and the loaded list untouched when aborted', () => {
+    const loaded = goNoGoReducer(undefined, {
+      type: fetchPerspectives.fulfilled.type,
+      payload: [perspective()],
+    });
+    expect(loaded.error).toBeNull();
+
+    const midFlight = goNoGoReducer(loaded, { type: fetchPerspectives.pending.type });
+
+    const afterAbort = goNoGoReducer(midFlight, {
+      type: fetchPerspectives.rejected.type,
+      error: { message: 'Aborted' },
+      meta: { aborted: true },
+    });
+
+    expect(afterAbort.loading).toBe(true);
+    expect(afterAbort.error).toBeNull();
+    expect(afterAbort.perspectives).toEqual([perspective()]);
+  });
+
+  it('fetchPerspectives: still records a genuine (non-aborted) failure', () => {
+    const midFlight = goNoGoReducer(undefined, { type: fetchPerspectives.pending.type });
+
+    const afterFailure = goNoGoReducer(midFlight, {
+      type: fetchPerspectives.rejected.type,
+      error: { message: 'Network error' },
+      meta: { aborted: false },
+    });
+
+    expect(afterFailure.loading).toBe(false);
+    expect(afterFailure.error).toBe('Network error');
+  });
+});

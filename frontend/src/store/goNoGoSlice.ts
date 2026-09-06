@@ -123,6 +123,14 @@ const goNoGoSlice = createSlice({
         state.total = action.payload.total;
       })
       .addCase(fetchDecisions.rejected, (state, action) => {
+        // useServerGrid aborts a superseded request rather than ignoring its
+        // reply, and React StrictMode's double-effect fires this on first
+        // mount. RTK dispatches `pending` for the new request synchronously,
+        // then `rejected` for the aborted one on a microtask — without this
+        // guard the tab renders a load failure for a request that was never
+        // a failure (see buildSlice.fetchBuilds.rejected / bookingSlice.
+        // fetchBookings.rejected, the two existing precedents for this).
+        if (action.meta.aborted) return;
         state.loading = false;
         state.error = action.error.message ?? 'Failed to fetch go/no-go decisions';
       })
@@ -136,6 +144,10 @@ const goNoGoSlice = createSlice({
         state.perspectives = action.payload;
       })
       .addCase(fetchPerspectives.rejected, (state, action) => {
+        // Same abort-vs-failure trap as fetchDecisions.rejected above —
+        // fetchPerspectives is dispatched from the record-decision dialog on
+        // mount and is exposed to the identical StrictMode double-effect.
+        if (action.meta.aborted) return;
         state.loading = false;
         state.error = action.error.message ?? 'Failed to fetch go/no-go perspectives';
       })
