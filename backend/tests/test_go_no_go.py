@@ -11,7 +11,7 @@ from app.api.v1.schemas.go_no_go import (
     GoNoGoDecisionCreate,
     GoNoGoSignoffCreate,
 )
-from app.db.models.go_no_go import GoNoGoPerspective
+from app.db.models.go_no_go import GoNoGoDecision, GoNoGoPerspective
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.db.models.release_system import ReleaseSystem
@@ -138,6 +138,57 @@ async def test_the_outcome_is_the_chairs_not_a_fold_of_the_signoffs(
     assert [(s.verdict, s.dissent_note) for s in signoffs] == [
         ("no_go", "Two P1 defects remain open.")
     ]
+
+
+@pytest.mark.asyncio
+async def test_two_signoffs_for_the_same_perspective_and_user_in_one_post_is_409_not_500(
+    db_session, test_tenant, test_user, release
+):
+    """The whole-branch review reproduced this as a bare `IntegrityError` —
+    `uq_go_no_go_signoff_unique` tripping with nothing catching it, an
+    uncaught 500 from an endpoint whose own docstring headline is "VALIDATE
+    EVERYTHING BEFORE CREATING ANYTHING". Spec §3.3 calls the repeated pair
+    a CONFLICT, so this must be a 409, named, and — since it is a validation
+    failure like every other check in `record_decision` — no row of any kind
+    may have been created."""
+    await go_no_go_defaults.seed_go_no_go_perspective_defaults_for_tenant(
+        db_session, test_tenant.id
+    )
+    quality = (await db_session.execute(
+        select(GoNoGoPerspective).where(
+            GoNoGoPerspective.tenant_id == test_tenant.id,
+            GoNoGoPerspective.name == "Quality",
+        )
+    )).scalar_one()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await go_no_go_service.record_decision(
+            db_session, release.id, test_tenant.id, test_user.id,
+            GoNoGoDecisionCreate(
+                outcome="go", rationale="Two sign-offs, same perspective and user.",
+                decided_at=datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+                attendees=[],
+                signoffs=[
+                    GoNoGoSignoffCreate(
+                        perspective_id=quality.id, user_id=test_user.id, verdict="go",
+                    ),
+                    GoNoGoSignoffCreate(
+                        perspective_id=quality.id, user_id=test_user.id, verdict="no_go",
+                        dissent_note="Changed my mind.",
+                    ),
+                ],
+                conditions=[],
+            ),
+        )
+    assert exc_info.value.status_code == 409
+    assert "Quality" in exc_info.value.detail
+
+    # Nothing was created — this is a validation failure like every other
+    # check above it, not a partial write.
+    decisions = (await db_session.execute(
+        select(GoNoGoDecision).where(GoNoGoDecision.release_id == release.id)
+    )).scalars().all()
+    assert decisions == []
 
 
 @pytest.mark.asyncio
@@ -700,7 +751,41 @@ async def test_a_name_duplicating_another_tenants_perspective_is_accepted(
     assert second.status_code == 201, second.text
 
 
-# ── Final fix wave — whole-branch review finding 1 (read shape) ──────────────
+# ── Final fix wave — whole-branch review items 1 and 3 (HTTP + read shape) ──
+
+@pytest.mark.asyncio
+async def test_post_with_a_duplicate_signoff_pair_is_409_over_http(
+    client, auth_headers, test_user, db_session, test_tenant, release
+):
+    """HTTP-level sibling of
+    test_two_signoffs_for_the_same_perspective_and_user_in_one_post_is_409_not_500
+    above — the reviewer's own reproduction was via the API, not the
+    service function directly."""
+    await go_no_go_defaults.seed_go_no_go_perspective_defaults_for_tenant(
+        db_session, test_tenant.id
+    )
+    await db_session.commit()
+
+    perspectives = await client.get(
+        "/api/v1/tenant/go-no-go-perspectives", headers=auth_headers
+    )
+    assert perspectives.status_code == 200, perspectives.text
+    quality_id = next(p["id"] for p in perspectives.json() if p["name"] == "Quality")
+
+    resp = await client.post(
+        f"/api/v1/releases/{release.id}/go-no-go",
+        json=_decision_payload(
+            datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc),
+            signoffs=[
+                {"perspective_id": quality_id, "user_id": test_user.id, "verdict": "go"},
+                {"perspective_id": quality_id, "user_id": test_user.id, "verdict": "no_go"},
+            ],
+        ),
+        headers=auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Quality" in resp.json()["detail"]
+
 
 @pytest.mark.asyncio
 async def test_a_signoffs_perspective_name_resolves_and_survives_a_rename(

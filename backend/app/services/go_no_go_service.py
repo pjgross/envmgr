@@ -167,6 +167,26 @@ async def record_decision(
     user_ids.update(c.owner_user_id for c in data.conditions if c.owner_user_id is not None)
     await _assert_users_exist(db, tenant_id, user_ids)
 
+    # 5. No two sign-offs IN THIS POST may name the same (perspective, user)
+    # pair. `uq_go_no_go_signoff_unique` enforces this at the database level
+    # — but by the time an INSERT trips it, this function has already run
+    # several `db.add()` calls inside the same flush, and the caller sees a
+    # bare, uncaught `IntegrityError` surface as a 500. Spec §3.3 calls a
+    # repeated pair a CONFLICT, not two rows, so it is refused here, before
+    # the first `db.add`, the same shape every other check in this function
+    # follows. Same class of bug as the C4 rollback-plan revive 500.
+    seen_pairs: set[tuple[int, int]] = set()
+    for signoff in data.signoffs:
+        pair = (signoff.perspective_id, signoff.user_id)
+        if pair in seen_pairs:
+            names = await perspective_names_for(db, tenant_id, {signoff.perspective_id})
+            name = names.get(signoff.perspective_id, str(signoff.perspective_id))
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Duplicate sign-off for perspective '{name}' and user {signoff.user_id}",
+            )
+        seen_pairs.add(pair)
+
     # Only now — everything above has raised already if it was going to —
     # capture the snapshot and start creating rows. The snapshot is computed
     # SERVER-SIDE, never taken from the request.
