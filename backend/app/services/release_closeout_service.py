@@ -6,14 +6,18 @@ THE ONE PLACE IN PHASE 9 THAT REFUSES. `assert_may_close` (Task 5) raises a
 flagged `is_closed` and asks for something that is not there. Everything
 else here computes on read and stores nothing.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.day_boundaries import expiry_boundary
+from app.db.models.pir import PIR
+from app.db.models.release import Release
 from app.db.models.test_phase import TestPhase
+from app.services import pir_service
 
 PHASE_KINDS = frozenset({"test", "hypercare"})
 HYPERCARE = "hypercare"
@@ -46,4 +50,67 @@ async def assert_hypercare_slot_free(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"This release already has a hyper-care phase ('{existing.name}'); "
             "edit or delete it rather than adding a second.",
+        )
+
+
+HYPERCARE_STATES = ("none", "planned", "active", "overdue", "stable")
+PIR_INCOMPLETE = "the post-implementation review is not complete"
+HANDOVER_UNCONFIRMED = "ops handover is not confirmed"
+
+
+def _day(value: Optional[datetime]) -> Optional[datetime]:
+    """Start of the UTC day `value` falls in, tolerant of SQLite's naive datetimes."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return expiry_boundary(value)
+
+
+def hypercare_state(phase, declared_stable_at: Optional[datetime], now: datetime) -> str:
+    """First match wins: stable, none, planned, overdue, active. A window's
+    bounds are DAYS — the end day itself still reads active."""
+    if declared_stable_at is not None:
+        return "stable"
+    if phase is None:
+        return "none"
+    today = _day(now)
+    start, end = _day(phase.start_date), _day(phase.end_date)
+    if start is not None and start > today:
+        return "planned"
+    if end is not None and end < today:
+        return "overdue"
+    return "active"
+
+
+def state_for_key(definition: dict, key: str) -> Optional[dict]:
+    return next((s for s in definition.get("states", []) if s.get("key") == key), None)
+
+
+def unmet_requirements(state: dict, pir: Optional[PIR], release: Release) -> list[str]:
+    """Reasons a closed state cannot be entered. ONE wording, used by the 422
+    and by GET /closeout, so the tab and the refusal cannot disagree."""
+    if not state.get("is_closed"):
+        return []
+    unmet: list[str] = []
+    if state.get("requires_pir_complete") and (pir is None or pir.status != "complete"):
+        unmet.append(PIR_INCOMPLETE)
+    if state.get("requires_handover_confirmed") and release.handover_confirmed_at is None:
+        unmet.append(HANDOVER_UNCONFIRMED)
+    return unmet
+
+
+async def assert_may_close(
+    db: AsyncSession, release: Release, target_state: Optional[dict], tenant_id: int
+) -> None:
+    """THE ONE REFUSAL IN PHASE 9. Returns at once unless `target_state` is
+    flagged `is_closed`; then raises one 422 naming everything unmet."""
+    if not target_state or not target_state.get("is_closed"):
+        return
+    pir = await pir_service.get_for_release(db, tenant_id, release.id)
+    unmet = unmet_requirements(target_state, pir, release)
+    if unmet:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Cannot close this release: " + "; ".join(unmet) + ".",
         )

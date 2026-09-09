@@ -14,7 +14,7 @@ from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
-from app.services import lifecycle_service, project_service
+from app.services import lifecycle_service, project_service, release_closeout_service
 from app.api.v1.schemas.release import ReleaseCreate, ReleaseUpdate
 from app.api.v1.schemas.booking_lifecycle import ENTITY_FIELD_SPECS
 from app.services.custom_field_service import get_active_field_keys
@@ -503,6 +503,10 @@ async def transition_release(
     target_state = next(
         (s for s in tpl.definition.get("states", []) if s.get("key") == to_state), None
     )
+
+    # C6: the one place Phase 9 refuses. No-op unless the target is a closed
+    # state that asks for something. See release_closeout_service.
+    await release_closeout_service.assert_may_close(db, release, target_state, tenant_id)
 
     old_state = release.status
     release.status = to_state
