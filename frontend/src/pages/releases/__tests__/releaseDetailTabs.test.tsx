@@ -111,4 +111,9 @@ describe('ReleaseDetail — the tab is in the URL', () => {
     );
     expect(screen.getByTestId('path')).toHaveTextContent('/releases/7?tab=raid');
   });
+
+  it('selects the Closeout tab from ?tab=closeout', async () => {
+    renderAt('?tab=closeout');
+    expect(await screen.findByRole('tab', { name: 'Closeout' })).toHaveAttribute('aria-selected', 'true');
+  });
 });
