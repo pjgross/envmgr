@@ -99,7 +99,6 @@ async def test_completing_the_pir_lets_the_release_close(client, auth_headers, m
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=True, reason="Task 6 adds PUT operations_group_id and confirm-handover")
 async def test_handover_requirement_refuses_until_confirmed(client, auth_headers, make_release, db_session, test_tenant):
     rel = await make_release({"requires_handover_confirmed": True})
     resp = await _close(client, auth_headers, rel.id)

@@ -48,6 +48,7 @@ from app.services import (
     rollback_authorisation_service,
     rollback_plan_service,
     release_closeout_service,
+    user_group_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -167,6 +168,14 @@ async def _release_with_permissions(
             db, {release.owning_project_id}, release.tenant_id
         )
         resp.owning_project_name = names.get(release.owning_project_id)
+    if release.operations_group_id is not None:
+        group_names = await user_group_service.get_group_names(db, {release.operations_group_id})
+        resp.operations_group_name = group_names.get(release.operations_group_id)
+    names = await release_closeout_service.usernames_for(
+        db, {release.declared_stable_by, release.handover_confirmed_by}
+    )
+    resp.declared_stable_by_username = names.get(release.declared_stable_by)
+    resp.handover_confirmed_by_username = names.get(release.handover_confirmed_by)
     if release.release_kind == "enterprise" and current_user is not None:
         summary_dict = await enterprise_membership_service.get_membership_summary(
             db, user=current_user, enterprise_id=release.id

@@ -14,7 +14,7 @@ from app.core.events import publish_event
 from app.core.pagination import Page, Sort, apply_sort, fetch_page
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release, ReleaseStatusHistory
-from app.services import lifecycle_service, project_service, release_closeout_service
+from app.services import lifecycle_service, project_service, release_closeout_service, user_group_service
 from app.api.v1.schemas.release import ReleaseCreate, ReleaseUpdate
 from app.api.v1.schemas.booking_lifecycle import ENTITY_FIELD_SPECS
 from app.services.custom_field_service import get_active_field_keys
@@ -190,6 +190,9 @@ async def create_release(
         # scoping to the wrong one 404s a legitimate request.
         await project_service.get_project(db, data.owning_project_id, tenant_id)
 
+    if data.operations_group_id is not None:
+        await user_group_service.get_group(db, data.operations_group_id, tenant_id)
+
     release = Release(
         tenant_id=tenant_id,
         name=data.name,
@@ -197,6 +200,7 @@ async def create_release(
         release_type=data.release_type,
         release_kind=data.release_kind,
         owning_project_id=data.owning_project_id,
+        operations_group_id=data.operations_group_id,
         template_id=data.template_id,
         lifecycle_template_id=tpl.id,
         status="draft",
@@ -420,6 +424,15 @@ async def update_release(
         # project when it equals the stored value, reject it as a new
         # assignment.
         await project_service.get_project(db, update_data["owning_project_id"], tenant_id)
+
+    if (
+        "operations_group_id" in update_data
+        and update_data["operations_group_id"] is not None
+        and update_data["operations_group_id"] != release.operations_group_id
+    ):
+        # Same archived-value carve-out as owning_project_id above: a full-form
+        # save re-sending the stored group must not 404 once it is archived.
+        await user_group_service.get_group(db, update_data["operations_group_id"], tenant_id)
 
     for field, value in update_data.items():
         setattr(release, field, value)

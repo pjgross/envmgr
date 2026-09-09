@@ -14,10 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.day_boundaries import expiry_boundary
+from app.core.events import publish_event
 from app.db.models.pir import PIR
 from app.db.models.release import Release
 from app.db.models.test_phase import TestPhase
-from app.services import pir_service
+from app.db.models.user import User
+from app.services import pir_service, release_event_service
 
 PHASE_KINDS = frozenset({"test", "hypercare"})
 HYPERCARE = "hypercare"
@@ -117,3 +119,92 @@ async def assert_may_close(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Cannot close this release: " + "; ".join(unmet) + ".",
         )
+
+
+async def usernames_for(db: AsyncSession, user_ids: set[int]) -> dict[int, str]:
+    """DELIBERATELY NOT TENANT-QUALIFIED — see gate_waiver_service.usernames_for."""
+    ids = {i for i in user_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (await db.execute(select(User.id, User.username).where(User.id.in_(ids)))).all()
+    return {r.id: r.username for r in rows}
+
+
+EVENT_DECLARED_STABLE = "Declared stable"
+EVENT_STABLE_WITHDRAWN = "Stability declaration withdrawn"
+EVENT_HANDOVER_CONFIRMED = "Ops handover confirmed"
+EVENT_HANDOVER_WITHDRAWN = "Ops handover withdrawn"
+
+
+def _require_project_release(release: Release) -> None:
+    if release.release_kind == "enterprise":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            "Hyper-care and closeout apply to project releases only")
+
+
+async def _audit(db, release, tenant_id, user_id, event_name, note):
+    await release_event_service.record_auto_event(
+        db, release_id=release.id, tenant_id=tenant_id, user_id=user_id,
+        event_type_name=event_name, description=note or event_name,
+    )
+
+
+async def declare_stable(db: AsyncSession, release: Release, *, tenant_id: int, user_id: int,
+                         note: Optional[str]) -> Release:
+    _require_project_release(release)
+    if release.declared_stable_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "This release is already declared stable; withdraw the declaration first")
+    release.declared_stable_at = datetime.now(timezone.utc)
+    release.declared_stable_by = user_id
+    await db.flush()
+    await db.refresh(release)
+    await _audit(db, release, tenant_id, user_id, EVENT_DECLARED_STABLE, note)
+    await publish_event(db, event_type="ReleaseDeclaredStable", aggregate_id=release.id,
+                        aggregate_type="Release",
+                        payload={"id": release.id, "name": release.name, "note": note},
+                        tenant_id=tenant_id)
+    return release
+
+
+async def withdraw_stable(db: AsyncSession, release: Release, *, tenant_id: int, user_id: int,
+                          note: Optional[str]) -> Release:
+    _require_project_release(release)
+    if release.declared_stable_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This release is not declared stable")
+    release.declared_stable_at = None
+    release.declared_stable_by = None
+    await db.flush()
+    await db.refresh(release)
+    await _audit(db, release, tenant_id, user_id, EVENT_STABLE_WITHDRAWN, note)
+    return release
+
+
+async def confirm_handover(db: AsyncSession, release: Release, *, tenant_id: int, user_id: int,
+                           note: Optional[str]) -> Release:
+    _require_project_release(release)
+    if release.operations_group_id is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            "Set the release's operations group before confirming the handover")
+    if release.handover_confirmed_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Handover is already confirmed; withdraw it first")
+    release.handover_confirmed_at = datetime.now(timezone.utc)
+    release.handover_confirmed_by = user_id
+    await db.flush()
+    await db.refresh(release)
+    await _audit(db, release, tenant_id, user_id, EVENT_HANDOVER_CONFIRMED, note)
+    return release
+
+
+async def withdraw_handover(db: AsyncSession, release: Release, *, tenant_id: int, user_id: int,
+                            note: Optional[str]) -> Release:
+    _require_project_release(release)
+    if release.handover_confirmed_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Handover is not confirmed")
+    release.handover_confirmed_at = None
+    release.handover_confirmed_by = None
+    await db.flush()
+    await db.refresh(release)
+    await _audit(db, release, tenant_id, user_id, EVENT_HANDOVER_WITHDRAWN, note)
+    return release
