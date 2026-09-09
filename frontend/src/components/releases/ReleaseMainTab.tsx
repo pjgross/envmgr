@@ -66,16 +66,20 @@ export default function ReleaseMainTab({ releaseId }: Props) {
   const userRole = user?.role ?? 'Viewer';
 
   const handleTransition = async (toState: string, notes?: string) => {
+    const result = await dispatch(
+      transitionRelease({ id: releaseId, data: { to_state: toState, notes } })
+    );
+    if (transitionRelease.rejected.match(result)) {
+      snackbar.error(result.payload ?? 'Transition failed');
+      return;
+    }
     try {
-      await dispatch(
-        transitionRelease({ id: releaseId, data: { to_state: toState, notes } })
-      ).unwrap();
       // Reload lifecycle definition in case state changes field permissions
       const tpl = await releaseService.getLifecycle(releaseId);
       setLifecycleTpl(tpl);
       snackbar.success(`Transitioned to ${toState}`);
-    } catch (err) {
-      snackbar.error(err instanceof Error ? err.message : 'Transition failed');
+    } catch {
+      snackbar.success(`Transitioned to ${toState}`);
     }
   };
 

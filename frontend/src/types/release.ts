@@ -25,6 +25,12 @@ export interface ReleaseResponse {
   raised_by: number;
   created_at: string;
   updated_at: string;
+  operations_group_id: number | null;
+  operations_group_name: string | null;
+  declared_stable_at: string | null;
+  declared_stable_by_username: string | null;
+  handover_confirmed_at: string | null;
+  handover_confirmed_by_username: string | null;
 }
 
 export interface ReleaseSystemBrief {
@@ -48,6 +54,8 @@ export interface ReleaseListItemResponse extends ReleaseResponse {
   systems: ReleaseSystemBrief[];
 }
 
+export type PhaseKind = 'test' | 'hypercare';
+
 export interface TestPhaseResponse {
   id: number;
   tenant_id: number;
@@ -57,6 +65,7 @@ export interface TestPhaseResponse {
   start_date: string | null;
   end_date: string | null;
   status: string;
+  kind: PhaseKind;
 }
 
 export interface TimelineGate {
@@ -153,6 +162,7 @@ export interface ReleaseUpdatePayload {
   scope_deadline?: string | null;
   actual_date?: string | null;
   custom_fields?: Record<string, unknown> | null;
+  operations_group_id?: number | null;
 }
 
 export interface ReleaseTransitionPayload {
@@ -201,6 +211,7 @@ export interface TestPhaseCreatePayload {
   start_date?: string | null;
   end_date?: string | null;
   status?: string;
+  kind?: PhaseKind;
 }
 
 export interface TestPhaseUpdatePayload {
@@ -209,6 +220,7 @@ export interface TestPhaseUpdatePayload {
   start_date?: string | null;
   end_date?: string | null;
   status?: string;
+  kind?: PhaseKind;
 }
 
 export interface ReleaseGateCreatePayload {

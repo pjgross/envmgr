@@ -43,6 +43,7 @@ const allFive: MyWorkResponse['queues'] = {
   decommissions: queueWithOneRow('decommissions'),
   pir_actions: queueWithOneRow('pir_actions'),
   incidents: queueWithOneRow('incidents'),
+  hypercare: queueWithOneRow('hypercare'),
 };
 
 const okQueue: QueueResult = { count: 0, items: [], failed: false };
@@ -57,6 +58,7 @@ const emptyFour: MyWorkResponse['queues'] = {
   decommissions: okQueue,
   pir_actions: okQueue,
   incidents: okQueue,
+  hypercare: okQueue,
 };
 
 const fiveItems: WorkItem[] = Array.from({ length: 5 }, (_, i) => ({

@@ -3,6 +3,7 @@ export interface ReleaseTemplatePhase {
   order: number;
   default_duration_days: number;
   activities: string[];
+  kind?: 'test' | 'hypercare';
 }
 
 export interface ReleaseTemplateGate {
