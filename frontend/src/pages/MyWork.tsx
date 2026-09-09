@@ -1,5 +1,5 @@
 /**
- * `/my-work` — "what is waiting on me?", answered by five queues composed
+ * `/my-work` — "what is waiting on me?", answered by six queues composed
  * server-side under one clock (`GET /me/work`, Task 4).
  *
  * CARDS ARE NEVER HIDDEN, even an empty one — a hidden card is
@@ -32,7 +32,7 @@ const EMPTY_QUEUE: QueueResult = { count: 0, items: [], failed: false };
 // even ran) — as opposed to `data.queues[key].failed`, which is a single
 // queue's own worklist query failing while the rest of the response is
 // fine. Without this, `data` stays `null` and `data?.queues[key] ??
-// EMPTY_QUEUE` would hand every card an *empty*, non-failed queue: five
+// EMPTY_QUEUE` would hand every card an *empty*, non-failed queue: six
 // confident "Nothing waiting on you"s built from a response that never
 // arrived. Same rule as `QueueCard`'s own failed-vs-empty distinction, one
 // level up.
@@ -145,6 +145,17 @@ const QUEUES: QueueConfig[] = [
     viewAllHref: '/incidents?open=true',
     viewAllLabel: 'incidents',
   },
+  {
+    key: 'hypercare',
+    title: 'Hyper-care decisions',
+    // SUPERSET: the releases list has no hyper-care filter (the state is
+    // computed per response and deliberately not filterable — spec §6.5), so
+    // "view all" lands on the unfiltered list. Each row links straight to its
+    // release's Closeout tab, which is where the decision is taken.
+    viewAllHref: '/releases',
+    viewAllLabel: 'releases',
+    viewAllCaption: 'All releases; the list has no hyper-care filter',
+  },
 ];
 
 function formatDue(due: string | null | undefined): string | null {
@@ -153,7 +164,7 @@ function formatDue(due: string | null | undefined): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
 }
 
-/** Shared across all five cards — every queue's rows carry the same shape
+/** Shared across all six cards — every queue's rows carry the same shape
  * (title, optional subtitle, url, optional due date), so there is nothing
  * queue-specific to branch on here. */
 function renderRow(item: WorkItem): ReactNode {
@@ -209,7 +220,7 @@ export default function MyWork() {
                 // `data`'s per-queue `failed` flag when the response arrived;
                 // WHOLE_RESPONSE_FAILED_QUEUE when it never did (`error` set,
                 // `data` still null) — never EMPTY_QUEUE in that case, or a
-                // total failure renders as five confident empty queues (see
+                // total failure renders as six confident empty queues (see
                 // the constant's own comment above). `queueFor` also covers
                 // the case `data` arrived but `queues` did not match the
                 // expected shape — see its own comment.

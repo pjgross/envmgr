@@ -25,7 +25,7 @@ const { myWorkService } = myWorkServiceModule as unknown as {
 /**
  * A NON-EMPTY baseline for every queue (one row each), so a test that
  * overrides a single queue to be empty or failed sees exactly one
- * "Nothing waiting on you" / "Couldn't load" — not five, which is what an
+ * "Nothing waiting on you" / "Couldn't load" — not six, which is what an
  * all-empty baseline would produce and `getByText` would then correctly
  * refuse as ambiguous.
  */
@@ -37,7 +37,7 @@ function queueWithOneRow(key: string): QueueResult {
   };
 }
 
-const allFive: MyWorkResponse['queues'] = {
+const allSix: MyWorkResponse['queues'] = {
   environment_requests: queueWithOneRow('environment_requests'),
   contentions: queueWithOneRow('contentions'),
   decommissions: queueWithOneRow('decommissions'),
@@ -49,8 +49,8 @@ const allFive: MyWorkResponse['queues'] = {
 const okQueue: QueueResult = { count: 0, items: [], failed: false };
 
 // All-empty baseline, used only by the "at most five rows" test below: with
-// `allFive`'s one-row-per-queue baseline instead, the OTHER four cards would
-// contribute four more `queue-row`s and the assertion of exactly five would
+// `allSix`'s one-row-per-queue baseline instead, the OTHER five cards would
+// contribute five more `queue-row`s and the assertion of exactly five would
 // pass for the wrong reason (or fail outright).
 const emptyFour: MyWorkResponse['queues'] = {
   environment_requests: okQueue,
@@ -98,7 +98,7 @@ describe('MyWork', () => {
   it('renders a card for every queue, including empty ones', async () => {
     // §5: "cards are never hidden" — a hidden card is indistinguishable from
     // a queue you are not a member of.
-    renderWithStore(<MyWork />, { ...allFive, contentions: { count: 0, items: [], failed: false } });
+    renderWithStore(<MyWork />, { ...allSix, contentions: { count: 0, items: [], failed: false } });
     expect(await screen.findByRole('heading', { name: /contentions/i })).toBeInTheDocument();
     expect(screen.getByText('Nothing waiting on you')).toBeInTheDocument();
   });
@@ -106,7 +106,7 @@ describe('MyWork', () => {
   it('a FAILED queue is not rendered as an empty one', async () => {
     // The distinction this whole degradation design exists for.
     renderWithStore(<MyWork />, {
-      ...allFive,
+      ...allSix,
       incidents: { count: 0, items: [], failed: true },
     });
     expect(await screen.findByText(/couldn't load/i)).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('MyWork', () => {
   });
 
   it('View all links to the worklist with the same filter in the URL', async () => {
-    renderWithStore(<MyWork />, allFive);
+    renderWithStore(<MyWork />, allSix);
     const link = await screen.findByRole('link', { name: /view all incidents/i });
     expect(link).toHaveAttribute('href', '/incidents?open=true');
   });
@@ -132,8 +132,8 @@ describe('MyWork', () => {
     // One level up from the per-queue distinction above: `/me/work` itself
     // fails (network error, or a 5xx before any per-queue try/except on the
     // backend even ran) — `data` never arrives at all. `data?.queues[key]
-    // ?? EMPTY_QUEUE` would hand every one of the five cards an empty,
-    // non-failed queue here, and all five would confidently say "Nothing
+    // ?? EMPTY_QUEUE` would hand every one of the six cards an empty,
+    // non-failed queue here, and all six would confidently say "Nothing
     // waiting on you" about a response that never came back. No store
     // preload this time — `data` starts genuinely null, the way it does on
     // a real first-load failure.
@@ -148,7 +148,7 @@ describe('MyWork', () => {
       </Provider>
     );
 
-    expect(await screen.findAllByText(/couldn't load/i)).toHaveLength(5);
+    expect(await screen.findAllByText(/couldn't load/i)).toHaveLength(6);
     expect(screen.queryByText('Nothing waiting on you')).not.toBeInTheDocument();
   });
 
@@ -156,7 +156,7 @@ describe('MyWork', () => {
     // `data?.queues[cfg.key]` used to throw the moment `data` arrived but
     // `queues` did not match the schema — dropping the WHOLE page (and, via
     // the same selector, every other route's nav badge) to the root
-    // ErrorBoundary rather than showing five degraded cards.
+    // ErrorBoundary rather than showing six degraded cards.
     myWorkService.getMyWork.mockResolvedValue(
       { as_of: '2026-09-04T00:00:00Z' } as unknown as MyWorkResponse
     );
@@ -174,6 +174,16 @@ describe('MyWork', () => {
     // No crash either way this renders — asserting the ordinary "empty"
     // fallback rather than "failed" is a statement about today's choice
     // (no `error` was set; this was a 200), not a claim that failed is wrong.
-    expect(await screen.findAllByText('Nothing waiting on you')).toHaveLength(5);
+    expect(await screen.findAllByText('Nothing waiting on you')).toHaveLength(6);
+  });
+
+  it('renders the Hyper-care decisions card with its overdue count and view-all link', async () => {
+    renderWithStore(<MyWork />, { ...allSix, hypercare: { count: 2, overdue: 1, failed: false, items: [
+      { id: 7, title: 'Release 3.2', subtitle: 'Hyper-care window ends', url: '/releases/7?tab=closeout', due: '2026-09-08T00:00:00Z' },
+    ] } });
+    expect(await screen.findByRole('heading', { name: /hyper-care decisions/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Release 3.2' })).toHaveAttribute('href', '/releases/7?tab=closeout');
+    expect(screen.getByText(/1 overdue/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /view all releases/i })).toHaveAttribute('href', '/releases');
   });
 });
