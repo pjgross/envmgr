@@ -237,6 +237,14 @@ async def incidents_in_window(db: AsyncSession, release: Release, phase, now: da
     start = _aware(phase.start_date) or _aware(phase.created_at)
     candidates = [v for v in (_aware(release.declared_stable_at), _aware(phase.end_date), now) if v is not None]
     end = min(candidates)
+    if end < start:
+        # The window has not opened yet — a hyper-care phase planned to
+        # start in the future. `min(declared_stable_at, end_date, now)` can
+        # land before `start` in exactly this case, which would otherwise
+        # render a window with `end < start` and query incidents against a
+        # backwards range. Nothing to count until the phase actually begins.
+        return IncidentsWindowRead(window_start=start, window_end=None,
+                                   by_severity={s: 0 for s in SEVERITIES}, total=0, items=[])
     filters = {"release_id": release.id, "date_from": start, "date_to": end}
     rows, total = await incident_service.list_incidents(
         db, release.tenant_id, filters, page=Page(limit=INCIDENT_ITEM_CAP, offset=0),

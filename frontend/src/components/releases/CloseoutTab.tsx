@@ -124,7 +124,7 @@ export default function CloseoutTab({ releaseId }: Props) {
         )}
       </Paper>
 
-      {hypercare.state !== 'none' && (
+      {hypercare.state !== 'none' && hypercare.state !== 'planned' && (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>Incidents in the window</Typography>
           <Typography variant="caption" color="text.secondary">

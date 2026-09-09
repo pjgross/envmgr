@@ -280,6 +280,31 @@ async def test_incidents_in_the_window_and_only_those(client, auth_headers, rele
 
 
 @pytest.mark.asyncio
+async def test_a_planned_hypercare_phase_has_no_incidents_window(
+    client, auth_headers, release, db_session, test_tenant
+):
+    """A hyper-care phase starting in the future is `planned`, and its window
+    has not opened yet — `window_end = min(declared_stable_at, end_date, now)`
+    can land before `start` in exactly this case, which must not render a
+    backwards window or query incidents against one. Nothing is counted,
+    `window_end` reports None (no window to report), and an incident of this
+    release detected today — before the phase even starts — is not counted."""
+    now = datetime.now(timezone.utc)
+    start, end = now + timedelta(days=3), now + timedelta(days=13)
+    await _hypercare_phase(db_session, release, start, end)
+    today = await make_incident(db_session, test_tenant.id, title="today", severity="P1",
+                                detected_at=now)
+    today.release_id = release.id
+    await db_session.commit()
+
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["hypercare"]["state"] == "planned"
+    assert body["incidents"]["window_end"] is None
+    assert body["incidents"]["total"] == 0
+    assert body["incidents"]["items"] == []
+
+
+@pytest.mark.asyncio
 async def test_declaring_stable_closes_the_window(client, auth_headers, release, db_session, test_tenant):
     now = datetime.now(timezone.utc)
     await _hypercare_phase(db_session, release, now - timedelta(days=10), now + timedelta(days=10))

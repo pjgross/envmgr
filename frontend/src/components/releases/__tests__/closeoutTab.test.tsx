@@ -108,12 +108,26 @@ describe('CloseoutTab', () => {
   it('hides the incidents card when there is no window, and explains an empty target list', async () => {
     vi.mocked(closeoutService.get).mockResolvedValue({ ...base,
       hypercare: { ...base.hypercare, state: 'none', phase: null }, close_targets: [] });
-    renderTab();
+    const first = renderTab();
     // The Chip's own label is also "No hyper-care phase" (STATE_LABEL.none),
     // so the bare phrase matches twice; assert the explanatory paragraph text,
     // which is unique.
     expect(await screen.findByText(/no hyper-care phase on this release/i)).toBeInTheDocument();
     expect(screen.queryByText(/incidents in the window/i)).not.toBeInTheDocument();
     expect(screen.getByText(/no state flagged as closed/i)).toBeInTheDocument();
+
+    // Same claim for 'planned': the phase exists but hasn't started, so the
+    // window hasn't opened either — `window_end` comes back null from the
+    // backend for exactly this state. Unmount first, per the pattern above:
+    // RTL cleanup only runs between tests, and a stray "active" render's own
+    // "Incidents in the window" heading would falsely satisfy this query.
+    first.unmount();
+    vi.mocked(closeoutService.get).mockResolvedValue({ ...base,
+      hypercare: { ...base.hypercare, state: 'planned',
+        phase: { id: 2, name: 'Hyper-care', start_date: '2026-09-20T00:00:00Z', end_date: '2026-10-04T00:00:00Z' } },
+      incidents: { ...base.incidents, window_end: null, total: 0, items: [] } });
+    renderTab();
+    expect(await screen.findByText(/planned/i)).toBeInTheDocument();
+    expect(screen.queryByText(/incidents in the window/i)).not.toBeInTheDocument();
   });
 });
