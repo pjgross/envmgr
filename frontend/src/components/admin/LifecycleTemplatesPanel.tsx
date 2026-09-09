@@ -159,6 +159,12 @@ export default function LifecycleTemplatesPanel({
   const [description, setDescription] = useState('');
   const [appliesToKind, setAppliesToKind] = useState<string | null>(null);
   const isEnterprise = appliesToKind === 'enterprise';
+  // The four C6 closeout fields (marks_deployed / is_closed /
+  // requires_pir_complete / requires_handover_confirmed) mean something
+  // only for a release lifecycle — this panel is shared with booking,
+  // incident, change-request and environment-request lifecycles, where
+  // they are meaningless and must neither render nor be sent.
+  const isReleaseCloseoutFields = entityType === 'release' && !isEnterprise;
   const [states, setStates] = useState<StateRow[]>([]);
   const [transitions, setTransitions] = useState<TransitionRow[]>([]);
   const [fieldPerms, setFieldPerms] = useState<Record<string, FieldPermState>>({});
@@ -342,21 +348,16 @@ export default function LifecycleTemplatesPanel({
         is_initial: s.is_initial,
         is_terminal: s.is_terminal,
         is_failed: s.is_terminal && (s.is_failed ?? false),
-        ...(isEnterprise
+        ...(isEnterprise ? { is_admission_lockdown: s.is_admission_lockdown } : {}),
+        ...(isReleaseCloseoutFields
           ? {
-              is_admission_lockdown: s.is_admission_lockdown,
-              marks_deployed: false,
-              is_closed: false,
-              requires_pir_complete: false,
-              requires_handover_confirmed: false,
-            }
-          : {
               marks_deployed: s.marks_deployed,
               is_closed: s.is_terminal && s.is_closed,
               requires_pir_complete: s.is_terminal && s.is_closed && s.requires_pir_complete,
               requires_handover_confirmed:
                 s.is_terminal && s.is_closed && s.requires_handover_confirmed,
-            }),
+            }
+          : {}),
       })),
       transitions: transitions.map((t) => ({
         from_state: t.from_state,
@@ -746,7 +747,7 @@ export default function LifecycleTemplatesPanel({
                     label="Counts as failure"
                   />
                 )}
-                {!isEnterprise && (
+                {isReleaseCloseoutFields && (
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -758,7 +759,7 @@ export default function LifecycleTemplatesPanel({
                     label="Marks deployed"
                   />
                 )}
-                {!isEnterprise && s.is_terminal && (
+                {isReleaseCloseoutFields && s.is_terminal && (
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -770,7 +771,7 @@ export default function LifecycleTemplatesPanel({
                     label="Closed"
                   />
                 )}
-                {!isEnterprise && s.is_terminal && s.is_closed && (
+                {isReleaseCloseoutFields && s.is_terminal && s.is_closed && (
                   <>
                     <FormControlLabel
                       control={
@@ -809,7 +810,7 @@ export default function LifecycleTemplatesPanel({
               </Box>
             ))}
 
-            {!isEnterprise && (
+            {isReleaseCloseoutFields && (
               <Typography variant="caption" color="text.secondary">
                 Closed marks the states that formally close a release; the two Require options are
                 the close gate. Marks deployed stamps the release&apos;s actual date.

@@ -268,7 +268,14 @@ async def build_closeout(db: AsyncSession, release: Release, tenant_id: int, now
     if release.operations_group_id is not None:
         group_name = (await user_group_service.get_group_names(db, {release.operations_group_id})
                       ).get(release.operations_group_id)
-    tpl = await db.get(LifecycleTemplate, release.lifecycle_template_id)
+    tpl = (
+        await db.execute(
+            select(LifecycleTemplate).where(
+                LifecycleTemplate.id == release.lifecycle_template_id,
+                LifecycleTemplate.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
     targets = []
     for state in (tpl.definition.get("states", []) if tpl else []):
         if not state.get("is_closed"):

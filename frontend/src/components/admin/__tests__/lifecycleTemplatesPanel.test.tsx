@@ -16,6 +16,7 @@ vi.mock('../../../services/bookingLifecycleService', () => ({
     listBookingTypes: vi.fn(),
     deleteTemplate: vi.fn(),
     updateTemplate: vi.fn(),
+    createTemplate: vi.fn(),
   },
 }));
 
@@ -60,13 +61,13 @@ vi.mock('@mui/x-data-grid', async (importOriginal) => {
   };
 });
 
-function renderPanel() {
+function renderPanel(entityType?: 'booking' | 'release') {
   const store = configureStore({
     reducer: { bookingLifecycle: bookingLifecycleReducer, customField: customFieldReducer },
   });
   return render(
     <Provider store={store}>
-      <LifecycleTemplatesPanel />
+      <LifecycleTemplatesPanel entityType={entityType} />
     </Provider>
   );
 }
@@ -180,7 +181,7 @@ describe('LifecycleTemplatesPanel', () => {
         id: 5,
         tenant_id: 1,
         name: 'Release Flow',
-        entity_type: 'booking',
+        entity_type: 'release',
         description: null,
         is_default: false,
         applies_to_kind: 'project',
@@ -203,10 +204,8 @@ describe('LifecycleTemplatesPanel', () => {
           field_permissions: {
             draft: {
               standard_fields: {
-                project_name: { editable_by: ['Admin'] },
-                start_date: { editable_by: ['Admin'] },
-                end_date: { editable_by: ['Admin'] },
-                booking_type: { editable_by: ['Admin'] },
+                name: { editable_by: ['Admin'] },
+                release_type: { editable_by: ['Admin'] },
               },
               custom_fields: {},
             },
@@ -216,7 +215,7 @@ describe('LifecycleTemplatesPanel', () => {
       } as any,
     ]);
 
-    renderPanel();
+    renderPanel('release');
 
     await waitFor(() => expect(screen.getByText('Release Flow')).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
@@ -256,7 +255,7 @@ describe('LifecycleTemplatesPanel', () => {
   });
 
   it('hides the C6 checkboxes on an enterprise template and shows them on a project one', async () => {
-    renderPanel();
+    renderPanel('release');
 
     await userEvent.click(screen.getByRole('button', { name: /new template/i }));
     const dialog = await screen.findByRole('dialog');
@@ -281,5 +280,76 @@ describe('LifecycleTemplatesPanel', () => {
     await userEvent.click(within(dialog).getByLabelText('Closed'));
     expect(within(dialog).getByLabelText('Require PIR complete')).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Require ops handover confirmed')).toBeInTheDocument();
+  });
+
+  it('on a booking lifecycle, the Closed checkbox is absent and the saved payload carries none of the four C6 keys', async () => {
+    vi.mocked(bookingLifecycleService.listTemplates).mockResolvedValue([
+      {
+        id: 6,
+        tenant_id: 1,
+        name: 'Booking Flow',
+        entity_type: 'booking',
+        description: null,
+        is_default: false,
+        applies_to_kind: null,
+        definition: {
+          states: [
+            { key: 'draft', label: 'Draft', is_initial: true, is_terminal: true },
+          ],
+          transitions: [],
+          field_permissions: {
+            draft: {
+              standard_fields: {
+                project_name: { editable_by: ['Admin'] },
+                start_date: { editable_by: ['Admin'] },
+                end_date: { editable_by: ['Admin'] },
+                booking_type: { editable_by: ['Admin'] },
+              },
+              custom_fields: {},
+            },
+          },
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    ]);
+    vi.mocked(bookingLifecycleService.updateTemplate).mockResolvedValue({
+      id: 6,
+      tenant_id: 1,
+      name: 'Booking Flow',
+      entity_type: 'booking',
+      description: null,
+      is_default: false,
+      applies_to_kind: null,
+      definition: { states: [], transitions: [], field_permissions: {} },
+      created_at: '',
+      updated_at: '',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    renderPanel('booking');
+
+    await waitFor(() => expect(screen.getByText('Booking Flow')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    // None of the four C6 checkboxes render on a booking lifecycle, however
+    // the state is configured (this one is both initial and terminal) — this
+    // panel is shared with booking, incident, change-request and
+    // environment-request lifecycles, where they mean nothing.
+    expect(within(dialog).queryByLabelText('Marks deployed')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Closed')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Require PIR complete')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Require ops handover confirmed')).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(bookingLifecycleService.updateTemplate).toHaveBeenCalledTimes(1)
+    );
+    const [, payload] = vi.mocked(bookingLifecycleService.updateTemplate).mock.calls[0];
+    const draft = payload.definition!.states.find((s) => s.key === 'draft')!;
+    expect(Object.keys(draft).sort()).toEqual(
+      ['key', 'label', 'is_initial', 'is_terminal', 'is_failed'].sort()
+    );
   });
 });

@@ -117,3 +117,53 @@ async def test_template_hypercare_phase_runs_forward_from_target_date(client, au
     assert phases["Hyper-care"]["kind"] == "hypercare"
     assert _naive(phases["Hyper-care"]["start_date"]) == naive_target
     assert _naive(phases["Hyper-care"]["end_date"]) == naive_target + timedelta(days=14)
+
+
+@pytest.mark.asyncio
+async def test_a_template_with_two_hypercare_phases_is_refused(client, auth_headers, db_session, test_tenant):
+    from app.services.release_defaults import seed_release_defaults_for_tenant
+    await seed_release_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
+    resp = await client.post("/api/v1/release-templates", headers=auth_headers, json={
+        "name": "Two hyper-cares", "release_type": "Major",
+        "phases": [
+            {"name": "SIT", "order": 1, "default_duration_days": 5, "activities": []},
+            {"name": "Hyper-care A", "order": 2, "default_duration_days": 14, "activities": [],
+             "kind": "hypercare"},
+            {"name": "Hyper-care B", "order": 3, "default_duration_days": 7, "activities": [],
+             "kind": "hypercare"},
+        ],
+        "gates": [],
+    })
+    assert resp.status_code == 422, resp.text
+    assert "Hyper-care A" in resp.json()["detail"]
+    assert "Hyper-care B" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_updating_a_template_to_two_hypercare_phases_is_refused(client, auth_headers, db_session, test_tenant):
+    from app.services.release_defaults import seed_release_defaults_for_tenant
+    await seed_release_defaults_for_tenant(db_session, test_tenant.id)
+    await db_session.commit()
+    tpl = await client.post("/api/v1/release-templates", headers=auth_headers, json={
+        "name": "One hyper-care", "release_type": "Major",
+        "phases": [
+            {"name": "SIT", "order": 1, "default_duration_days": 5, "activities": []},
+            {"name": "Hyper-care A", "order": 2, "default_duration_days": 14, "activities": [],
+             "kind": "hypercare"},
+        ],
+        "gates": [],
+    })
+    assert tpl.status_code == 201, tpl.text
+    resp = await client.put(f"/api/v1/release-templates/{tpl.json()['id']}", headers=auth_headers, json={
+        "phases": [
+            {"name": "SIT", "order": 1, "default_duration_days": 5, "activities": []},
+            {"name": "Hyper-care A", "order": 2, "default_duration_days": 14, "activities": [],
+             "kind": "hypercare"},
+            {"name": "Hyper-care B", "order": 3, "default_duration_days": 7, "activities": [],
+             "kind": "hypercare"},
+        ],
+    })
+    assert resp.status_code == 422, resp.text
+    assert "Hyper-care A" in resp.json()["detail"]
+    assert "Hyper-care B" in resp.json()["detail"]

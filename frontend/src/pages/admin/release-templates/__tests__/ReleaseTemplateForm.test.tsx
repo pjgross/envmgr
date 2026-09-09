@@ -240,4 +240,28 @@ describe('ReleaseTemplateForm — gate type selector (task 12)', () => {
     );
     expect(payload.phases!.some((p) => p.kind === 'hypercare')).toBe(true);
   });
+
+  it('disables the Hyper-care option on other rows once one row is hyper-care', async () => {
+    renderForm([]);
+
+    await screen.findByDisplayValue('Standard Ladder');
+
+    // Row 1 is the template's existing SIT phase (kind: test). Add a second
+    // row and make it the hyper-care phase.
+    await userEvent.click(screen.getByRole('button', { name: /add phase/i }));
+    let kindSelects = screen.getAllByRole('combobox', { name: 'Kind' });
+    await userEvent.click(kindSelects[1]);
+    await userEvent.click(await screen.findByRole('option', { name: 'Hyper-care' }));
+
+    // Add a third row: its own Hyper-care option must be disabled, since
+    // row 2 already holds the one hyper-care slot — the server refuses a
+    // second one (release_template_service._validate_single_hypercare_phase).
+    await userEvent.click(screen.getByRole('button', { name: /add phase/i }));
+    kindSelects = screen.getAllByRole('combobox', { name: 'Kind' });
+    await userEvent.click(kindSelects[2]);
+    expect(await screen.findByRole('option', { name: 'Hyper-care' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+  });
 });

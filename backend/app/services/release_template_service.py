@@ -100,6 +100,29 @@ async def _validate_template_gate_types(
         )
 
 
+def _validate_single_hypercare_phase(phases: list) -> None:
+    """A release template may hold AT MOST ONE hyper-care phase.
+
+    `release_closeout_service.live_hypercare_phase` takes the first
+    hyper-care TestPhase by id on a release, and `_hypercare_queue_query`
+    joins ALL live hyper-care phases — so a template that instantiates two
+    hyper-care phases on one release breaks the one-per-release invariant
+    both of those rely on, and double-counts the release in `/me/work`'s
+    hyper-care queue. Refused here, on the template WRITE path, so the
+    invariant can never be broken by instantiate().
+    """
+    names = [
+        p.name if not isinstance(p, dict) else p.get("name", "Phase")
+        for p in phases
+        if (p.get("kind") if isinstance(p, dict) else getattr(p, "kind", "test")) == "hypercare"
+    ]
+    if len(names) > 1:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"A release template may hold at most one hyper-care phase (found: {', '.join(names)})",
+        )
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def create_template(
@@ -108,6 +131,7 @@ async def create_template(
     tenant_id: int,
 ) -> ReleaseTemplate:
     await _validate_template_gate_types(db, tenant_id, data.gates)
+    _validate_single_hypercare_phase(data.phases)
 
     tpl = ReleaseTemplate(
         tenant_id=tenant_id,
@@ -179,6 +203,9 @@ async def update_template(
         await _validate_template_gate_types(
             db, tenant_id, data.gates, grandfathered_ids=stored_ids,
         )
+
+    if data.phases is not None:
+        _validate_single_hypercare_phase(data.phases)
 
     update_data = data.model_dump(exclude_unset=True)
     # Serialise nested schemas to plain dicts if present

@@ -84,7 +84,7 @@ export default function CloseoutTab({ releaseId }: Props) {
     setError(null);
     const result = await dispatch(updateRelease({ id: releaseId, data: { operations_group_id: value === '' ? null : value } }));
     if (updateRelease.rejected.match(result)) {
-      setError((result as { payload?: string }).payload ?? 'Failed to set the operations group');
+      setError(result.payload ?? 'Failed to set the operations group');
       return;
     }
     dispatch(fetchCloseout(releaseId));

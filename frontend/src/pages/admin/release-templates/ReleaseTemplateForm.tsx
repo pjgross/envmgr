@@ -289,11 +289,19 @@ export default function ReleaseTemplateForm() {
                   value={phase.kind ?? 'test'}
                   onChange={(e) => updatePhase(idx, 'kind', e.target.value)}
                 >
-                  {PHASE_KINDS.map((k) => (
-                    <MenuItem key={k.value} value={k.value}>
-                      {k.label}
-                    </MenuItem>
-                  ))}
+                  {PHASE_KINDS.map((k) => {
+                    // The server is the authority (a template with two
+                    // hyper-care phases is a 422); this only stops a row
+                    // from being changed to a kind that would provoke it.
+                    const anotherRowIsHypercare =
+                      k.value === 'hypercare' &&
+                      phases.some((p, i) => i !== idx && p.kind === 'hypercare');
+                    return (
+                      <MenuItem key={k.value} value={k.value} disabled={anotherRowIsHypercare}>
+                        {k.label}
+                      </MenuItem>
+                    );
+                  })}
                 </TextField>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '0 0 160px' }}>
                   <TextField

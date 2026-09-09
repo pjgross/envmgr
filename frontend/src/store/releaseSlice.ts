@@ -114,10 +114,17 @@ export const createRelease = createAsyncThunk(
   (data: ReleaseCreatePayload) => releaseService.create(data)
 );
 
-export const updateRelease = createAsyncThunk(
-  'release/update',
-  ({ id, data }: { id: number; data: ReleaseUpdatePayload }) => releaseService.update(id, data)
-);
+export const updateRelease = createAsyncThunk<
+  ReleaseResponse,
+  { id: number; data: ReleaseUpdatePayload },
+  { rejectValue: string }
+>('release/update', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.update(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update release'));
+  }
+});
 
 export const transitionRelease = createAsyncThunk<
   ReleaseResponse,

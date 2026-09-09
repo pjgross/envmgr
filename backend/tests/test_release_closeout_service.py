@@ -55,6 +55,37 @@ def test_naive_sqlite_datetimes_are_normalised():
     assert svc.hypercare_state(_phase(None, end), None, NOW) == "overdue"
 
 
+@pytest.mark.parametrize("phase, declared_stable_at, now", [
+    (None, None, NOW),  # none
+    (None, NOW, NOW),  # stable (no phase)
+    (_phase(NOW + timedelta(days=5), NOW + timedelta(days=9)), NOW, NOW),  # stable (over a dated phase)
+    (_phase(NOW + timedelta(days=1), NOW + timedelta(days=10)), None, NOW),  # planned
+    (_phase(NOW.replace(hour=23), NOW + timedelta(days=10)), None, NOW),  # active (starts later today)
+    (_phase(), None, NOW),  # active (undated)
+    (
+        _phase(NOW - timedelta(days=10), NOW.replace(hour=0, minute=0)),
+        None,
+        NOW.replace(hour=23, minute=59),
+    ),  # active (end day, still before midnight)
+    (
+        _phase(NOW - timedelta(days=10), NOW - timedelta(days=1)),
+        None,
+        NOW.replace(hour=0, minute=0),
+    ),  # overdue
+    (
+        _phase(None, (NOW - timedelta(days=1)).replace(tzinfo=None)),
+        None,
+        NOW,
+    ),  # overdue (naive SQLite datetime)
+])
+def test_hypercare_state_always_returns_a_value_in_hypercare_states(phase, declared_stable_at, now):
+    """`HYPERCARE_STATES` had no caller until now — every case the tests
+    above exercise must actually be one of its five declared values, or a
+    consumer whitelisting against it (a grid column, a filter) would 422 on
+    a value this function is free to return."""
+    assert svc.hypercare_state(phase, declared_stable_at, now) in svc.HYPERCARE_STATES
+
+
 def _release(**kw):
     base = dict(handover_confirmed_at=None, operations_group_id=None)
     base.update(kw)

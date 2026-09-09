@@ -701,8 +701,7 @@ steps described under the first bullet below. Spec:
   `GET /releases/{id}/closeout` is keyed to `P1`–`P4`, so an incident recorded
   at any other severity is counted in `total` but appears in no severity chip;
   (3) the Closeout tab's *Incidents in the window* card is hidden only while the
-  state is `none`, so a release declared stable with no hyper-care phase shows
-  the card with an empty window.
+  state is `none` OR `planned`.
 - **Not built:** the §2.15 evidence pack (everything it needs is now recorded or
   computable; assembling it is Phase 12); enterprise releases, calendar markers,
   a release-list column or filter for hyper-care state, notifications on an
@@ -710,3 +709,18 @@ steps described under the first bullet below. Spec:
   deployment (the phase is planned from the template or added by hand, and a
   deployment webhook neither creates nor starts one); and rewriting existing
   tenants' templates to insert a `deployed` state.
+- **Follow-ups recorded by the final review:**
+  - The six new `ReleaseRead` closeout fields have no frontend consumer — the
+    tab reads the composite endpoint instead.
+  - The migration's downgrade drops FK-bearing columns, which SQLite's ALTER
+    TABLE refuses (PostgreSQL-only verified).
+  - A custom enterprise template with a state keyed `completed` no longer
+    stamps `actual_date` and cannot opt in (`marks_deployed` is refused on
+    enterprise).
+  - `main.py` mounts the closeout router at the bottom of the file and
+    `release_closeout.py` imports the private `_release_with_permissions`.
+  - `CloseoutTab` matches unmet reasons by substring of one server constant.
+  - The `/me/work` hyper-care queue deliberately includes `planned` windows
+    whose end falls within seven days (a deviation from spec §5.3's
+    "active", kept because the shortest windows are the ones most worth
+    surfacing).

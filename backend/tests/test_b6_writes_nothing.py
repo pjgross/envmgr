@@ -294,9 +294,8 @@ async def test_b6_adds_no_migration():
     expected.
 
     Updated 2026-09-09 when Phase 9 sub-project C6's `closeout` (hyper-care
-    and closeout schema) chained onto `gonogo`, moving the head again.
-    Repinning is what this test is FOR — each repin is a deliberate statement
-    that the new link was expected.
+    and closeout schema) chained onto `gonogo`, moving the head again — see
+    the note above on why repinning is exactly what this test is for.
     """
     backend_dir = pathlib.Path(__file__).resolve().parents[1]
     cfg = Config(str(backend_dir / "alembic.ini"))
@@ -305,7 +304,7 @@ async def test_b6_adds_no_migration():
     heads = script.get_heads()
     assert heads == ["closeout"], (
         "the Alembic head is not the expected single migration on top of "
-        "envdecommission — either B6 has started adding schema changes, or "
+        "the known chain — either B6 has started adding schema changes, or "
         "an unrelated migration landed without updating this pin"
     )
     # The chain from B5's envdecommission forward, each entry's own

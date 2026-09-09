@@ -513,9 +513,7 @@ async def transition_release(
     if not allowed:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
 
-    target_state = next(
-        (s for s in tpl.definition.get("states", []) if s.get("key") == to_state), None
-    )
+    target_state = release_closeout_service.state_for_key(tpl.definition, to_state)
 
     # C6: the one place Phase 9 refuses. No-op unless the target is a closed
     # state that asks for something. See release_closeout_service.
