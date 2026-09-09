@@ -423,6 +423,9 @@ async def create_release(
             db, {release.owning_project_id}, tenant_id
         )
         resp.owning_project_name = names.get(release.owning_project_id)
+    if release.operations_group_id is not None:
+        group_names = await user_group_service.get_group_names(db, {release.operations_group_id})
+        resp.operations_group_name = group_names.get(release.operations_group_id)
     return resp
 
 

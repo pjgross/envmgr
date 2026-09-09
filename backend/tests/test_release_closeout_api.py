@@ -166,3 +166,37 @@ async def test_an_archived_group_survives_a_full_form_save(client, auth_headers,
     new_assign = await client.put(f"/api/v1/releases/{release.id}",
                                   json={"operations_group_id": other.id}, headers=auth_headers)
     assert new_assign.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_operations_group_name_resolves_on_create(client, auth_headers, db_session, test_tenant, seeded):
+    """POST /releases builds its response by hand (not through
+    _release_with_permissions) — the name must be resolved there too, or a
+    release created with operations_group_id comes back with the name null."""
+    tpl = (await db_session.execute(select(LifecycleTemplate).where(
+        LifecycleTemplate.tenant_id == test_tenant.id, LifecycleTemplate.name == "Major"))).scalar_one()
+    group = await ensure_user_group(db_session, test_tenant.id, name="Platform Ops")
+    resp = await client.post("/api/v1/releases", headers=auth_headers, json={
+        "name": "New Release", "release_type": "Major", "lifecycle_template_id": tpl.id,
+        "operations_group_id": group.id})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["operations_group_id"] == group.id
+    assert body["operations_group_name"] == "Platform Ops"
+
+
+@pytest.mark.asyncio
+async def test_confirming_handover_twice_is_a_409(client, auth_headers, release, db_session, test_tenant):
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops")
+    await client.put(f"/api/v1/releases/{release.id}", json={"operations_group_id": group.id}, headers=auth_headers)
+    await client.post(f"/api/v1/releases/{release.id}/confirm-handover", json={}, headers=auth_headers)
+    resp = await client.post(f"/api/v1/releases/{release.id}/confirm-handover", json={}, headers=auth_headers)
+    assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.asyncio
+async def test_withdrawing_an_unconfirmed_handover_is_a_409(client, auth_headers, release, db_session, test_tenant):
+    group = await ensure_user_group(db_session, test_tenant.id, name="Ops")
+    await client.put(f"/api/v1/releases/{release.id}", json={"operations_group_id": group.id}, headers=auth_headers)
+    resp = await client.delete(f"/api/v1/releases/{release.id}/confirm-handover", headers=auth_headers)
+    assert resp.status_code == 409, resp.text

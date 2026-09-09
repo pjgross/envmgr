@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.releases import _release_with_permissions
 from app.api.v1.schemas.closeout import AuditNote
 from app.api.v1.schemas.release import ReleaseRead
-from app.core.security import Role, get_current_user, require_role
+from app.core.security import Role, require_role
 from app.db.base import get_db
 from app.services import release_closeout_service, release_service
 
