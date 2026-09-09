@@ -15,11 +15,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.day_boundaries import expiry_boundary
 from app.core.events import publish_event
+from app.core.pagination import Page, Sort
+from app.db.models.incident import Incident
+from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.pir import PIR
 from app.db.models.release import Release
 from app.db.models.test_phase import TestPhase
 from app.db.models.user import User
-from app.services import pir_service, release_event_service
+from app.services import incident_service, pir_service, release_event_service, user_group_service
+from app.api.v1.schemas.closeout import (
+    CloseoutRead, CloseTargetRead, HandoverRead, HypercarePhaseRead, HypercareRead,
+    IncidentsWindowRead, IncidentWindowItem, PirStateRead,
+)
 
 PHASE_KINDS = frozenset({"test", "hypercare"})
 HYPERCARE = "hypercare"
@@ -208,3 +215,81 @@ async def withdraw_handover(db: AsyncSession, release: Release, *, tenant_id: in
     await db.refresh(release)
     await _audit(db, release, tenant_id, user_id, EVENT_HANDOVER_WITHDRAWN, note)
     return release
+
+
+INCIDENT_ITEM_CAP = 50
+SEVERITIES = ("P1", "P2", "P3", "P4")
+
+
+def _aware(value: Optional[datetime]) -> Optional[datetime]:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+async def incidents_in_window(db: AsyncSession, release: Release, phase, now: datetime) -> IncidentsWindowRead:
+    """Incidents whose CAUSAL release is this one, detected inside the window.
+    Window: phase start (or the phase's created_at if undated) → the earliest
+    of declared_stable_at, phase end, now. No phase: no window, nothing counted."""
+    if phase is None:
+        return IncidentsWindowRead(window_start=None, window_end=None,
+                                   by_severity={s: 0 for s in SEVERITIES}, total=0, items=[])
+    start = _aware(phase.start_date) or _aware(phase.created_at)
+    candidates = [v for v in (_aware(release.declared_stable_at), _aware(phase.end_date), now) if v is not None]
+    end = min(candidates)
+    filters = {"release_id": release.id, "date_from": start, "date_to": end}
+    rows, total = await incident_service.list_incidents(
+        db, release.tenant_id, filters, page=Page(limit=INCIDENT_ITEM_CAP, offset=0),
+        sort=Sort(column=Incident.detected_at, descending=True),
+    )
+    by_severity = {s: 0 for s in SEVERITIES}
+    for sev in SEVERITIES:
+        _, count = await incident_service.list_incidents(
+            db, release.tenant_id, {**filters, "severity": sev}, page=Page(limit=1, offset=0))
+        by_severity[sev] = count
+    return IncidentsWindowRead(
+        window_start=start, window_end=end, by_severity=by_severity, total=total,
+        items=[IncidentWindowItem(id=r.id, title=r.title, severity=r.severity, status=r.status,
+                                  detected_at=r.detected_at) for r in rows],
+    )
+
+
+async def build_closeout(db: AsyncSession, release: Release, tenant_id: int, now: datetime) -> CloseoutRead:
+    _require_project_release(release)
+    phase = await live_hypercare_phase(db, release.id, tenant_id)
+    pir = await pir_service.get_for_release(db, tenant_id, release.id)
+    names = await usernames_for(db, {release.declared_stable_by, release.handover_confirmed_by})
+    group_name = None
+    if release.operations_group_id is not None:
+        group_name = (await user_group_service.get_group_names(db, {release.operations_group_id})
+                      ).get(release.operations_group_id)
+    tpl = await db.get(LifecycleTemplate, release.lifecycle_template_id)
+    targets = []
+    for state in (tpl.definition.get("states", []) if tpl else []):
+        if not state.get("is_closed"):
+            continue
+        unmet = unmet_requirements(state, pir, release)
+        targets.append(CloseTargetRead(
+            state_key=state["key"], label=state.get("label", state["key"]),
+            requires_pir_complete=bool(state.get("requires_pir_complete")),
+            requires_handover_confirmed=bool(state.get("requires_handover_confirmed")),
+            unmet=unmet, can_close=not unmet,
+        ))
+    return CloseoutRead(
+        hypercare=HypercareRead(
+            state=hypercare_state(phase, release.declared_stable_at, now),
+            phase=HypercarePhaseRead(id=phase.id, name=phase.name, start_date=phase.start_date,
+                                     end_date=phase.end_date) if phase else None,
+            declared_stable_at=release.declared_stable_at,
+            declared_stable_by_username=names.get(release.declared_stable_by),
+        ),
+        handover=HandoverRead(
+            operations_group_id=release.operations_group_id, operations_group_name=group_name,
+            confirmed_at=release.handover_confirmed_at,
+            confirmed_by_username=names.get(release.handover_confirmed_by),
+        ),
+        pir=PirStateRead(exists=pir is not None, status=pir.status if pir else None,
+                         completed_at=pir.completed_at if pir else None),
+        incidents=await incidents_in_window(db, release, phase, now),
+        close_targets=targets,
+    )

@@ -200,3 +200,130 @@ async def test_withdrawing_an_unconfirmed_handover_is_a_409(client, auth_headers
     await client.put(f"/api/v1/releases/{release.id}", json={"operations_group_id": group.id}, headers=auth_headers)
     resp = await client.delete(f"/api/v1/releases/{release.id}/confirm-handover", headers=auth_headers)
     assert resp.status_code == 409, resp.text
+
+
+from datetime import datetime, timedelta, timezone
+
+from app.db.models.test_phase import TestPhase
+from tests.factories import make_incident
+
+
+async def _hypercare_phase(db_session, release, start, end):
+    phase = TestPhase(tenant_id=release.tenant_id, release_id=release.id, name="Hyper-care",
+                      order=9, start_date=start, end_date=end, status="pending", kind="hypercare")
+    db_session.add(phase)
+    await db_session.commit()
+    return phase
+
+
+@pytest.mark.asyncio
+async def test_closeout_read_with_nothing_set(client, auth_headers, release):
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["hypercare"] == {"state": "none", "phase": None,
+                                 "declared_stable_at": None, "declared_stable_by_username": None}
+    assert body["handover"]["operations_group_id"] is None
+    assert body["pir"] == {"exists": False, "status": None, "completed_at": None}
+    assert body["incidents"]["total"] == 0 and body["incidents"]["window_start"] is None
+    # Major's closed states, in template order, none requiring anything yet.
+    assert [t["state_key"] for t in body["close_targets"]] == ["completed", "completed_with_issues", "backed_out"]
+    assert all(t["can_close"] and t["unmet"] == [] for t in body["close_targets"])
+
+
+@pytest.mark.asyncio
+async def test_close_targets_reflect_the_flags_and_the_same_wording_as_the_422(
+    client, auth_headers, release, db_session
+):
+    from app.db.models.lifecycle import LifecycleTemplate
+    tpl = await db_session.get(LifecycleTemplate, release.lifecycle_template_id)
+    defn = dict(tpl.definition)
+    for s in defn["states"]:
+        if s["key"] == "completed":
+            s["requires_pir_complete"] = True
+            s["requires_handover_confirmed"] = True
+    tpl.definition = defn
+    await db_session.commit()
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    completed = next(t for t in body["close_targets"] if t["state_key"] == "completed")
+    assert completed["can_close"] is False
+    assert completed["unmet"] == ["the post-implementation review is not complete",
+                                  "ops handover is not confirmed"]
+    refused = await client.post(f"/api/v1/releases/{release.id}/transition",
+                                json={"to_state": "completed"}, headers=auth_headers)
+    assert refused.status_code == 422
+    for reason in completed["unmet"]:
+        assert reason in refused.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_incidents_in_the_window_and_only_those(client, auth_headers, release, db_session, test_tenant, test_user):
+    now = datetime.now(timezone.utc)
+    start, end = now - timedelta(days=10), now + timedelta(days=4)
+    await _hypercare_phase(db_session, release, start, end)
+    inside = await make_incident(db_session, test_tenant.id, title="inside", severity="P1",
+                                 detected_at=now - timedelta(days=2))
+    inside.release_id = release.id
+    before = await make_incident(db_session, test_tenant.id, title="before", severity="P2",
+                                 detected_at=start - timedelta(seconds=1))
+    before.release_id = release.id
+    other_release = await make_incident(db_session, test_tenant.id, title="other", severity="P1",
+                                        detected_at=now - timedelta(days=1))
+    await db_session.commit()
+
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["hypercare"]["state"] == "active"
+    assert body["incidents"]["total"] == 1
+    assert [i["title"] for i in body["incidents"]["items"]] == ["inside"]
+    assert body["incidents"]["by_severity"] == {"P1": 1, "P2": 0, "P3": 0, "P4": 0}
+    assert datetime.fromisoformat(body["incidents"]["window_start"]) == start
+    # Not yet ended and not declared: the window closes at `now`.
+    assert datetime.fromisoformat(body["incidents"]["window_end"]) <= datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_declaring_stable_closes_the_window(client, auth_headers, release, db_session, test_tenant):
+    now = datetime.now(timezone.utc)
+    await _hypercare_phase(db_session, release, now - timedelta(days=10), now + timedelta(days=10))
+    await client.post(f"/api/v1/releases/{release.id}/declare-stable", json={}, headers=auth_headers)
+    late = await make_incident(db_session, test_tenant.id, title="after stable", severity="P3",
+                               detected_at=now + timedelta(minutes=5))
+    late.release_id = release.id
+    await db_session.commit()
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["hypercare"]["state"] == "stable"
+    assert body["incidents"]["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_another_tenants_incident_is_never_counted(client, auth_headers, release, db_session, second_tenant_factory):
+    other_tenant, _ = await second_tenant_factory()
+    now = datetime.now(timezone.utc)
+    await _hypercare_phase(db_session, release, now - timedelta(days=3), None)
+    foreign = await make_incident(db_session, other_tenant.id, title="foreign", detected_at=now)
+    foreign.release_id = release.id  # constructible: tenant_id and release_id are uncross-checked
+    await db_session.commit()
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["incidents"]["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_template_with_no_closed_state_returns_an_empty_target_list(client, auth_headers, db_session, test_tenant, test_user):
+    from app.db.models.lifecycle import LifecycleTemplate
+    tpl = LifecycleTemplate(tenant_id=test_tenant.id, entity_type="release", name="NoClose", is_default=False,
+                            applies_to_kind="project",
+                            definition={"states": [{"key": "draft", "label": "D", "is_initial": True, "is_terminal": False},
+                                                   {"key": "done", "label": "Done", "is_initial": False, "is_terminal": True}],
+                                        "transitions": [], "field_permissions": {}})
+    db_session.add(tpl)
+    await db_session.flush()
+    rel = Release(tenant_id=test_tenant.id, name="NC", release_type="Major", release_kind="project",
+                  lifecycle_template_id=tpl.id, status="draft", raised_by=test_user.id)
+    db_session.add(rel)
+    await db_session.commit()
+    body = (await client.get(f"/api/v1/releases/{rel.id}/closeout", headers=auth_headers)).json()
+    assert body["close_targets"] == []
+
+
+@pytest.mark.asyncio
+async def test_closeout_read_is_open_to_a_developer_and_refused_on_enterprise(client, member_headers, auth_headers, release, enterprise_release):
+    assert (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=member_headers)).status_code == 200
+    assert (await client.get(f"/api/v1/releases/{enterprise_release.id}/closeout", headers=auth_headers)).status_code == 422
