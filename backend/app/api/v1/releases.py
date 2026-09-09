@@ -47,6 +47,7 @@ from app.services import (
     release_readiness_service,
     rollback_authorisation_service,
     rollback_plan_service,
+    release_closeout_service,
 )
 from app.services.scope_window import compute_scope_window
 from app.api.v1.schemas.release import (
@@ -736,6 +737,8 @@ async def create_phase(
 ):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
+    if data.kind == release_closeout_service.HYPERCARE:
+        await release_closeout_service.assert_hypercare_slot_free(db, release_id, tenant_id)
     phase = TestPhase(
         tenant_id=tenant_id,
         release_id=release_id,
@@ -744,6 +747,7 @@ async def create_phase(
         start_date=data.start_date,
         end_date=data.end_date,
         status=data.status,
+        kind=data.kind,
     )
     db.add(phase)
     await db.flush()
@@ -760,6 +764,10 @@ async def update_phase(
     tenant_id = current_user.active_tenant_id
     phase = await _require_phase(db, phase_id, tenant_id)
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("kind") == release_closeout_service.HYPERCARE:
+        await release_closeout_service.assert_hypercare_slot_free(
+            db, phase.release_id, tenant_id, exclude_phase_id=phase.id
+        )
     for field, value in update_data.items():
         setattr(phase, field, value)
     await db.flush()
