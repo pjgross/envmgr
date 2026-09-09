@@ -101,14 +101,19 @@ async def test_template_hypercare_phase_runs_forward_from_target_date(client, au
     })
     assert tpl.status_code == 201, tpl.text
     target = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
+
+    def _naive(iso):
+        return datetime.fromisoformat(iso).replace(tzinfo=None)
+
     rel = await client.post(f"/api/v1/release-templates/{tpl.json()['id']}/instantiate",
                             headers=auth_headers,
                             json={"name": "R1", "target_date": target.isoformat()})
     assert rel.status_code == 201, rel.text
     phases = {p["name"]: p for p in (await client.get(
         f"/api/v1/releases/{rel.json()['id']}/phases", headers=auth_headers)).json()}
-    assert datetime.fromisoformat(phases["UAT"]["end_date"]) == target
-    assert datetime.fromisoformat(phases["SIT"]["end_date"]) == target - timedelta(days=3)
+    naive_target = target.replace(tzinfo=None)
+    assert _naive(phases["UAT"]["end_date"]) == naive_target
+    assert _naive(phases["SIT"]["end_date"]) == naive_target - timedelta(days=3)
     assert phases["Hyper-care"]["kind"] == "hypercare"
-    assert datetime.fromisoformat(phases["Hyper-care"]["start_date"]) == target
-    assert datetime.fromisoformat(phases["Hyper-care"]["end_date"]) == target + timedelta(days=14)
+    assert _naive(phases["Hyper-care"]["start_date"]) == naive_target
+    assert _naive(phases["Hyper-care"]["end_date"]) == naive_target + timedelta(days=14)

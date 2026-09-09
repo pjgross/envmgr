@@ -1,7 +1,7 @@
 # backend/app/api/v1/schemas/test_phase.py
 from typing import Literal, Optional
-from datetime import datetime, timezone
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from datetime import datetime
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class TestPhaseCreate(BaseModel):
@@ -34,15 +34,3 @@ class TestPhaseRead(BaseModel):
     end_date: Optional[datetime]
     status: str
     kind: str
-
-    # SQLite strips tzinfo on readback (PostgreSQL doesn't); every datetime
-    # this app stores is UTC, so a naive value read off the row is UTC, not
-    # "unknown". Same pattern as app/core/day_boundaries.py's `_utc`. Without
-    # this, `start_date`/`end_date` serialize with no offset on SQLite and an
-    # offset on PostgreSQL for byte-identical underlying data.
-    @field_validator("start_date", "end_date", mode="after")
-    @classmethod
-    def _assume_utc(cls, value: Optional[datetime]) -> Optional[datetime]:
-        if value is not None and value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
