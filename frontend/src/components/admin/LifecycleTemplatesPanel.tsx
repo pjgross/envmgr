@@ -99,6 +99,10 @@ interface StateRow {
   is_terminal: boolean;
   is_admission_lockdown: boolean;
   is_failed?: boolean;
+  marks_deployed: boolean;
+  is_closed: boolean;
+  requires_pir_complete: boolean;
+  requires_handover_confirmed: boolean;
 }
 
 interface TransitionRow {
@@ -120,6 +124,10 @@ const emptyState = (): StateRow => ({
   is_terminal: false,
   is_admission_lockdown: false,
   is_failed: false,
+  marks_deployed: false,
+  is_closed: false,
+  requires_pir_complete: false,
+  requires_handover_confirmed: false,
 });
 const emptyTransition = (): TransitionRow => ({
   from_state: '',
@@ -150,6 +158,7 @@ export default function LifecycleTemplatesPanel({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [appliesToKind, setAppliesToKind] = useState<string | null>(null);
+  const isEnterprise = appliesToKind === 'enterprise';
   const [states, setStates] = useState<StateRow[]>([]);
   const [transitions, setTransitions] = useState<TransitionRow[]>([]);
   const [fieldPerms, setFieldPerms] = useState<Record<string, FieldPermState>>({});
@@ -250,6 +259,10 @@ export default function LifecycleTemplatesPanel({
         is_terminal: s.is_terminal,
         is_admission_lockdown: s.is_admission_lockdown ?? false,
         is_failed: s.is_failed ?? false,
+        marks_deployed: s.marks_deployed ?? false,
+        is_closed: s.is_closed ?? false,
+        requires_pir_complete: s.requires_pir_complete ?? false,
+        requires_handover_confirmed: s.requires_handover_confirmed ?? false,
       }))
     );
     setTransitions(
@@ -322,15 +335,28 @@ export default function LifecycleTemplatesPanel({
     setFieldPermErrors([]);
     setError(null);
     setSaving(true);
-    const isEnterprise = appliesToKind === 'enterprise';
     const definition = {
       states: states.map((s) => ({
         key: s.key.trim(),
         label: s.label.trim(),
         is_initial: s.is_initial,
         is_terminal: s.is_terminal,
-        ...(isEnterprise ? { is_admission_lockdown: s.is_admission_lockdown } : {}),
-        ...(s.is_terminal && s.is_failed ? { is_failed: true } : {}),
+        is_failed: s.is_terminal && (s.is_failed ?? false),
+        ...(isEnterprise
+          ? {
+              is_admission_lockdown: s.is_admission_lockdown,
+              marks_deployed: false,
+              is_closed: false,
+              requires_pir_complete: false,
+              requires_handover_confirmed: false,
+            }
+          : {
+              marks_deployed: s.marks_deployed,
+              is_closed: s.is_terminal && s.is_closed,
+              requires_pir_complete: s.is_terminal && s.is_closed && s.requires_pir_complete,
+              requires_handover_confirmed:
+                s.is_terminal && s.is_closed && s.requires_handover_confirmed,
+            }),
       })),
       transitions: transitions.map((t) => ({
         from_state: t.from_state,
@@ -720,6 +746,58 @@ export default function LifecycleTemplatesPanel({
                     label="Counts as failure"
                   />
                 )}
+                {!isEnterprise && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={s.marks_deployed}
+                        onChange={(e) => updateState(i, { marks_deployed: e.target.checked })}
+                      />
+                    }
+                    label="Marks deployed"
+                  />
+                )}
+                {!isEnterprise && s.is_terminal && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={s.is_closed}
+                        onChange={(e) => updateState(i, { is_closed: e.target.checked })}
+                      />
+                    }
+                    label="Closed"
+                  />
+                )}
+                {!isEnterprise && s.is_terminal && s.is_closed && (
+                  <>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={s.requires_pir_complete}
+                          onChange={(e) =>
+                            updateState(i, { requires_pir_complete: e.target.checked })
+                          }
+                        />
+                      }
+                      label="Require PIR complete"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={s.requires_handover_confirmed}
+                          onChange={(e) =>
+                            updateState(i, { requires_handover_confirmed: e.target.checked })
+                          }
+                        />
+                      }
+                      label="Require ops handover confirmed"
+                    />
+                  </>
+                )}
                 <IconButton
                   size="small"
                   aria-label="Remove state"
@@ -730,6 +808,13 @@ export default function LifecycleTemplatesPanel({
                 </IconButton>
               </Box>
             ))}
+
+            {!isEnterprise && (
+              <Typography variant="caption" color="text.secondary">
+                Closed marks the states that formally close a release; the two Require options are
+                the close gate. Marks deployed stamps the release&apos;s actual date.
+              </Typography>
+            )}
           </Box>
 
           <Divider />
