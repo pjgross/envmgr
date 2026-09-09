@@ -63,11 +63,14 @@ def _day(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
         return None
     if value.tzinfo is None:
+        # Belt-and-braces: `expiry_boundary` already normalises through its own
+        # `_utc` helper, but stamping here too means this function never
+        # depends on that internal behaviour to be correct.
         value = value.replace(tzinfo=timezone.utc)
     return expiry_boundary(value)
 
 
-def hypercare_state(phase, declared_stable_at: Optional[datetime], now: datetime) -> str:
+def hypercare_state(phase: Optional[TestPhase], declared_stable_at: Optional[datetime], now: datetime) -> str:
     """First match wins: stable, none, planned, overdue, active. A window's
     bounds are DAYS — the end day itself still reads active."""
     if declared_stable_at is not None:

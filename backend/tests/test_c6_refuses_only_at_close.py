@@ -134,9 +134,9 @@ async def test_the_gate_never_touches_a_non_closed_transition(client, auth_heade
 async def test_with_both_flags_on_nothing_else_in_the_product_changes(
     client, auth_headers, make_release, db_session, test_tenant, test_user
 ):
-    """A booking, an incident transition, readiness and can-deploy are what
-    they were. Readiness in particular still says nothing about PIRs — the
-    gate is NOT folded into `release_readiness_service`."""
+    """A booking and an incident transition are what they were. Readiness in
+    particular still says nothing about PIRs — the gate is NOT folded into
+    `release_readiness_service`."""
     from app.services.incident_defaults import seed_incident_defaults_for_tenant
     await seed_incident_defaults_for_tenant(db_session, test_tenant.id)
     await db_session.commit()
@@ -144,7 +144,15 @@ async def test_with_both_flags_on_nothing_else_in_the_product_changes(
 
     readiness = (await client.get(f"/api/v1/releases/{rel.id}/readiness", headers=auth_headers)).json()
     blob = str(readiness).lower()
-    assert "pir" not in blob and "handover" not in blob and "closeout" not in blob
+    # Not a bare "pir"/"handover" substring check: C2's waiver warning text is
+    # "Waived by ..., expires ...", so "expires"/"expiry" would trip a naive
+    # "pir" substring test the day a fixture gains a waived gate.
+    assert "post-implementation" not in blob
+    assert "closeout" not in blob
+    assert not any(
+        f["type"].startswith("pir") or "handover" in f["type"]
+        for f in readiness["blockers"] + readiness["warnings"]
+    )
 
     incident = await make_incident(db_session, test_tenant.id, title="hc incident", status="new")
     moved = await client.post(f"/api/v1/incidents/{incident.id}/transition",
