@@ -6,16 +6,16 @@ THE ONE PLACE IN PHASE 9 THAT REFUSES. `assert_may_close` (Task 5) raises a
 flagged `is_closed` and asks for something that is not there. Everything
 else here computes on read and stores nothing.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.day_boundaries import expiry_boundary
 from app.core.events import publish_event
-from app.core.pagination import Page, Sort
+from app.core.pagination import Page, Sort, fetch_page_rows
 from app.db.models.incident import Incident
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.pir import PIR
@@ -290,3 +290,37 @@ async def build_closeout(db: AsyncSession, release: Release, tenant_id: int, now
         incidents=await incidents_in_window(db, release, phase, now),
         close_targets=targets,
     )
+
+
+HORIZON_DAYS = 7
+
+
+def _hypercare_queue_query(tenant_id: int, boundary: datetime, *, overdue_only: bool):
+    """Live hyper-care phases with an end DAY that is past, or within HORIZON_DAYS
+    of today, on project releases not yet declared stable. `boundary` is
+    `expiry_boundary(now)`, one clock per request. Tiebreaker: release id."""
+    latest = boundary if overdue_only else boundary + timedelta(days=HORIZON_DAYS + 1)
+    return (
+        select(Release.id, Release.name, TestPhase.end_date)
+        .join(TestPhase, and_(TestPhase.release_id == Release.id, TestPhase.kind == HYPERCARE,
+                              TestPhase.deleted_at.is_(None)))
+        .where(
+            Release.tenant_id == tenant_id,
+            Release.deleted_at.is_(None),
+            Release.release_kind == "project",
+            Release.declared_stable_at.is_(None),
+            TestPhase.end_date.is_not(None),
+            TestPhase.end_date < latest,
+        )
+        .order_by(TestPhase.end_date.asc(), Release.id.asc())
+    )
+
+
+async def hypercare_queue(db: AsyncSession, tenant_id: int, now: datetime, page: Page):
+    return await fetch_page_rows(db, _hypercare_queue_query(tenant_id, expiry_boundary(now), overdue_only=False), page)
+
+
+async def hypercare_overdue_total(db: AsyncSession, tenant_id: int, now: datetime) -> int:
+    _, total = await fetch_page_rows(
+        db, _hypercare_queue_query(tenant_id, expiry_boundary(now), overdue_only=True), Page(limit=1, offset=0))
+    return total

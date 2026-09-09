@@ -13,8 +13,12 @@ missing predicate fails loudly instead of passing by accident.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from app.db.models.contention_escalation import ContentionEscalation
+from app.db.models.lifecycle import LifecycleTemplate
+from app.db.models.release import Release
+from app.db.models.test_phase import TestPhase
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
 from tests.factories import (
     add_group_member,
@@ -304,3 +308,45 @@ async def test_contentions_count_matches_the_worklist(
         worklist.headers["X-Total-Count"]
     )
     assert mine.json()["queues"]["contentions"]["count"] == 2
+
+
+async def _release_in_hypercare(db_session, tenant_id, user_id, name, *, end, declared=None):
+    tpl = (await db_session.execute(select(LifecycleTemplate).where(
+        LifecycleTemplate.tenant_id == tenant_id, LifecycleTemplate.entity_type == "release",
+        LifecycleTemplate.applies_to_kind == "project"))).scalars().first()
+    if tpl is None:
+        tpl = LifecycleTemplate(tenant_id=tenant_id, entity_type="release", name="HC", is_default=True,
+                                applies_to_kind="project",
+                                definition={"states": [{"key": "draft", "label": "D", "is_initial": True, "is_terminal": False}],
+                                            "transitions": [], "field_permissions": {}})
+        db_session.add(tpl)
+        await db_session.flush()
+    rel = Release(tenant_id=tenant_id, name=name, release_type="Major", release_kind="project",
+                  lifecycle_template_id=tpl.id, status="draft", raised_by=user_id,
+                  declared_stable_at=declared, declared_stable_by=user_id if declared else None)
+    db_session.add(rel)
+    await db_session.flush()
+    db_session.add(TestPhase(tenant_id=tenant_id, release_id=rel.id, name="HC", order=1,
+                             start_date=end - timedelta(days=14), end_date=end, status="pending",
+                             kind="hypercare"))
+    await db_session.commit()
+    return rel
+
+
+@pytest.mark.asyncio
+async def test_hypercare_queue_lists_overdue_first_then_ending_soon(client, auth_headers, test_tenant, test_user, db_session):
+    """Overdue windows first, then windows ending within seven days; a
+    declared-stable release and a window twenty days out are NOT counted."""
+    now = datetime.now(timezone.utc)
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "soon", end=now + timedelta(days=3))
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "overdue", end=now - timedelta(days=2))
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "stable", end=now - timedelta(days=2),
+                                declared=now)
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "far", end=now + timedelta(days=20))
+
+    mine = await client.get("/api/v1/me/work", headers=auth_headers)
+    assert mine.status_code == 200, mine.text
+    queue = mine.json()["queues"]["hypercare"]
+    assert [i["title"] for i in queue["items"]] == ["overdue", "soon"]
+    assert queue["count"] == 2 and queue["overdue"] == 1
+    assert queue["items"][0]["url"].endswith("?tab=closeout")
