@@ -310,7 +310,8 @@ async def test_contentions_count_matches_the_worklist(
     assert mine.json()["queues"]["contentions"]["count"] == 2
 
 
-async def _release_in_hypercare(db_session, tenant_id, user_id, name, *, end, declared=None):
+async def _release_in_hypercare(db_session, tenant_id, user_id, name, *, end, declared=None,
+                                release_kind="project", release_deleted=False, phase_deleted=False):
     tpl = (await db_session.execute(select(LifecycleTemplate).where(
         LifecycleTemplate.tenant_id == tenant_id, LifecycleTemplate.entity_type == "release",
         LifecycleTemplate.applies_to_kind == "project"))).scalars().first()
@@ -321,14 +322,16 @@ async def _release_in_hypercare(db_session, tenant_id, user_id, name, *, end, de
                                             "transitions": [], "field_permissions": {}})
         db_session.add(tpl)
         await db_session.flush()
-    rel = Release(tenant_id=tenant_id, name=name, release_type="Major", release_kind="project",
+    rel = Release(tenant_id=tenant_id, name=name, release_type="Major", release_kind=release_kind,
                   lifecycle_template_id=tpl.id, status="draft", raised_by=user_id,
-                  declared_stable_at=declared, declared_stable_by=user_id if declared else None)
+                  declared_stable_at=declared, declared_stable_by=user_id if declared else None,
+                  deleted_at=datetime.now(timezone.utc) if release_deleted else None)
     db_session.add(rel)
     await db_session.flush()
     db_session.add(TestPhase(tenant_id=tenant_id, release_id=rel.id, name="HC", order=1,
                              start_date=end - timedelta(days=14), end_date=end, status="pending",
-                             kind="hypercare"))
+                             kind="hypercare",
+                             deleted_at=datetime.now(timezone.utc) if phase_deleted else None))
     await db_session.commit()
     return rel
 
@@ -343,6 +346,14 @@ async def test_hypercare_queue_lists_overdue_first_then_ending_soon(client, auth
     await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "stable", end=now - timedelta(days=2),
                                 declared=now)
     await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "far", end=now + timedelta(days=20))
+    # Must NOT appear — each row discriminates exactly one of the three
+    # predicates that have no other failing-test coverage.
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "enterprise",
+                                end=now - timedelta(days=2), release_kind="enterprise")
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "deleted-release",
+                                end=now - timedelta(days=2), release_deleted=True)
+    await _release_in_hypercare(db_session, test_tenant.id, test_user.id, "deleted-phase",
+                                end=now - timedelta(days=2), phase_deleted=True)
 
     mine = await client.get("/api/v1/me/work", headers=auth_headers)
     assert mine.status_code == 200, mine.text
