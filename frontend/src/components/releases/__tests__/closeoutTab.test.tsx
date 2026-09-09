@@ -55,6 +55,7 @@ describe('CloseoutTab', () => {
     expect(screen.getByRole('link', { name: 'Checkout 500s' })).toHaveAttribute('href', '/incidents/9');
     const completed = screen.getByTestId('close-target-completed');
     expect(within(completed).getByText(/review is not complete/)).toBeInTheDocument();
+    expect(within(completed).getByText(/handover is not confirmed/)).toBeInTheDocument();
     expect(within(completed).getAllByLabelText('Not met')).toHaveLength(2);
     const backedOut = screen.getByTestId('close-target-backed_out');
     expect(within(backedOut).getByText(/no requirements/i)).toBeInTheDocument();
@@ -82,7 +83,10 @@ describe('CloseoutTab', () => {
     renderTab();
     await userEvent.click(await screen.findByRole('button', { name: /declare stable/i }));
     await userEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
-    expect(await screen.findByText(/already declared stable/)).toBeInTheDocument();
+    // The dialog is still open here (the write was refused, not confirmed),
+    // and MUI marks everything outside it aria-hidden — so the reason must
+    // be found INSIDE the open dialog, not merely somewhere in the document.
+    expect(await within(screen.getByRole('dialog')).findByText(/already declared stable/)).toBeInTheDocument();
     expect(screen.queryByText(/status code 409/)).not.toBeInTheDocument();
   });
 

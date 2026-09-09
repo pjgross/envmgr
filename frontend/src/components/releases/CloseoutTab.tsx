@@ -56,6 +56,14 @@ export default function CloseoutTab({ releaseId }: Props) {
     dispatch(fetchUserGroups({}));
   }, [dispatch, releaseId]);
 
+  // Clears any stale reason from a previous refusal before a new dialog
+  // opens, so re-opening the dialog for a different action never shows a
+  // leftover message from the one before it.
+  const openDialog = (p: Pending) => {
+    setError(null);
+    setPending(p);
+  };
+
   const run = async () => {
     if (!pending) return;
     setSubmitting(true);
@@ -109,10 +117,10 @@ export default function CloseoutTab({ releaseId }: Props) {
         {hypercare.declared_stable_at ? (
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2">Declared stable by {hypercare.declared_stable_by_username ?? 'unknown'} on {fmtDateTime(hypercare.declared_stable_at)}</Typography>
-            {canWrite && <Button size="small" onClick={() => setPending('withdraw-stable')}>Withdraw</Button>}
+            {canWrite && <Button size="small" onClick={() => openDialog('withdraw-stable')}>Withdraw</Button>}
           </Stack>
         ) : (
-          canWrite && <Button variant="contained" size="small" onClick={() => setPending('declare')}>Declare stable</Button>
+          canWrite && <Button variant="contained" size="small" onClick={() => openDialog('declare')}>Declare stable</Button>
         )}
       </Paper>
 
@@ -163,14 +171,14 @@ export default function CloseoutTab({ releaseId }: Props) {
         {handover.confirmed_at ? (
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2">Handover confirmed by {handover.confirmed_by_username ?? 'unknown'} on {fmtDateTime(handover.confirmed_at)}</Typography>
-            {canWrite && <Button size="small" onClick={() => setPending('withdraw-handover')}>Withdraw</Button>}
+            {canWrite && <Button size="small" onClick={() => openDialog('withdraw-handover')}>Withdraw</Button>}
           </Stack>
         ) : (
           canWrite && (
             <Tooltip title={handover.operations_group_id ? '' : 'Set the operations group first'}>
               <span>
                 <Button variant="contained" size="small" disabled={!handover.operations_group_id}
-                        onClick={() => setPending('confirm')}>Confirm handover</Button>
+                        onClick={() => openDialog('confirm')}>Confirm handover</Button>
               </span>
             </Tooltip>
           )
@@ -188,25 +196,27 @@ export default function CloseoutTab({ releaseId }: Props) {
             {user?.role === 'Admin' && <> Flag one in the <Link component={RouterLink} to={entityTabPath('releases', 'lifecycle')}>lifecycle editor</Link>.</>}
           </Typography>
         ) : (
-          close_targets.map((t) => (
-            <Box key={t.state_key} data-testid={`close-target-${t.state_key}`} sx={{ mb: 1 }}>
-              <Typography variant="subtitle2">{t.label}</Typography>
-              {!t.requires_pir_complete && !t.requires_handover_confirmed ? (
-                <Typography variant="body2" color="text.secondary">No requirements.</Typography>
-              ) : (
-                <Stack spacing={0.5}>
-                  {t.requires_pir_complete && (
-                    <Requirement met={!t.unmet.includes('the post-implementation review is not complete')}
-                                 label="Post-implementation review complete" />
-                  )}
-                  {t.requires_handover_confirmed && (
-                    <Requirement met={!t.unmet.includes('ops handover is not confirmed')}
-                                 label="Ops handover confirmed" />
-                  )}
-                </Stack>
-              )}
-            </Box>
-          ))
+          close_targets.map((t) => {
+            const pirReason = t.unmet.find((r) => r.includes('post-implementation'));
+            const handoverReason = t.unmet.find((r) => r.includes('handover'));
+            return (
+              <Box key={t.state_key} data-testid={`close-target-${t.state_key}`} sx={{ mb: 1 }}>
+                <Typography variant="subtitle2">{t.label}</Typography>
+                {!t.requires_pir_complete && !t.requires_handover_confirmed ? (
+                  <Typography variant="body2" color="text.secondary">No requirements.</Typography>
+                ) : (
+                  <Stack spacing={0.5}>
+                    {t.requires_pir_complete && (
+                      <Requirement met={!pirReason} label="Post-implementation review complete" reason={pirReason} />
+                    )}
+                    {t.requires_handover_confirmed && (
+                      <Requirement met={!handoverReason} label="Ops handover confirmed" reason={handoverReason} />
+                    )}
+                  </Stack>
+                )}
+              </Box>
+            );
+          })
         )}
       </Paper>
 
@@ -216,6 +226,7 @@ export default function CloseoutTab({ releaseId }: Props) {
              confirm: 'Confirm ops handover', 'withdraw-handover': 'Withdraw handover confirmation' }[pending ?? 'declare']}
         </DialogTitle>
         <DialogContent>
+          {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
           <TextField label="Note (optional)" fullWidth multiline rows={3} value={note}
                      onChange={(e) => setNote(e.target.value)} sx={{ mt: 1 }} />
         </DialogContent>
@@ -228,12 +239,12 @@ export default function CloseoutTab({ releaseId }: Props) {
   );
 }
 
-function Requirement({ met, label }: { met: boolean; label: string }) {
+function Requirement({ met, label, reason }: { met: boolean; label: string; reason?: string }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center">
       {met ? <CheckCircleIcon color="success" fontSize="small" aria-label="Met" />
            : <CancelIcon color="error" fontSize="small" aria-label="Not met" />}
-      <Typography variant="body2">{label}{met ? '' : ' — ' + (label.startsWith('Post') ? 'the post-implementation review is not complete' : 'ops handover is not confirmed')}</Typography>
+      <Typography variant="body2">{label}{!met && reason ? ` — ${reason}` : ''}</Typography>
     </Stack>
   );
 }
