@@ -216,4 +216,28 @@ describe('ReleaseTemplateForm — gate type selector (task 12)', () => {
 
     expect(await screen.findByRole('option', { name: /legacy smoke test \(inactive\)/i })).toBeInTheDocument();
   });
+
+  it('sends kind on every template phase', async () => {
+    vi.mocked(releaseTemplateService.update).mockResolvedValue(makeTemplate([]));
+
+    renderForm([]);
+
+    await screen.findByDisplayValue('Standard Ladder');
+
+    await userEvent.click(screen.getByRole('button', { name: /add phase/i }));
+    await userEvent.type(screen.getByLabelText('Phase 2 Name', { exact: false }), 'Hypercare Watch');
+
+    const kindSelects = screen.getAllByRole('combobox', { name: 'Kind' });
+    await userEvent.click(kindSelects[kindSelects.length - 1]);
+    await userEvent.click(await screen.findByRole('option', { name: 'Hyper-care' }));
+
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    await waitFor(() => expect(releaseTemplateService.update).toHaveBeenCalled());
+    const [, payload] = vi.mocked(releaseTemplateService.update).mock.calls[0];
+    expect(payload.phases!.every((p) => ['test', 'hypercare'].includes(p.kind as string))).toBe(
+      true
+    );
+    expect(payload.phases!.some((p) => p.kind === 'hypercare')).toBe(true);
+  });
 });

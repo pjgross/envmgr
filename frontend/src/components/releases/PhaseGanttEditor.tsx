@@ -26,6 +26,16 @@ const STATUS_COLOR: Record<string, string> = {
   blocked: '#e57373',
 };
 
+const HYPERCARE_COLOR = '#ce93d8';
+
+const LEGEND_ITEMS: { label: string; color: string }[] = [
+  { label: 'Planned', color: STATUS_COLOR.planned },
+  { label: 'In progress', color: STATUS_COLOR.in_progress },
+  { label: 'Completed', color: STATUS_COLOR.completed },
+  { label: 'Blocked', color: STATUS_COLOR.blocked },
+  { label: 'Hyper-care', color: HYPERCARE_COLOR },
+];
+
 export default function PhaseGanttEditor({ phases, releaseTargetDate }: Props) {
   const phasesWithDates = phases.filter(
     (p) => p.start_date != null && p.end_date != null
@@ -66,6 +76,16 @@ export default function PhaseGanttEditor({ phases, releaseTargetDate }: Props) {
 
   return (
     <Box sx={{ overflowX: 'auto' }}>
+      {/* Legend */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 1, flexWrap: 'wrap' }}>
+        {LEGEND_ITEMS.map((item) => (
+          <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ width: 12, height: 12, bgcolor: item.color, borderRadius: 0.5 }} />
+            <Typography variant="caption">{item.label}</Typography>
+          </Box>
+        ))}
+      </Box>
+
       {/* Header axis */}
       <Box
         sx={{
@@ -90,7 +110,8 @@ export default function PhaseGanttEditor({ phases, releaseTargetDate }: Props) {
           const end = parseDate(phase.end_date)!;
           const left = toPercent(start);
           const width = Math.max(toPercent(end) - left, 1);
-          const color = STATUS_COLOR[phase.status] ?? '#90caf9';
+          const color =
+            phase.kind === 'hypercare' ? HYPERCARE_COLOR : (STATUS_COLOR[phase.status] ?? '#90caf9');
 
           return (
             <Box
