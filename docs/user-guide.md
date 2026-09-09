@@ -66,13 +66,14 @@ Below the tiles, two panels:
 
 ### My work
 
-*My work* (`/my-work`) sits beside *Dashboard* in the left navigation — a personal inbox of five "waiting on me" queues, each capped at five rows with a "View all" link to the full worklist and a running total shown as a badge on the nav item itself:
+*My work* (`/my-work`) sits beside *Dashboard* in the left navigation — a personal inbox of six "waiting on me" queues, each capped at five rows with a "View all" link to the full worklist and a running total shown as a badge on the nav item itself:
 
 - **Environment requests** your team must action.
 - **Contentions** — booking clashes escalated to you, not yet decided.
 - **Decommissions** on an environment you operate that are warned, due, or awaiting your extension decision.
 - **PIR actions** you own that are still open or in progress.
 - **Open incidents**, tenant-wide (incidents carry no per-user ownership, so everyone's card shows the same ones).
+- **Hyper-care decisions** — releases whose hyper-care window has already ended without anyone declaring the release stable (counted separately as *overdue*, in red), followed by windows ending within the next seven days. Tenant-wide, like incidents, since a release has no per-user owner. Each row opens that release's *Closeout* tab, which is where the decision is taken; a release already declared stable drops off the card. "View all" lands on the unfiltered release list — the release list has no hyper-care filter.
 
 Cards are never hidden, even when empty — a hidden card would be indistinguishable from a queue you are not a member of. A queue that could not be computed shows "Couldn't load" rather than the empty state, since those two are not the same thing.
 
@@ -885,6 +886,41 @@ The release-level chip at the top of the tab (*Rollback readiness: …*) shows t
 Every rehearsal you've ever recorded for a system stays visible in its history, but only the **latest** one decides freshness on the release readiness banner: **current** (a passed rehearsal within your tenant's rehearsal validity period, admin guide ch. 8) or **stale** (older than that). A **failed rehearsal is never current** — it is not "a rehearsal that happens to be marked failed", it is the readiness verdict's way of saying no successful rehearsal has been done recently, and it reads that way on the banner ("No successful rollback rehearsal recorded") even though a rehearsal genuinely exists and is right there in the table below.
 
 **Recording a rollback.** Click *Record a rollback* on the *Rollback* tab at any time — before or after the fact — to add a row to *Rollback History*: *when* it happened (or is about to), the *trigger* (a failed smoke test, an incident, a customer report — what set it off), the *rationale*, and which *systems* it actually touched. **This never checks whether a plan exists, was agreed, or whether a rehearsal is current, and it never refuses.** A rollback with no plan at all is exactly the case worth keeping a record of — the dialog says so — and recording one changes nothing else about the release: no transition is gated, no gate is affected, nothing is locked. Rollback History is a permanent audit trail; there is no edit or delete on a recorded rollback.
+
+### Hyper-care and closeout
+
+Every project release has a *Closeout* tab — Phase 9 sub-project C6. It covers the period **after** the release is live: the watch window, the decision that the release is stable, the handover to the team that will run it, and the formal close. (Enterprise releases do not have this tab.) Four cards, in the order the work happens.
+
+**1. Hyper-care.** *Hyper-care* is the watch period straight after go-live. It is **a phase** on the release — the same kind of thing as a test phase, but with its *Kind* set to *Hyper-care*. It usually arrives from the release template; if there isn't one, the card says so and points you at the *Gates & Test Phases* tab, where you add a phase and set *Kind* to *Hyper-care*. A release can have **only one** hyper-care phase at a time; adding a second is refused with a message naming the one you already have. Unlike test phases, a hyper-care phase from a template starts on the release's target date and runs **forward** from it.
+
+The chip at the top of the card is the window's state, and it is worked out fresh every time you open the page — nothing is stored, so recording the phase's dates or declaring stable changes it immediately:
+
+| Chip | Means |
+|---|---|
+| *No hyper-care phase* | There is no hyper-care phase on this release. |
+| *Planned* | The window's start date is still in the future. |
+| *Active* | The window has started (or has no dates at all) and its end day has not passed. |
+| *Overdue* | The end day has passed and nobody has declared the release stable. |
+| *Stable* | Somebody declared the release stable. This beats every date — a stable release is stable whatever the window says. |
+
+**The end is a day, not a moment.** The last day of the window still reads *Active* all day; only the day after it turns *Overdue*. That is the same rule the rest of the product uses for expiries and deadlines.
+
+**Declaring stable.** An Admin or Release Manager clicks *Declare stable*, optionally adds a note, and confirms. The card then shows who declared it and when, plus a *Withdraw* button. You do **not** need a hyper-care phase, and the release does not need to be in any particular status — a release that skipped hyper-care entirely can still be declared stable. Declaring twice is refused: withdraw the existing declaration first, so a recorded name and time are never quietly overwritten. Both the declaration and the withdrawal are written to the release's event timeline, so a withdrawal does not erase the history.
+
+**2. Incidents in the window.** A count per severity (P1–P4) and a list of the incidents whose **cause** is this release and whose detection time falls inside the window — from the phase's start to the earliest of *declared stable*, the phase's end, and now. Each row links to the incident. This card is hidden while there is no hyper-care phase at all, because there is no window to report on.
+
+**3. Ops handover.** Pick the team that will own this release in operation from the *Operations group* drop-down (the same user groups an environment's operations group comes from — [ch. 4](#4-browsing-systems-and-environments) and the admin guide), then click *Confirm handover*. The button stays disabled, with a tooltip saying *"Set the operations group first"*, until a group is chosen; confirming without one is refused. Once confirmed the card shows who confirmed it and when, with a *Withdraw* button, and — as with the stability declaration — confirming twice is refused rather than overwriting. Both actions are recorded on the release's event timeline. **The operations group is set here, not on the release form.**
+
+**4. Closing.** This card tells you whether the release can be formally closed, and why not. It shows the state of the post-implementation review, then one block per lifecycle state your tenant has flagged as **closed** (your admin configures this — admin guide ch. 9). Each block lists that state's requirements with a green tick or a red cross:
+
+- *Post-implementation review complete* — the release's PIR must have status *complete*. **No PIR at all counts as incomplete.**
+- *Ops handover confirmed* — card 3 above.
+
+A state with neither requirement says *No requirements*. If your tenant has flagged no state as closed at all, the card says so, and an Admin sees a link to the lifecycle editor.
+
+**What happens if you try to close anyway.** The transition buttons on the *Main* tab are never hidden or disabled by any of this — the server decides, and the page reports. If you transition into a closed state whose requirements are not met, the transition is refused and the message tells you exactly what is missing: *"Cannot close this release: the post-implementation review is not complete; ops handover is not confirmed."* That is the **same wording** the ticks and crosses on this card are built from, so the tab and the refusal can never disagree with each other.
+
+**This is the only thing in release governance that refuses anything.** Nothing on the *Closeout* tab blocks a deployment, a booking, or any transition other than the close itself — and even that only when your tenant has explicitly turned a requirement on. Both requirements are off by default, so on a lifecycle nobody has configured, closing behaves exactly as it always did.
 
 ### RAID log
 

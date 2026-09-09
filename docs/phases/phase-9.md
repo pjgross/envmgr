@@ -1,8 +1,9 @@
 # Phase 9: Release Governance & Deployment Safety
 
 > Status: 🟡 **IN PROGRESS** — sub-projects **C2 (Typed gates, evidence,
-> waivers)**, **C3 (Go/No-Go decision record)** and **C4 (Rollback governance)**
-> are complete; C1, C5–C9 are not started. | Roadmap: [../plan.md](../plan.md)
+> waivers)**, **C3 (Go/No-Go decision record)**, **C4 (Rollback governance)** and
+> **C6 (Hyper-care and closeout)** are complete; C1, C5, C7, C8 and C9 are not
+> started. | Roadmap: [../plan.md](../plan.md)
 
 Phase 9 answers [requirements.md §2.11](../requirements.md), which is roughly 48
 capability rows — Phase-7-sized or larger. It was decomposed into nine clusters,
@@ -23,17 +24,18 @@ for the decomposition as originally recorded.
 | C3 | **Go/No-Go decision record** | nothing | C2, C4 | ✅ Complete |
 | C4 | **Rollback governance** | nothing | C2 (folds into the same verdict) | ✅ Complete |
 | C5 | Deployment execution records | Phase 4 tracking, `can-deploy` | C2 (pre-deploy checklist is a gate) | Not started |
-| C6 | Hyper-care + closeout | The **PIR findings/actions/citations** work (2026-09-02) is the retro half — findings, trackable actions, a tenant-wide action worklist, incidents cited as evidence. Supersedes Phase 5 SP4. | C3 | Not started |
+| C6 | **Hyper-care + closeout** | The **PIR findings/actions/citations** work (2026-09-02) is the retro half — findings, trackable actions, a tenant-wide action worklist, incidents cited as evidence. Supersedes Phase 5 SP4. | C3 | ✅ Complete |
 | C7 | Scope freeze completion | `scope_deadline`, Scope Windows, churn analytics — most of it already ships | — | Not started |
 | C8 | Feature-flag governance | nothing | — | Not started |
 | C9 | Stable Windows | `can-deploy` to extend | — | Not started |
 
-**What C6 still owns, and this work deliberately did not build:** requirements.md §2.5's
-*configurable "PIR complete" gate before a release is formally closed*. The PIR work refuses
-nothing — no release transition, no deployment, no readiness verdict entry — and
-`backend/tests/test_pir_records_never_refuses.py` is the named guard that fails the day someone
-adds such a gate by accident. Building it on purpose is C6's job, and it will mean deleting or
-amending that guard consciously rather than tripping over it.
+**What C6 owned and has now built (2026-09-09):** requirements.md §2.5's *configurable "PIR
+complete" gate before a release is formally closed*. The PIR work refused nothing — no release
+transition, no deployment, no readiness verdict entry — and
+`backend/tests/test_pir_records_never_refuses.py` was the named guard that would fail the day
+someone added such a gate by accident. C6 built it on purpose, in one function, and amended that
+guard consciously in **exactly one test** rather than tripping over it. See the **C6** section
+below.
 
 
 ## C2 — Typed gates, evidence and waivers — ✅ COMPLETE 2026-08-20
@@ -474,3 +476,237 @@ policy use. Spec:
   `reversibility` value as the release page's own banner — confirming the
   ONE-EVALUATOR promise holds whenever the rollup-vs-findings gap above
   isn't in play.
+
+## C6 — Hyper-care and closeout — ✅ COMPLETE 2026-09-09
+
+The sixth cluster of Phase 9 to be built, and the one that answers the last line
+of [requirements.md §2.11](../requirements.md) — "explicit hyper-care window;
+'declared stable' decision to move Operate → Improve; closeout confirms
+ops-ownership transfer and records outcome" — together with §2.5's *configurable
+"PIR complete" gate before a release is formally closed*, which both the PIR
+work and C3 deferred here by name.
+
+Two facts about the code shaped every decision. **There was no "closed" state**:
+a project release's terminal states were `completed`, `completed_with_issues`,
+`backed_out`, `rejected`, `cancelled`, and entering either of the first two
+stamped `actual_date` from a hardcoded name set, `_DEPLOYED_TERMINAL_STATES` —
+so the moment a release was deployed *was* the moment it terminated, and a close
+gate on that transition would have refused go-live on a review written after
+go-live. And **the lifecycle editor silently dropped `is_failed`** (see below).
+
+What shipped:
+
+- **Five per-state flags on the tenant's own lifecycle template**, declared on
+  `LifecycleState` in `schemas/booking_lifecycle.py` so they survive
+  `model_dump()`: `is_failed` (pre-existing, now declared), `marks_deployed`
+  (entering stamps `actual_date`, once), `is_closed` (requires `is_terminal`),
+  and the two close gates `requires_pir_complete` and
+  `requires_handover_confirmed` (each requires `is_closed`). Every rule is a 422
+  naming the offending state; all four C6 flags are refused outright on an
+  enterprise release template.
+- **The hyper-care window is a phase.** `test_phase.kind` (`String(20)`, NOT
+  NULL, server default `'test'`; values `test` | `hypercare`), with the same
+  `kind` on `ReleaseTemplatePhase`. At most one live hyper-care phase per
+  release, enforced in `release_closeout_service.assert_hypercare_slot_free`.
+- **Five nullable columns on `release`**: `operations_group_id` (FK
+  `user_group.id`, indexed), `declared_stable_at`/`declared_stable_by`,
+  `handover_confirmed_at`/`handover_confirmed_by`.
+- **Four audit routes plus one composite read**, on their own router
+  (`app/api/v1/release_closeout.py`, mounted under `/api/v1`, every path
+  beginning `/releases/{id}/`): `POST`/`DELETE
+  /releases/{id}/declare-stable`, `POST`/`DELETE
+  /releases/{id}/confirm-handover` (Admin or Release Manager, master admin
+  included), and `GET /releases/{id}/closeout` (any tenant member). Each set and
+  each clear records a release event; declaring stable also publishes one outbox
+  event, `ReleaseDeclaredStable`, which nothing consumes yet.
+- **`GET /me/work` gained a sixth queue**, `hypercare` — overdue windows first,
+  then windows ending within seven days, tenant-wide.
+- **A thirteenth release tab, *Closeout***, with four cards; *Kind* on the
+  phases table, its dialog and the release-template phase editor; a *Hyper-care*
+  colour and legend on the phase Gantt; the three new checkboxes in the
+  lifecycle editor; and a *Hyper-care decisions* card on *My work*.
+
+Migration `closeout` (chained off `gonogo`) is additive on the schema — five
+nullable columns and one NOT NULL column with a server default — plus two data
+steps described under the first bullet below. Spec:
+[docs/superpowers/specs/2026-09-09-hypercare-closeout-design.md](../superpowers/specs/2026-09-09-hypercare-closeout-design.md).
+
+### What C6 established, and what will bite if forgotten
+
+- **C6 IS THE FIRST DELIBERATE REFUSAL IN PHASE 9, AND IT REFUSES IN EXACTLY
+  ONE PLACE.** Eight sub-projects running (A3, A4, B2, B4, C2, C4, the PIR work,
+  C3) made a promise of the form "this changes nothing", each guarded by a named
+  test asserting an absence. C6 inverts that promise rather than abandoning it:
+  `release_closeout_service.assert_may_close` is called from
+  `release_service.transition_release` **after** `validate_transition` passes and
+  **before** `release.status` is written; it returns immediately unless the
+  target state carries `is_closed`, and then evaluates only the `requires_*`
+  flags that state itself carries. Both defaults are off, so no template that
+  existed before C6 refuses anything. The guard is
+  `backend/tests/test_c6_refuses_only_at_close.py`, and it was proved
+  non-vacuous the usual way: deleting the `assert_may_close` call makes
+  `test_a_closed_state_requiring_a_pir_refuses_a_draft_pir` fail.
+  `test_pir_records_never_refuses.py` keeps every one of its promises and was
+  amended in **exactly one test** —
+  `test_a_release_with_an_overdue_action_still_transitions`, now docstringed as
+  "…because THIS template's `completed` state carries no
+  `requires_pir_complete` flag". **The gate is deliberately NOT folded into
+  `release_readiness_service.evaluate()`**: readiness is read before go-live and
+  closing happens after it, so the release page's banner and the pipeline's
+  `release-ready` endpoint still say nothing about closeout at all.
+- **`actual_date` NOW KEYS ON A FLAG, NOT TWO STATE NAMES.**
+  `_DEPLOYED_TERMINAL_STATES` is gone; `transition_release` stamps when the
+  target state has `marks_deployed` and `actual_date` is still null. A tenant
+  that renames or inserts states keeps a correct deploy date, which the by-name
+  set could not give it. **Existing templates were flagged by the migration by
+  state KEY** — `completed` and `completed_with_issues` → `marks_deployed` +
+  `is_closed`, `backed_out` → `is_closed` — over every `entity_type='release'`
+  template whose `applies_to_kind` is not `enterprise`. That reproduces exactly
+  the behaviour those tenants already had. **A renamed key gets nothing**, and
+  its Closeout tab then reports that the lifecycle has no closed state and links
+  an Admin to the lifecycle editor. **No state and no transition is inserted
+  into any existing template** — a migration cannot know which transition should
+  lead into a new state — so only tenants created *after* C6 get the new
+  non-terminal `deployed` ("Deployed (hyper-care)") state in their Major, Minor
+  and Emergency defaults, alongside the existing direct
+  `ready_for_release → completed | completed_with_issues | backed_out`
+  transitions, which stay. **The dev tenant went through the migration path, not
+  the seeder**: its templates carry the flags and have no `deployed` state until
+  an admin adds one.
+- **`is_failed` HAD BEEN SILENTLY DROPPED ON EVERY SAVE SINCE 2026-07-28, AND
+  C6 IS WHERE IT WAS FIXED.** `LifecycleState` declared `is_initial`,
+  `is_terminal` and `is_admission_lockdown` but never `is_failed`, while both
+  create and update store `definition.model_dump()` — so a flag the admin editor
+  faithfully sent was discarded by Pydantic on the way in. The DORA
+  change-failure rate reads that flag, so **any tenant that saved a release
+  lifecycle through the editor between 28 July and 9 September 2026 lost
+  *Counts as failure* on its failed states and has undercounted change failures
+  ever since.** The dev tenant's own *Major* template is a live example: its
+  `backed_out` and `completed_with_issues` states carry no `is_failed`, while
+  the never-edited *Minor* and *Emergency* templates still do. The migration
+  cannot know which states those were, so it does not guess — the checkbox is
+  back and admins re-tick it. Same class as the `required_fields` drop on
+  `POST /tenant/lifecycle-templates` already recorded in CLAUDE.md; the lesson
+  is that **a Pydantic request schema is a whitelist, and an undeclared field is
+  a silent data loss, not a validation error.**
+- **ONE WORDING, USED BY THE 422 AND BY THE TAB.**
+  `release_closeout_service.unmet_requirements(state, pir, release)` produces the
+  list of reasons; `assert_may_close` joins them into one 422 ("Cannot close this
+  release: the post-implementation review is not complete; ops handover is not
+  confirmed."), and `GET /releases/{id}/closeout` puts the identical strings in
+  each `close_targets[].unmet`. `CloseoutTab` **passes the server's strings
+  through** and never re-derives them, so a tick on the tab and a refusal on the
+  Main tab cannot disagree. "PIR complete" is `pir.status == "complete"`, and
+  **no PIR at all is incomplete** when the flag is on.
+- **HYPER-CARE STATE IS COMPUTED ON READ AND FIRST MATCH WINS IN THE ORDER
+  `stable`, `none`, `planned`, `overdue`, `active`.** `declared_stable_at` beats
+  every date; no live hyper-care phase is `none`; a phase with no dates is
+  `active` from creation. **The end is a DAY**, compared through
+  `expiry_boundary` — the last day of the window still reads `active`, and only
+  the day after it reads `overdue`. Same rule A4, B2, B5, C2 and the PIR
+  worklist follow, for the same reason: the UI writes dates at `T00:00:00Z`, and
+  comparing at instant precision reads a window as overdue from one minute past
+  midnight on the day it was still meant to run.
+- **ONE LIVE HYPER-CARE PHASE PER RELEASE, ENFORCED IN CODE.**
+  `assert_hypercare_slot_free` raises a 422 naming the existing phase, on create
+  **and** on an update that changes a test phase's kind to `hypercare`. A
+  soft-deleted hyper-care phase does not occupy the slot. It is deliberately
+  **not** a partial unique index: those are inert on SQLite, so the dual-engine
+  suite could not guard one — the same call `environment_tier` and B3a's group
+  names made.
+- **TEMPLATE HYPER-CARE PHASES ARE LAID FORWARD FROM `target_date`; TEST PHASES
+  STILL END ON IT.** `release_template_service.instantiate` now partitions the
+  template's phases by kind: test phases are still laid backwards so the last
+  one ends on the target date, and hyper-care phases run forward from it in
+  template order, each starting where the previous ended. A hyper-care window
+  therefore begins on the planned deploy day, which is the only placement that
+  makes sense for a window that exists to watch what was just deployed.
+- **`declared_stable_by_username` AND `handover_confirmed_by_username` ARE
+  RESOLVED WITHOUT A TENANT FILTER**, through
+  `release_closeout_service.usernames_for` — under master-admin impersonation the
+  actor can legitimately sit outside the release's own tenant, and a
+  `User.tenant_id ==` join would render them as nobody. The same trap that bit
+  A3's `acknowledged_by_username`, A4's `usernames_for`, B5's and C2's
+  equivalents. `user_group_service.get_group_names` is new in C6 and follows the
+  matching **read-rendering** rule: no `deleted_at` filter and no tenant filter,
+  because an archived operations group must still render its name on the release
+  that references it. The **write** path is the opposite —
+  `user_group_service.get_group` validates a *new* assignment as live and in
+  this tenant, with A1's archived-value carve-out so a full-form save re-sending
+  the stored group does not 404.
+- **THE INCIDENT WINDOW READS THROUGH ONE PREDICATE.**
+  `incident_service._conditions` is new in C6 and is the single WHERE builder
+  shared by `list_incidents` and the new `severity_counts`; nothing hand-writes a
+  second clause. A count and a list of the "same" incidents that were built from
+  two predicates would silently disagree. The window is the hyper-care phase's
+  start (or, undated, its `created_at`) to the earliest of `declared_stable_at`,
+  the phase's end and now, over incidents whose **causal** `release_id` is this
+  release. No phase means no window and nothing counted.
+- **THE `/me/work` `hypercare` QUEUE'S THREE EXCLUSION PREDICATES EACH HAVE A
+  DISCRIMINATING FIXTURE ROW.** `release_kind == "project"`,
+  `Release.deleted_at IS NULL` and `TestPhase.deleted_at IS NULL` shipped with no
+  failing-test evidence, and were given one row apiece — enterprise, deleted
+  release, deleted phase — in
+  `test_hypercare_queue_lists_overdue_first_then_ending_soon`, proved by mutation.
+  This is B6's normalised-pair lesson in a different shape: a filter can be dead
+  code in every test while still being live in production.
+- **PROJECT RELEASES ONLY.** Every closeout route answers 422 on an enterprise
+  release (`_require_project_release`), and the lifecycle validator refuses all
+  four C6 flags on an enterprise template. Enterprise releases have no PIR tab,
+  no readiness banner and no Go/No-Go; their `deployed` state is terminal and
+  never stamped `actual_date`, and that is unchanged.
+- **FOUR SYSTEM RELEASE EVENT TYPES ARE SEEDED TWICE OVER** — by the migration
+  (its own literal copy, the `gate_type_defaults` rule) and by
+  `release_defaults`, for tenants created afterwards: *Declared stable*,
+  *Stability declaration withdrawn*, *Ops handover confirmed*, *Ops handover
+  withdrawn*. So **there is no standing deploy step**. `record_auto_event`
+  returns `None` when a type is missing, so a tenant restored from a backup
+  predating C6 loses the audit line silently until
+  `seed_release_defaults_for_tenant` is run by hand; the seeder is idempotent.
+  The downgrade deliberately leaves the four types in place — a recorded release
+  event may reference them.
+- **SETTING AN ALREADY-SET FLAG IS A 409, NOT AN OVERWRITE.** Declaring stable
+  twice, or confirming a handover twice, is refused and pointed at withdrawing
+  first, so a recorded actor and time are never quietly replaced. Withdrawing
+  records its own event, so a withdrawal does not erase history. Confirming a
+  handover **requires `operations_group_id`** (a 422 says so); declaring stable
+  needs no hyper-care phase and no particular lifecycle state, because a release
+  that skipped hyper-care can still be declared stable.
+
+### Deviations on record, and things left open
+
+- §2.11's "declared stable" moves Operate → Improve. Here it is a flag with an
+  audit trail, not a lifecycle state, by decision; a tenant that wants a state
+  adds one, and the flag works either way.
+- §2.11's closeout "records outcome": the outcome is the closed state chosen
+  plus the transition note. There is no separate outcome vocabulary, because the
+  decision's own example ("Closed", "Closed with Issues", "Rolled back") is a
+  list of states.
+- The confirmer of an ops handover is Admin or Release Manager, **not** a member
+  of the receiving group. A third membership-reading site would have to stay in
+  step with the two B3b left, and nothing here needs it yet.
+- **The operations group is settable only from the Closeout tab.**
+  `ReleaseCreate`/`ReleaseUpdate` accept `operations_group_id`, but
+  `ReleaseForm.tsx` neither renders nor sends it. That is safe rather than
+  lossy — `update_release` reads `model_dump(exclude_unset=True)`, so an omitted
+  key means "leave alone" — but a reader looking for the field on the release
+  form will not find it.
+- **Three minor items found and deliberately deferred**, recorded here so they
+  are not rediscovered as news: (1) the pre-existing
+  `test_pir_records_never_refuses.py` asserts `"pir" not in blob` over the
+  readiness response, and `"expires"` contains the substring `pir` — so that
+  line would trip on C2's waiver warning text the day a fixture gains a waived
+  gate (C6's own equivalent assertion in `test_c6_refuses_only_at_close.py` was
+  written to avoid it, and says so in a comment); (2) `by_severity` on
+  `GET /releases/{id}/closeout` is keyed to `P1`–`P4`, so an incident recorded
+  at any other severity is counted in `total` but appears in no severity chip;
+  (3) the Closeout tab's *Incidents in the window* card is hidden only while the
+  state is `none`, so a release declared stable with no hyper-care phase shows
+  the card with an empty window.
+- **Not built:** the §2.15 evidence pack (everything it needs is now recorded or
+  computable; assembling it is Phase 12); enterprise releases, calendar markers,
+  a release-list column or filter for hyper-care state, notifications on an
+  overdue window — none has a consumer today; automatic hyper-care on
+  deployment (the phase is planned from the template or added by hand, and a
+  deployment webhook neither creates nor starts one); and rewriting existing
+  tenants' templates to insert a `deployed` state.

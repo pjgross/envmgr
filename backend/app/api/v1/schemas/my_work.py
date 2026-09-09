@@ -27,11 +27,12 @@ class WorkItem(BaseModel):
 class QueueResult(BaseModel):
     count: int
     items: list[WorkItem]
-    overdue: int | None = None   # pir_actions only
+    overdue: int | None = None   # pir_actions and hypercare
     failed: bool = False         # true => the queue could not be computed
 
 
 class MyWorkResponse(BaseModel):
     as_of: datetime
     queues: dict[str, QueueResult]   # keys: environment_requests, contentions,
-                                      # decommissions, pir_actions, incidents
+                                      # decommissions, pir_actions, incidents,
+                                      # hypercare (six queues)

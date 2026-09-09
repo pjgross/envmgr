@@ -146,7 +146,7 @@ A tile that fails to fetch shows a dash, never a fabricated zero.
 
 ### My work
 
-*My work* (`/my-work`) is the second entry in the left navigation, above the collapsible groups — a personal inbox of five "waiting on me" queues (environment requests, contentions, decommissions, PIR actions, open incidents), each capped at five rows with a link to its full worklist. The nav item itself carries a badge with the running total across all five. See `user-guide.md` ch. 2 for the per-queue breakdown.
+*My work* (`/my-work`) is the second entry in the left navigation, above the collapsible groups — a personal inbox of six "waiting on me" queues (environment requests, contentions, decommissions, PIR actions, open incidents, hyper-care decisions), each capped at five rows with a link to its full worklist. The nav item itself carries a badge with the running total across all six. See `user-guide.md` ch. 2 for the per-queue breakdown.
 
 ### The left navigation
 
@@ -988,7 +988,9 @@ A *release template* is a reusable skeleton for releases. It bundles a release t
    - *Name* (required, up to 200 chars).
    - *Release Type* — one of `project`, `hotfix`, `patch`, `major`, `minor`. This becomes the type on every release built from the template.
    - *Description* (multi-line).
-4. In the *Phases* panel, add one row per phase. Each phase has *Phase Name* (required), *Default Duration (days)* (used to back-compute phase dates from the release's target date — the last phase ends on the target date), and *Activities* (a comma-separated list of free-text labels). Use the up/down arrows to reorder; phase order is renumbered on save.
+4. In the *Phases* panel, add one row per phase. Each phase has *Phase Name* (required), *Kind* (*Test* or *Hyper-care* — see below), *Default Duration (days)*, and *Activities* (a comma-separated list of free-text labels). Use the up/down arrows to reorder; phase order is renumbered on save.
+   - **Test** phases are laid out **backwards** from the release's target date, in template order, so the last test phase *ends on* the target date. This is the original behaviour and is unchanged.
+   - **Hyper-care** phases are laid out **forwards** from the target date, in template order, each starting where the previous one ended — so the first hyper-care window *begins on* the planned deploy day. The form shows *after target date* beside the duration to make this obvious. A release can hold **at most one** hyper-care phase at a time (see [ch. 9 § Hyper-care phases](#hyper-care-phases) below), so put at most one in a template.
 5. In the *Gates* panel, add one row per gate. Each gate skeleton holds *Gate Name*, *Attach to Phase* (a phase name from the list above, or "Release-level (no phase)"), *Acceptance Criteria* (free text), and *Gate Type* (§8's gate-type vocabulary — pick an active type, or leave it untyped). At instantiation each gate becomes a *ReleaseGate* with status `pending`; the acceptance-criteria text, if present, seeds a single criterion titled *Acceptance criteria*, and the chosen gate type carries across so the gate reads with the same failure behaviour and expected evidence it would have if typed by hand.
 6. Click *Save*.
 
@@ -999,6 +1001,72 @@ To edit a template, open *Administration → Releases → Templates* and click t
 **Editing a template does *not* affect releases already created from it.** Each release gets its own copies of the *TestPhase* and *ReleaseGate* rows at instantiation — the template is a snapshot, not a live reference. Adjust the in-flight release directly if its gates or phases need to change.
 
 To delete a template, click the red trash icon and confirm. Deletion is refused with a *409 Conflict* if any active release still references the template — release that work first.
+
+### Hyper-care phases
+
+*Hyper-care* is the watch period immediately after a release goes live — the window in which the team is still actively looking for fallout before handing the release over to normal operations. In EnvManager it is **a phase with `kind = hypercare`**, not a separate record: it carries dates, sits on the release Gantt (drawn in its own colour, with a *Hyper-care* legend entry), and can come from a release template or be added by hand on the release's *Gates & Test Phases* tab.
+
+Three rules matter:
+
+- **A release may have at most one live hyper-care phase.** Adding a second, or changing an existing test phase's *Kind* to *Hyper-care* when one already exists, is refused with a message naming the phase already holding the slot — edit or delete that one instead. Deleting a hyper-care phase frees the slot.
+- **A hyper-care phase runs forward from the target date; test phases still end on it.** See the template walkthrough above.
+- **Nothing creates a hyper-care phase automatically.** A deployment webhook neither creates nor starts one; it comes from the template or from a human.
+
+Once a hyper-care phase exists, the release's *Closeout* tab reports its state — *Planned*, *Active*, *Overdue* or *Stable* — counts the incidents caused by that release inside the window, and offers the *Declare stable* decision. See the user guide for the day-to-day workflow. **The window's end is a day, not an instant**: the last day of the window still reads *Active*; only the day after it reads *Overdue*.
+
+### Closed states and the close gate
+
+*Administration → Releases → Lifecycle* (`/admin/releases?tab=lifecycle`, Admin only) is where a tenant's release lifecycle templates are edited. Beside each state's existing *Initial*, *Terminal* and *Counts as failure* checkboxes there are now three more, and they are how a tenant says what "formally closed" means for its own process:
+
+| Checkbox | Shown when | What it does |
+|---|---|---|
+| *Marks deployed* | always (project templates) | Entering this state stamps the release's **actual date**, once. Replaces the old hardcoded behaviour, which only ever recognised two state *names*. |
+| *Closed* | the state is *Terminal* | The release is **formally closed** in this state. A state must be terminal to be closed; saving a non-terminal closed state is refused with a 422 naming it. |
+| *Require PIR complete* | the state is *Closed* | Close gate: the release's post-implementation review must have status *complete*. **No PIR at all counts as incomplete.** |
+| *Require ops handover confirmed* | the state is *Closed* | Close gate: the release's ops handover must have been confirmed on the *Closeout* tab. |
+
+**Both gates default off, and nothing else in the product refuses anything.** With a gate on, the only thing that can be refused is a transition **into that state**; readiness, `can-deploy`, deployments, bookings, incidents and every other transition are exactly what they were. A refused close returns a single message naming everything that is missing — *"Cannot close this release: the post-implementation review is not complete; ops handover is not confirmed."* — and the release's *Closeout* tab shows the same wording, tick by tick, before anyone tries.
+
+All four of these flags are **project releases only**. On an enterprise release template they are hidden in the editor and refused by the API.
+
+> **What the migration did, and did not do, to your existing templates.** The `closeout`
+> migration flagged states **by key**, in every release lifecycle template that is not an
+> enterprise one: `completed` and `completed_with_issues` gained *Marks deployed* and *Closed*;
+> `backed_out` gained *Closed*. That reproduces exactly the behaviour those templates already
+> had, so nothing observable changed. **If your tenant renamed any of those state keys, it got
+> no flags at all** — its releases' *Closeout* tab will say "This release's lifecycle has no
+> state flagged as closed" and link an Admin here. Tick *Closed* (and *Marks deployed*, on
+> whichever state means "it is live now") on the right states by hand.
+>
+> The migration also deliberately **inserted no state and no transition** into any existing
+> template — it cannot know which transition should lead into a new one. Tenants created after
+> this release get an extra non-terminal state, *Deployed (hyper-care)*, in their default Major,
+> Minor and Emergency templates, sitting between *Ready for Release* and the three terminals.
+> To add the same thing to an existing template: add a state (key `deployed`, label *Deployed
+> (hyper-care)*, not terminal, *Marks deployed* ticked), then add two or more transitions —
+> `ready_for_release → deployed` (label *Deploy*) and `deployed → completed`,
+> `deployed → completed_with_issues`, `deployed → backed_out` — leaving the existing direct
+> transitions from *Ready for Release* in place, so a release with no hyper-care still closes in
+> one step.
+
+> **⚠️ *Counts as failure* was being silently discarded, and you should re-check it.** From
+> 28 July 2026 until this release, the API's request schema did not declare the `is_failed`
+> field, so **every save through this editor stripped *Counts as failure* from every state**,
+> whatever the checkbox showed at the time. The DORA **change failure rate** reads that flag, so
+> any tenant that edited a release lifecycle in that window has been undercounting change
+> failures ever since. The bug is fixed — the flag is declared and now round-trips — but the
+> data loss cannot be reconstructed, because nothing recorded which states used to carry it.
+> **Open each release lifecycle template, re-tick *Counts as failure* on the states that mean a
+> failed delivery (typically *Backed Out* and *Completed with Issues*), and save.** Templates
+> never edited through this screen were never affected.
+
+> **Restoring from a pre-C6 backup?** Four system release event types — *Declared stable*,
+> *Stability declaration withdrawn*, *Ops handover confirmed*, *Ops handover withdrawn* — are
+> seeded per tenant by the migration and by tenant creation, so there is normally no deploy step.
+> A tenant restored from a backup taken **before** this release will not have them, and its
+> declare/confirm/withdraw actions will work but record **no audit line** on the release's event
+> timeline — silently, with no error. Run `seed_release_defaults_for_tenant` for that tenant; it
+> is idempotent, so running it against a healthy tenant is harmless.
 
 ### When templates help (and when they don't)
 
