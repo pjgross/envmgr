@@ -28,7 +28,7 @@ import {
 import { useSnackbar } from '../../hooks/useSnackbar';
 import { useConfirm } from '../../hooks/useConfirm';
 import { toIsoDatetime } from '../../utils/dates';
-import type { TestPhaseResponse } from '../../types/release';
+import type { PhaseKind, TestPhaseResponse } from '../../types/release';
 
 interface Props {
   releaseId: number;
@@ -36,6 +36,10 @@ interface Props {
 }
 
 const PHASE_STATUSES = ['planned', 'in_progress', 'completed', 'blocked'];
+const PHASE_KINDS: { value: PhaseKind; label: string }[] = [
+  { value: 'test', label: 'Test' },
+  { value: 'hypercare', label: 'Hyper-care' },
+];
 
 export default function PhasesTable({ releaseId, phases }: Props) {
   const dispatch = useDispatch<AppDispatch>();
@@ -46,6 +50,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
   const [editing, setEditing] = useState<TestPhaseResponse | null>(null);
   const [name, setName] = useState('');
   const [phaseStatus, setPhaseStatus] = useState('planned');
+  const [kind, setKind] = useState<PhaseKind>('test');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
@@ -53,6 +58,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
     setEditing(null);
     setName('');
     setPhaseStatus('planned');
+    setKind('test');
     setStartDate('');
     setEndDate('');
     setDialogOpen(true);
@@ -62,6 +68,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
     setEditing(phase);
     setName(phase.name);
     setPhaseStatus(phase.status);
+    setKind(phase.kind);
     setStartDate(phase.start_date ? phase.start_date.slice(0, 10) : '');
     setEndDate(phase.end_date ? phase.end_date.slice(0, 10) : '');
     setDialogOpen(true);
@@ -83,6 +90,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
             data: {
               name: name.trim(),
               status: phaseStatus,
+              kind,
               start_date: toIsoDatetime(startDate),
               end_date: toIsoDatetime(endDate),
             },
@@ -97,6 +105,7 @@ export default function PhasesTable({ releaseId, phases }: Props) {
               name: name.trim(),
               order: phases.length + 1,
               status: phaseStatus,
+              kind,
               start_date: toIsoDatetime(startDate),
               end_date: toIsoDatetime(endDate),
             },
@@ -134,6 +143,12 @@ export default function PhasesTable({ releaseId, phases }: Props) {
     () => [
       { field: 'order', headerName: '#', width: 60 },
       { field: 'name', headerName: 'Name', flex: 1, minWidth: 150 },
+      {
+        field: 'kind',
+        headerName: 'Kind',
+        width: 110,
+        valueFormatter: (p) => (p.value === 'hypercare' ? 'Hyper-care' : 'Test'),
+      },
       { field: 'status', headerName: 'Status', width: 120 },
       {
         field: 'start_date',
@@ -214,6 +229,19 @@ export default function PhasesTable({ releaseId, phases }: Props) {
               {PHASE_STATUSES.map((s) => (
                 <MenuItem key={s} value={s}>
                   {s}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Kind"
+              fullWidth
+              value={kind}
+              onChange={(e) => setKind(e.target.value as PhaseKind)}
+            >
+              {PHASE_KINDS.map((k) => (
+                <MenuItem key={k.value} value={k.value}>
+                  {k.label}
                 </MenuItem>
               ))}
             </TextField>

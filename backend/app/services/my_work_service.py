@@ -62,6 +62,7 @@ from app.services import (
     environment_request_service,
     incident_service,
     pir_finding_service,
+    release_closeout_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -303,6 +304,24 @@ async def _incidents_queue(
     return QueueResult(count=total, items=items)
 
 
+async def _hypercare_queue(
+    db: AsyncSession, *, tenant_id: int, user: User, now: datetime
+) -> QueueResult:
+    """Hyper-care windows that are overdue for a stability decision, or end
+    within seven days. Tenant-wide, like incidents: a release has no per-user
+    owner to narrow on. `due` is the window's end; `overdue` is a separate
+    limit=1 count sharing the same `now`."""
+    rows, total = await release_closeout_service.hypercare_queue(
+        db, tenant_id, now, Page(limit=ITEM_CAP, offset=0))
+    overdue = await release_closeout_service.hypercare_overdue_total(db, tenant_id, now)
+    items = [
+        WorkItem(id=rid, title=name, subtitle="Hyper-care window ends",
+                 url=f"/releases/{rid}?tab=closeout", due=end_date)
+        for rid, name, end_date in rows
+    ]
+    return QueueResult(count=total, items=items, overdue=overdue)
+
+
 async def build(
     db: AsyncSession, *, tenant_id: int, user: User, now: datetime
 ) -> MyWorkResponse:
@@ -352,6 +371,7 @@ async def build(
         "decommissions": _decommissions_queue,
         "pir_actions": _pir_actions_queue,
         "incidents": _incidents_queue,
+        "hypercare": _hypercare_queue,
     }
     queues: dict[str, QueueResult] = {}
     for key, fn in builders.items():

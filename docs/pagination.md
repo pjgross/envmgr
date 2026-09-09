@@ -1970,3 +1970,34 @@ already in hand — so no single column backs it for a `sort_by` to name, the
 same shape as `conflicts`, `agreement_gap` and the rest of the set this
 document already tracks. A sortable header on it would 422 the moment someone
 clicked it.
+
+## What C6 (hyper-care and closeout) adds
+
+**`hypercare_state` is permanently unsortable and permanently unfilterable, continuing the set.**
+It is folded per response by `release_closeout_service.hypercare_state(phase, declared_stable_at,
+now)` from three inputs — a joined `test_phase` row's two dates, `release.declared_stable_at`, and
+one clock — so no single column backs it for a `sort_by` to name, the same shape as `conflicts`,
+`agreement_gap`, `contention_state`, `unmet_condition_count` and the rest of the set this document
+already tracks. There is nothing to whitelist and nothing to relax later. It is also the **only**
+member of the set with no list column at all: C6 deliberately shipped no release-list column and
+no `?hypercare=` filter (spec §6.5), because the sole consumer is `/me/work`'s `hypercare` queue,
+and a filter would need a second definition of the fold. `MyWork.tsx`'s hyper-care card says so in
+its own `viewAllCaption` — its *view all* link lands on the **unfiltered** `/releases`, a
+deliberate superset rather than a URL that claims a filter the page ignores (the `GET /pir-actions`
+mistake recorded above).
+
+The `/me/work` queue itself is bounded the ordinary way — `release_closeout_service.hypercare_queue`
+runs `fetch_page_rows` over an exposed `_hypercare_queue_query`, ordered
+`TestPhase.end_date ASC, Release.id ASC`. The `Release.id` tiebreaker is not decoration: several
+releases can share a hyper-care end date, and `LIMIT`/`OFFSET` duplicates and drops rows across
+pages the moment ties exist. The overdue count is a second `limit=1` execution of the same query
+with `overdue_only=True` under the **same** `now`, the `_pir_actions_queue` shape — never a
+Python-side re-count of the fetched page, which would cap at the page size.
+
+`GET /releases/{id}/closeout` is a composite read, not a list endpoint, and its one embedded row
+list — incidents detected inside the hyper-care window — is capped at
+`release_closeout_service.INCIDENT_ITEM_CAP` (50) with the true `total` beside it, so the tab
+renders "Showing N of M" rather than implying the cap is the whole set. The counts beside it come
+from `incident_service.severity_counts`, which builds its `WHERE` from the same
+`incident_service._conditions` the capped list does — a count and a list of the "same" incidents
+built from two predicates is exactly how they come to disagree.

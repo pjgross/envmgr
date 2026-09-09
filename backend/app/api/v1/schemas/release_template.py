@@ -1,5 +1,5 @@
 # backend/app/api/v1/schemas/release_template.py
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -9,6 +9,7 @@ class ReleaseTemplatePhase(BaseModel):
     order: int = 0
     default_duration_days: int = 5
     activities: list[str] = []
+    kind: Literal["test", "hypercare"] = "test"
 
 
 class ReleaseTemplateGate(BaseModel):

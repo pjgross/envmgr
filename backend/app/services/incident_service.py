@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.incident import Incident, IncidentStatusHistory
@@ -103,14 +103,11 @@ async def get_incident(db: AsyncSession, incident_id: int, tenant_id: int) -> Op
     ))).scalar_one_or_none()
 
 
-async def list_incidents(
-    db: AsyncSession,
-    tenant_id: int,
-    filters: dict,
-    page: Optional[Page] = None,
-    *,
-    sort: Optional[Sort] = None,
-) -> tuple[list[Incident], int]:
+async def _conditions(db: AsyncSession, tenant_id: int, filters: dict) -> list:
+    """The ONE predicate for `list_incidents`'s filter vocabulary. Every
+    consumer of this filter vocabulary (list_incidents, severity_counts, ...)
+    must build its WHERE from this — never a second hand-written clause —
+    or a count and a list of the "same" incidents can silently disagree."""
     conds = [Incident.tenant_id == tenant_id, Incident.deleted_at.is_(None)]
     for f in ("status", "severity", "system_id", "environment_id", "release_id", "source"):
         if filters.get(f) not in (None, ""):
@@ -130,9 +127,33 @@ async def list_incidents(
             status_column=Incident.status,
             terminal=not filters["open"],
         ))
+    return conds
+
+
+async def list_incidents(
+    db: AsyncSession,
+    tenant_id: int,
+    filters: dict,
+    page: Optional[Page] = None,
+    *,
+    sort: Optional[Sort] = None,
+) -> tuple[list[Incident], int]:
+    conds = await _conditions(db, tenant_id, filters)
     query = select(Incident).where(and_(*conds))
     query = apply_sort(query, sort).order_by(Incident.detected_at.desc(), Incident.id)
     return await fetch_page(db, query, page)
+
+
+async def severity_counts(db: AsyncSession, tenant_id: int, filters: dict) -> dict[str, int]:
+    """Incident counts by severity over the SAME predicate `list_incidents`
+    uses, in one grouped query — the shape `pir_finding_service`'s action
+    rollup uses — rather than one `list_incidents(..., severity=X)` call per
+    severity, which would fetch and discard a row purely for its count."""
+    conds = await _conditions(db, tenant_id, filters)
+    rows = (await db.execute(
+        select(Incident.severity, func.count()).where(and_(*conds)).group_by(Incident.severity)
+    )).all()
+    return {severity: count for severity, count in rows}
 
 
 async def update_incident(db: AsyncSession, incident_id: int, data: IncidentUpdate, tenant_id: int) -> Incident:

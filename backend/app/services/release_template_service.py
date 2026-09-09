@@ -100,6 +100,29 @@ async def _validate_template_gate_types(
         )
 
 
+def _validate_single_hypercare_phase(phases: list) -> None:
+    """A release template may hold AT MOST ONE hyper-care phase.
+
+    `release_closeout_service.live_hypercare_phase` takes the first
+    hyper-care TestPhase by id on a release, and `_hypercare_queue_query`
+    joins ALL live hyper-care phases — so a template that instantiates two
+    hyper-care phases on one release breaks the one-per-release invariant
+    both of those rely on, and double-counts the release in `/me/work`'s
+    hyper-care queue. Refused here, on the template WRITE path, so the
+    invariant can never be broken by instantiate().
+    """
+    names = [
+        p.name if not isinstance(p, dict) else p.get("name", "Phase")
+        for p in phases
+        if (p.get("kind") if isinstance(p, dict) else getattr(p, "kind", "test")) == "hypercare"
+    ]
+    if len(names) > 1:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"A release template may hold at most one hyper-care phase (found: {', '.join(names)})",
+        )
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def create_template(
@@ -108,6 +131,7 @@ async def create_template(
     tenant_id: int,
 ) -> ReleaseTemplate:
     await _validate_template_gate_types(db, tenant_id, data.gates)
+    _validate_single_hypercare_phase(data.phases)
 
     tpl = ReleaseTemplate(
         tenant_id=tenant_id,
@@ -179,6 +203,9 @@ async def update_template(
         await _validate_template_gate_types(
             db, tenant_id, data.gates, grandfathered_ids=stored_ids,
         )
+
+    if data.phases is not None:
+        _validate_single_hypercare_phase(data.phases)
 
     update_data = data.model_dump(exclude_unset=True)
     # Serialise nested schemas to plain dicts if present
@@ -280,33 +307,39 @@ async def instantiate(
     phase_objects: dict[str, TestPhase] = {}
 
     if phases_config:
-        cursor = data.target_date
-        # Iterate in reverse order so the last phase ends at target_date
-        for phase_cfg in reversed(phases_config):
-            if isinstance(phase_cfg, dict):
-                name = phase_cfg.get("name", "Phase")
-                order = phase_cfg.get("order", 0)
-                duration_days = phase_cfg.get("default_duration_days", 5)
-            else:
-                name = phase_cfg.name
-                order = phase_cfg.order
-                duration_days = phase_cfg.default_duration_days
+        def _cfg(p):
+            if isinstance(p, dict):
+                return (p.get("name", "Phase"), p.get("order", 0),
+                        p.get("default_duration_days", 5), p.get("kind", "test"))
+            return (p.name, p.order, p.default_duration_days, getattr(p, "kind", "test"))
 
+        test_cfgs = [c for c in map(_cfg, phases_config) if c[3] != "hypercare"]
+        hypercare_cfgs = [c for c in map(_cfg, phases_config) if c[3] == "hypercare"]
+
+        # Test phases: backwards, so the last one ends on target_date (unchanged).
+        cursor = data.target_date
+        for name, order, duration_days, kind in reversed(test_cfgs):
             end_date = cursor
             start_date = cursor - timedelta(days=duration_days)
-            phase = TestPhase(
-                tenant_id=tenant_id,
-                release_id=release.id,
-                name=name,
-                order=order,
-                start_date=start_date,
-                end_date=end_date,
-                status="pending",
-            )
+            phase = TestPhase(tenant_id=tenant_id, release_id=release.id, name=name, order=order,
+                              start_date=start_date, end_date=end_date, status="pending", kind=kind)
             db.add(phase)
             await db.flush()
             phase_objects[name] = phase
             cursor = start_date
+
+        # Hyper-care phases: FORWARD from target_date, in template order — the
+        # window starts on the planned deploy day. C6 §3.3.
+        cursor = data.target_date
+        for name, order, duration_days, kind in hypercare_cfgs:
+            start_date = cursor
+            end_date = cursor + timedelta(days=duration_days)
+            phase = TestPhase(tenant_id=tenant_id, release_id=release.id, name=name, order=order,
+                              start_date=start_date, end_date=end_date, status="pending", kind=kind)
+            db.add(phase)
+            await db.flush()
+            phase_objects[name] = phase
+            cursor = end_date
 
     # Create gates, linking to the matching phase by name (or None for release-level)
     for gate_cfg in (tpl.gates or []):

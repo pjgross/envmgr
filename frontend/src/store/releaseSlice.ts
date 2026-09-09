@@ -114,16 +114,29 @@ export const createRelease = createAsyncThunk(
   (data: ReleaseCreatePayload) => releaseService.create(data)
 );
 
-export const updateRelease = createAsyncThunk(
-  'release/update',
-  ({ id, data }: { id: number; data: ReleaseUpdatePayload }) => releaseService.update(id, data)
-);
+export const updateRelease = createAsyncThunk<
+  ReleaseResponse,
+  { id: number; data: ReleaseUpdatePayload },
+  { rejectValue: string }
+>('release/update', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.update(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Failed to update release'));
+  }
+});
 
-export const transitionRelease = createAsyncThunk(
-  'release/transition',
-  ({ id, data }: { id: number; data: ReleaseTransitionPayload }) =>
-    releaseService.transition(id, data)
-);
+export const transitionRelease = createAsyncThunk<
+  ReleaseResponse,
+  { id: number; data: ReleaseTransitionPayload },
+  { rejectValue: string }
+>('release/transition', async ({ id, data }, { rejectWithValue }) => {
+  try {
+    return await releaseService.transition(id, data);
+  } catch (err) {
+    return rejectWithValue(formatApiError(err, 'Transition failed'));
+  }
+});
 
 export const deleteRelease = createAsyncThunk('release/delete', (id: number) =>
   releaseService.remove(id).then(() => id)
