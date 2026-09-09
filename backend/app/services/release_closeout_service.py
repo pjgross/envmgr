@@ -242,11 +242,8 @@ async def incidents_in_window(db: AsyncSession, release: Release, phase, now: da
         db, release.tenant_id, filters, page=Page(limit=INCIDENT_ITEM_CAP, offset=0),
         sort=Sort(column=Incident.detected_at, descending=True),
     )
-    by_severity = {s: 0 for s in SEVERITIES}
-    for sev in SEVERITIES:
-        _, count = await incident_service.list_incidents(
-            db, release.tenant_id, {**filters, "severity": sev}, page=Page(limit=1, offset=0))
-        by_severity[sev] = count
+    counts = await incident_service.severity_counts(db, release.tenant_id, filters)
+    by_severity = {s: counts.get(s, 0) for s in SEVERITIES}
     return IncidentsWindowRead(
         window_start=start, window_end=end, by_severity=by_severity, total=total,
         items=[IncidentWindowItem(id=r.id, title=r.title, severity=r.severity, status=r.status,

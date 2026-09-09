@@ -327,3 +327,38 @@ async def test_a_template_with_no_closed_state_returns_an_empty_target_list(clie
 async def test_closeout_read_is_open_to_a_developer_and_refused_on_enterprise(client, member_headers, auth_headers, release, enterprise_release):
     assert (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=member_headers)).status_code == 200
     assert (await client.get(f"/api/v1/releases/{enterprise_release.id}/closeout", headers=auth_headers)).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_by_severity_counts_are_grouped_not_fetched_per_severity(client, auth_headers, release, db_session, test_tenant):
+    now = datetime.now(timezone.utc)
+    start, end = now - timedelta(days=10), now + timedelta(days=10)
+    await _hypercare_phase(db_session, release, start, end)
+    p1a = await make_incident(db_session, test_tenant.id, title="p1a", severity="P1", detected_at=now - timedelta(days=1))
+    p1a.release_id = release.id
+    p1b = await make_incident(db_session, test_tenant.id, title="p1b", severity="P1", detected_at=now - timedelta(days=2))
+    p1b.release_id = release.id
+    p3 = await make_incident(db_session, test_tenant.id, title="p3", severity="P3", detected_at=now - timedelta(days=3))
+    p3.release_id = release.id
+    outside = await make_incident(db_session, test_tenant.id, title="outside", severity="P2",
+                                  detected_at=start - timedelta(days=1))
+    outside.release_id = release.id
+    await db_session.commit()
+
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["incidents"]["by_severity"] == {"P1": 2, "P2": 0, "P3": 1, "P4": 0}
+    assert body["incidents"]["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_an_incident_detected_exactly_at_window_start_counts(client, auth_headers, release, db_session, test_tenant):
+    now = datetime.now(timezone.utc)
+    start, end = now - timedelta(days=5), now + timedelta(days=5)
+    await _hypercare_phase(db_session, release, start, end)
+    boundary = await make_incident(db_session, test_tenant.id, title="on the boundary", severity="P4", detected_at=start)
+    boundary.release_id = release.id
+    await db_session.commit()
+
+    body = (await client.get(f"/api/v1/releases/{release.id}/closeout", headers=auth_headers)).json()
+    assert body["incidents"]["total"] == 1
+    assert body["incidents"]["by_severity"]["P4"] == 1
