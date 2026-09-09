@@ -23,9 +23,6 @@ from app.services.custom_field_service import get_active_field_keys
 # Deferred import to avoid circular dependency: release_event_service imports nothing from here.
 # Import at call-site inside update_release.
 
-# ── Terminal states that indicate the release was deployed ───────────────────
-_DEPLOYED_TERMINAL_STATES = {"completed", "completed_with_issues"}
-
 SCOPE_SIGNOFF_GATE_NAME = "Scope Sign-off"
 _SCOPE_SIGNOFF_CRITERION_TITLE = "Scope signed off"
 
@@ -503,11 +500,16 @@ async def transition_release(
     if not allowed:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, reason)
 
+    target_state = next(
+        (s for s in tpl.definition.get("states", []) if s.get("key") == to_state), None
+    )
+
     old_state = release.status
     release.status = to_state
 
-    # Stamp actual_date when transitioning to a deployed terminal state (only once)
-    if to_state in _DEPLOYED_TERMINAL_STATES and release.actual_date is None:
+    # Stamp actual_date the first time a `marks_deployed` state is entered.
+    # A flag, not a state name: a tenant may rename or insert states.
+    if target_state is not None and target_state.get("marks_deployed") and release.actual_date is None:
         release.actual_date = datetime.now(timezone.utc)
 
     await db.flush()
