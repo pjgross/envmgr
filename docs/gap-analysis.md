@@ -138,9 +138,9 @@ New phases introduced by this analysis (Phase 8 remains reserved for the parked 
 ### A8. Hyper-care / closeout / improvement
 | Capability | Status | Where |
 |---|---|---|
-| Hyper-care window sized to the release | ❌ | Phase 9 |
-| Explicit "declared stable" closeout decision (Operate→Improve) | ❌ | Phase 9 |
-| Closeout: ops ownership transitioned; outcome recorded | ❌ | Phase 9 |
+| Hyper-care window sized to the release | ✅ | Phase 9 C6 |
+| Explicit "declared stable" closeout decision (Operate→Improve) | ✅ | Phase 9 C6 |
+| Closeout: ops ownership transitioned; outcome recorded | ✅ | Phase 9 C6 |
 | Retrospective producing owned, dated actions | 🟡 | Phase 5 (PIR is adjacent) |
 | Post-Implementation Reviews (PIR) | ✅ | Phase 5 (planned) |
 

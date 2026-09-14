@@ -111,6 +111,26 @@ async def get_group_view(
     )
 
 
+async def get_group_names(db: AsyncSession, group_ids: set[Optional[int]]) -> dict[int, str]:
+    """Names for a set of group ids, for rendering on rows that reference them
+    (e.g. `Release.operations_group_id`).
+
+    A READ-RENDERING lookup — deliberately does NOT filter `deleted_at`: an
+    archived group must still render its name on a row that references it,
+    same call A2/A4 made for `environment_group_service`/`project_service`.
+    Deliberately NOT tenant-qualified either: the FK on the referencing row is
+    what scopes it, and under master-admin impersonation the referencing row
+    can legitimately point at a group outside the caller's active tenant.
+    """
+    ids = {i for i in group_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(select(UserGroup.id, UserGroup.name).where(UserGroup.id.in_(ids)))
+    ).all()
+    return {gid: name for gid, name in rows}
+
+
 async def get_group(db: AsyncSession, group_id: int, tenant_id: int) -> UserGroup:
     """The bare entity, for callers that do not need the counts."""
     group = (

@@ -1,5 +1,5 @@
 # backend/app/api/v1/schemas/test_phase.py
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -10,6 +10,7 @@ class TestPhaseCreate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     status: str = "pending"
+    kind: Literal["test", "hypercare"] = "test"
 
 
 class TestPhaseUpdate(BaseModel):
@@ -18,6 +19,7 @@ class TestPhaseUpdate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     status: Optional[str] = None
+    kind: Optional[Literal["test", "hypercare"]] = None
 
 
 class TestPhaseRead(BaseModel):
@@ -31,3 +33,4 @@ class TestPhaseRead(BaseModel):
     start_date: Optional[datetime]
     end_date: Optional[datetime]
     status: str
+    kind: str

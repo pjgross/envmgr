@@ -82,6 +82,16 @@ def validate_definition_for_entity(
     entity it belongs to.
     """
     spec = ENTITY_FIELD_SPECS.get(entity_type)
+
+    # Rules about the flags themselves, not about the entity — run for every
+    # entity type, including ones with no registered spec.
+    for s in definition.states:
+        if s.is_closed and not s.is_terminal:
+            raise ValueError(f"state '{s.key}': is_closed requires is_terminal")
+        for flag in ("requires_pir_complete", "requires_handover_confirmed"):
+            if getattr(s, flag) and not s.is_closed:
+                raise ValueError(f"state '{s.key}': {flag} requires is_closed")
+
     if spec is None:
         # Unknown entity — skip strict checks rather than block new entity
         # types before their spec is registered.
@@ -149,6 +159,13 @@ def validate_definition_for_entity(
             )
 
     if entity_type == "release" and applies_to_kind == "enterprise":
+        for s in definition.states:
+            for flag in ("marks_deployed", "is_closed",
+                         "requires_pir_complete", "requires_handover_confirmed"):
+                if getattr(s, flag):
+                    raise ValueError(
+                        f"{flag} is not valid on an enterprise release template (state '{s.key}')"
+                    )
         # Single-lockdown invariant
         lockdowns = [s for s in definition.states if s.is_admission_lockdown]
         if len(lockdowns) > 1:
@@ -181,6 +198,16 @@ class LifecycleState(BaseModel):
     is_initial: bool = False
     is_terminal: bool = False
     is_admission_lockdown: bool = False  # only meaningful for release/enterprise lifecycles
+    # DORA: reaching this terminal state counts as a failed delivery. Read by
+    # dora_service since Phase 5; declared here only since C6 — before that
+    # every save through the admin editor dropped it (model_dump of an
+    # undeclared field), so any template edited through the UI lost it.
+    is_failed: bool = False
+    # C6 (project release templates only; refused on enterprise):
+    marks_deployed: bool = False            # entering stamps release.actual_date once
+    is_closed: bool = False                 # the release is formally closed here; requires is_terminal
+    requires_pir_complete: bool = False     # close gate; requires is_closed
+    requires_handover_confirmed: bool = False  # close gate; requires is_closed
 
 
 class LifecycleTransition(BaseModel):

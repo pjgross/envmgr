@@ -39,6 +39,17 @@ class Release(Base):
     raised_by: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False, index=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     scope_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # C6 — hyper-care and closeout. The group a release is handed to in
+    # operation (a UserGroup: "anything that needs a group adds its own FK").
+    operations_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("user_group.id"), nullable=True, index=True
+    )
+    # Two audit pairs, set/cleared through release_closeout_service only.
+    # `_by` renders through a NON-tenant-qualified username lookup.
+    declared_stable_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    declared_stable_by: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
+    handover_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    handover_confirmed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"), nullable=True)
 
     lifecycle_template = relationship("LifecycleTemplate")
 

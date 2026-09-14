@@ -149,21 +149,31 @@ Added from the gap analysis of the two domain-introduction documents. Capability
 [gap-analysis.md](gap-analysis.md). Requirements: [requirements.md](requirements.md) §2.11, §2.13–§2.16.
 Phase 8 remains reserved for the parked AI Copilot / AI-driven Integrations design.
 
-### Phase 9 — Release Governance & Deployment Safety — 🟡 In progress (2026-08-20)
+### Phase 9 — Release Governance & Deployment Safety — 🟡 In progress (2026-09-09)
 Decomposed into nine clusters, C1–C9 (lifecycle order, not build order) — see
-[phases/phase-9.md](phases/phase-9.md). **C2 (typed gates + evidence + waiver-with-expiry) is
-complete**: `gate_type` (tenant-configurable, seeded with the eight standard types),
-`gate_evidence` (a reference to a deployment, going stale when a later successful deployment
-of the same component/environment supersedes it), `gate_waiver` (reason, approver, optional
-expiry, remediation, live/expired computed on read) and one evaluator,
-`gate_readiness_service.evaluate()`, serving both the release detail banner and a new
-API-key-gated `GET /api/v1/webhooks/release-ready` for a DevOps pipeline. C2 refuses nothing —
-the same advisory promise A3/A4/B2/B4 each made. Outstanding: **C1** Release Intake Form + risk
-scoring; **C3** Go/No-Go decision record (joint Test/RM/Sponsor sign-off, dissents); **C4**
-rollback governance (plan-before-deploy, data-reversibility flags, in-flight authorisation
-record, rehearsal gate); **C5** deployment execution (pre-deploy checklist gate, blue-green/
-canary, post-deploy verification, traffic ramp); **C6** hyper-care window + "declared stable"
-closeout + retro actions; **C7** content/scope freeze completion + Scope Stability KPI (most of
+[phases/phase-9.md](phases/phase-9.md). **Four are complete.** **C2** (typed gates + evidence +
+waiver-with-expiry, 2026-08-20): `gate_type` (tenant-configurable, seeded with the eight standard
+types), `gate_evidence` (a reference to a deployment, going stale when a later successful
+deployment of the same component/environment supersedes it), `gate_waiver` (reason, approver,
+optional expiry, remediation, live/expired computed on read) and one evaluator — written as
+`gate_readiness_service.evaluate()` and renamed by C4 to
+`release_readiness_service.evaluate()` — serving both the release detail banner and an
+API-key-gated `GET /api/v1/webhooks/release-ready` for a DevOps pipeline. **C4** (rollback
+governance, 2026-08-21): per-component rollback plans with a reversibility rollup, rollback
+authorisations, per-system rehearsals with computed freshness, all folded into the same verdict.
+**C3** (Go/No-Go decision record, 2026-09-06): tenant-configurable perspectives, an append-only
+decision with a frozen readiness snapshot, sign-offs with dissents, and conditions.
+**C6** (hyper-care and closeout, 2026-09-09): a hyper-care window as a phase kind, a
+"declared stable" flag with an audit trail, an ops-handover confirmation against a `UserGroup` on
+the release, five per-state lifecycle flags (`marks_deployed` replacing the hardcoded deployed
+state names, `is_closed`, and the two close gates `requires_pir_complete` /
+`requires_handover_confirmed`, both default off), a `GET /releases/{id}/closeout` composite read
+behind a thirteenth *Closeout* tab, and a sixth `/me/work` queue — plus the fix for `is_failed`,
+which the admin lifecycle editor had been silently dropping on every save since July.
+C2, C3 and C4 refuse nothing; **C6 is Phase 9's first deliberate refusal**, in one function,
+guarded by `test_c6_refuses_only_at_close.py`. Outstanding: **C1** Release Intake Form + risk
+scoring; **C5** deployment execution (pre-deploy checklist gate, blue-green/canary, post-deploy
+verification, traffic ramp); **C7** content/scope freeze completion + Scope Stability KPI (most of
 the supporting machinery — `scope_deadline`, Scope Windows, churn analytics — already ships);
 **C8** feature-flag governance (state/drift/lifecycle/audit); **C9** read-only "Stable Windows"
 (with an open question of its own — see phase-9.md — on whether a Stable Window ever becomes a

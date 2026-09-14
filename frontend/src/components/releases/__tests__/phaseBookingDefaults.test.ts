@@ -11,6 +11,7 @@ const phase = (over: Partial<TestPhaseResponse> = {}): TestPhaseResponse => ({
   start_date: '2026-08-01',
   end_date: '2026-08-14',
   status: 'planned',
+  kind: 'test',
   ...over,
 });
 

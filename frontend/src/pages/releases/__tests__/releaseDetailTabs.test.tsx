@@ -49,6 +49,12 @@ const RELEASE = {
   raised_by: 1,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
+  operations_group_id: null,
+  operations_group_name: null,
+  declared_stable_at: null,
+  declared_stable_by_username: null,
+  handover_confirmed_at: null,
+  handover_confirmed_by_username: null,
 };
 
 // Full URL, not just the rendered tab: a `useState` fallback would also leave
@@ -104,5 +110,10 @@ describe('ReleaseDetail — the tab is in the URL', () => {
       expect(screen.getByRole('tab', { name: 'RAID' })).toHaveAttribute('aria-selected', 'true'),
     );
     expect(screen.getByTestId('path')).toHaveTextContent('/releases/7?tab=raid');
+  });
+
+  it('selects the Closeout tab from ?tab=closeout', async () => {
+    renderAt('?tab=closeout');
+    expect(await screen.findByRole('tab', { name: 'Closeout' })).toHaveAttribute('aria-selected', 'true');
   });
 });

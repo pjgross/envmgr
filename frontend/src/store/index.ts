@@ -38,6 +38,7 @@ import gateTypeReducer from './gateTypeSlice';
 import rollbackReducer from './rollbackSlice';
 import myWorkReducer from './myWorkSlice';
 import goNoGoReducer from './goNoGoSlice';
+import closeoutReducer from './closeoutSlice';
 
 export const store = configureStore({
   reducer: {
@@ -80,6 +81,7 @@ export const store = configureStore({
     rollback: rollbackReducer,
     myWork: myWorkReducer,
     goNoGo: goNoGoReducer,
+    closeout: closeoutReducer,
   },
 });
 

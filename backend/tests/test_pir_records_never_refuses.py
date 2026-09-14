@@ -5,9 +5,13 @@ finished. Nothing here may block a release transition, an incident transition, a
 deployment, or a booking — not an incomplete PIR, not a went-wrong finding, not
 an overdue open action, not a cited incident.
 
-requirements.md §2.5 asks for a configurable "PIR complete" gate before a release
-is formally closed. That is deliberately NOT built, and this file is what will
-fail the day someone builds it here by accident.
+requirements.md §2.5's configurable "PIR complete" gate before a release is
+formally closed was built by Phase 9 C6 (2026-09), deliberately, in ONE
+function — release_closeout_service.assert_may_close — and only for a
+lifecycle state flagged `is_closed` + `requires_pir_complete`. Every other
+promise in this file still holds and is still guarded here: no PIR state
+touches readiness, incidents, bookings, `can-deploy`, or a transition into a
+state that does not ask.
 
 IF ANY TEST IN THIS FILE FAILS, THE PIR WORK HAS STARTED REFUSING SOMETHING.
 
@@ -141,7 +145,13 @@ async def test_the_fixture_really_is_as_bad_as_it_claims(client, auth_headers, b
 
 @pytest.mark.asyncio
 async def test_a_release_with_an_overdue_action_still_transitions(client, auth_headers, bad_pir):
-    """The release moves, with an incomplete review and an overdue action on it."""
+    """The release moves, with an incomplete review and an overdue action on
+    it — because THIS template's `completed` state carries no
+    `requires_pir_complete` flag, which is every template that existed before
+    C6. The configurable gate §2.5 asks for now exists, in
+    `release_closeout_service.assert_may_close`, and is guarded by
+    tests/test_c6_refuses_only_at_close.py; it fires only where a closed
+    state asks for it."""
     resp = await client.post(f"/api/v1/releases/{bad_pir}/transition",
                              json={"to_state": "completed"}, headers=auth_headers)
     assert resp.status_code == 200, resp.text

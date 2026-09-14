@@ -19,4 +19,8 @@ class TestPhase(Base):
     start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    # C6: "test" (the default, every phase before C6) or "hypercare" — the
+    # window after go-live. At most one live hypercare phase per release,
+    # enforced in code (a partial unique index is inert on SQLite).
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="test", server_default="test")
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

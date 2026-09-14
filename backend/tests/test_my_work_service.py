@@ -45,7 +45,7 @@ async def test_one_failing_queue_does_not_fail_the_response(
 
     assert set(res.queues) == {
         "environment_requests", "contentions", "decommissions",
-        "pir_actions", "incidents",
+        "pir_actions", "incidents", "hypercare",
     }
     assert res.queues["incidents"].failed is True
     assert res.queues["incidents"].count == 0
@@ -441,7 +441,7 @@ async def test_a_real_database_error_in_one_queue_does_not_poison_the_rest(
     )
 
     assert res.queues["environment_requests"].failed is True
-    for key in ("contentions", "decommissions", "pir_actions", "incidents"):
+    for key in ("contentions", "decommissions", "pir_actions", "incidents", "hypercare"):
         assert res.queues[key].failed is False, (
             f"{key} was poisoned by the earlier queue's database error"
         )

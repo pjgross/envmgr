@@ -278,3 +278,6 @@ app.include_router(
     prefix="/api/v1/tenant",
     tags=["Go/No-Go"],
 )
+
+from app.api.v1 import release_closeout as release_closeout_router
+app.include_router(release_closeout_router.router, prefix="/api/v1", tags=["Closeout"])

@@ -8,6 +8,12 @@ export interface LifecycleState {
   is_admission_lockdown?: boolean;
   /** When true, reaching this terminal state counts as a release failure for CFR. */
   is_failed?: boolean;
+  /** C6, project release templates only: entering stamps actual_date once. */
+  marks_deployed?: boolean;
+  /** C6: this terminal state means the release is formally closed. */
+  is_closed?: boolean;
+  requires_pir_complete?: boolean;
+  requires_handover_confirmed?: boolean;
 }
 
 export interface LifecycleTransition {

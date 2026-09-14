@@ -96,7 +96,7 @@ async def full_release_lifecycle_template(db_session, tenant) -> LifecycleTempla
                 {"key": "approved",          "label": "Approved",           "is_initial": False, "is_terminal": False},
                 {"key": "in_progress",       "label": "In Progress",        "is_initial": False, "is_terminal": False},
                 {"key": "ready_for_release", "label": "Ready for Release",  "is_initial": False, "is_terminal": False},
-                {"key": "completed",         "label": "Completed",          "is_initial": False, "is_terminal": True},
+                {"key": "completed",         "label": "Completed",          "is_initial": False, "is_terminal": True, "marks_deployed": True},
             ],
             "transitions": [
                 {"from_state": "draft",             "to_state": "submitted",         "allowed_roles": ["Admin"]},

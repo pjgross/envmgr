@@ -34,7 +34,8 @@ export type MyWorkQueueKey =
   | 'contentions'
   | 'decommissions'
   | 'pir_actions'
-  | 'incidents';
+  | 'incidents'
+  | 'hypercare';
 
 export interface MyWorkResponse {
   as_of: string;

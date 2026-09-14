@@ -36,8 +36,8 @@ def _make_lifecycle(tenant_id, name="Major", is_default=True, with_required=Fals
             "states": [
                 {"key": "draft",      "label": "Draft",      "is_initial": True,  "is_terminal": False},
                 {"key": "submitted",  "label": "Submitted",  "is_initial": False, "is_terminal": False},
-                {"key": "completed",  "label": "Completed",  "is_initial": False, "is_terminal": True},
-                {"key": "completed_with_issues", "label": "Completed w/Issues", "is_initial": False, "is_terminal": True},
+                {"key": "completed",  "label": "Completed",  "is_initial": False, "is_terminal": True, "marks_deployed": True},
+                {"key": "completed_with_issues", "label": "Completed w/Issues", "is_initial": False, "is_terminal": True, "marks_deployed": True},
                 {"key": "cancelled",  "label": "Cancelled",  "is_initial": False, "is_terminal": True},
             ],
             "transitions": [

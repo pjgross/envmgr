@@ -156,7 +156,7 @@ def test_legacy_free_text_becomes_findings_and_actions(scratch_db_at_pirfindings
 
 def test_the_migrated_rows_are_readable_through_the_running_app_schema(scratch_db_at_pirfindings):
     """`alembic upgrade head` from `pirfindings` must land on the current head
-    (`gonogo`, as of Phase 9 sub-project C3 — repin this literal whenever a
+    (`closeout`, as of Phase 9 sub-project C6 — repin this literal whenever a
     new migration chains onto it) and leave a schema the models can still
     describe — a migration that leaves the chain unreachable passes every
     unit test and fails on deploy."""
@@ -166,5 +166,5 @@ def test_the_migrated_rows_are_readable_through_the_running_app_schema(scratch_d
     engine = create_engine(_scratch_url("psycopg2", name))
     with engine.begin() as conn:
         assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == \
-            "gonogo"
+            "closeout"
     engine.dispose()
