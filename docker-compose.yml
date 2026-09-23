@@ -140,6 +140,17 @@ services:
       # with DEBUG=false must supply a real one or the app refuses to start.
       DEBUG: ${DEBUG:-true}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      # Local AI test server (CLAUDE.md "Local AI test server"). Passed through
+      # from the host env so a container gets the IP form, never a .local name.
+      # Unset means AI features are off.
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-local}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-copilot-chat}
+      AI_AGENT_MODEL: ${AI_AGENT_MODEL:-copilot-agent}
+      AI_FAST_MODEL: ${AI_FAST_MODEL:-copilot-fast}
+      AI_EMBED_MODEL: ${AI_EMBED_MODEL:-embed}
+      AI_EMBED_DIMENSIONS: ${AI_EMBED_DIMENSIONS:-4096}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-120}
     ports:
       - "8000:8000"
     depends_on:

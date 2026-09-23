@@ -43,6 +43,22 @@ class Settings(BaseSettings):
     # client secret, which is a large part of why it was chosen.
     GITHUB_OAUTH_CLIENT_ID: str = ""
 
+    # Local AI test server / any OpenAI-compatible gateway — see CLAUDE.md,
+    # "Local AI test server". Empty AI_BASE_URL means AI features are off
+    # (build_client returns None), the same shape as GITHUB_OAUTH_CLIENT_ID.
+    # Model values are the gateway's STABLE ALIASES, never raw model ids; which
+    # model backs an alias is decided on the server.
+    AI_BASE_URL: str = ""
+    AI_API_KEY: str = "local"
+    AI_CHAT_MODEL: str = "copilot-chat"
+    AI_AGENT_MODEL: str = "copilot-agent"
+    AI_FAST_MODEL: str = "copilot-fast"
+    AI_EMBED_MODEL: str = "embed"
+    # qwen3-embedding is 4096-wide; size vector columns and indexes from this.
+    AI_EMBED_DIMENSIONS: int = 4096
+    # First call to an unloaded model pays its load time; gateway allows 600.
+    AI_TIMEOUT_SECONDS: int = 120
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     

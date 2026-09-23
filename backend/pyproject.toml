@@ -48,6 +48,7 @@ dependencies = [
     # app/services/environment_compliance_service.py. Already in the tree as a
     # python-hcl2 transitive; this promotes it to a direct dependency.
     "regex==2026.7.19",
+    "openai==3.19.0",
 ]
 
 [dependency-groups]
