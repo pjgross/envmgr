@@ -335,6 +335,93 @@ Run once to seed: `cd backend && DATABASE_URL=postgresql+asyncpg://envmgr:envmgr
 
 ---
 
+## Local AI test server
+
+**Read this before any AI / copilot work.** A shared home-LAN LLM server (Mac mini M5 Pro, 64 GB) is the test target for the in-app copilot and any other AI feature. It is test infrastructure, not production: no auth, non-deterministic, and shared with other projects. **The server's own `ssh ai-mini cat ai-server/README.md` is authoritative**; this section is the project-side digest, last reconciled with it on 2026-09-23 after the server was changed in response to this project's first probe (`ai-status --test`: 26/26 pass, 40 s).
+
+**Endpoint**: LiteLLM gateway, OpenAI-compatible — `http://192.168.1.253:4000/v1`. Any non-empty `api_key` works; the convention is `local`. Supports `/chat/completions` (tools/function calling, streaming), `/embeddings` and `/models`. **Always the IP, never `ai-mini.local`** — the `.local` name also resolves to OrbStack-internal addresses other machines cannot reach, and Docker containers often cannot resolve `.local` at all. Ollama itself is on `:11434` for debugging only; app code goes through the gateway.
+
+**Rule: code only ever uses the stable aliases below, read from config (`AI_*` env vars). Never a raw model id (`qwen3.8:27b`, `gpt-oss:20b`), never a hard-coded URL.** Which model backs a name is decided on the server (`ai-server/litellm/config.yaml`), so the app must not care — `copilot-fast` was re-backed on 2026-09-23 with no client change.
+
+| Alias | Backed by (today) | Context | Use for | Measured (agent-bench, 7 tool-calling tasks) |
+|---|---|---|---|---|
+| `copilot-agent` | qwen3.8:27b (dense, vision-capable) | 32K | Multi-step agents; **any flow that writes data** (tickets, emails, updates). Thinking off by default | 28/28, ~3.3 s/step, ~8.5 s per 3–4-step task |
+| `copilot-chat` | gpt-oss:20b | 32K | Interactive chat; read-only or single-lookup tool use where latency matters. Always reasons | 26/28 (both failures on a 3-step write chain), ~1.4 s/step |
+| `copilot-fast` | qwen3.5:4b | **8K** | Classification, routing, short checks, simple single-tool calls. Thinking off by default (~0.1 s for a short reply). **Tends to omit *optional* tool arguments** | 13/14 at 2.1 s/task (the old qwen3:4b was 14/14 at 20.8 s) |
+| `copilot-code` | qwen3-coder:30b (cannot think) | 32K | Code generation / explanation | — |
+| `copilot-alt` | qwen3:30b (always reasons) | 32K | A/B comparison only | 7/7 but slowest and very verbose |
+| `embed` | qwen3-embedding | **8K** | RAG embeddings — **4096 dimensions**; size vector columns and indexes to match. **Inputs over 8K tokens are silently truncated — chunk first** | — |
+
+**Behaviour to account for:**
+
+- **`reasoning_effort` works on every alias**: unset \| `none` \| `low` \| `medium` \| `high`, no 400s, and reasoning never leaks into `content` — a gateway hook (`ai-server/litellm/effort_policy.py`) translates values a model cannot honour. Reasoning, when present, is in `message.reasoning_content`; the answer is always in `content`. A client reads `content` for the answer and may log or drop `reasoning_content`. Per alias:
+  - `copilot-agent`: as sent; **unset = `none`**. Send `low`/`medium` only for a hard planning step.
+  - `copilot-chat`: always reasons. `none` is mapped to `low`; **unset = `medium` (~4 s on a real prompt)**. Send `none` or `low` for sub-second replies.
+  - `copilot-fast`: **unset = `none`** (~0.1 s). `low`/`medium`/`high` all just switch thinking on (~100–200 reasoning tokens, 1.5–2.5 s).
+  - `copilot-code`: cannot think; `low`/`medium`/`high` are dropped.
+  - `copilot-alt`: always reasons whatever is sent; `none` is dropped so reasoning stays out of `content`.
+  - `/no_think` in a prompt does nothing on any model. Use the parameter.
+- **Token budget minimums** — reasoning counts against `max_tokens`, and too small a budget returns empty `content` with `finish_reason: "length"`: `copilot-agent` and `copilot-fast` at their defaults ≥ 50 (≥ 500 with thinking on); `copilot-chat` ≥ 100 at `none`/`low`, ≥ 300 at `medium`; `copilot-alt` ≥ 2,000; or omit `max_tokens`.
+- **Small models skip optional tool arguments.** `copilot-fast`'s one repeated bench slip was putting an order id into a ticket subject instead of the optional `order_id` field. **Mark every argument our code relies on as `required` in the tool schema**; keep `optional` for genuinely optional filters only.
+- **`copilot-chat` (gpt-oss) may write ids with Unicode hyphens** (`ORD‑1051` with U+2011). `normalise_hyphens` in `app/services/ai/client.py` maps U+2010–U+2014 and U+2212 to `-`; apply it before parsing an id out of model text, and prefer ids from tool-call arguments over prose.
+- **Tool errors must be explicit.** When a tool receives invalid arguments (an enum value it does not allow, say), return an error message to the model, never an empty result — models self-correct from errors and give up on empty results (observed with gpt-oss sending `status: "all"`).
+- **Latency and residency.** The four everyday aliases (agent, chat, fast, embed, ~42 GB) **stay loaded together**; a `copilot-fast` call no longer evicts `embed`. `copilot-alt` and `copilot-code` are 31 GB each and evict others when used; the next call to an evicted alias reloads it in a few seconds. Models stay loaded 30 min after last use. Use client timeouts of **≥ 120 s** (the gateway allows 600 s). 4 concurrent requests per model are served in parallel. With a model loaded, trivial calls answer in 0.1–2 s.
+- **Context is 32K tokens per request, except `copilot-fast` and `embed` at 8K.** Keep RAG context plus history inside it.
+- **Results are non-deterministic.** Judge AI behaviour over repeated runs with a pass rate, never a single call.
+
+**Env vars** (the `AI_*` group in `backend/app/core/config.py`; local values in `backend/.env`, placeholders in `backend/.env.example`; the server README lists the same block):
+
+```
+AI_BASE_URL=http://192.168.1.253:4000/v1
+AI_API_KEY=local
+AI_CHAT_MODEL=copilot-chat
+AI_AGENT_MODEL=copilot-agent
+AI_FAST_MODEL=copilot-fast
+AI_EMBED_MODEL=embed
+AI_EMBED_DIMENSIONS=4096
+AI_TIMEOUT_SECONDS=120
+```
+
+The same code runs against this server, a mock, or a production provider by changing only these. Containers under the compose `app` profile must receive the IP form of `AI_BASE_URL`, never a `.local` name.
+
+**Server-side tools** (SSH alias `ai-mini`, key auth from this MacBook; fixed IP `192.168.1.253`):
+
+```bash
+ssh ai-mini ai-status              # Ollama + gateway health, which models are loaded
+ssh ai-mini ai-status --quick      # one request per alias + embed
+ssh ai-mini ai-status --test       # every alias × every reasoning_effort value: non-empty content, finish_reason stop,
+                                   # no reasoning in content, embed = 4096 dims (~1–2 min, non-zero exit on failure)
+ssh ai-mini python3 ai-server/bench/agent-bench.py copilot-agent copilot-chat --reps 3 [--effort low]
+ssh ai-mini cat ai-server/README.md                # server README — authoritative
+ssh ai-mini cat ai-server/litellm/config.yaml      # alias → model mapping, per-alias num_ctx
+# The bench is stdlib-only Python and runs from this MacBook too:
+scp ai-mini:ai-server/bench/agent-bench.py . && python3 agent-bench.py --base http://192.168.1.253:4000/v1 copilot-agent
+```
+
+Changing which model backs an alias is done in `config.yaml` then `cd ~/ai-server/litellm && docker compose up -d --force-recreate` — **do not change the server config without asking the owner.** When a server-side change is wanted, write it up as a prompt the owner can paste into the Claude session on the Mac mini, with the exact observed evidence.
+
+**What exists in code (2026-09-23)** — `backend/app/services/ai/`, three modules, **no HTTP endpoint yet**: `client.py` (the seam: `build_client(settings)` → `None` when `AI_BASE_URL` is empty, `parse_message` splits `reasoning_content` from `content`, `default_reasoning_effort(ModelRole)` encodes the per-alias quirks above, `normalise_hyphens`), `tools.py` (the **additive allowlist** registry; one tool, `list_environments`, tenant-scoped, answering bad arguments with `{"error": ...}` naming the allowed values), and `copilot_service.run_agent` (the loop: dispatch tool calls, feed results or errors back, step limit). Its only consumer is the test suite, by design: it is the seam the Phase 8 copilot builds on and the flow the server is exercised through. The next AI feature extends the registry; it does not call the SDK directly.
+
+### How to test AI features
+
+Three layers, mirroring the existing `TEST_DATABASE_URL` opt-in pattern in `backend/tests/conftest.py`. All of it lives in `backend/tests/ai/`.
+
+1. **Unit tests, no network, always in CI** (`test_client_unit.py`, `test_tools_unit.py`, `test_copilot_unit.py`). AI code is written against the injectable client seam, and these use a **scripted client** (`ScriptedClient` in `test_copilot_unit.py`: a list of `ChatResult`s returned in order, every request recorded). They assert the application's own logic: which tool was dispatched with which arguments, what was fed back to the model and under which `tool_call_id`, that an unknown tool or unparseable arguments come back as explicit error text, that the step limit holds, and that `reasoning` never reaches `answer`. Tenant isolation of a tool is a unit test here, same as for an endpoint.
+2. **Opt-in integration suite against the real server** (`test_copilot_integration.py`). Enabled by `AI_INTEGRATION=1`; the gate in `tests/ai/conftest.py` **skips with a reason** when the variable is unset, when `AI_BASE_URL` is empty, when `GET $AI_BASE_URL/models` is unreachable, or when the configured aliases are not listed — so CI, which has no route to the LAN, always skips. Run it as:
+
+   ```bash
+   cd backend && AI_INTEGRATION=1 uv run pytest tests/ai -q -rs
+   # with the answers and per-run verdicts visible:
+   AI_INTEGRATION=1 uv run pytest tests/ai/test_copilot_integration.py -q -rs -o log_cli=true -o log_cli_level=INFO --log-cli-format="%(name)s %(message)s" | grep -E "^(tests\.ai|app\.services\.ai)|^  run |passed|failed"
+   ```
+
+   Read the `-rs` summary: a run that silently skipped everything has proved nothing. It exercises the project's **real tool definitions** through `run_agent` against `copilot-agent`, plus `embed`. First run 2026-09-23: 3 passed in 27 s, both agent flows **5/5**, eleven real calls; a mutation that made the tool return no environments failed it **0/5**, so the assertions discriminate.
+3. **Assert behaviour, not wording.** Which tools were called with which arguments, that every id or name the flow needed is in the answer and nothing that should be absent is, that no reasoning text appears in the answer (`_LEAK` in the integration file is the pattern), that the embedding has `AI_EMBED_DIMENSIONS` entries. Never an exact sentence. **Flaky-by-nature cases run `RUNS` times and require `REQUIRED_PASSES`** (5 and 4 today) rather than a single pass; the failure message lists every run's verdict.
+
+**Standing rules for AI work in this project:** (a) read this section first; (b) run the integration suite against the server before saying AI-related work is done, and say in the report how many runs passed; (c) when you learn something new about the server or a model — a quirk, a better alias for a task, a timeout that needed raising — record it **here**, in this section, in the same commit; (d) a new tool goes in `tools.py`'s registry with a unit test for its tenant scoping and its error text, and an integration case that makes the model actually call it.
+
+---
+
 ## Production Deployment
 
 Production runs on **macmini** (Tailscale network). EnvManager's containers are deployed via docker-compose. Several infrastructure services are shared from the macmini host rather than duplicated.

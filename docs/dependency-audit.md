@@ -141,3 +141,24 @@ unreachable RSC issue. Revisit once a release above 8.2.0 ships.
   is what `MAX_REPEAT_WEIGHT` exists for, checked before `regex.compile` is ever called. Any
   future change to this dependency, or to the guard, has to keep the compile-time ceiling and
   the per-match timeout together; either alone leaves the service exposed.
+
+## Added 2026-09-23 — local AI test server seam
+
+- **`openai` 3.19.0** — the OpenAI Python SDK, used purely as an OpenAI-*compatible* client:
+  `base_url`, `api_key` and the model name all come from the `AI_*` settings, and in dev they
+  point at the home-LAN LiteLLM gateway described in CLAUDE.md ("Local AI test server"). It is
+  the only SDK the AI substrate (`backend/app/services/ai/`) imports, and it is imported
+  lazily inside `OpenAICompatibleClient` so an unconfigured deployment (`AI_BASE_URL` empty)
+  never loads it. Clean on the audit gate (`no unaccepted advisories across 65 packages`).
+
+  Chosen over hand-rolled `httpx` because the parts that are easy to get subtly wrong — the
+  tool-call message shapes, streaming chunk assembly, and the `reasoning_effort` parameter —
+  are exactly the parts the SDK owns, and because the same client swaps to any hosted
+  OpenAI-compatible provider by changing `AI_BASE_URL` alone. The SDK pins its own
+  `httpx2`/`httpcore2` (a separate distribution from the project's `httpx` 0.28.1), plus
+  `jiter`, `sniffio` and `truststore`; none of them collide with an existing pin.
+
+  **`max_retries=0`** is set deliberately: the SDK's default of two retries would, on a slow
+  local model, turn one 120 s timeout into three, and on a future write-capable agent could
+  replay a side effect. Retrying is the caller's decision, made with the tool's idempotency in
+  view, not the transport's.
