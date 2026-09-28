@@ -1,4 +1,4 @@
-"""`/my-work` — five "waiting on me" queues, composed under one clock.
+"""`/my-work` — seven "waiting on me" queues, composed under one clock.
 
 TWO RULES GOVERN THIS FILE.
 
@@ -35,6 +35,10 @@ drifting from the worklist page it is supposed to mirror:
   status — `"open"` was never itself an incident status. Incidents carry no
   per-user ownership in this codebase, so this queue is tenant-wide, not
   narrowed to `user`.
+- `runbook_execution_service.ready_queue(..., user_id)` — runbook tasks of
+  the caller's own teams whose predecessors are all done or skipped, via
+  `ready_clause`, the SQL twin of the composite read's allowed_transitions.
+  Narrowed by membership for everyone, Admins included.
 
 **One clock.** `now` is passed INTO `build()` and threaded to every queue
 unchanged. Nothing here calls `datetime.now()` — two clocks in one response
@@ -63,6 +67,7 @@ from app.services import (
     incident_service,
     pir_finding_service,
     release_closeout_service,
+    runbook_execution_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -322,6 +327,21 @@ async def _hypercare_queue(
     return QueueResult(count=total, items=items, overdue=overdue)
 
 
+async def _runbook_tasks_queue(
+    db: AsyncSession, *, tenant_id: int, user: User, now: datetime
+) -> QueueResult:
+    """Runbook tasks my teams can start now. No deadline column: the planned
+    start is computed per plan, never stored, so `due` stays empty."""
+    rows, total = await runbook_execution_service.ready_queue(
+        db, tenant_id, user.id, Page(limit=ITEM_CAP, offset=0))
+    items = [
+        WorkItem(id=r.task_id, title=r.task_name, subtitle=f"{r.release_name} · {r.environment_name}",
+                 url=f"/releases/{r.release_id}?tab=runbook&plan={r.plan_id}")
+        for r in rows
+    ]
+    return QueueResult(count=total, items=items)
+
+
 async def build(
     db: AsyncSession, *, tenant_id: int, user: User, now: datetime
 ) -> MyWorkResponse:
@@ -372,6 +392,7 @@ async def build(
         "pir_actions": _pir_actions_queue,
         "incidents": _incidents_queue,
         "hypercare": _hypercare_queue,
+        "runbook_tasks": _runbook_tasks_queue,
     }
     queues: dict[str, QueueResult] = {}
     for key, fn in builders.items():

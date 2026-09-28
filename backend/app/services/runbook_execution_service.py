@@ -12,14 +12,17 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.api.v1.schemas.runbook import TransitionRequest
-from app.core.pagination import Page, fetch_page
+from app.core.pagination import Page, fetch_page, fetch_page_rows
 from app.core.security import Role
+from app.db.models.environment import Environment
+from app.db.models.release import Release
 from app.db.models.runbook import (
-    SATISFIED_STATUSES, RunbookPlan, RunbookTask, RunbookTaskEvent,
+    SATISFIED_STATUSES, RunbookPlan, RunbookTask, RunbookTaskDependency, RunbookTaskEvent,
 )
 from app.db.models.user_group import UserGroupMember
 from app.services import runbook_service
@@ -148,3 +151,41 @@ async def list_events(db: AsyncSession, task_id: int, tenant_id: int,
              .where(RunbookTaskEvent.task_id == task_id, RunbookTaskEvent.tenant_id == tenant_id)
              .order_by(RunbookTaskEvent.recorded_at.desc(), RunbookTaskEvent.id.desc()))
     return await fetch_page(db, query, page)
+
+
+def ready_clause():
+    """A task is READY when it is not_started, live, and no LIVE predecessor is
+    unsatisfied. The SQL twin of allowed_transitions' predecessor rule —
+    test_runbook_my_work.py holds the two equal. A soft-deleted predecessor
+    counts as absent, as it does in runbook_service.live_edges."""
+    pred = aliased(RunbookTask)
+    return and_(
+        RunbookTask.status == "not_started",
+        RunbookTask.deleted_at.is_(None),
+        ~exists().where(
+            RunbookTaskDependency.task_id == RunbookTask.id,
+            RunbookTaskDependency.predecessor_task_id == pred.id,
+            pred.deleted_at.is_(None),
+            pred.status.not_in(tuple(SATISFIED_STATUSES)),
+        ),
+    )
+
+
+async def ready_queue(db: AsyncSession, tenant_id: int, user_id: int, page: Optional[Page]):
+    """Tasks the user's teams could start now. Everyone — Admins included —
+    sees only their OWN teams' tasks: this is "waiting on me", not a tenant list."""
+    query = (
+        select(RunbookTask.id.label("task_id"), RunbookTask.name.label("task_name"),
+               RunbookPlan.id.label("plan_id"), Release.id.label("release_id"),
+               Release.name.label("release_name"), Environment.name.label("environment_name"))
+        .join(RunbookPlan, RunbookPlan.id == RunbookTask.plan_id)
+        .join(Release, Release.id == RunbookPlan.release_id)
+        .join(Environment, Environment.id == RunbookPlan.environment_id)
+        .join(UserGroupMember, and_(UserGroupMember.group_id == RunbookTask.team_group_id,
+                                    UserGroupMember.user_id == user_id,
+                                    UserGroupMember.tenant_id == tenant_id))
+        .where(RunbookTask.tenant_id == tenant_id, RunbookPlan.deleted_at.is_(None),
+               Release.deleted_at.is_(None), ready_clause())
+        .order_by(RunbookPlan.anchor_start_at, RunbookTask.id)
+    )
+    return await fetch_page_rows(db, query, page)
