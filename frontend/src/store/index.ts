@@ -39,6 +39,7 @@ import rollbackReducer from './rollbackSlice';
 import myWorkReducer from './myWorkSlice';
 import goNoGoReducer from './goNoGoSlice';
 import closeoutReducer from './closeoutSlice';
+import runbookReducer from './runbookSlice';
 
 export const store = configureStore({
   reducer: {
@@ -82,6 +83,7 @@ export const store = configureStore({
     myWork: myWorkReducer,
     goNoGo: goNoGoReducer,
     closeout: closeoutReducer,
+    runbook: runbookReducer,
   },
 });
 
