@@ -49,9 +49,17 @@ async def plan_reads(db: AsyncSession, plans: list[RunbookPlan], tenant_id: int)
 
 async def read(db: AsyncSession, plan: RunbookPlan, tenant_id: int, user, now: datetime) -> RunbookRead:
     tasks = await runbook_service.live_tasks(db, plan.id, tenant_id)
-    edges = await runbook_service.live_edges(db, plan.id, tenant_id)
-    schedule = compute(plan.anchor_start_at, _inputs(tasks), edges, now)
     by_id = {t.id: t for t in tasks}
+    edges = await runbook_service.live_edges(db, plan.id, tenant_id)
+    # live_tasks and live_edges are two separate statements: under READ
+    # COMMITTED, a task/edge committed by another request between them can
+    # leave an edge whose task or predecessor id isn't in `by_id` (schedule
+    # computation) or `tasks`. Filter rather than index blindly —
+    # runbook_schedule_service.compute already does this defensively for its
+    # own by_id; this composite must too, or `by_id[p]`/`by_id[s]` below
+    # KeyErrors on the stale edge.
+    edges = [(s, p) for s, p in edges if s in by_id and p in by_id]
+    schedule = compute(plan.anchor_start_at, _inputs(tasks), edges, now)
     preds: dict[int, list[int]] = defaultdict(list)
     succs: dict[int, list[int]] = defaultdict(list)
     for s, p in edges:

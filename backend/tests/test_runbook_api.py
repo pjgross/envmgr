@@ -138,3 +138,71 @@ async def test_a_system_that_left_the_release_still_renders_by_name(client, auth
     await db_session.commit()
     t = (await client.get(f"/api/v1/runbooks/{plan['id']}", headers=auth_headers)).json()["tasks"][0]
     assert t["system_name"] == "Legacy API" and t["system_on_release"] is False
+
+
+@pytest.mark.asyncio
+async def test_the_composite_read_ignores_an_edge_referencing_an_unloaded_task(
+        client, auth_headers, db_session, test_tenant, test_user, test_environment, monkeypatch):
+    """Fix round 2: live_tasks and live_edges in runbook_view_service.read are
+    two separate statements under READ COMMITTED. A write committing between
+    them can leave a live edge whose task/predecessor id isn't in the loaded
+    task set — this reproduces that shape by monkeypatching live_edges to
+    return an edge naming a task id that was never loaded, in both
+    directions. Before the fix this 500s with a KeyError; after, the
+    composite read succeeds and ignores the phantom edge entirely."""
+    from app.services import runbook_service
+
+    release = await make_release(db_session, test_tenant.id, test_user.id)
+    await db_session.commit()
+    plan = await _plan(client, auth_headers, release.id, test_environment.id)
+    a = await _task(client, auth_headers, plan["id"], "Deploy API")
+    b = await _task(client, auth_headers, plan["id"], "Smoke test")
+    UNKNOWN_ID = 999_999_999
+
+    original = runbook_service.live_edges
+
+    async def with_phantom_edges(db, plan_id, tenant_id):
+        edges = await original(db, plan_id, tenant_id)
+        return edges + [(UNKNOWN_ID, a["id"]), (b["id"], UNKNOWN_ID)]
+
+    monkeypatch.setattr(runbook_service, "live_edges", with_phantom_edges)
+
+    r = await client.get(f"/api/v1/runbooks/{plan['id']}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    tasks = {t["name"]: t for t in r.json()["tasks"]}
+    assert tasks["Deploy API"]["predecessor_ids"] == []
+    assert tasks["Smoke test"]["predecessor_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_task_create_rolls_back_the_flushed_task(
+        realistic_client, db_session, test_tenant, test_user, test_environment):
+    """Fix round 2: the router's `db` is now function-scoped
+    (`_db = Depends(get_db, scope="function")` in app/api/v1/runbooks.py) so
+    its commit/rollback runs before the response is sent, rather than after
+    (FastAPI 0.141's default for a yield dependency). This confirms the
+    rollback half still works under that scope: runbook_service.create_task
+    flushes the new task — assigning it a real id — before validating
+    predecessor_ids, so an invalid predecessor 409s AFTER the flush. If the
+    function-scoped session's exception handling (get_db's `except
+    Exception: rollback(); raise`) didn't fire, the flushed-but-uncommitted
+    task would still be visible afterwards.
+
+    Uses `realistic_client`, NOT `client`/`auth_headers`: the plain `client`
+    fixture shares one session with the test body and never rolls back on
+    exception (see its own docstring in conftest.py), so it cannot catch a
+    write that only get_db's real rollback would discard. Building headers
+    with `login_headers` (not the `auth_headers` fixture, which hard-depends
+    on `client`) keeps this test on exactly one dependency-override — the
+    same global `app.dependency_overrides[get_db]` slot `client` and
+    `realistic_client` both write, so mixing them silently picks one."""
+    release = await make_release(db_session, test_tenant.id, test_user.id)
+    await db_session.commit()
+    _, headers = await login_headers(realistic_client, db_session, test_tenant, "c5rollback", "Admin")
+    plan = await _plan(realistic_client, headers, release.id, test_environment.id)
+    r = await realistic_client.post(f"/api/v1/runbooks/{plan['id']}/tasks", headers=headers,
+                          json={"name": "Orphan candidate", "duration_minutes": 5,
+                                "predecessor_ids": [999_999_999]})
+    assert r.status_code == 409, r.text
+    listed = await realistic_client.get(f"/api/v1/runbooks/{plan['id']}", headers=headers)
+    assert listed.json()["tasks"] == []

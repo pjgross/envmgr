@@ -10,6 +10,7 @@ from app.api.v1.schemas.runbook import TransitionRequest
 from app.core.pagination import Page
 from app.db.models.runbook import RunbookTaskEvent
 from app.services import runbook_execution_service as ex
+from app.services import runbook_service
 from tests.factories import add_group_member, ensure_user, ensure_user_group
 from tests.runbook_helpers import link, make_plan, make_release, make_task
 
@@ -213,3 +214,27 @@ async def test_events_are_newest_first_and_tenant_scoped(db_session, world, seco
     other_tenant, _ = await second_tenant_factory()
     rows, total = await ex.list_events(db_session, t.id, other_tenant.id, Page(limit=50, offset=0))
     assert rows == [] and total == 0
+
+
+@pytest.mark.asyncio
+async def test_transition_ignores_an_edge_referencing_an_unloaded_task(db_session, world, monkeypatch):
+    """Fix round 2: _neighbours' live_tasks and live_edges are two separate
+    statements, so a task/edge committed between them can leave a live edge
+    naming an id absent from by_id. Reproduced by monkeypatching live_edges to
+    add a phantom edge in both directions around the task under transition.
+    Before the fix this KeyErrors inside _neighbours; after, the transition
+    proceeds as if the phantom edge did not exist."""
+    a = await make_task(db_session, world["plan"], "A", team=world["team"], status="done")
+    b = await make_task(db_session, world["plan"], "B", team=world["team"])
+    UNKNOWN_ID = 999_999_999
+
+    original = runbook_service.live_edges
+
+    async def with_phantom_edges(db, plan_id, tenant_id):
+        edges = await original(db, plan_id, tenant_id)
+        return edges + [(UNKNOWN_ID, a.id), (b.id, UNKNOWN_ID)]
+
+    monkeypatch.setattr(runbook_service, "live_edges", with_phantom_edges)
+
+    await _go(db_session, world, b, world["member"], "in_progress")
+    assert b.status == "in_progress"

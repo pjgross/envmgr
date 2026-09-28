@@ -80,6 +80,11 @@ def allowed_transitions(task_status: str, pred_statuses: list[str], succ_statuse
 async def _neighbours(db, task: RunbookTask, tenant_id: int) -> tuple[list[RunbookTask], list[RunbookTask]]:
     by_id = {t.id: t for t in await runbook_service.live_tasks(db, task.plan_id, tenant_id)}
     edges = await runbook_service.live_edges(db, task.plan_id, tenant_id)
+    # Same race as runbook_view_service.read: live_tasks and live_edges are
+    # two separate statements, so a task/edge committed between them can
+    # leave an edge referencing an id absent from `by_id`. Filter, never
+    # index blindly.
+    edges = [(s, p) for s, p in edges if s in by_id and p in by_id]
     preds = [by_id[p] for s, p in edges if s == task.id]
     succs = [by_id[s] for s, p in edges if p == task.id]
     return preds, succs
