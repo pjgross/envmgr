@@ -281,3 +281,6 @@ app.include_router(
 
 from app.api.v1 import release_closeout as release_closeout_router
 app.include_router(release_closeout_router.router, prefix="/api/v1", tags=["Closeout"])
+
+from app.api.v1 import runbooks as runbooks_router
+app.include_router(runbooks_router.router, prefix="/api/v1")

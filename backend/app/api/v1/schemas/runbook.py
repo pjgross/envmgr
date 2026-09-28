@@ -67,3 +67,62 @@ class TransitionRequest(BaseModel):
     to_status: TaskStatus
     at: Optional[datetime] = None
     reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class RunbookPlanRead(BaseModel):
+    id: int
+    release_id: int
+    environment_id: int
+    environment_name: Optional[str]
+    name: str
+    anchor_start_at: datetime
+    deploy_pattern: Optional[str]
+    notes: Optional[str]
+    state: str
+
+
+class RunbookTaskRead(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    kind: str
+    team_group_id: Optional[int]
+    team_name: Optional[str]
+    system_id: Optional[int]
+    system_name: Optional[str]
+    system_on_release: bool
+    duration_minutes: int
+    fixed_start_at: Optional[datetime]
+    status: str
+    actual_started_at: Optional[datetime]
+    actual_finished_at: Optional[datetime]
+    sort_order: int
+    predecessor_ids: list[int]
+    planned_start: datetime
+    planned_finish: datetime
+    forecast_start: datetime
+    forecast_finish: datetime
+    late_start: bool
+    overrunning: bool
+    slipped_past_fixed_start: bool
+    blocked: bool
+    critical: bool
+    allowed_transitions: list[str]
+
+
+class RunbookRead(BaseModel):
+    plan: RunbookPlanRead
+    planned_end: datetime
+    forecast_end: datetime
+    slip_minutes: int
+    tasks: list[RunbookTaskRead]
+
+
+class RunbookTaskEventRead(BaseModel):
+    id: int
+    from_status: str
+    to_status: str
+    at: datetime
+    recorded_at: datetime
+    by_username: Optional[str]
+    note: Optional[str]
