@@ -296,13 +296,17 @@ async def test_b6_adds_no_migration():
     Updated 2026-09-09 when Phase 9 sub-project C6's `closeout` (hyper-care
     and closeout schema) chained onto `gonogo`, moving the head again — see
     the note above on why repinning is exactly what this test is for.
+
+    Updated 2026-09-28 when Phase 9 sub-project C5a's `runbooks` (cutover
+    runbook schema) chained onto `closeout`, moving the head again — see the
+    note above on why repinning is exactly what this test is for.
     """
     backend_dir = pathlib.Path(__file__).resolve().parents[1]
     cfg = Config(str(backend_dir / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend_dir / "app" / "db" / "migrations"))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert heads == ["closeout"], (
+    assert heads == ["runbooks"], (
         "the Alembic head is not the expected single migration on top of "
         "the known chain — either B6 has started adding schema changes, or "
         "an unrelated migration landed without updating this pin"
@@ -310,7 +314,7 @@ async def test_b6_adds_no_migration():
     # The chain from B5's envdecommission forward, each entry's own
     # down_revision naming the one before it. Root first.
     expected_chain = ["envdecommission", "gatetypes", "rollbackgov", "pirfindings",
-                      "pirbackfill", "gonogo", "closeout"]
+                      "pirbackfill", "gonogo", "closeout", "runbooks"]
     for child, parent in zip(expected_chain[1:], expected_chain[:-1]):
         assert script.get_revision(child).down_revision == parent, (
             f"{child} must chain directly onto {parent} — B6 (or something "
