@@ -1061,7 +1061,6 @@ async def list_plans(db: AsyncSession, release_id: int, tenant_id: int,
     return await fetch_page(db, query, page)
 
 
-```python
 async def _live_environment(db: AsyncSession, environment_id: int, tenant_id: int) -> Environment:
     env = (await db.execute(select(Environment).where(
         Environment.id == environment_id, Environment.tenant_id == tenant_id,
