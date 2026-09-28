@@ -101,6 +101,9 @@ from app.db.models.go_no_go import (  # noqa: F401
     GoNoGoSignoff,
     GoNoGoCondition,
 )
+from app.db.models.runbook import (  # noqa: F401
+    RunbookPlan, RunbookTask, RunbookTaskDependency, RunbookTaskEvent,
+)
 
 # This will be expanded as we add more models
 __all__ = [
