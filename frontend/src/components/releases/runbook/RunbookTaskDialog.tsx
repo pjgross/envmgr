@@ -84,11 +84,7 @@ export default function RunbookTaskDialog({ read, task, onClose }: Props) {
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
-          {/* No `required` prop: MUI renders the asterisk as part of the
-              label's textContent (aria-hidden or not, RTL's getByLabelText
-              still reads it), so "Name" would stop matching exactly "Name".
-              Emptiness is still enforced through `valid` disabling Save. */}
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField label="Name" required value={name} onChange={(e) => setName(e.target.value)} />
           <TextField label="Description" multiline minRows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
           <TextField select label="Kind" value={kind} onChange={(e) => setKind(e.target.value as TaskKind)}
                      SelectProps={{ inputProps: { 'aria-label': 'Kind' } }}>

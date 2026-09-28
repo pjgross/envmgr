@@ -45,10 +45,7 @@ export default function RunbookTransitionDialog({ planId, task, to, choices, onC
             </TextField>
           )}
           {needsReason && (
-            // No `required` prop: MUI's asterisk becomes part of the label's
-            // textContent, breaking an exact getByLabelText('Reason') match.
-            // Emptiness is enforced by disabling the submit button below.
-            <TextField label="Reason" multiline minRows={2} value={reason}
+            <TextField label="Reason" required multiline minRows={2} value={reason}
                        onChange={(e) => setReason(e.target.value)} />
           )}
           <TextField label="Actually happened at (optional)" type="datetime-local" value={at}

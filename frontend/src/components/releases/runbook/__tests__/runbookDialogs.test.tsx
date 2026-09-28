@@ -73,7 +73,12 @@ describe('RunbookTaskDialog', () => {
   it('a create sends predecessor_ids in the create body', async () => {
     vi.mocked(runbookService.createTask).mockResolvedValue(t(3, 'Ramp 10%') as never);
     wrap(<RunbookTaskDialog read={read} onClose={() => {}} />);
-    await userEvent.type(screen.getByLabelText('Name'), 'Ramp 10%');
+    // Anchored so this doesn't also match e.g. "System"/"No team"; the field
+    // must stay `required` (asterisk + aria-required) — a regression here
+    // must fail this test, not be worked around by dropping `required`.
+    const nameField = screen.getByLabelText(/^Name/);
+    expect(nameField).toBeRequired();
+    await userEvent.type(nameField, 'Ramp 10%');
     await userEvent.click(screen.getByLabelText('Runs after'));
     await userEvent.click(await screen.findByRole('option', { name: 'Smoke test' }));
     await userEvent.keyboard('{Escape}');
@@ -91,7 +96,12 @@ describe('RunbookTransitionDialog', () => {
     wrap(<RunbookTransitionDialog planId={5} task={read.tasks[0]} to="skipped" onClose={() => {}} />);
     const submit = screen.getByRole('button', { name: 'Skip task' });
     expect(submit).toBeDisabled();
-    await userEvent.type(screen.getByLabelText('Reason'), 'not needed in EU');
+    // Anchored so this doesn't also match "Actually happened at"; the field
+    // must stay `required` (asterisk + aria-required) — a regression here
+    // must fail this test, not be worked around by dropping `required`.
+    const reasonField = screen.getByLabelText(/^Reason/);
+    expect(reasonField).toBeRequired();
+    await userEvent.type(reasonField, 'not needed in EU');
     await userEvent.click(submit);
     expect(runbookService.transition).toHaveBeenCalledWith(1, { to_status: 'skipped', reason: 'not needed in EU', at: null });
   });
@@ -101,7 +111,7 @@ describe('RunbookTransitionDialog', () => {
     wrap(<RunbookTransitionDialog planId={5} task={read.tasks[0]} to="in_progress"
                                   choices={['in_progress', 'done']} onClose={() => {}} />);
     // Defaults to the first choice, which needs no reason.
-    expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Reason/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start task' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText('Move to'));
@@ -119,7 +129,9 @@ describe('RunbookTransitionDialog', () => {
                                   choices={['in_progress', 'skipped']} onClose={() => {}} />);
     await userEvent.click(screen.getByLabelText('Move to'));
     await userEvent.click(await screen.findByRole('option', { name: 'Skip' }));
-    expect(screen.getByLabelText('Reason')).toBeInTheDocument();
+    const reasonField = screen.getByLabelText(/^Reason/);
+    expect(reasonField).toBeInTheDocument();
+    expect(reasonField).toBeRequired();
     expect(screen.getByRole('button', { name: 'Skip task' })).toBeDisabled();
   });
 });
