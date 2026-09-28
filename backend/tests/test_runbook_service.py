@@ -153,3 +153,151 @@ async def test_update_refuses_an_explicit_null_for_name_or_anchor(db_session, te
         await runbook_service.update_plan(db_session, plan, RunbookPlanUpdate(anchor_start_at=None))
     assert exc.value.status_code == 422
     assert plan.anchor_start_at == original_anchor
+
+
+from sqlalchemy import select as _select
+
+from app.api.v1.schemas.runbook import RunbookTaskCreate, RunbookTaskUpdate
+from app.db.models.runbook import RunbookTask, RunbookTaskDependency
+from tests.factories import ensure_user_group
+from tests.runbook_helpers import attach_system, link, make_system
+
+
+async def _plan(db, tenant, user, env):
+    release = await make_release(db, tenant.id, user.id)
+    return release, await make_plan(db, release, env, anchor=ANCHOR)
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_predecessors_in_the_same_plan(db_session, test_tenant, test_user, test_environment):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    a = await make_task(db_session, plan, "A")
+    b = await runbook_service.create_task(db_session, plan, test_tenant.id,
+                                          RunbookTaskCreate(name="B", duration_minutes=10, predecessor_ids=[a.id]))
+    assert await runbook_service.live_edges(db_session, plan.id, test_tenant.id) == [(b.id, a.id)]
+
+
+@pytest.mark.asyncio
+async def test_a_cycle_is_refused_naming_the_tasks(db_session, test_tenant, test_user, test_environment):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    a = await make_task(db_session, plan, "Deploy API")
+    b = await make_task(db_session, plan, "Smoke test")
+    await link(db_session, b, a)
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.set_predecessors(db_session, a, plan, test_tenant.id, [b.id])
+    assert exc.value.status_code == 409
+    assert "cycle" in exc.value.detail and "Deploy API" in exc.value.detail and "Smoke test" in exc.value.detail
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.set_predecessors(db_session, a, plan, test_tenant.id, [a.id])
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_a_predecessor_from_another_plan_or_deleted_is_refused(db_session, test_tenant, test_user, test_environment):
+    release, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    other_env = await ensure_environment(db_session, test_tenant.id, slot=21)
+    other_plan = await make_plan(db_session, release, other_env, anchor=ANCHOR)
+    mine = await make_task(db_session, plan, "mine")
+    theirs = await make_task(db_session, other_plan, "theirs")
+    gone = await make_task(db_session, plan, "gone")
+    gone.deleted_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    for bad in (theirs.id, gone.id):
+        with pytest.raises(HTTPException) as exc:
+            await runbook_service.set_predecessors(db_session, mine, plan, test_tenant.id, [bad])
+        assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_an_unsatisfied_predecessor_cannot_be_added_under_a_started_task(db_session, test_tenant, test_user, test_environment):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    running = await make_task(db_session, plan, "running", status="in_progress")
+    pending = await make_task(db_session, plan, "pending")
+    finished = await make_task(db_session, plan, "finished", status="done")
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.set_predecessors(db_session, running, plan, test_tenant.id, [pending.id])
+    assert exc.value.status_code == 409 and "pending" in exc.value.detail
+    await runbook_service.set_predecessors(db_session, running, plan, test_tenant.id, [finished.id])  # fine
+
+
+@pytest.mark.asyncio
+async def test_set_predecessors_replaces_the_whole_set(db_session, test_tenant, test_user, test_environment):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    a = await make_task(db_session, plan, "A")
+    b = await make_task(db_session, plan, "B")
+    c = await make_task(db_session, plan, "C")
+    await runbook_service.set_predecessors(db_session, c, plan, test_tenant.id, [a.id, b.id, a.id])
+    assert sorted(await runbook_service.live_edges(db_session, plan.id, test_tenant.id)) == [(c.id, a.id), (c.id, b.id)]
+    await runbook_service.set_predecessors(db_session, c, plan, test_tenant.id, [b.id])
+    assert await runbook_service.live_edges(db_session, plan.id, test_tenant.id) == [(c.id, b.id)]
+
+
+@pytest.mark.asyncio
+async def test_a_started_task_cannot_be_deleted_and_a_not_started_one_takes_its_edges(db_session, test_tenant, test_user, test_environment):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    a = await make_task(db_session, plan, "A")
+    b = await make_task(db_session, plan, "B")
+    c = await make_task(db_session, plan, "C", status="in_progress")
+    await link(db_session, b, a)
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.delete_task(db_session, c, test_tenant.id)
+    assert exc.value.status_code == 409
+    await runbook_service.delete_task(db_session, a, test_tenant.id)
+    rows = (await db_session.execute(_select(RunbookTaskDependency))).scalars().all()
+    assert rows == []   # hard-deleted in both directions
+    assert (await db_session.get(RunbookTask, a.id)).deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_team_validation_and_the_archived_carve_out(db_session, test_tenant, test_user, test_environment, second_tenant_factory):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    ops = await ensure_user_group(db_session, test_tenant.id, name="Ops")
+    task = await runbook_service.create_task(db_session, plan, test_tenant.id,
+                                             RunbookTaskCreate(name="T", duration_minutes=5, team_group_id=ops.id))
+    ops.deleted_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    # re-sending the unchanged archived team is accepted
+    await runbook_service.update_task(db_session, task, plan, test_tenant.id,
+                                      RunbookTaskUpdate(name="T2", team_group_id=ops.id))
+    fresh = await ensure_user_group(db_session, test_tenant.id, name="Archived")
+    fresh.deleted_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.update_task(db_session, task, plan, test_tenant.id,
+                                          RunbookTaskUpdate(team_group_id=fresh.id))
+    assert exc.value.status_code == 404
+    other_tenant, _ = await second_tenant_factory()
+    foreign = await ensure_user_group(db_session, other_tenant.id, name="Foreign")
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.update_task(db_session, task, plan, test_tenant.id,
+                                          RunbookTaskUpdate(team_group_id=foreign.id))
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_system_must_be_on_the_release_unless_unchanged(db_session, test_tenant, test_user, test_environment):
+    release, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    api = await make_system(db_session, test_tenant.id, "API")
+    rs = await attach_system(db_session, release, api)
+    stray = await make_system(db_session, test_tenant.id, "Stray")
+    task = await runbook_service.create_task(db_session, plan, test_tenant.id,
+                                             RunbookTaskCreate(name="Deploy", duration_minutes=5, system_id=api.id))
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.create_task(db_session, plan, test_tenant.id,
+                                          RunbookTaskCreate(name="X", duration_minutes=5, system_id=stray.id))
+    assert exc.value.status_code == 422
+    await db_session.delete(rs)          # the system leaves the release (hard delete, as the API does)
+    await db_session.flush()
+    await runbook_service.update_task(db_session, task, plan, test_tenant.id,
+                                      RunbookTaskUpdate(name="Deploy v2", system_id=api.id))
+    assert task.system_id == api.id and task.name == "Deploy v2"
+
+
+@pytest.mark.asyncio
+async def test_a_task_in_another_tenant_is_not_found(db_session, test_tenant, test_user, test_environment, second_tenant_factory):
+    _, plan = await _plan(db_session, test_tenant, test_user, test_environment)
+    task = await make_task(db_session, plan, "T")
+    other_tenant, _ = await second_tenant_factory()
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.get_task(db_session, task.id, other_tenant.id)
+    assert exc.value.status_code == 404

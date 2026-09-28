@@ -10,15 +10,19 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.v1.schemas.runbook import RunbookPlanCreate, RunbookPlanUpdate
+from app.api.v1.schemas.runbook import (
+    PredecessorsUpdate, RunbookPlanCreate, RunbookPlanUpdate, RunbookTaskCreate, RunbookTaskUpdate,
+)
 from app.core.pagination import Page, fetch_page
 from app.db.models.environment import Environment
-from app.db.models.runbook import RunbookPlan, RunbookTask, RunbookTaskDependency
-from app.services import release_service
+from app.db.models.release_system import ReleaseSystem
+from app.db.models.runbook import RunbookPlan, RunbookTask, RunbookTaskDependency, SATISFIED_STATUSES
+from app.services import release_service, user_group_service
+from app.services.runbook_schedule_service import CycleError, topological_order
 
 
 def _now() -> datetime:
@@ -132,4 +136,119 @@ async def delete_plan(db: AsyncSession, plan: RunbookPlan, tenant_id: int) -> No
     plan.deleted_at = now
     for t in tasks:
         t.deleted_at = now
+    await db.flush()
+
+
+async def get_task(db: AsyncSession, task_id: int, tenant_id: int) -> tuple[RunbookTask, RunbookPlan]:
+    row = (await db.execute(
+        select(RunbookTask, RunbookPlan)
+        .join(RunbookPlan, RunbookPlan.id == RunbookTask.plan_id)
+        .where(RunbookTask.id == task_id, RunbookTask.tenant_id == tenant_id,
+               RunbookTask.deleted_at.is_(None), RunbookPlan.deleted_at.is_(None)))).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Runbook task not found")
+    return row[0], row[1]
+
+
+async def _validate_team(db, tenant_id: int, new_id: Optional[int], current_id: Optional[int]) -> None:
+    """A1's archived-value carve-out: an unchanged team is accepted even if it
+    has since been archived; a NEW assignment must be a live group of this tenant."""
+    if new_id is None or new_id == current_id:
+        return
+    await user_group_service.get_group(db, new_id, tenant_id)   # 404s on archived / foreign
+
+
+async def _validate_system(db, plan: RunbookPlan, tenant_id: int, new_id: Optional[int],
+                           current_id: Optional[int]) -> None:
+    """The permission guards a CHANGE, not a mention (B2): an unchanged system
+    that has since left the release is accepted on a full-form save."""
+    if new_id is None or new_id == current_id:
+        return
+    on_release = (await db.execute(select(ReleaseSystem.id).where(
+        ReleaseSystem.release_id == plan.release_id, ReleaseSystem.system_id == new_id,
+        ReleaseSystem.tenant_id == tenant_id))).first()
+    if on_release is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That system is not part of this release")
+
+
+async def create_task(db: AsyncSession, plan: RunbookPlan, tenant_id: int,
+                      data: RunbookTaskCreate) -> RunbookTask:
+    await _validate_team(db, tenant_id, data.team_group_id, None)
+    await _validate_system(db, plan, tenant_id, data.system_id, None)
+    task = RunbookTask(
+        tenant_id=tenant_id, plan_id=plan.id, name=data.name, description=data.description,
+        team_group_id=data.team_group_id, system_id=data.system_id, kind=data.kind,
+        duration_minutes=data.duration_minutes, fixed_start_at=data.fixed_start_at,
+        sort_order=data.sort_order, status="not_started")
+    db.add(task)
+    await db.flush()
+    if data.predecessor_ids:
+        await set_predecessors(db, task, plan, tenant_id, data.predecessor_ids)
+    return task
+
+
+_NOT_NULL = {"name", "kind", "duration_minutes", "sort_order"}
+
+
+async def update_task(db: AsyncSession, task: RunbookTask, plan: RunbookPlan, tenant_id: int,
+                      data: RunbookTaskUpdate) -> RunbookTask:
+    sent = data.model_fields_set
+    for field in _NOT_NULL & sent:
+        if getattr(data, field) is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{field} cannot be null")
+    if "team_group_id" in sent:
+        await _validate_team(db, tenant_id, data.team_group_id, task.team_group_id)
+    if "system_id" in sent:
+        await _validate_system(db, plan, tenant_id, data.system_id, task.system_id)
+    for field in ("name", "description", "team_group_id", "system_id", "kind",
+                  "duration_minutes", "fixed_start_at", "sort_order"):
+        if field in sent:
+            setattr(task, field, getattr(data, field))
+    await db.flush()
+    return task
+
+
+async def delete_task(db: AsyncSession, task: RunbookTask, tenant_id: int) -> None:
+    if task.status != "not_started":
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"'{task.name}' has started and cannot be deleted — its history is the record")
+    await db.execute(delete(RunbookTaskDependency).where(
+        RunbookTaskDependency.tenant_id == tenant_id,
+        or_(RunbookTaskDependency.task_id == task.id,
+            RunbookTaskDependency.predecessor_task_id == task.id)))
+    task.deleted_at = _now()
+    await db.flush()
+
+
+async def set_predecessors(db: AsyncSession, task: RunbookTask, plan: RunbookPlan, tenant_id: int,
+                           predecessor_ids: list[int]) -> None:
+    """Replace the whole set, validated as one unit (spec §4)."""
+    ids = list(dict.fromkeys(predecessor_ids))
+    tasks = {t.id: t for t in await live_tasks(db, plan.id, tenant_id)}
+    if task.id in ids:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"This dependency would create a cycle through: {task.name}")
+    missing = [i for i in ids if i not in tasks]
+    if missing:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"Not live tasks in this runbook: {', '.join(map(str, missing))}")
+    if task.status != "not_started":
+        unsatisfied = [tasks[i] for i in ids if tasks[i].status not in SATISFIED_STATUSES]
+        if unsatisfied:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"'{task.name}' has already started, so it cannot wait on tasks that are not done: "
+                + ", ".join(f"{t.name} ({t.status})" for t in unsatisfied))
+    edges = [(a, b) for a, b in await live_edges(db, plan.id, tenant_id) if a != task.id]
+    edges += [(task.id, i) for i in ids]
+    try:
+        topological_order(tasks, edges)
+    except CycleError as exc:
+        names = sorted(tasks[i].name for i in exc.task_ids if i in tasks)
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"This dependency would create a cycle through: {', '.join(names)}")
+    await db.execute(delete(RunbookTaskDependency).where(
+        RunbookTaskDependency.tenant_id == tenant_id, RunbookTaskDependency.task_id == task.id))
+    for i in ids:
+        db.add(RunbookTaskDependency(tenant_id=tenant_id, task_id=task.id, predecessor_task_id=i))
     await db.flush()
