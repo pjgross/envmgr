@@ -29,6 +29,7 @@ describe('selectMyWorkTotal', () => {
         pir_actions: { ...okQueue, count: 3 },
         incidents: okQueue,
         hypercare: okQueue,
+        runbook_tasks: okQueue,
       },
     });
     expect(selectMyWorkTotal(state)).toBe(6);

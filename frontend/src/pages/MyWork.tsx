@@ -156,6 +156,16 @@ const QUEUES: QueueConfig[] = [
     viewAllLabel: 'releases',
     viewAllCaption: 'All releases; the list has no hyper-care filter',
   },
+  {
+    key: 'runbook_tasks',
+    title: 'Runbook tasks ready for my team',
+    // SUPERSET: there is no cross-release runbook list; each row opens its
+    // own release's Runbook tab with the plan selected, which is where the
+    // task is started.
+    viewAllHref: '/releases',
+    viewAllLabel: 'releases',
+    viewAllCaption: 'All releases; runbooks live on each release',
+  },
 ];
 
 function formatDue(due: string | null | undefined): string | null {

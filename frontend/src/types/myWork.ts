@@ -1,4 +1,4 @@
-// GET /me/work — Phase "IA" Task 4/5: the five "waiting on me" queues a
+// GET /me/work — Phase "IA" Task 4/5: the seven "waiting on me" queues a
 // personal inbox composes under one clock. Mirrors
 // backend/app/api/v1/schemas/my_work.py exactly.
 //
@@ -35,7 +35,8 @@ export type MyWorkQueueKey =
   | 'decommissions'
   | 'pir_actions'
   | 'incidents'
-  | 'hypercare';
+  | 'hypercare'
+  | 'runbook_tasks';
 
 export interface MyWorkResponse {
   as_of: string;

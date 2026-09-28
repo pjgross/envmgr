@@ -1,5 +1,5 @@
 import { configureStore } from '@reduxjs/toolkit';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -44,6 +44,11 @@ const allSix: MyWorkResponse['queues'] = {
   pir_actions: queueWithOneRow('pir_actions'),
   incidents: queueWithOneRow('incidents'),
   hypercare: queueWithOneRow('hypercare'),
+  runbook_tasks: {
+    count: 1,
+    items: [{ id: 21, title: 'Run smoke tests', subtitle: 'Payments 4.2 · prod', url: '/releases/7?tab=runbook&plan=5', due: null }],
+    failed: false,
+  },
 };
 
 const okQueue: QueueResult = { count: 0, items: [], failed: false };
@@ -59,6 +64,7 @@ const emptyFour: MyWorkResponse['queues'] = {
   pir_actions: okQueue,
   incidents: okQueue,
   hypercare: okQueue,
+  runbook_tasks: okQueue,
 };
 
 const fiveItems: WorkItem[] = Array.from({ length: 5 }, (_, i) => ({
@@ -148,7 +154,7 @@ describe('MyWork', () => {
       </Provider>
     );
 
-    expect(await screen.findAllByText(/couldn't load/i)).toHaveLength(6);
+    expect(await screen.findAllByText(/couldn't load/i)).toHaveLength(7);
     expect(screen.queryByText('Nothing waiting on you')).not.toBeInTheDocument();
   });
 
@@ -174,16 +180,26 @@ describe('MyWork', () => {
     // No crash either way this renders — asserting the ordinary "empty"
     // fallback rather than "failed" is a statement about today's choice
     // (no `error` was set; this was a 200), not a claim that failed is wrong.
-    expect(await screen.findAllByText('Nothing waiting on you')).toHaveLength(6);
+    expect(await screen.findAllByText('Nothing waiting on you')).toHaveLength(7);
   });
 
   it('renders the Hyper-care decisions card with its overdue count and view-all link', async () => {
     renderWithStore(<MyWork />, { ...allSix, hypercare: { count: 2, overdue: 1, failed: false, items: [
       { id: 7, title: 'Release 3.2', subtitle: 'Hyper-care window ends', url: '/releases/7?tab=closeout', due: '2026-09-08T00:00:00Z' },
     ] } });
-    expect(await screen.findByRole('heading', { name: /hyper-care decisions/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Release 3.2' })).toHaveAttribute('href', '/releases/7?tab=closeout');
-    expect(screen.getByText(/1 overdue/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /view all releases/i })).toHaveAttribute('href', '/releases');
+    const heading = await screen.findByRole('heading', { name: /hyper-care decisions/i });
+    // Scoped to this card: `runbook_tasks` also links to "View all releases",
+    // so an unscoped query would find two matches once both cards render.
+    const card = heading.closest('.MuiCard-root') as HTMLElement;
+    expect(within(card).getByRole('link', { name: 'Release 3.2' })).toHaveAttribute('href', '/releases/7?tab=closeout');
+    expect(within(card).getByText(/1 overdue/i)).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: /view all releases/i })).toHaveAttribute('href', '/releases');
+  });
+
+  it('lists runbook tasks ready for my team, linking to the plan', async () => {
+    renderWithStore(<MyWork />, allSix);
+    const link = await screen.findByRole('link', { name: 'Run smoke tests' });
+    expect(link).toHaveAttribute('href', '/releases/7?tab=runbook&plan=5');
+    expect(screen.getByText('Payments 4.2 · prod')).toBeInTheDocument();
   });
 });

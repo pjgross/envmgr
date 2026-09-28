@@ -117,4 +117,22 @@ describe('RunbookTab', () => {
     setup(7, read(7, 5, 'not_started', [task({})]), 'Release Manager');
     expect(await screen.findByRole('button', { name: /add task/i })).toBeInTheDocument();
   });
+
+  it('offers "Record time" for a task with an available transition, opening a choice of targets', async () => {
+    setup(7, read(7, 5, 'not_started', [task({})]));
+    await screen.findByText('Deploy API');
+    await userEvent.click(screen.getByRole('button', { name: 'Record a time for Deploy API' }));
+    // Two allowed_transitions ('in_progress', 'done') -> a "Move to" picker
+    // offering both as targets, not a single-target confirm.
+    await userEvent.click(await screen.findByLabelText('Move to'));
+    expect(await screen.findByRole('option', { name: 'Start' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Mark done' })).toBeInTheDocument();
+  });
+
+  it('the Timeline toggle switches from the task table to the timeline view', async () => {
+    setup(7, read(7, 5, 'not_started', [task({})]));
+    await screen.findByText('Deploy API');
+    await userEvent.click(screen.getByRole('button', { name: 'Timeline' }));
+    expect(await screen.findByLabelText(/Deploy API: planned/)).toBeInTheDocument();
+  });
 });
