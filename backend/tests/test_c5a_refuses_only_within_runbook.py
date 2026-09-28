@@ -21,9 +21,16 @@ release-transition-vocabulary endpoint, which does not exist). The seeded
 `required_fields: ["name", "release_type", "target_date"]` and `make_release`
 sets no `target_date`, so that transition 422s. `draft -> cancelled` has no
 required fields and is allowed for Admin, so the test posts that directly.
+
+Fix round 1: `test_nothing_outside_the_runbook_imports_it` now parses each
+file with `ast` and inspects only `Import`/`ImportFrom` nodes — a whole-file
+text search previously flagged plain-English mentions of a service's name in
+a docstring as if they were imports, which forced (and is why this round
+un-forces) a docstring reword in app/db/models/runbook.py that named no
+functional difference at all.
 """
+import ast
 import pathlib
-import re
 from datetime import datetime, timezone
 
 import pytest
@@ -40,16 +47,43 @@ ALLOWED_IMPORTERS = {
     "app/services/runbook_schedule_service.py",
 }
 
+RUNBOOK_SERVICE_MODULES = {
+    "runbook_service", "runbook_execution_service", "runbook_view_service", "runbook_schedule_service",
+}
+
+
+def _imported_names(path: pathlib.Path) -> set[str]:
+    """Every name an `import`/`from ... import ...` statement in this file
+    binds or reaches through — module basenames, aliases and imported
+    attribute names — never prose. Covers `from app.services import
+    runbook_service`, `from app.services.runbook_service import x` and
+    `import app.services.runbook_service` alike."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.name.rsplit(".", 1)[-1])
+                if alias.asname:
+                    names.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.add(node.module.rsplit(".", 1)[-1])
+            for alias in node.names:
+                names.add(alias.name)
+                if alias.asname:
+                    names.add(alias.asname)
+    return names
+
 
 def test_nothing_outside_the_runbook_imports_it():
     root = pathlib.Path(__file__).resolve().parents[1]
-    pattern = re.compile(r"runbook_(service|execution_service|view_service|schedule_service)")
     offenders = []
     for path in (root / "app").rglob("*.py"):
         rel = path.relative_to(root).as_posix()
         if rel in ALLOWED_IMPORTERS or "/migrations/" in rel:
             continue
-        if pattern.search(path.read_text()):
+        if _imported_names(path) & RUNBOOK_SERVICE_MODULES:
             offenders.append(rel)
     assert offenders == []
 

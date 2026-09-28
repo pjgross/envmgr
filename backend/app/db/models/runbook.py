@@ -6,8 +6,7 @@ by dependencies; an append-only history of every status change.
 STATUS IS STORED, unlike the computed states elsewhere in this codebase: it is
 a fact a person reports ("I started it"), not a function of other rows. What
 is derived from it — schedule, lateness, criticality, the plan's state — is
-computed on read by the runbook's schedule-computation service and never
-stored.
+computed on read by runbook_schedule_service and never stored.
 """
 from datetime import datetime
 from typing import Optional
@@ -25,8 +24,8 @@ SATISFIED_STATUSES = frozenset({"done", "skipped"})
 
 
 class RunbookPlan(Base):
-    """At most one LIVE plan per (release, environment) — enforced in the
-    runbook write service, not by a partial unique index (inert on SQLite)."""
+    """At most one LIVE plan per (release, environment) — enforced in
+    runbook_service, not by a partial unique index (inert on SQLite)."""
 
     __tablename__ = "runbook_plan"
 
