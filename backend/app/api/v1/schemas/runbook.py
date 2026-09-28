@@ -60,3 +60,10 @@ class RunbookTaskUpdate(BaseModel):
 class PredecessorsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     predecessor_ids: list[int]
+
+
+class TransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    to_status: TaskStatus
+    at: Optional[datetime] = None
+    reason: Optional[str] = Field(default=None, max_length=2000)
