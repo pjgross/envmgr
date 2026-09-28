@@ -149,9 +149,10 @@ Added from the gap analysis of the two domain-introduction documents. Capability
 [gap-analysis.md](gap-analysis.md). Requirements: [requirements.md](requirements.md) §2.11, §2.13–§2.16.
 Phase 8 remains reserved for the parked AI Copilot / AI-driven Integrations design.
 
-### Phase 9 — Release Governance & Deployment Safety — 🟡 In progress (2026-09-09)
+### Phase 9 — Release Governance & Deployment Safety — 🟡 In progress (2026-09-29)
 Decomposed into nine clusters, C1–C9 (lifecycle order, not build order) — see
-[phases/phase-9.md](phases/phase-9.md). **Four are complete.** **C2** (typed gates + evidence +
+[phases/phase-9.md](phases/phase-9.md). **C5 is itself three sub-projects,
+C5a/C5b/C5c** (phase-9.md's cluster table). **Five are complete.** **C2** (typed gates + evidence +
 waiver-with-expiry, 2026-08-20): `gate_type` (tenant-configurable, seeded with the eight standard
 types), `gate_evidence` (a reference to a deployment, going stale when a later successful
 deployment of the same component/environment supersedes it), `gate_waiver` (reason, approver,
@@ -171,9 +172,20 @@ state names, `is_closed`, and the two close gates `requires_pir_complete` /
 behind a thirteenth *Closeout* tab, and a sixth `/me/work` queue — plus the fix for `is_failed`,
 which the admin lifecycle editor had been silently dropping on every save since July.
 C2, C3 and C4 refuse nothing; **C6 is Phase 9's first deliberate refusal**, in one function,
-guarded by `test_c6_refuses_only_at_close.py`. Outstanding: **C1** Release Intake Form + risk
-scoring; **C5** deployment execution (pre-deploy checklist gate, blue-green/canary, post-deploy
-verification, traffic ramp); **C7** content/scope freeze completion + Scope Stability KPI (most of
+guarded by `test_c6_refuses_only_at_close.py`. **C5a** (cutover runbook and execution,
+2026-09-29): a per-(release, environment) plan of tasks carried out by teams against systems,
+joined by dependencies with coordination points — a task cannot start (or be marked done in one
+step) while any predecessor is anything other than done or skipped, refused with a 409 naming
+each still-outstanding predecessor. Status is stored (a fact a person reports); the schedule,
+lateness, criticality and the plan's state are all computed on read, at minute precision, and
+never stored. A fourteenth release tab (table + read-only timeline), a composite read carrying
+per-task `allowed_transitions`, and a seventh `/me/work` queue. **C5a refuses only writes to its
+own runbook records** — guarded by `test_c5a_refuses_only_within_runbook.py`, which C5b will
+deliberately amend in exactly one test when it folds runbook findings into
+`release_readiness_service.evaluate()`. Outstanding: **C1** Release Intake Form + risk
+scoring; **C5b** pipeline integration (API-key task updates, `deploy` tasks following Phase 4
+deployment webhooks, folding into readiness) and **C5c** templates + copying, both depending on
+C5a; **C7** content/scope freeze completion + Scope Stability KPI (most of
 the supporting machinery — `scope_deadline`, Scope Windows, churn analytics — already ships);
 **C8** feature-flag governance (state/drift/lifecycle/audit); **C9** read-only "Stable Windows"
 (with an open question of its own — see phase-9.md — on whether a Stable Window ever becomes a

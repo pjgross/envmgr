@@ -124,15 +124,15 @@ New phases introduced by this analysis (Phase 8 remains reserved for the parked 
 | Deployment tracking (env, build, commit, status incl. rolled_back) | ✅ | Phase 4 |
 | Auto-raise Change Request from CI/CD deployment | ✅ | Phase 4 |
 | `can-deploy` preflight gate | ✅ | Phase 4 Sub-3 |
-| Deployment plan + window on the release record | 🟡 | Phase 9 |
-| Pre-deployment checklist as a required gate | 🟡 | Phase 9 |
-| Deploy patterns: rolling / blue-green / canary per category | ❌ | Phase 9 |
-| Post-deployment verification (smoke/synthetic) → rollback trigger | ❌ | Phase 9 |
-| Traffic-ramp schedule with auto-pause on adverse signal | ❌ | Phase 9 |
-| **Documented rollback plan agreed before deploy**, per release | ❌ | Phase 9 |
-| Data-reversibility flags surfaced at Plan time | ❌ | Phase 9 |
-| In-flight rollback authorisation recorded (time, trigger, rationale) | ❌ | Phase 9 |
-| Rollback rehearsal tracked as a gate (≥quarterly for critical) | ❌ | Phase 9 |
+| Deployment plan + window on the release record | ✅ | Phase 9 C5a (cutover runbook: a plan per release+environment, anchor start, computed end) |
+| Pre-deployment checklist as a required gate | 🟡 | Phase 9 C5a (as a task with dependencies the invariant enforces, not a `gate_type` row) |
+| Deploy patterns: rolling / blue-green / canary per category | ✅ | Phase 9 C5a (`deploy_pattern`: rolling/blue_green/canary/big_bang/other) |
+| Post-deployment verification (smoke/synthetic) → rollback trigger | 🟡 | Phase 9 C5a (verification modelled as a task depending on every deploy task; EnvManager never triggers a rollback itself — register-not-executor boundary) |
+| Traffic-ramp schedule with auto-pause on adverse signal | 🟡 | Phase 9 C5a (ramp steps modelled as a task chain; auto-pause is the pipeline's job, not EnvManager's) |
+| **Documented rollback plan agreed before deploy**, per release | ✅ | Phase 9 C4 |
+| Data-reversibility flags surfaced at Plan time | ✅ | Phase 9 C4 |
+| In-flight rollback authorisation recorded (time, trigger, rationale) | ✅ | Phase 9 C4 |
+| Rollback rehearsal tracked as a gate (≥quarterly for critical) | 🟡 | Phase 9 C4 (a per-system rehearsal record with computed freshness against a per-tenant validity period; not modelled as a `gate_type` row) |
 | Roll-forward / hotfix fast path | 🟡 | Phase 3 (Emergency lifecycle) |
 
 ### A8. Hyper-care / closeout / improvement

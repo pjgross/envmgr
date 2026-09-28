@@ -1,9 +1,10 @@
 # Phase 9: Release Governance & Deployment Safety
 
 > Status: 🟡 **IN PROGRESS** — sub-projects **C2 (Typed gates, evidence,
-> waivers)**, **C3 (Go/No-Go decision record)**, **C4 (Rollback governance)** and
-> **C6 (Hyper-care and closeout)** are complete; C1, C5, C7, C8 and C9 are not
-> started. | Roadmap: [../plan.md](../plan.md)
+> waivers)**, **C3 (Go/No-Go decision record)**, **C4 (Rollback governance)**,
+> **C5a (Cutover runbook and execution)** and **C6 (Hyper-care and closeout)**
+> are complete; C1, C5b, C5c, C7, C8 and C9 are not started. | Roadmap:
+> [../plan.md](../plan.md)
 
 Phase 9 answers [requirements.md §2.11](../requirements.md), which is roughly 48
 capability rows — Phase-7-sized or larger. It was decomposed into nine clusters,
@@ -11,7 +12,10 @@ capability rows — Phase-7-sized or larger. It was decomposed into nine cluster
 before go/no-go before rollback before deployment before closeout), not build
 order — C2 shipped first because it extends entities (`ReleaseGate`,
 `GateCriterion`, release templates) that already existed, and because C1, C3, C4
-and C5 all lean on the gate model C2 defines. See
+and C5b all lean on the gate model C2 defines. (**C5a, built later as the
+cutover runbook, turned out not to depend on it at all** — see the C5a section
+below; the runbook enforces its own ordering invariant independently of any
+gate.) See
 [the C2 design spec, §9](../superpowers/specs/2026-08-19-typed-gates-evidence-waivers-design.md#9-the-rest-of-phase-9)
 for the decomposition as originally recorded.
 
@@ -23,7 +27,9 @@ for the decomposition as originally recorded.
 | C2 | **Typed gates, evidence, waivers** | `ReleaseGate`, `GateCriterion`, templates | — | ✅ Complete |
 | C3 | **Go/No-Go decision record** | nothing | C2, C4 | ✅ Complete |
 | C4 | **Rollback governance** | nothing | C2 (folds into the same verdict) | ✅ Complete |
-| C5 | Deployment execution records | Phase 4 tracking, `can-deploy` | C2 (pre-deploy checklist is a gate) | Not started |
+| C5a | **Deployment execution: cutover runbook** | Phase 4 tracking, `can-deploy` | — | ✅ Complete |
+| C5b | Deployment execution: pipeline integration + readiness | C5a's runbook | C5a, C2 (folds into the same verdict) | Not started |
+| C5c | Deployment execution: templates + copying | C5a's runbook | C5a | Not started |
 | C6 | **Hyper-care + closeout** | The **PIR findings/actions/citations** work (2026-09-02) is the retro half — findings, trackable actions, a tenant-wide action worklist, incidents cited as evidence. Supersedes Phase 5 SP4. | C3 | ✅ Complete |
 | C7 | Scope freeze completion | `scope_deadline`, Scope Windows, churn analytics — most of it already ships | — | Not started |
 | C8 | Feature-flag governance | nothing | — | Not started |
@@ -476,6 +482,182 @@ policy use. Spec:
   `reversibility` value as the release page's own banner — confirming the
   ONE-EVALUATOR promise holds whenever the rollup-vs-findings gap above
   isn't in play.
+
+## C5a — Cutover runbook and execution — ✅ COMPLETE 2026-09-29
+
+The first of C5's three sub-projects — see the cluster table above; **C5b**
+(pipeline integration + readiness) and **C5c** (templates + copying) are not
+started. C5 answers [requirements.md §2.11](../requirements.md)'s "deployment
+plan + window on the release record," "pre-deployment checklist as a required
+gate," "deploy patterns (rolling / blue-green / canary) per category,"
+"post-deployment verification … that can trigger rollback" and "traffic-ramp
+schedule with auto-pause" — but **EnvManager holds no pipeline or cloud
+credentials**, the register-not-executor boundary every Phase 9 sub-project has
+kept, so "verification that can trigger rollback" and "auto-pause" are read as:
+*the pipeline* pauses or rolls back, and EnvManager records that it did (C4
+already records rollback authorisations).
+
+Brainstorming with the owner turned the deployment plan into a **cutover
+runbook**: a plan per (release, environment), made of tasks carried out by
+different **teams** against different **systems**, joined by dependencies with
+**coordination points** — a task that cannot start until several earlier ones
+have all completed ("the automated tests cannot run until every system has
+been deployed and brought up"). A runbook can span more than one sitting:
+pre-tasks the previous evening, then the plan resumes the next evening with a
+task that checks the pre-tasks actually completed. That model absorbs most of
+§2.11's line: a pre-deploy check is a task before the window, smoke/synthetic
+verification is a task depending on every deploy task, ramp steps are a chain
+of tasks, and the deploy pattern is an attribute of the plan.
+
+What shipped:
+
+- **Four tables** — `runbook_plan`, `runbook_task`, `runbook_task_dependency`,
+  `runbook_task_event` — migration `runbooks`, additive, no column changes on
+  anything existing, no backfill, no seed: **no deploy step**.
+- **`status` is stored** on a task (`not_started`/`in_progress`/`done`/
+  `failed`/`skipped`) — the one place C5a breaks this codebase's compute-on-read
+  habit, because a task's status is a fact a person reports ("I started it"),
+  not a function of other rows. Everything derived from it — the schedule,
+  lateness, criticality, the plan's state — is computed on read by
+  `runbook_schedule_service.compute()`, a pure function with no database
+  access, and never stored.
+- **The invariant, enforced in exactly one place**: no task is `in_progress` or
+  `done` while any predecessor is anything other than `done` or `skipped`.
+  `runbook_execution_service.transition`'s `NEEDS_PREDECESSORS` check is the
+  only place that rule lives; every 409 in C5a protects that one sentence.
+- A composite read (`GET /runbooks/{id}`) carrying the plan, its tasks and
+  edges, the computed schedule, rendered team/system/environment names and,
+  per task, **`allowed_transitions` for the caller** — the UI renders only
+  these and never re-derives a rule.
+- A seventh `/me/work` queue, *"Runbook tasks ready for my team"*: tasks the
+  caller's team could start right now, expressed once in SQL
+  (`runbook_execution_service.ready_clause`) and held equal to the composite's
+  `allowed_transitions` by test.
+- A fourteenth release tab, *Runbook*: a plan switcher; a header (state,
+  planned end, forecast end, slip); a task table whose action buttons are
+  drawn only from `allowed_transitions`, with skip/reopen dialogs requiring a
+  reason and any transition able to record an "actually happened at" time; a
+  read-only timeline (planned bars against forecast bars, critical tasks
+  emphasised, a "now" line); and a 30-second live re-read while the plan is in
+  progress, paused while the tab is hidden.
+
+**C5a refuses only writes to its own runbook records.** No deployment webhook,
+release transition, booking, `can-deploy` answer or readiness verdict changes
+because a runbook exists, is incomplete, or has failed anywhere in it —
+guard: `backend/tests/test_c5a_refuses_only_within_runbook.py`, proved
+non-vacuous by adding a readiness blocker for an unfinished runbook and
+watching it fail, and by adding an import of a runbook service to
+`release_readiness_service` and watching a second assertion in the same file
+fail. **C5b will deliberately amend exactly one test in it** when it folds
+runbook findings into `release_readiness_service.evaluate()` — the same move
+C6 made to `test_pir_records_never_refuses.py`. Spec:
+[docs/superpowers/specs/2026-09-28-cutover-runbook-design.md](../superpowers/specs/2026-09-28-cutover-runbook-design.md).
+
+### What C5a established, and what will bite if forgotten
+
+- **STATUS IS STORED; EVERYTHING ELSE IS COMPUTED, ONCE, ON THE SERVER, AT
+  MINUTE PRECISION.** `runbook_schedule_service.compute()` is the only place a
+  planned or forecast start, a lateness flag or criticality is worked out —
+  the composite read, the timeline and (C5b) the readiness finding will all
+  read its output, or a predicate held equal to it by test, never re-derive a
+  rule of their own. All times are truncated to the minute and compared as
+  UTC instants — **deliberately not `expiry_boundary`'s day-granular rule**: a
+  cutover is measured in minutes, not days, the way A4/B2/B5/C2/C6's deadlines
+  are.
+- **C5A REFUSES ONLY WITHIN THE RUNBOOK, AND ITS GUARD IS ONE C5B WILL AMEND
+  ON PURPOSE.** `test_c5a_refuses_only_within_runbook.py` is the guard. C5a's
+  promise is not the "this changes nothing anywhere" shape A3, A4, B2, B4,
+  C2, C4, C3 and the PIR work each made — C5a genuinely does refuse things,
+  the way B5 and C6 do — its promise is that every refusal stays inside its
+  own runbook records and nothing outside them (a deployment, a release
+  transition, a booking, `can-deploy`, the readiness verdict) ever moves or
+  blocks because of one. Its import-scan half parses each backend file with
+  Python's own `ast` module and inspects
+  only `Import`/`ImportFrom` nodes, because a first attempt used a whole-file
+  text search and flagged a docstring's plain-English mention of a service's
+  name as if it were an import, forcing an unnecessary docstring reword that
+  was then undone once the scan was fixed.
+- **A PHASE 4 DEPLOYMENT WEBHOOK MUST NEVER BE REFUSED — C5B's RULE, RECORDED
+  HERE NOW SO IT ISN'T LOST BEFORE C5B EXISTS TO ENFORCE IT.** Spec §8: a
+  deployment arriving for a task whose predecessors are unsatisfied is
+  recorded as ever; the task is left alone and flagged "arrived out of order,"
+  never blocked. A pipeline's webhook and a human's runbook can disagree about
+  order without either one refusing the other.
+- **`ready_clause` AND `allowed_transitions` ARE HELD EQUAL BY TEST, BECAUSE
+  AGREEMENT ALONE IS NOT CORRECTNESS.**
+  `test_runbook_my_work.py::test_the_queue_agrees_with_allowed_transitions`
+  asserts the `/me/work` queue's SQL predicate and the composite's per-task
+  rule agree on a shared fixture; separate tests then pin the predicate's own
+  answer for a failed predecessor, a skipped one, a deleted one, and another
+  team's task — the same "agreement is not correctness" lesson A4's
+  `bookings_live` and B6's overlap filters already established.
+- **`system_id` IS STORED, NOT A `release_system` ID** — those rows are
+  hard-deleted (`DELETE /release-systems/{id}`, which is how C4 came to have
+  orphaned rollback plans); a task whose system later leaves the release
+  keeps its `system_id` and renders "no longer on this release" instead of
+  losing the link. An unchanged `system_id` re-sent on a full-form save is
+  accepted even once it has left the release — the permission guards a
+  *change*, not a *mention* (B2's rule).
+- **THE HEAD-PIN LITERAL LIVES IN TWO FILES, AND THE FULL SUITE IS WHAT CAUGHT
+  THE SECOND ONE.** `tests/test_pir_backfill_migration.py` and
+  `tests/test_b6_writes_nothing.py` both pin the current Alembic head by
+  name; the implementer repinned only the first when adding the `runbooks`
+  migration, and a full-SQLite-suite run at the end of the branch (1 failed,
+  2746 passed) surfaced the second. Both now read `"runbooks"`.
+- **B1 — A PHANTOM-EDGE RACE UNDER READ COMMITTED, FOUND ONLY BY DRIVING THE
+  RUNNING SERVER.** `runbook_service.live_tasks` and `.live_edges` are two
+  separate `SELECT`s. A task or edge committed by a concurrent request between
+  them can leave an edge whose task or predecessor id is absent from the
+  first query's result, and `runbook_view_service.read` (and
+  `runbook_execution_service._neighbours`) indexed straight into a dict built
+  from that result — a `KeyError`, surfacing as a bare 500. Reproduced live
+  with a create-then-read loop, roughly 1 hit in 6.
+  `runbook_schedule_service.compute()` was already filtering its own edge
+  list to ids present in its input rather than indexing blindly; the composite
+  read and `_neighbours` now do the same, with a regression test that feeds a
+  dependency edge referencing a task id outside the loaded set. Verified live
+  afterwards: the same probe ran 150 iterations with no failure.
+- **B2 (PLATFORM, PRE-EXISTING, NOT FIXED APP-WIDE) — `get_db` COMMITS AFTER
+  THE RESPONSE IS ALREADY ON THE WIRE.** FastAPI 0.141's request-scoped
+  yield-dependency exit runs its post-yield code (`get_db`'s commit) *after*
+  `await response(scope, receive, send)` inside `request_response()`
+  (`fastapi/routing.py`), so a client can receive a 2xx and have its own very
+  next request race that commit and read pre-commit data — this is what bit
+  the live dev server as a transition's 200 coming back before its own write
+  had committed. **This is very likely the real explanation for CLAUDE.md's
+  PIR-sub-project note "A 'STALE RENDER' THAT WAS NOT REAL," which diagnosed
+  two occurrences as a dev-server HMR artifact** — that diagnosis has been
+  corrected in place rather than removed. Mitigated **for the runbook router
+  only**: every route in `app/api/v1/runbooks.py` uses `Depends(get_db,
+  scope="function")`, which closes the session before the response goes out,
+  for that router alone. The other **378** `Depends(get_db)` sites across the
+  rest of the application are unchanged; fixing them app-wide is surfaced to
+  the owner as separate work, deliberately not attempted inside C5a.
+- **THE BROWSER PASS PASSED EVERYTHING PLANNED EXCEPT ONE CHECK THAT COULD NOT
+  RUN.** Built in the dev tenant with three teams, twelve tasks and two
+  coordination points across a two-evening plan: the computed schedule; the
+  refusal text naming each blocking predecessor; reopen hidden under a
+  started successor and offered otherwise; the slipped/late/critical flags;
+  the `/me/work` queue showing exactly one developer's own team's ready
+  deploy tasks and nothing from another team; fail → downstream blocked →
+  retry clears; the *Record time* dialog; the 30-second re-read (paused while
+  hidden, resuming when visible); the timeline (planned/forecast/critical/now
+  line); no page-level horizontal scroll at 1512px, the grid and timeline
+  scrolling internally instead; dark-mode legibility; and 409s, with reasons,
+  on deleting a started task and a started plan. **The 1024px (iPad) check
+  could not be run** — the browser-automation tool's window resize did not
+  take effect, so only the structural internal-scrolling guard was confirmed,
+  not an actual iPad-width render; this remains to be checked by hand.
+- **FOUR SMALLER UI DEFECTS THE BROWSER PASS FOUND, ADDRESSED IN THE SAME
+  TASK**: the tab kept stale state — a stale *Start* button, a stale
+  "cannot start until…" list — after a refused (409) transition, until the
+  next 30-second poll caught up, rather than re-reading the composite
+  immediately on rejection; the newly active 14th ("Runbook") tab was not
+  scrolled into view when landing on it from *My work*; the tab waited the
+  full 30 seconds to re-read on becoming visible again rather than doing so
+  immediately on `visibilitychange`; and *Record time* offered itself even
+  when the only allowed transition was *Skip*, which needs a reason the
+  "record a time" framing does not ask for.
 
 ## C6 — Hyper-care and closeout — ✅ COMPLETE 2026-09-09
 

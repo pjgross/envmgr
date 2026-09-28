@@ -941,6 +941,34 @@ One reversibility finding is **never** affected by either toggle: a component wh
 
 A worked example, verified end to end on this deployment: with both flags off, a release with an irreversible, unagreed plan and no rehearsal read as **3 advisory** findings — none of them blockers, and `ok: true`. Turning *Require a rollback plan* on and re-checking the same release moved only the *unagreed plan* finding into a **1 in the verdict** (blocker) section; the irreversible-reversibility and missing-rehearsal findings stayed advisory, and `ok` became `false` — but the release itself remained fully transitionable, bookable and deployable throughout, exactly as the panel's copy promises.
 
+### Cutover runbooks
+
+Phase 9 sub-project C5a. A **runbook** is a per-(release, environment) cutover plan, on the release's *Runbook* tab — at most one **live** runbook per pair; creating one for a pair whose previous runbook was deleted **revives that same slot** (with no tasks) rather than creating a second, the same lesson C4's rollback plans learned. Creating a runbook, adding or editing its tasks, wiring dependencies, and deleting either is **Admin or Release Manager only**; updating a task's own **status** — starting it, completing it, failing it, retrying it — is open to the task's assigned team too (see below).
+
+**Creating a runbook.** Click *New runbook* on the tab, pick a live environment (it doesn't have to be one the release has actually booked — the runbook doesn't police that), a name, an **anchor** (the moment work with no predecessor of its own is allowed to begin), and, optionally, a **deploy pattern**: *Rolling*, *Blue-green*, *Canary*, *Big bang*, or *Other*. The pattern is descriptive only — nothing in the product changes behaviour based on which one is picked.
+
+**Adding tasks.** Click *Add task* and set:
+
+- **Name**, an optional **description**, and a **kind** — *Task*, *Check*, *Deploy*, *Verification*, or *Ramp*. It's a label today; a later sub-project (C5b) will key deployment webhook updates off *Deploy* tasks specifically, but nothing does yet.
+- **Team** — the one User Group (ch. 4 §User Groups) that carries this task out. Optional. **A task with no team, or a team with no active members, degrades to Admin/Release-Manager-only** — the same rule B3b's environment requests use for their operating team — so an unassigned or empty team never leaves a task stuck with nobody able to move it.
+- **System** — optional, and validated against the release's *current* systems: only a system the release actually has attached can be picked. If a system is later removed from the release, the task keeps pointing at it rather than losing the link, and the tab shows it as "no longer on this release" — the same reason C4's rollback plans can outlive a removed `release_system` row. Re-saving a task without changing its system is always accepted, even once that system has left the release.
+- **Duration (minutes)** — 0 for a milestone.
+- **Fixed start** — optional; "don't start before" a specific time, independent of predecessors. This is what lets a second evening's tasks carry a hard 18:00 start regardless of how the first evening went.
+- **Predecessors** — pick from this runbook's other tasks. A task with several predecessors is a **coordination point**: it can't start (or be marked done in one step) until every one of them is done or skipped.
+
+**Why a cycle is refused.** Setting a task's predecessors validates the **whole** dependency graph, not just the edge being added — wiring task A to depend on B, when B (however indirectly) already depends on A, is refused with a message naming the tasks the cycle runs through. This is checked on every save of a task's predecessor list, so the graph a runbook holds is always a genuine order, never a loop nothing could actually execute.
+
+**Skip and reopen.** Both are Admin/Release-Manager actions, and both **require a reason**, recorded in the task's history:
+
+- **Skip** — for a *Not started* or *Failed* task that turns out not to be needed. A skipped task counts as satisfied for anything waiting on it, the same as *Done*.
+- **Reopen** — moves a *Done* or *Skipped* task back to *Not started*. Refused while anything depending on it has itself moved past *Not started* (the message names what's in the way) — reopening a task nothing downstream has touched yet is always safe; reopening one whose successors have already started would leave the runbook describing an order that no longer happened.
+
+**Deletion rules.** A task that has left *Not started* — for any reason, including a skip — **cannot be deleted**: its history is the record of what actually happened, and it stays even once it's retried or reopened. Deleting a *Not started* task removes its dependency links in both directions. A **runbook** with any task that has left *Not started* cannot be deleted either, for the same reason. Editing a task's name, description, team, system, duration, fixed start or sort order is always allowed whatever its status — none of that touches the ordering invariant, only the forecast.
+
+**The deploy-pattern values.** `rolling`, `blue_green`, `canary`, `big_bang`, `other` — a fixed, tenant-independent vocabulary (unlike gate types or booking types, which are per-tenant configuration). There is no admin screen to add to it.
+
+**What a runbook never does.** However incomplete, out of order, or failed a runbook is, it changes nothing outside itself — not a deployment, not a release transition, not a booking, not the readiness banner. The one thing it **does** enforce is entirely internal: a task cannot start (or be marked done in one step) while any of its predecessors is anything other than done or skipped, and the refusal names every predecessor still outstanding and its current status.
+
 ### Tips
 
 Keep the change-kind list short — three to six is plenty. Use kind-scoped custom fields rather than free-text fields for any value you'll later filter or report on. Pre-define gates on release templates so each new release starts with the same readiness checklist, and override only when a release genuinely deviates.

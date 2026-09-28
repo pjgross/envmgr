@@ -887,6 +887,37 @@ Every rehearsal you've ever recorded for a system stays visible in its history, 
 
 **Recording a rollback.** Click *Record a rollback* on the *Rollback* tab at any time — before or after the fact — to add a row to *Rollback History*: *when* it happened (or is about to), the *trigger* (a failed smoke test, an incident, a customer report — what set it off), the *rationale*, and which *systems* it actually touched. **This never checks whether a plan exists, was agreed, or whether a rehearsal is current, and it never refuses.** A rollback with no plan at all is exactly the case worth keeping a record of — the dialog says so — and recording one changes nothing else about the release: no transition is gated, no gate is affected, nothing is locked. Rollback History is a permanent audit trail; there is no edit or delete on a recorded rollback.
 
+### Runbooks (cutover execution)
+
+Every release can have a *Runbook* tab (Phase 9 sub-project C5a) — the step-by-step plan for actually deploying it into one environment, one runbook per (release, environment) pair. Where the *Rollback* tab above answers "what do we do if this goes wrong," a runbook answers "who does what, in what order, tonight." It is made of **tasks** — each carried out by one **team**, often against one **system** — joined by **dependencies**, so a task that needs several earlier ones finished first (a smoke-test task waiting on every deploy) becomes a **coordination point** the runbook enforces. A cutover can span more than one sitting: pre-tasks one evening, then the plan resumes the next with a task that checks the pre-tasks actually completed.
+
+**Reading the header.** If the release has more than one runbook, pick the environment from the drop-down. The header shows the plan's **anchor** (when work with no predecessor of its own is allowed to begin), its **deploy pattern** if one is set (Rolling / Blue-green / Canary / Big bang / Other), a state chip (*Not started* / *In progress* / *Complete* / *Failed*), the **planned end**, the **forecast end**, and the **slip** — how many minutes later than planned the forecast currently runs, or *On time*.
+
+**Starting, completing, failing, retrying.** Each task in the table shows only the buttons you're actually allowed to click right now — the server decides which ones, never the page:
+
+- **Start** moves a task from *Not started* to *In progress*.
+- **Mark done** moves a *Not started* task straight to *Done* in one step, for a quick check nobody needs to formally "start" first; **Complete** finishes one already *In progress*.
+- **Fail** marks an *In progress* task *Failed*.
+- **Retry** takes a *Failed* task back to *In progress* — the failure stays in its history; it isn't erased.
+- **Skip** and **Reopen** are Admin/Release-Manager actions and always ask for a **reason**. Skip lets a genuinely unnecessary task count as satisfied for anything waiting on it, the same as *Done*. Reopen undoes a *Done* or *Skipped* task back to *Not started* — but only while nothing depending on it has itself moved past *Not started*; the page names what's in the way when it's refused.
+- **Record time** — offered on any task with an available action — opens a *Move to* dialog with the same choices, plus an optional **"Actually happened at"** field: tick it after the fact and back-date the change, rather than leaving the timestamp at the moment you click.
+
+**Why a start (or a mark-done) can be refused.** Starting a task before every one of its predecessors has finished (or been skipped) is refused, and the message names each one still outstanding and its current status — for example *"'Smoke tests' cannot start until these are done or skipped: Deploy API (in_progress), Deploy worker (not_started)."* This is the runbook's one rule, and it's the only thing it enforces: a runbook, however incomplete, out of order or failed, changes nothing about the release itself — it never blocks a deployment, a transition, a booking, or the readiness banner (above).
+
+Only the task's own **team** — or an Admin/Release Manager — can move it. A task with no team assigned, or a team with no active members, can only be moved by an Admin or Release Manager (the admin guide covers assigning teams).
+
+**Reading planned vs forecast, and the flags.** Every task carries two starts and two finishes: **planned** is the original schedule, worked out from durations and dependencies alone, ignoring what's actually happened; **forecast** is where things stand right now, given what's actually been ticked off. A handful of icons on each row (hover for the full sentence) call out:
+
+- **Critical** — on the critical path: a delay here pushes back the whole plan's finish.
+- **Late start** — this task's forecast start is later than its planned one.
+- **Overrunning** — in progress and already past its planned duration.
+- **Slipped past fixed start** — the task has a fixed "start no earlier than" time, and earlier tasks running long have pushed its forecast start past it — the two-evening case, where the second evening's fixed 18:00 start slips because the first evening's pre-tasks overran.
+- **Blocked** — a predecessor somewhere upstream has failed.
+
+The **Timeline** toggle next to the table swaps to a read-only bar view of the same data — planned bars against forecast bars, critical tasks picked out, a line marking *now* — useful for seeing the whole cutover's shape at a glance rather than row by row. While the plan is *in progress*, the tab quietly re-reads itself every 30 seconds (paused while the browser tab isn't visible), because several teams are usually ticking tasks at once during a real cutover.
+
+**My work.** If you're a member of a team with a task ready to start, it appears on your dashboard's *Runbook tasks ready for my team* card — "ready" means every one of that task's predecessors is already done or skipped, so starting it from there will not be refused. The card links straight to that release's Runbook tab with the right plan already selected.
+
 ### Hyper-care and closeout
 
 Every project release has a *Closeout* tab — Phase 9 sub-project C6. It covers the period **after** the release is live: the watch window, the decision that the release is stable, the handover to the team that will run it, and the formal close. (Enterprise releases do not have this tab.) Four cards, in the order the work happens.
