@@ -26,6 +26,8 @@ def test_a_chain_runs_back_to_back_from_the_anchor():
     assert (s.tasks[2].planned_start, s.tasks[2].planned_finish) == (m(30), m(50))
     assert s.planned_end == m(50) and s.forecast_end == m(50)
     assert s.slip_minutes == 0 and s.state == "not_started"
+    assert s.tasks[1].late_start is False
+    assert s.tasks[2].late_start is False
 
 
 def test_a_join_waits_for_the_latest_predecessor():
@@ -68,6 +70,7 @@ def test_a_failed_task_blocks_everything_after_it_and_a_retry_clears_it():
     retried = compute(A, [t(1, 30, status="in_progress", start=m(15)), t(2), t(3)],
                       [(2, 1), (3, 2)], m(20))
     assert not retried.tasks[2].blocked and retried.state == "in_progress"
+    assert retried.tasks[1].overrunning is False  # in_progress since m(15), 30m, now m(20)
 
 
 def test_an_overdue_task_is_forecast_to_start_now_never_in_the_past():

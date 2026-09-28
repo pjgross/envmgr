@@ -138,6 +138,11 @@ def compute(anchor: datetime, tasks: list[TaskInput], edges: list[tuple[int, int
         pred_driven[i] = driven
         blocked[i] = any(by_id[p].status == "failed" or blocked[p] for p in preds[i])
         started, finished = _utc(t.actual_started_at), _utc(t.actual_finished_at)
+        # The `or driven`/`or now` fallbacks below exist only because
+        # TaskSchedule's times are non-optional: a transition into done,
+        # in_progress or failed always stamps the matching actual (spec §4),
+        # so a done/in_progress/failed task with no actual_started_at should
+        # be unreachable in practice.
         if t.status == "done":
             f_start[i] = started or finished or driven
             f_finish[i] = finished or f_start[i]
