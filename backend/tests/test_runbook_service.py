@@ -10,7 +10,7 @@ from app.core.pagination import Page
 from app.db.models.runbook import RunbookPlan
 from app.services import runbook_service
 from tests.factories import ensure_environment
-from tests.runbook_helpers import make_plan, make_release, make_task
+from tests.runbook_helpers import link, make_plan, make_release, make_task
 
 ANCHOR = datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc)
 
@@ -106,3 +106,50 @@ async def test_list_plans_orders_by_environment_name(db_session, test_tenant, te
     await make_plan(db_session, release, alpha, anchor=ANCHOR)
     rows, total = await runbook_service.list_plans(db_session, release.id, test_tenant.id, Page(limit=50, offset=0))
     assert [p.environment_id for p in rows] == [alpha.id, zed.id] and total == 2
+
+
+@pytest.mark.asyncio
+async def test_live_tasks_is_invisible_from_another_tenant(db_session, test_tenant, test_user, test_environment,
+                                                            second_tenant_factory):
+    release = await make_release(db_session, test_tenant.id, test_user.id)
+    plan = await make_plan(db_session, release, test_environment, anchor=ANCHOR)
+    await make_task(db_session, plan, "task one")
+    other_tenant, _ = await second_tenant_factory()
+    assert await runbook_service.live_tasks(db_session, plan.id, other_tenant.id) == []
+
+
+@pytest.mark.asyncio
+async def test_live_edges_excludes_a_soft_deleted_predecessor_and_is_invisible_from_another_tenant(
+        db_session, test_tenant, test_user, test_environment, second_tenant_factory):
+    release = await make_release(db_session, test_tenant.id, test_user.id)
+    plan = await make_plan(db_session, release, test_environment, anchor=ANCHOR)
+    t1 = await make_task(db_session, plan, "t1")
+    t2 = await make_task(db_session, plan, "t2")
+    t3 = await make_task(db_session, plan, "t3")
+    await link(db_session, t2, t1)  # edge (t2, t1)
+    await link(db_session, t3, t2)  # edge (t3, t2)
+    t1.deleted_at = datetime.now(timezone.utc)
+    await db_session.flush()
+
+    edges = await runbook_service.live_edges(db_session, plan.id, test_tenant.id)
+    assert edges == [(t3.id, t2.id)]  # (t2, t1) excluded: t1 is soft-deleted
+
+    other_tenant, _ = await second_tenant_factory()
+    assert await runbook_service.live_edges(db_session, plan.id, other_tenant.id) == []
+
+
+@pytest.mark.asyncio
+async def test_update_refuses_an_explicit_null_for_name_or_anchor(db_session, test_tenant, test_user, test_environment):
+    release = await make_release(db_session, test_tenant.id, test_user.id)
+    plan = await make_plan(db_session, release, test_environment, anchor=ANCHOR)
+    original_name, original_anchor = plan.name, plan.anchor_start_at
+
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.update_plan(db_session, plan, RunbookPlanUpdate(name=None))
+    assert exc.value.status_code == 422
+    assert plan.name == original_name
+
+    with pytest.raises(HTTPException) as exc:
+        await runbook_service.update_plan(db_session, plan, RunbookPlanUpdate(anchor_start_at=None))
+    assert exc.value.status_code == 422
+    assert plan.anchor_start_at == original_anchor
