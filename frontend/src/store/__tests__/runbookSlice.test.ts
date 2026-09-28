@@ -3,7 +3,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { AxiosError, AxiosHeaders } from 'axios';
 import runbookReducer, { fetchRunbook, transitionTask, createTask } from '../runbookSlice';
 import { runbookService } from '../../services/runbookService';
-import type { RunbookRead } from '../../types/runbook';
+import type { PlanState, RunbookRead } from '../../types/runbook';
 
 vi.mock('../../services/runbookService', () => ({
   runbookService: {
@@ -13,7 +13,7 @@ vi.mock('../../services/runbookService', () => ({
   },
 }));
 
-const composite = (state: string): RunbookRead => ({
+const composite = (state: PlanState): RunbookRead => ({
   plan: { id: 5, release_id: 7, environment_id: 2, environment_name: 'prod', name: 'Cutover',
           anchor_start_at: '2026-10-01T18:00:00Z', deploy_pattern: null, notes: null, state },
   planned_end: '2026-10-01T19:00:00Z', forecast_end: '2026-10-01T19:00:00Z', slip_minutes: 0, tasks: [],

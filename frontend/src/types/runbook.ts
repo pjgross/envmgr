@@ -3,8 +3,10 @@ export type TaskStatus = 'not_started' | 'in_progress' | 'done' | 'failed' | 'sk
 export type TaskKind = 'task' | 'check' | 'deploy' | 'verification' | 'ramp';
 export type DeployPattern = 'rolling' | 'blue_green' | 'canary' | 'big_bang' | 'other';
 // Backend schema types `state` as plain `str` (schemas/runbook.py:81), not a
-// Literal — runbook_schedule_service.plan_state() is the sole producer and its
-// only four return values are exactly this set, kept here for documentation.
+// Literal — but runbook_schedule_service.plan_state() is the sole producer,
+// and its only four return values are exactly this set (kind/status/
+// deploy_pattern/allowed_transitions are narrowed on the same evidence, so
+// this stays narrow too).
 export type PlanState = 'not_started' | 'in_progress' | 'complete' | 'failed';
 
 export interface RunbookPlanRead {
@@ -16,7 +18,7 @@ export interface RunbookPlanRead {
   anchor_start_at: string;
   deploy_pattern: DeployPattern | null;
   notes: string | null;
-  state: string;
+  state: PlanState;
 }
 
 export interface RunbookTaskRead {
