@@ -32,7 +32,7 @@ export default function RunbookTab({ releaseId }: { releaseId: number }) {
   const [view, setView] = useState<'table' | 'timeline'>('table');
   const [planDialog, setPlanDialog] = useState<'create' | 'edit' | null>(null);
   const [taskDialog, setTaskDialog] = useState<RunbookTaskRead | 'new' | null>(null);
-  const [pending, setPending] = useState<{ task: RunbookTaskRead; to: TaskStatus } | null>(null);
+  const [pending, setPending] = useState<{ task: RunbookTaskRead; to: TaskStatus; choices?: TaskStatus[] } | null>(null);
 
   useEffect(() => { setError(null); dispatch(fetchRunbooks(releaseId)); }, [dispatch, releaseId]);
 
@@ -119,7 +119,7 @@ export default function RunbookTab({ releaseId }: { releaseId: number }) {
           </ToggleButtonGroup>
           {view === 'table'
             ? <RunbookTaskTable read={current} canEdit={canEdit} onAction={onAction}
-                                onRecordTime={(task) => setPending({ task, to: 'done' })}
+                                onRecordTime={(task) => setPending({ task, to: task.allowed_transitions[0], choices: task.allowed_transitions })}
                                 onEdit={(t) => setTaskDialog(t)} />
             : <RunbookTimeline read={current} />}
         </>
@@ -134,7 +134,7 @@ export default function RunbookTab({ releaseId }: { releaseId: number }) {
                            onClose={() => setTaskDialog(null)} />
       )}
       {pending && current && (
-        <RunbookTransitionDialog planId={current.plan.id} task={pending.task} to={pending.to}
+        <RunbookTransitionDialog planId={current.plan.id} task={pending.task} to={pending.to} choices={pending.choices}
                                  onClose={() => setPending(null)} />
       )}
     </Stack>

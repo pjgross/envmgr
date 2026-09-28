@@ -97,7 +97,7 @@ export default function RunbookTaskTable({ read, canEdit, onAction, onRecordTime
               </Button>
             );
           })}
-          {row.allowed_transitions.includes('done') && (
+          {row.allowed_transitions.length > 0 && (
             <Button size="small" aria-label={`Record a time for ${row.name}`} onClick={() => onRecordTime(row)}>
               Record time
             </Button>
