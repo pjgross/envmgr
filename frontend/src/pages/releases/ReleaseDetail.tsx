@@ -14,6 +14,7 @@
  *   rollback: Rollback
  *   go-no-go: Go/No-Go
  *   closeout: Closeout
+ *   runbook: Runbook
  */
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
@@ -53,6 +54,7 @@ import ReadinessBanner from '../../components/releases/ReadinessBanner';
 import RollbackPanel from '../../components/releases/RollbackPanel';
 import GoNoGoTab from '../../components/releases/GoNoGoTab';
 import CloseoutTab from '../../components/releases/CloseoutTab';
+import RunbookTab from '../../components/releases/runbook/RunbookTab';
 import { EnterpriseTabs } from './enterprise/EnterpriseTabs';
 import { EnterpriseMembershipTab } from './project/EnterpriseMembershipTab';
 import { useSnackbar } from '../../hooks/useSnackbar';
@@ -82,6 +84,7 @@ const RELEASE_TABS = [
   { key: 'rollback', label: 'Rollback' },
   { key: 'go-no-go', label: 'Go/No-Go' },
   { key: 'closeout', label: 'Closeout' },
+  { key: 'runbook', label: 'Runbook' },
 ] as const;
 
 export default function ReleaseDetail() {
@@ -234,6 +237,7 @@ export default function ReleaseDetail() {
       {activeTab === 'rollback' && <RollbackPanel releaseId={releaseId} />}
       {activeTab === 'go-no-go' && <GoNoGoTab releaseId={releaseId} />}
       {activeTab === 'closeout' && <CloseoutTab releaseId={releaseId} />}
+      {activeTab === 'runbook' && <RunbookTab releaseId={releaseId} />}
 
       {confirmDialog}
       {/* Side drawers */}
