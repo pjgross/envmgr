@@ -118,6 +118,13 @@ async def transition(db: AsyncSession, task: RunbookTask, plan: RunbookPlan, ten
     at = _utc(data.at) if data.at is not None else now
     if at > now:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "'at' cannot be in the future")
+    # Back-dating is honest reporting and is not policed against OTHER tasks
+    # (spec §4) — but a task cannot finish before its OWN recorded start.
+    if frm == "in_progress" and task.actual_started_at is not None:
+        started = _utc(task.actual_started_at)
+        if at < started:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                f"'{task.name}' cannot finish before it started ({started.isoformat()})")
 
     preds, succs = await _neighbours(db, task, tenant_id)
     if pair in NEEDS_PREDECESSORS:

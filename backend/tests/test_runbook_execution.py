@@ -238,3 +238,31 @@ async def test_transition_ignores_an_edge_referencing_an_unloaded_task(db_sessio
 
     await _go(db_session, world, b, world["member"], "in_progress")
     assert b.status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_reopen_without_a_reason_is_422(db_session, world):
+    """Reopening is MANAGER_ONLY and so needs a reason, like a skip."""
+    t = await make_task(db_session, world["plan"], "T", status="done")
+    for reason in (None, "   "):
+        with pytest.raises(HTTPException) as exc:
+            await _go(db_session, world, t, world["admin"], "not_started", reason=reason)
+        assert exc.value.status_code == 422 and "reason" in exc.value.detail
+    assert t.status == "done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("to", ["done", "failed"])
+async def test_finishing_before_the_task_started_is_422(db_session, world, to):
+    """Back-dating is honest reporting (spec §4) — but a task cannot finish
+    before its OWN recorded start; that is a typo, not a history."""
+    t = await make_task(db_session, world["plan"], "T", team=world["team"])
+    started = NOW - timedelta(minutes=20)
+    await _go(db_session, world, t, world["member"], "in_progress", at=started)
+    with pytest.raises(HTTPException) as exc:
+        await _go(db_session, world, t, world["member"], to, at=started - timedelta(minutes=1))
+    assert exc.value.status_code == 422
+    assert "cannot finish before it started" in exc.value.detail
+    assert t.status == "in_progress" and t.actual_finished_at is None
+    await _go(db_session, world, t, world["member"], to, at=started)     # the same instant is fine
+    assert t.status == to and t.actual_finished_at == started

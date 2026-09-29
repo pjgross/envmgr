@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.v1.schemas.runbook import (
-    PredecessorsUpdate, RunbookPlanCreate, RunbookPlanUpdate, RunbookTaskCreate, RunbookTaskUpdate,
+    RunbookPlanCreate, RunbookPlanUpdate, RunbookTaskCreate, RunbookTaskUpdate,
 )
 from app.core.pagination import Page, fetch_page
 from app.db.models.environment import Environment
