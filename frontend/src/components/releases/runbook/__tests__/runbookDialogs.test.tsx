@@ -9,6 +9,7 @@ import type { RunbookRead, RunbookTaskRead } from '../../../../types/runbook';
 import RunbookTaskDialog from '../RunbookTaskDialog';
 import RunbookTransitionDialog from '../RunbookTransitionDialog';
 import RunbookPlanDialog from '../RunbookPlanDialog';
+import { userGroupService } from '../../../../services/userGroupService';
 
 vi.mock('../../../../services/runbookService', () => ({
   runbookService: { get: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), createTask: vi.fn(),
@@ -85,6 +86,32 @@ describe('RunbookTaskDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     const [, body] = vi.mocked(runbookService.createTask).mock.calls[0];
     expect(body.predecessor_ids).toEqual([2]);
+  });
+});
+
+describe('RunbookTaskDialog — the Team picker (M4)', () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.mocked(runbookService.get).mockResolvedValue(read); });
+
+  it('keeps an assigned team that is no longer listed (archived) selectable, by name', async () => {
+    const archived = t(1, 'Deploy API', { team_group_id: 99, team_name: 'Old DBA team' });
+    wrap(<RunbookTaskDialog read={read} task={archived} onClose={() => {}} />);
+    await userEvent.click(screen.getByLabelText('Team'));
+    const list = await screen.findByRole('listbox');
+    expect(within(list).getByRole('option', { name: 'Old DBA team (archived)' })).toBeInTheDocument();
+    expect(within(list).getByRole('option', { name: 'Payments' })).toBeInTheDocument();
+  });
+
+  it('says so when the team list cannot be loaded, instead of an empty picker', async () => {
+    vi.mocked(userGroupService.listGroups).mockRejectedValueOnce(new Error('network'));
+    wrap(<RunbookTaskDialog read={read} onClose={() => {}} />);
+    expect(await screen.findByText(/Could not load teams/)).toBeInTheDocument();
+  });
+
+  it('says so when the team list is truncated', async () => {
+    vi.mocked(userGroupService.listGroups).mockResolvedValueOnce(
+      { rows: [{ id: 3, name: 'Payments' }], total: 612 } as never);
+    wrap(<RunbookTaskDialog read={read} onClose={() => {}} />);
+    expect(await screen.findByText(/Showing the first 1 of 612 teams/)).toBeInTheDocument();
   });
 });
 

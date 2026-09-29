@@ -1,6 +1,8 @@
 /**
- * `/my-work` — "what is waiting on me?", answered by six queues composed
- * server-side under one clock (`GET /me/work`, Task 4).
+ * `/my-work` — "what is waiting on me?", answered by one queue per kind of
+ * work (the `QUEUES` list below — deliberately not counted here, since the
+ * count went stale twice), composed server-side under one clock
+ * (`GET /me/work`, Task 4).
  *
  * CARDS ARE NEVER HIDDEN, even an empty one — a hidden card is
  * indistinguishable from a queue this user is not a member of at all (§5).
@@ -11,7 +13,7 @@
  * Each "View all →" link points at the SAME worklist page every other part
  * of the app already uses, with the same filter this queue was computed
  * with — never a new page, since every worklist already reads its filters
- * from the URL. Two of the five queues cannot be reproduced exactly by a
+ * from the URL. Some queues cannot be reproduced exactly by a
  * single filter value the target page's own URL vocabulary supports
  * (see the per-link notes below); those link to the closest available
  * filter, documented at each `QUEUES` entry rather than silently dropped.
@@ -32,8 +34,8 @@ const EMPTY_QUEUE: QueueResult = { count: 0, items: [], failed: false };
 // even ran) — as opposed to `data.queues[key].failed`, which is a single
 // queue's own worklist query failing while the rest of the response is
 // fine. Without this, `data` stays `null` and `data?.queues[key] ??
-// EMPTY_QUEUE` would hand every card an *empty*, non-failed queue: six
-// confident "Nothing waiting on you"s built from a response that never
+// EMPTY_QUEUE` would hand every card an *empty*, non-failed queue: a
+// page of confident "Nothing waiting on you"s built from a response that never
 // arrived. Same rule as `QueueCard`'s own failed-vs-empty distinction, one
 // level up.
 const WHOLE_RESPONSE_FAILED_QUEUE: QueueResult = { count: 0, items: [], failed: true };
@@ -174,7 +176,7 @@ function formatDue(due: string | null | undefined): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
 }
 
-/** Shared across all six cards — every queue's rows carry the same shape
+/** Shared across every card — every queue's rows carry the same shape
  * (title, optional subtitle, url, optional due date), so there is nothing
  * queue-specific to branch on here. */
 function renderRow(item: WorkItem): ReactNode {
@@ -230,7 +232,7 @@ export default function MyWork() {
                 // `data`'s per-queue `failed` flag when the response arrived;
                 // WHOLE_RESPONSE_FAILED_QUEUE when it never did (`error` set,
                 // `data` still null) — never EMPTY_QUEUE in that case, or a
-                // total failure renders as six confident empty queues (see
+                // total failure renders as a page of confident empty queues (see
                 // the constant's own comment above). `queueFor` also covers
                 // the case `data` arrived but `queues` did not match the
                 // expected shape — see its own comment.

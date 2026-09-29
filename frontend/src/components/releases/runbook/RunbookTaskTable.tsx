@@ -16,14 +16,17 @@ import DataTable from '../../DataTable';
 import type { RootState } from '../../../store';
 import type { RunbookRead, RunbookTaskRead, TaskStatus } from '../../../types/runbook';
 import { formatBookingDateTime } from '../../../utils/datetime';
-import { FLAG_TEXT, KIND_LABEL, STATUS_COLOR, STATUS_LABEL, actionLabel } from './labels';
+import { FLAG_TEXT, KIND_LABEL, NEEDS_REASON, STATUS_COLOR, STATUS_LABEL, actionLabel } from './labels';
 
 interface Props {
   read: RunbookRead;
   canEdit: boolean;
   onAction: (task: RunbookTaskRead, to: TaskStatus) => void;
   onRecordTime: (task: RunbookTaskRead) => void;
+  onHistory: (task: RunbookTaskRead) => void;
   onEdit: (task: RunbookTaskRead) => void;
+  /** Tasks with a transition in flight — their action buttons are disabled. */
+  busy?: ReadonlySet<number>;
 }
 
 const FLAGS: { key: keyof typeof FLAG_TEXT; Icon: typeof WhatshotIcon; color: 'error' | 'warning' | 'info' }[] = [
@@ -34,7 +37,7 @@ const FLAGS: { key: keyof typeof FLAG_TEXT; Icon: typeof WhatshotIcon; color: 'e
   { key: 'slipped_past_fixed_start', Icon: SkipNextIcon, color: 'info' },
 ];
 
-export default function RunbookTaskTable({ read, canEdit, onAction, onRecordTime, onEdit }: Props) {
+export default function RunbookTaskTable({ read, canEdit, onAction, onRecordTime, onHistory, onEdit, busy }: Props) {
   const user = useSelector((s: RootState) => s.auth.user);
   const nameById = new Map(read.tasks.map((t) => [t.id, t.name]));
   const columns: GridColDef<RunbookTaskRead>[] = [
@@ -84,29 +87,38 @@ export default function RunbookTaskTable({ read, canEdit, onAction, onRecordTime
       ),
     },
     {
-      field: 'actions', headerName: 'Actions', minWidth: 240, flex: 1, sortable: false,
-      renderCell: ({ row }) => (
+      field: 'actions', headerName: 'Actions', minWidth: 300, flex: 1, sortable: false,
+      renderCell: ({ row }) => {
+        const inFlight = !!busy?.has(row.id);
+        return (
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', height: '100%', flexWrap: 'wrap' }}>
           {row.allowed_transitions.map((to) => {
             const label = actionLabel(to, row.status);
             return (
               <Button key={to} size="small" variant={to === 'failed' ? 'text' : 'outlined'}
                       color={to === 'failed' ? 'error' : 'primary'} aria-label={`${label} ${row.name}`}
-                      onClick={() => onAction(row, to)}>
+                      disabled={inFlight} onClick={() => onAction(row, to)}>
                 {label}
               </Button>
             );
           })}
-          {row.allowed_transitions.length > 0 && (
-            <Button size="small" aria-label={`Record a time for ${row.name}`} onClick={() => onRecordTime(row)}>
+          {/* Only where a time is worth recording: a transition that needs no
+              reason exists. A task whose only move is Skip gets no control. */}
+          {row.allowed_transitions.some((t) => !NEEDS_REASON(t)) && (
+            <Button size="small" aria-label={`Record a time for ${row.name}`} disabled={inFlight}
+                    onClick={() => onRecordTime(row)}>
               Record time
             </Button>
           )}
+          <Button size="small" aria-label={`History for ${row.name}`} onClick={() => onHistory(row)}>
+            History
+          </Button>
           {canEdit && (
             <Button size="small" aria-label={`Edit ${row.name}`} onClick={() => onEdit(row)}>Edit</Button>
           )}
         </Box>
-      ),
+        );
+      },
     },
   ];
   return (

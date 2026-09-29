@@ -16,7 +16,7 @@
  *   closeout: Closeout
  *   runbook: Runbook
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUrlTab } from '../../hooks/useUrlTab';
@@ -101,6 +101,18 @@ export default function ReleaseDetail() {
     'main',
   );
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Fourteen tabs overflow the strip, and MUI's scrollable Tabs does not bring
+  // an initially-selected tab into view: landing on ?tab=runbook (from My
+  // work) left the active tab off-screen. Scroll it in after each change of
+  // tab, and once the strip exists (it renders only after the release loads).
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const el = tabsRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab, release?.id]);
   const [eventLogOpen, setEventLogOpen] = useState(false);
 
   useEffect(() => {
@@ -211,6 +223,7 @@ export default function ReleaseDetail() {
       {/* Tab strip */}
       <Paper sx={{ mb: 2 }}>
         <Tabs
+          ref={tabsRef}
           value={activeTab}
           onChange={(_, v: string) => setActiveTab(v)}
           variant="scrollable"

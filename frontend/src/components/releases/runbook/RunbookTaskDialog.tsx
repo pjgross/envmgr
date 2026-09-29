@@ -18,6 +18,7 @@ import { KIND_LABEL } from './labels';
 
 interface Props { read: RunbookRead; task?: RunbookTaskRead; onClose: () => void }
 type Option = { id: number; name: string };
+const TEAM_LIMIT = 500;
 
 const sameSet = (a: number[], b: number[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
@@ -33,11 +34,15 @@ export default function RunbookTaskDialog({ read, task, onClose }: Props) {
   const [fixedStart, setFixedStart] = useState(task?.fixed_start_at ? toDateTimeLocal(task.fixed_start_at) : '');
   const [preds, setPreds] = useState<number[]>(task?.predecessor_ids ?? []);
   const [teams, setTeams] = useState<Option[]>([]);
+  // 'loading' | loaded with the server's total | 'failed' — the Team picker says which.
+  const [teamsTotal, setTeamsTotal] = useState<number | 'loading' | 'failed'>('loading');
   const [systems, setSystems] = useState<Option[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    userGroupService.listGroups({ limit: 500 }).then((r) => setTeams(r.rows.map((g) => ({ id: g.id, name: g.name }))));
+    userGroupService.listGroups({ limit: TEAM_LIMIT })
+      .then((r) => { setTeams(r.rows.map((g) => ({ id: g.id, name: g.name }))); setTeamsTotal(r.total); })
+      .catch(() => setTeamsTotal('failed'));
     releaseService.listSystems(read.plan.release_id).then((rows) =>
       setSystems(rows.map((s) => ({ id: s.system_id, name: s.system_name ?? '—' }))));
   }, [read.plan.release_id]);
@@ -49,6 +54,21 @@ export default function RunbookTaskDialog({ read, task, onClose }: Props) {
     }
     return systems;
   }, [systems, task]);
+  // Likewise a task whose team was archived: listGroups omits it, but the task
+  // still names it, so it stays selectable (and saving the form keeps it).
+  // Called "archived" only when the list is complete — otherwise it may just
+  // sit past the page the picker could load.
+  const teamsTruncated = typeof teamsTotal === 'number' && teamsTotal > teams.length;
+  const teamOptions = useMemo(() => {
+    if (task?.team_group_id && !teams.some((g) => g.id === task.team_group_id)) {
+      const suffix = typeof teamsTotal === 'number' && !teamsTruncated ? ' (archived)' : '';
+      return [...teams, { id: task.team_group_id, name: `${task.team_name ?? '—'}${suffix}` }];
+    }
+    return teams;
+  }, [teams, teamsTotal, teamsTruncated, task]);
+  const teamHelper = teamsTotal === 'failed'
+    ? 'Could not load teams — only the current assignment can be kept.'
+    : teamsTruncated ? `Showing the first ${teams.length} of ${teamsTotal} teams.` : undefined;
   const predecessorOptions = read.tasks.filter((candidate) => candidate.id !== task?.id);
   const minutes = Number(duration);
   const valid = name.trim() !== '' && Number.isInteger(minutes) && minutes >= 0;
@@ -93,9 +113,10 @@ export default function RunbookTaskDialog({ read, task, onClose }: Props) {
           <TextField label="Duration (minutes)" type="number" inputProps={{ min: 0 }} value={duration}
                      onChange={(e) => setDuration(e.target.value)} />
           <TextField select label="Team" value={teamId} onChange={(e) => setTeamId(e.target.value === '' ? '' : Number(e.target.value))}
-                     SelectProps={{ inputProps: { 'aria-label': 'Team' } }}>
+                     SelectProps={{ inputProps: { 'aria-label': 'Team' } }}
+                     helperText={teamHelper} FormHelperTextProps={{ sx: teamsTotal === 'failed' ? { color: 'error.main' } : undefined }}>
             <MenuItem value="">No team (Admin / Release Manager only)</MenuItem>
-            {teams.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+            {teamOptions.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
           </TextField>
           <TextField select label="System" value={systemId} onChange={(e) => setSystemId(e.target.value === '' ? '' : Number(e.target.value))}
                      SelectProps={{ inputProps: { 'aria-label': 'System' } }}>

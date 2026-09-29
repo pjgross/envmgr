@@ -117,3 +117,30 @@ describe('ReleaseDetail — the tab is in the URL', () => {
     expect(await screen.findByRole('tab', { name: 'Closeout' })).toHaveAttribute('aria-selected', 'true');
   });
 });
+
+// UI-2: fourteen tabs overflow the strip, and MUI's scrollable Tabs does not
+// bring an initially-selected tab into view — landing on ?tab=runbook from My
+// work left the active tab off-screen. jsdom performs no layout, so this pins
+// the STRUCTURE (the selected tab is asked to scroll into view), not a pixel.
+describe('ReleaseDetail — the selected tab is scrolled into view', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(releaseService.get).mockResolvedValue(RELEASE);
+  });
+
+  it('on landing, and again when another tab is chosen', async () => {
+    const calls: Element[] = [];
+    const original = (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) { calls.push(this); };
+    try {
+      renderAt('?tab=runbook');
+      const runbook = await screen.findByRole('tab', { name: 'Runbook' });
+      await waitFor(() => expect(calls).toContain(runbook));
+      expect(calls.every((el) => el.getAttribute('aria-selected') === 'true')).toBe(true);
+      await userEvent.click(screen.getByRole('tab', { name: 'Main' }));
+      await waitFor(() => expect(calls).toContain(screen.getByRole('tab', { name: 'Main' })));
+    } finally {
+      (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = original;
+    }
+  });
+});

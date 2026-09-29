@@ -7,7 +7,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { AxiosError, AxiosHeaders } from 'axios';
 import runbookReducer from '../../../../store/runbookSlice';
 import { runbookService } from '../../../../services/runbookService';
-import type { RunbookRead, RunbookTaskRead } from '../../../../types/runbook';
+import type { RunbookRead, RunbookTaskEventRead, RunbookTaskRead } from '../../../../types/runbook';
 import RunbookTab from '../RunbookTab';
 
 vi.mock('../../../../services/runbookService', () => ({
@@ -48,9 +48,16 @@ function setup(releaseId: number, r: RunbookRead, role = 'Developer') {
   return { store, ...render(ui(releaseId)), ui };
 }
 
+const conflict = (detail: string) => new AxiosError('Request failed with status code 409',
+  'ERR_BAD_REQUEST', undefined, undefined, { status: 409, statusText: 'Conflict', headers: {},
+  config: { headers: new AxiosHeaders() }, data: { detail } });
+
+const setVisibility = (v: 'visible' | 'hidden') =>
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+
 describe('RunbookTab', () => {
   beforeEach(() => vi.clearAllMocks());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); setVisibility('visible'); });
 
   it('renders the header and one row per task with its flags as text', async () => {
     const smoke = task({ id: 2, name: 'Smoke test', kind: 'verification', predecessor_ids: [1], blocked: true,
@@ -89,6 +96,16 @@ describe('RunbookTab', () => {
     expect(await screen.findByText(/Backup \(in_progress\)/)).toBeInTheDocument();
     expect(screen.queryByText(/status code/)).not.toBeInTheDocument();
   });
+
+  it.each(['not_started', 'failed'] as const)(
+    'keeps re-reading every 30 seconds while the plan is %s (Ruling R15)', async (state) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      setup(7, read(7, 5, state, [task({})]));
+      await screen.findByText('Deploy API');
+      const before = vi.mocked(runbookService.get).mock.calls.length;
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      expect(vi.mocked(runbookService.get).mock.calls.length).toBe(before + 1);
+    });
 
   it('re-reads every 30 seconds while in progress and not once complete', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -134,5 +151,143 @@ describe('RunbookTab', () => {
     await screen.findByText('Deploy API');
     await userEvent.click(screen.getByRole('button', { name: 'Timeline' }));
     expect(await screen.findByLabelText(/Deploy API: planned/)).toBeInTheDocument();
+  });
+});
+
+describe('RunbookTab — final-review fixes', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => { vi.useRealTimers(); setVisibility('visible'); });
+
+  it('a refused transition re-reads the composite, so the row stops offering the stale action (UI-1)', async () => {
+    setup(7, read(7, 5, 'not_started', [task({})]));
+    await screen.findByRole('button', { name: 'Start Deploy API' });
+    const before = vi.mocked(runbookService.get).mock.calls.length;
+    // Somebody else started it: the server refuses, and the re-read says so.
+    vi.mocked(runbookService.get).mockResolvedValue(
+      read(7, 5, 'in_progress', [task({ status: 'in_progress', allowed_transitions: ['done', 'failed'] })]));
+    vi.mocked(runbookService.transition).mockRejectedValue(conflict("'Deploy API' is in_progress and cannot move to in_progress"));
+    await userEvent.click(screen.getByRole('button', { name: 'Start Deploy API' }));
+    expect(await screen.findByText(/is in_progress and cannot move/)).toBeInTheDocument();
+    await waitFor(() => expect(vi.mocked(runbookService.get).mock.calls.length).toBe(before + 1));
+    expect(vi.mocked(runbookService.get).mock.lastCall).toEqual([5]);
+    expect(await screen.findByRole('button', { name: 'Complete Deploy API' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Deploy API' })).not.toBeInTheDocument();
+  });
+
+  it('after a refusal in the Record time dialog, the error stays and the targets follow the refreshed row (UI-1)', async () => {
+    setup(7, read(7, 5, 'not_started', [task({})]));
+    await userEvent.click(await screen.findByRole('button', { name: 'Record a time for Deploy API' }));
+    vi.mocked(runbookService.get).mockResolvedValue(
+      read(7, 5, 'in_progress', [task({ status: 'in_progress', allowed_transitions: ['done', 'failed'] })]));
+    vi.mocked(runbookService.transition).mockRejectedValue(conflict('Somebody else moved it'));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start task' }));
+    expect(await within(dialog).findByText('Somebody else moved it')).toBeInTheDocument();
+    // The picker now offers what the server allows for an in-progress task.
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Complete task' })).toBeInTheDocument());
+    await userEvent.click(within(dialog).getByLabelText('Move to'));
+    expect(await screen.findByRole('option', { name: 'Fail' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Start' })).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Somebody else moved it')).toBeInTheDocument();
+  });
+
+  it('a list that will not load says so instead of "Loading runbooks…" forever (R2)', async () => {
+    vi.mocked(runbookService.listForRelease).mockRejectedValue(conflict('database unavailable'));
+    const store = configureStore({ reducer: {
+      runbook: runbookReducer, auth: (s = { user: { id: 1, role: 'Developer', is_master_admin: false } }) => s,
+    }});
+    render(<Provider store={store}><MemoryRouter><RunbookTab releaseId={7} /></MemoryRouter></Provider>);
+    expect(await screen.findByText(/Could not load runbooks: database unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading runbooks/)).not.toBeInTheDocument();
+    vi.mocked(runbookService.listForRelease).mockResolvedValue([]);
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(/no runbook for this release yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load runbooks/)).not.toBeInTheDocument();
+  });
+
+  it('a failed refresh says the page is showing an older read; "Updated HH:MM" is always shown (R2)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup(7, read(7, 5, 'in_progress', [task({ status: 'in_progress', allowed_transitions: ['done', 'failed'] })]));
+    await screen.findByText('Deploy API');
+    expect(screen.getByText(/^Updated \d{1,2}:\d{2}/)).toBeInTheDocument();
+    expect(screen.queryByText(/Could not refresh/)).not.toBeInTheDocument();
+    vi.mocked(runbookService.get).mockRejectedValue(conflict('gateway timeout'));
+    await act(async () => { vi.advanceTimersByTime(30_000); });
+    expect(await screen.findByText(/Could not refresh this runbook — showing it as last loaded at .*gateway timeout/))
+      .toBeInTheDocument();
+    expect(screen.getByText('Deploy API')).toBeInTheDocument();          // the last good read stays
+    expect(screen.queryByText(/Could not load runbooks/)).not.toBeInTheDocument();
+  });
+
+  it('re-reads at once when the page becomes visible again, without waiting for the timer (UI-3)', async () => {
+    setup(7, read(7, 5, 'in_progress', [task({ status: 'in_progress', allowed_transitions: ['done', 'failed'] })]));
+    await screen.findByText('Deploy API');
+    await waitFor(() => expect(runbookService.get).toHaveBeenCalled());
+    const before = vi.mocked(runbookService.get).mock.calls.length;
+    setVisibility('hidden');
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(vi.mocked(runbookService.get).mock.calls.length).toBe(before);
+    setVisibility('visible');
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(vi.mocked(runbookService.get).mock.calls.length).toBe(before + 1);
+  });
+
+  it('shows "Record time" only when a transition that needs no reason exists (UI-4)', async () => {
+    setup(7, read(7, 5, 'not_started', [
+      task({ id: 1, name: 'Only skippable', allowed_transitions: ['skipped'] }),
+      task({ id: 2, name: 'Failed one', status: 'failed', allowed_transitions: ['skipped', 'in_progress'] }),  // reason target first on purpose
+    ]), 'Release Manager');
+    await screen.findByText('Only skippable');
+    expect(screen.getByRole('button', { name: 'Skip Only skippable' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Record a time for Only skippable' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Record a time for Failed one' }));
+    const dialog = await screen.findByRole('dialog');
+    // Defaults to the no-reason target, but still offers every allowed one.
+    expect(within(dialog).getByRole('button', { name: 'Retry task' })).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/^Reason/)).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByLabelText('Move to'));
+    expect(await screen.findByRole('option', { name: 'Skip' })).toBeInTheDocument();
+  });
+
+  it('disables a row\'s actions while its transition is in flight, so a second click sends nothing (M3)', async () => {
+    setup(7, read(7, 5, 'not_started', [task({})]));
+    const start = await screen.findByRole('button', { name: 'Start Deploy API' });
+    let resolve: (r: RunbookRead) => void = () => {};
+    vi.mocked(runbookService.transition).mockReturnValue(new Promise<RunbookRead>((r) => { resolve = r; }));
+    await userEvent.click(start);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Start Deploy API' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Record a time for Deploy API' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Start Deploy API' }), { pointerEventsCheck: 0 });
+    expect(runbookService.transition).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolve(read(7, 5, 'in_progress', [task({ status: 'in_progress', allowed_transitions: ['done', 'failed'] })]));
+    });
+    expect(await screen.findByRole('button', { name: 'Complete Deploy API' })).toBeEnabled();
+  });
+
+  it('History shows the task instructions and its events, newest first, to any viewer; plan notes show in the header (R3)', async () => {
+    const r = read(7, 5, 'in_progress', [task({ status: 'done', allowed_transitions: [],
+      description: 'Run deploy.sh with --canary' })]);
+    r.plan.notes = 'Bridge call: 0800 000 000';
+    setup(7, r);                                             // a Developer, not a manager
+    expect(await screen.findByText('Bridge call: 0800 000 000')).toBeInTheDocument();
+    const events: RunbookTaskEventRead[] = [
+      { id: 12, from_status: 'in_progress', to_status: 'done', at: '2026-10-01T18:40:00Z',
+        recorded_at: '2026-10-01T18:55:00Z', by_username: 'dba1', note: null },
+      { id: 11, from_status: 'not_started', to_status: 'in_progress', at: '2026-10-01T18:05:00Z',
+        recorded_at: '2026-10-01T18:05:00Z', by_username: null, note: 'late start, waiting on DNS' },
+    ];
+    vi.mocked(runbookService.events).mockResolvedValue(events);
+    await userEvent.click(screen.getByRole('button', { name: 'History for Deploy API' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(runbookService.events).toHaveBeenCalledWith(1);
+    expect(within(dialog).getByText('Run deploy.sh with --canary')).toBeInTheDocument();
+    const items = await within(dialog).findAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('In progress → Done');
+    expect(items[0]).toHaveTextContent('by dba1');
+    expect(items[1]).toHaveTextContent('Not started → In progress');
+    expect(items[1]).toHaveTextContent('Note: late start, waiting on DNS');
+    expect(items[1]).toHaveTextContent('by an unknown user');
   });
 });
