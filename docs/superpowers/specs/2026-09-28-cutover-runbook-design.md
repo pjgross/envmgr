@@ -147,7 +147,10 @@ first failure here; that is what a cutover review asks for.
 
 **The invariant: no task is `in_progress` or `done` while any predecessor is
 anything other than `done` or `skipped`.** Every refusal in C5a protects that
-one sentence.
+one sentence. It is ONE invariant with THREE guards, one per way it could be
+broken: a task moving forward (`NEEDS_PREDECESSORS` on start/mark-done), a
+predecessor moving back (`NEEDS_QUIET_SUCCESSORS` on reopen), and the edges
+themselves changing (`PUT .../predecessors` on a started task — below).
 
 | Transition | Allowed when | Who |
 |---|---|---|
@@ -164,7 +167,10 @@ Anything not in the table is a 409 naming the current and requested status.
   (must not be in the future), because a task is often ticked after it
   finished. `at` is what the task records; the event records both `at` and
   `recorded_at`. `at` is not checked against predecessors' finish times —
-  C5a does not police honest back-dating.
+  C5a does not police honest back-dating. The one check on `at` is against
+  the task's OWN start: finishing (`in_progress` → `done`/`failed`) at an
+  `at` earlier than its `actual_started_at` is a 422 ("cannot finish before
+  it started") — a typo, not a history (added in the final-review fix wave).
 - **"Team" means** an active member of `team_group_id` in the caller's active
   tenant. A task with **no team, or a team with no members, degrades to
   Admin/RM only** — B3b's degradation rule. Admin and Release Manager are
@@ -304,7 +310,15 @@ A fourteenth **Runbook** tab on release detail (the strip already scrolls,
   flags as icons **with visible text in the tooltip and an accessible name**,
   and action buttons drawn only from `allowed_transitions`. *Skip* and
   *Reopen* open a dialog that requires a reason; any transition may set an
-  "actually happened at" time.
+  "actually happened at" time (*Record time*, shown only where a transition
+  needing no reason exists). A row's buttons are disabled while its own
+  transition is in flight. A refused write re-reads the composite, so the
+  screen never keeps offering the action the server just refused.
+- **History** (added by Ruling R16; §3/§6 built the data, this section had
+  omitted the view) — a per-row, read-only *History* dialog open to every
+  viewer: the task's description (its instructions) and its events newest
+  first — from → to, `at`, `recorded_at`, who, note. The header shows the
+  plan's `notes` when present.
 - **Timeline** — a read-only bar view beside the table: planned bars against
   forecast bars, critical tasks emphasised, a "now" line. A small new
   component modelled on `EnvironmentResourceGantt`; `PhaseGanttEditor` is an
@@ -312,9 +326,14 @@ A fourteenth **Runbook** tab on release detail (the strip already scrolls,
 - **Task dialog** (Admin/RM) — fields of §3 plus a predecessor multi-select
   offering this plan's tasks only. Server 409s (cycle, invariant) are shown
   through `rejectWithValue(formatApiError(err))`, never `result.error.message`.
-- **Live refresh** — while the plan is `in_progress`, the tab re-reads the
-  composite every 30 seconds, paused while the document is hidden. Several
-  teams tick tasks at once during a cutover.
+- **Live refresh** — until the plan is `complete`, the tab re-reads the
+  composite every 30 seconds, paused while the document is hidden and re-read
+  at once when it becomes visible again. Several teams tick tasks at once
+  during a cutover — and a `failed` or not-yet-started cutover's screen must
+  keep updating too (Ruling R15; this said "while `in_progress`" until the
+  final review). "Updated HH:MM" beside the state chip gives the time of the
+  last successful read, and a failed load or refresh is shown as an error,
+  never as an endless "Loading…" or a frozen page that looks live.
 - Every raw `<Table>`, if any, sits directly inside a `<TableContainer>` (the
   IA PR 5 sweep enforces it); the timeline scrolls inside itself, never the page.
 

@@ -126,7 +126,7 @@ New phases introduced by this analysis (Phase 8 remains reserved for the parked 
 | `can-deploy` preflight gate | ✅ | Phase 4 Sub-3 |
 | Deployment plan + window on the release record | ✅ | Phase 9 C5a (cutover runbook: a plan per release+environment, anchor start, computed end) |
 | Pre-deployment checklist as a required gate | 🟡 | Phase 9 C5a (as a task with dependencies the invariant enforces, not a `gate_type` row) |
-| Deploy patterns: rolling / blue-green / canary per category | ✅ | Phase 9 C5a (`deploy_pattern`: rolling/blue_green/canary/big_bang/other) |
+| Deploy patterns: rolling / blue-green / canary per category | 🟡 | Phase 9 C5a (`deploy_pattern`: rolling/blue_green/canary/big_bang/other) — recorded **per plan** (one release + environment), not per release category; nothing defaults or requires a pattern by category |
 | Post-deployment verification (smoke/synthetic) → rollback trigger | 🟡 | Phase 9 C5a (verification modelled as a task depending on every deploy task; EnvManager never triggers a rollback itself — register-not-executor boundary) |
 | Traffic-ramp schedule with auto-pause on adverse signal | 🟡 | Phase 9 C5a (ramp steps modelled as a task chain; auto-pause is the pipeline's job, not EnvManager's) |
 | **Documented rollback plan agreed before deploy**, per release | ✅ | Phase 9 C4 |

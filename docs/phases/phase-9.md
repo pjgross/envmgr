@@ -521,10 +521,15 @@ What shipped:
   lateness, criticality, the plan's state — is computed on read by
   `runbook_schedule_service.compute()`, a pure function with no database
   access, and never stored.
-- **The invariant, enforced in exactly one place**: no task is `in_progress` or
-  `done` while any predecessor is anything other than `done` or `skipped`.
-  `runbook_execution_service.transition`'s `NEEDS_PREDECESSORS` check is the
-  only place that rule lives; every 409 in C5a protects that one sentence.
+- **One invariant, three guards**: no task is `in_progress` or `done` while
+  any predecessor is anything other than `done` or `skipped`. Every 409 in C5a
+  protects that one sentence, and it can be broken three ways, so it has three
+  guards: a task moving forward — `runbook_execution_service.transition`'s
+  `NEEDS_PREDECESSORS` check on start / mark-done; a predecessor moving back —
+  its `NEEDS_QUIET_SUCCESSORS` check on reopen; and the edges changing —
+  `runbook_service.set_predecessors`, which refuses to give an
+  already-started task a predecessor that is not done or skipped. (This said
+  "enforced in exactly one place" until the final review; that was wrong.)
 - A composite read (`GET /runbooks/{id}`) carrying the plan, its tasks and
   edges, the computed schedule, rendered team/system/environment names and,
   per task, **`allowed_transitions` for the caller** — the UI renders only
@@ -538,8 +543,12 @@ What shipped:
   drawn only from `allowed_transitions`, with skip/reopen dialogs requiring a
   reason and any transition able to record an "actually happened at" time; a
   read-only timeline (planned bars against forecast bars, critical tasks
-  emphasised, a "now" line); and a 30-second live re-read while the plan is in
-  progress, paused while the tab is hidden.
+  emphasised, a "now" line); a read-only per-task *History* dialog (the task's
+  instructions and its events, newest first) open to every viewer, and the
+  plan's notes in the header; and a 30-second live re-read until the plan is
+  complete (Ruling R15 — not only while in progress), paused while the tab is
+  hidden and re-read at once when it becomes visible, with "Updated HH:MM"
+  beside the state chip and a visible error when a load or refresh fails.
 
 **C5a refuses only writes to its own runbook records.** No deployment webhook,
 release transition, booking, `can-deploy` answer or readiness verdict changes
@@ -648,8 +657,9 @@ C6 made to `test_pir_records_never_refuses.py`. Spec:
   could not be run** — the browser-automation tool's window resize did not
   take effect, so only the structural internal-scrolling guard was confirmed,
   not an actual iPad-width render; this remains to be checked by hand.
-- **FOUR SMALLER UI DEFECTS THE BROWSER PASS FOUND, ADDRESSED IN THE SAME
-  TASK**: the tab kept stale state — a stale *Start* button, a stale
+- **FOUR SMALLER UI DEFECTS THE BROWSER PASS FOUND, FIXED IN THE FINAL-REVIEW
+  FIX WAVE** (not in the browser-pass task itself, as this entry first said):
+  the tab kept stale state — a stale *Start* button, a stale
   "cannot start until…" list — after a refused (409) transition, until the
   next 30-second poll caught up, rather than re-reading the composite
   immediately on rejection; the newly active 14th ("Runbook") tab was not
@@ -657,7 +667,31 @@ C6 made to `test_pir_records_never_refuses.py`. Spec:
   full 30 seconds to re-read on becoming visible again rather than doing so
   immediately on `visibilitychange`; and *Record time* offered itself even
   when the only allowed transition was *Skip*, which needs a reason the
-  "record a time" framing does not ask for.
+  "record a time" framing does not ask for. The fixes: **every** refused
+  runbook write (not only a transition) re-reads the composite before it
+  rejects, and the transition dialog reads the task's live row so its targets
+  follow the refresh while the error stays; the release page scrolls the
+  selected tab into view; `visibilitychange` → visible re-reads at once;
+  *Record time* shows only where a no-reason transition exists and defaults
+  to it. The same wave also: stopped polling from going quiet on a failed or
+  not-started plan (R15); surfaced load/refresh failures instead of an
+  endless "Loading…" or a frozen page (R2); connected the task history and
+  instructions, and the plan notes, which were built and shown nowhere (R3,
+  Ruling R16 — the "connected to nothing" class); refused finishing a task
+  before its own recorded start (422); disabled a row's buttons while its
+  transition is in flight; kept an archived team selectable in the task
+  dialog; and added a structural test that every runbook route takes a
+  function-scoped session.
+- **KNOWN, UNFIXED: A CHECK-THEN-WRITE RACE BETWEEN REOPEN AND START (M2).**
+  Reopening A checks that its successor B is still `not_started`; starting B
+  checks that A is `done`. Two concurrent requests — one reopening A, one
+  starting B — can both pass their checks under READ COMMITTED and both
+  commit, leaving B `in_progress` under a `not_started` A, which the
+  invariant forbids. Narrow (two people acting on adjacent tasks in the same
+  second) and visible (the table shows it; an Admin can reopen B). The fix is
+  a row lock on the plan (`SELECT … FOR UPDATE` on `runbook_plan`) taken by
+  every transition and predecessor edit — follow-up work, deliberately not in
+  C5a.
 
 ## C6 — Hyper-care and closeout — ✅ COMPLETE 2026-09-09
 
