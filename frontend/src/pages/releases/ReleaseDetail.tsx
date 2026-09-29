@@ -101,17 +101,34 @@ export default function ReleaseDetail() {
     'main',
   );
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Fourteen tabs overflow the strip, and MUI's scrollable Tabs does not bring
-  // an initially-selected tab into view: landing on ?tab=runbook (from My
-  // work) left the active tab off-screen. Scroll it in after each change of
-  // tab, and once the strip exists (it renders only after the release loads).
+  // Fourteen tabs overflow the strip, and landing on ?tab=runbook (from My
+  // work) left the active tab off-screen. MUI does scroll the selected tab in,
+  // but BEFORE its arrow buttons exist: they are added later by an
+  // IntersectionObserver (later still in a background tab), the scroller
+  // narrows by their 2×40px, and nothing re-scrolls — the tab ends up clipped.
+  // So re-reveal whenever the scroller's size changes, not only on a change of
+  // tab. Adjust the strip's own scrollLeft rather than calling scrollIntoView,
+  // whose vertical alignment can move the whole page.
   const tabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      const el = tabsRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    });
-    return () => cancelAnimationFrame(frame);
+    const root = tabsRef.current;
+    const scroller = root?.querySelector<HTMLElement>('.MuiTabs-scroller');
+    if (!root || !scroller) return undefined;
+    const reveal = () => {
+      const tab = root.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      if (!tab) return;
+      const s = scroller.getBoundingClientRect();
+      const t = tab.getBoundingClientRect();
+      if (t.left < s.left) scroller.scrollLeft -= s.left - t.left;
+      else if (t.right > s.right) scroller.scrollLeft += t.right - s.right;
+    };
+    const frame = requestAnimationFrame(reveal);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(reveal) : null;
+    observer?.observe(scroller);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, [activeTab, release?.id]);
   const [eventLogOpen, setEventLogOpen] = useState(false);
 

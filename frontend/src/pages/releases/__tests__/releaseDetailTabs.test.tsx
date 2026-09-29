@@ -128,19 +128,79 @@ describe('ReleaseDetail — the selected tab is scrolled into view', () => {
     vi.mocked(releaseService.get).mockResolvedValue(RELEASE);
   });
 
-  it('on landing, and again when another tab is chosen', async () => {
-    const calls: Element[] = [];
-    const original = (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
-    Element.prototype.scrollIntoView = function (this: Element) { calls.push(this); };
+  // jsdom performs no layout and has no ResizeObserver, so both are stubbed.
+  // The geometry is the one measured in Chrome (2026-09-29): the strip first
+  // renders without MUI's arrow buttons and is scrolled correctly for that
+  // width; MUI's IntersectionObserver then adds two 40px arrow buttons, the
+  // scroller narrows by 80px and the selected tab ends up clipped. The fix
+  // must re-reveal on that resize, and must do it by scrolling the STRIP —
+  // never the page (scrollIntoView's `block` can move the page vertically).
+  type Rect = { left: number; right: number };
+  function stubGeometry(scroller: HTMLElement, rects: Map<Element, Rect>) {
+    let scrollLeft = 0;
+    Object.defineProperty(scroller, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (v: number) => { scrollLeft = v; },
+    });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const r = rects.get(this) ?? { left: 0, right: 0 };
+      return { ...r, top: 0, bottom: 0, width: r.right - r.left, height: 0, x: r.left, y: 0, toJSON: () => r } as DOMRect;
+    });
+    return { get scrollLeft() { return scrollLeft; }, set scrollLeft(v: number) { scrollLeft = v; } };
+  }
+
+  it('reveals the selected tab again when the strip narrows after landing (arrow buttons appear)', async () => {
+    const observed = new Map<Element, () => void>();
+    const OriginalRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+      constructor(private cb: () => void) {}
+      observe(el: Element) { observed.set(el, this.cb); }
+      unobserve(el: Element) { observed.delete(el); }
+      disconnect() { for (const [el, cb] of observed) if (cb === this.cb) observed.delete(el); }
+    };
+    const pageScroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
     try {
       renderAt('?tab=runbook');
       const runbook = await screen.findByRole('tab', { name: 'Runbook' });
-      await waitFor(() => expect(calls).toContain(runbook));
-      expect(calls.every((el) => el.getAttribute('aria-selected') === 'true')).toBe(true);
-      await userEvent.click(screen.getByRole('tab', { name: 'Main' }));
-      await waitFor(() => expect(calls).toContain(screen.getByRole('tab', { name: 'Main' })));
+      const scroller = runbook.closest('.MuiTabs-scroller') as HTMLElement;
+      const rects = new Map<Element, Rect>();
+      const geo = stubGeometry(scroller, rects);
+      // Before the arrows: 1192px of strip, already scrolled to 292 — tab visible.
+      geo.scrollLeft = 292;
+      rects.set(scroller, { left: 280, right: 1472 });
+      rects.set(runbook, { left: 1380, right: 1472 });
+      // The arrows appear: the scroller narrows to 320–1432 and the tab is clipped.
+      rects.set(scroller, { left: 320, right: 1432 });
+      rects.set(runbook, { left: 1420, right: 1512 });
+      await waitFor(() => expect(observed.has(scroller)).toBe(true));
+      observed.get(scroller)!();
+      expect(geo.scrollLeft).toBe(372);
+      expect(pageScroll).not.toHaveBeenCalled();
     } finally {
-      (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = original;
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = OriginalRO;
+      vi.restoreAllMocks();
+    }
+  });
+
+  // MUI's own scrollSelectedIntoView already covers a tab CHANGE (it passes on
+  // the pre-fix code too); kept to prove the resize handling above does not
+  // fight it. The discriminating test is the one above.
+  it('scrolls the strip back when the selected tab sits left of the visible area', async () => {
+    renderAt('?tab=runbook');
+    const runbook = await screen.findByRole('tab', { name: 'Runbook' });
+    const scroller = runbook.closest('.MuiTabs-scroller') as HTMLElement;
+    const rects = new Map<Element, Rect>();
+    const geo = stubGeometry(scroller, rects);
+    try {
+      geo.scrollLeft = 372;
+      rects.set(scroller, { left: 320, right: 1432 });
+      const main = screen.getByRole('tab', { name: 'Main' });
+      rects.set(main, { left: 250, right: 330 });   // 70px out of view on the left
+      await userEvent.click(main);
+      await waitFor(() => expect(geo.scrollLeft).toBe(302));
+    } finally {
+      vi.restoreAllMocks();
     }
   });
 });

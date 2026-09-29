@@ -663,7 +663,11 @@ C6 made to `test_pir_records_never_refuses.py`. Spec:
   "cannot start until…" list — after a refused (409) transition, until the
   next 30-second poll caught up, rather than re-reading the composite
   immediately on rejection; the newly active 14th ("Runbook") tab was not
-  scrolled into view when landing on it from *My work*; the tab waited the
+  scrolled into view when landing on it from *My work* (the fix wave's attempt
+  passed its jsdom test but not Chrome; it was redone after the merge — the
+  strip re-reveals the selected tab whenever `.MuiTabs-scroller` resizes,
+  because MUI's arrow buttons appear only after its first scroll and narrow
+  the strip by 80px); the tab waited the
   full 30 seconds to re-read on becoming visible again rather than doing so
   immediately on `visibilitychange`; and *Record time* offered itself even
   when the only allowed transition was *Skip*, which needs a reason the
