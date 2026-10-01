@@ -17,7 +17,7 @@ dependencies = [
     "pydantic-settings==2.14.2",
     # PyJWT rather than python-jose: python-jose is near-dormant and drags in
     # ecdsa, whose CVE-2024-33663 sibling CVE-2024-23342 upstream declined to fix.
-    "pyjwt==2.13.0",
+    "pyjwt==2.15.1",
     # bcrypt directly rather than passlib, which last shipped in 2020 and could
     # not work with bcrypt>=4 — the reason for the old `bcrypt<4` pin.
     "bcrypt==5.0.0",
