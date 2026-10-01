@@ -1,4 +1,6 @@
 """Integration tests for the PIR findings API — Task 2."""
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -8,6 +10,12 @@ from app.db.base import get_db
 from app.db.models.lifecycle import LifecycleTemplate
 from app.db.models.release import Release
 from app.services.incident_defaults import seed_incident_defaults_for_tenant
+
+
+def _days_from_today(days: int) -> str:
+    """An ISO due date `days` UTC days from today, at midnight — the shape the UI writes."""
+    day = datetime.now(timezone.utc).date() + timedelta(days=days)
+    return f"{day.isoformat()}T00:00:00Z"
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -142,7 +150,9 @@ async def test_an_action_round_trips_on_the_pir_read(authed_client, demo_release
         json={"kind": "went_wrong", "title": "No load test"})).json()["id"]
     created = await authed_client.post(
         f"/api/v1/releases/{demo_release_id}/pir/findings/{fid}/actions",
-        json={"title": "Add a perf gate", "due_date": "2026-09-30T00:00:00Z"})
+        # Relative to today, not a literal: a fixed date became "overdue" the
+        # day after it, failing `is_overdue is False` with no code change.
+        json={"title": "Add a perf gate", "due_date": _days_from_today(30)})
     assert created.status_code == 201, created.text
     assert created.json()["status"] == "open"
     assert created.json()["is_overdue"] is False
