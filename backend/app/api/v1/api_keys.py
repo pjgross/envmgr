@@ -28,7 +28,7 @@ def _to_read(k) -> ApiKeyRead:
 
 @router.get("", response_model=list[ApiKeyRead])
 async def list_keys(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     keys = await api_key_service.list_keys(db, current_user.active_tenant_id)
@@ -53,7 +53,7 @@ async def list_keys(
 @router.post("", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
 async def create_key(
     data: ApiKeyCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     key, raw = await api_key_service.create_key(
@@ -71,7 +71,7 @@ async def create_key(
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_key(
     key_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await api_key_service.revoke_key(

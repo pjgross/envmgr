@@ -173,7 +173,7 @@ async def _conflicts_for(db: AsyncSession, requests, tenant_id: int) -> set[int]
 @router.post("", response_model=BookingRequestCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_booking_request(
     data: BookingRequestCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     req, detected = await booking_request_service.create_request(
@@ -234,7 +234,7 @@ async def create_booking_request(
 @router.post("/preview-conflicts", response_model=PreviewConflictsResponse)
 async def preview_conflicts(
     data: PreviewConflictsRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     conflicts = await booking_request_service.preview_conflicts(
@@ -304,7 +304,7 @@ async def list_booking_requests(
     response: Response,
     project_id: Optional[int] = Query(None),
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     rows, total = await booking_request_service.list_booking_requests(
@@ -327,7 +327,7 @@ async def list_booking_requests(
 @router.get("/{request_id}", response_model=BookingRequestResponse)
 async def get_booking_request(
     request_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     req = await booking_request_service._get_request(db, request_id, current_user.active_tenant_id)
@@ -344,7 +344,7 @@ async def get_booking_request(
 async def update_request_standard_fields(
     request_id: int,
     data: BookingRequestUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     values = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None or k in data.model_fields_set}
@@ -366,7 +366,7 @@ async def update_request_standard_fields(
 async def update_request_custom_fields(
     request_id: int,
     data: BookingRequestCustomFieldsUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     req = await booking_request_service.update_custom_fields(
@@ -386,7 +386,7 @@ async def update_request_custom_fields(
 async def add_environment_to_request(
     request_id: int,
     data: AddEnvironmentRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     child = await booking_request_service.add_environment(
@@ -419,7 +419,7 @@ async def add_environment_to_request(
 async def remove_environment_from_request(
     request_id: int,
     booking_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     await booking_request_service.remove_environment(
@@ -436,7 +436,7 @@ async def transition_group_bookings(
     request_id: int,
     group_id: int,
     data: BookingTransitionRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     """Move every member of this group booking, or none of them.
@@ -486,7 +486,7 @@ async def transition_group_bookings(
 async def get_group_allowed_transitions_route(
     request_id: int,
     group_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     """The INTERSECTION of what every member allows — the endpoint the

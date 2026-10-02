@@ -26,7 +26,7 @@ class TopologyResponse(BaseModel):
 async def get_system_topology(
     system_id: int,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get subsystems and component dependencies for a system topology diagram,
     including cross-system dependencies and their external subsystems."""

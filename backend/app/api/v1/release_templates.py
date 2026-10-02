@@ -18,7 +18,7 @@ router = APIRouter(prefix="/release-templates", tags=["Release Templates"])
 
 @router.get("", response_model=list[ReleaseTemplateRead])
 async def list_templates(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_template_service.list_templates(db, current_user.active_tenant_id)
@@ -27,7 +27,7 @@ async def list_templates(
 @router.post("", response_model=ReleaseTemplateRead, status_code=status.HTTP_201_CREATED)
 async def create_template(
     data: ReleaseTemplateCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_template_service.create_template(db, data, current_user.active_tenant_id)
@@ -36,7 +36,7 @@ async def create_template(
 @router.get("/{template_id}", response_model=ReleaseTemplateRead)
 async def get_template(
     template_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_template_service.get_template(db, template_id, current_user.active_tenant_id)
@@ -46,7 +46,7 @@ async def get_template(
 async def update_template(
     template_id: int,
     data: ReleaseTemplateUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_template_service.update_template(
@@ -57,7 +57,7 @@ async def update_template(
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_template(
     template_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await release_template_service.delete_template(
@@ -69,7 +69,7 @@ async def delete_template(
 async def instantiate_template(
     template_id: int,
     data: ReleaseTemplateInstantiate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Create a release (with phases and gates) from this template."""

@@ -23,42 +23,10 @@ from app.services import (
 router = APIRouter(tags=["Runbooks"])
 _manager = require_role(Role.RELEASE_MANAGER)   # Admin and master admin pass too
 
-# FastAPI 0.141 added `Depends(..., scope=)`. A yield-dependency with no scope
-# defaults to "request": its post-yield code (get_db's commit/rollback/close)
-# runs after `await response(scope, receive, send)` in
-# fastapi/routing.py's `request_response()` (site-packages/fastapi/routing.py:145),
-# i.e. AFTER the response bytes are already on the wire — so a client's very
-# next request can race the commit and read stale data (this bit the live dev
-# server: a transition's 200 came back before its own write was committed).
-# `scope="function"` moves the post-yield code inside the *inner*
-# `async with AsyncExitStack() as function_stack:` block (routing.py:142-145),
-# which closes BEFORE `await response(...)` runs, closing that race for every
-# route in this router.
-#
-# `get_current_user` (app/core/security.py) has its own bare
-# `db: AsyncSession = Depends(get_db)` — scope=None, so it computes to
-# "request" (fastapi/dependencies/models.py:_get_computed_scope, since get_db
-# is an async generator). The dependency cache key is
-# `(call, scopes, computed_scope)` (models.py:_get_cache_key), and scope is
-# part of that key — so our `scope="function"` Depends(get_db, ...) below is
-# NOT the same cache entry as get_current_user's, meaning each request opens
-# TWO separate sessions/transactions here: one (function-scoped) for this
-# router's own reads and writes, one (request-scoped, read-only — it only
-# loads the caller's User row) inside get_current_user. That is fine: nothing
-# in this router writes through get_current_user's session, and the two
-# scopes are still nested (function_stack sits inside request_stack in
-# routing.py), so an exception raised in the route still unwinds BOTH — a
-# raised HTTPException propagates through the AsyncExitStack machinery to
-# every entered dependency regardless of scope, and get_db's own
-# `except Exception: rollback(); raise` re-raises rather than swallowing it,
-# so the function-scoped session rolls back correctly before the exception
-# reaches FastAPI's error-response machinery. Verified by reading
-# fastapi/routing.py's `request_response()` (function_stack nested inside
-# request_stack) and by
-# test_a_failed_task_create_rolls_back_the_flushed_task in
-# tests/test_runbook_api.py (create_task flushes the new task, assigning it
-# an id, before validating predecessor_ids; an invalid id 409s after that
-# flush, and the row must not survive).
+# Function-scoped so get_db commits BEFORE the response is sent — the
+# app-wide rule since 2026-10-02 (every Depends(get_db) is declared this way,
+# get_current_user's included, so a request shares ONE session again).
+# Guarded by tests/test_db_session_commits_before_response.py; see CLAUDE.md.
 _db = Depends(get_db, scope="function")
 
 

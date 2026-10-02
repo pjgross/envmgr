@@ -18,7 +18,7 @@ router = APIRouter()
 @router.post("/deployment", response_model=DeploymentIngestResult)
 async def ingest_deployment(
     payload: DeploymentWebhookPayload,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     api_key=Depends(api_key_auth(required_scope=WEBHOOKS_DEPLOYMENT)),
 ):
     return await deployment_service.ingest(

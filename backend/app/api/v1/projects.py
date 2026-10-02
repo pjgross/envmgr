@@ -25,7 +25,7 @@ async def list_projects(
     is_active: Optional[bool] = Query(None),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(project_service.PROJECT_SORTS, default="name")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Readable by any tenant member — every booking form needs the picker, and
@@ -41,7 +41,7 @@ async def list_projects(
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     data: ProjectCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     view = await project_service.create_project(db, data, current_user.active_tenant_id)
@@ -51,7 +51,7 @@ async def create_project(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     view = await project_service.get_project_view(
@@ -64,7 +64,7 @@ async def get_project(
 async def update_project(
     project_id: int,
     data: ProjectUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     view = await project_service.update_project(
@@ -76,7 +76,7 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await project_service.delete_project(db, project_id, current_user.active_tenant_id)
@@ -87,7 +87,7 @@ async def list_project_usage_agreements(
     project_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     rows, total = await project_service.list_agreements_for_project(
@@ -105,7 +105,7 @@ async def list_project_usage_agreements(
 async def create_project_usage_agreement(
     project_id: int,
     data: UsageAgreementCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     row = await project_service.create_agreement(
@@ -121,7 +121,7 @@ async def create_project_usage_agreement(
 async def delete_project_usage_agreement(
     project_id: int,
     agreement_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await project_service.delete_agreement(

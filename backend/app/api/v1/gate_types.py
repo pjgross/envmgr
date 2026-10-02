@@ -23,7 +23,7 @@ async def list_gate_types(
     include_inactive: bool = True,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(GATE_TYPE_SORTS, "display_order")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Reads are open to ANY tenant member; only writes are Admin.
@@ -42,7 +42,7 @@ async def list_gate_types(
 @router.post("", response_model=GateTypeRead, status_code=status.HTTP_201_CREATED)
 async def create_gate_type(
     data: GateTypeCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await gate_type_service.create_type(db, current_user.active_tenant_id, data)
@@ -52,7 +52,7 @@ async def create_gate_type(
 async def update_gate_type(
     type_id: int,
     data: GateTypeUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await gate_type_service.update_type(
@@ -63,7 +63,7 @@ async def update_gate_type(
 @router.delete("/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_gate_type(
     type_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await gate_type_service.delete_type(db, type_id, current_user.active_tenant_id)

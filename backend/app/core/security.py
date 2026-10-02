@@ -72,7 +72,7 @@ def decode_access_token(token: str) -> dict:
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Get the current authenticated user from JWT token."""
     from app.db.models.user import User
@@ -163,7 +163,7 @@ def api_key_auth(required_scope: str):
 
     async def _dep(
         x_api_key: str | None = Header(default=None),
-        db: AsyncSession = Depends(get_db),
+        db: AsyncSession = Depends(get_db, scope="function"),
     ):
         if not x_api_key:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing API key")

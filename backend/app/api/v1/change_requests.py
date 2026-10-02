@@ -52,7 +52,7 @@ async def list_change_requests(
     sort: Sort = Depends(
         sorting(CHANGE_REQUEST_SORTS, default="scheduled_start", default_dir="desc")
     ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -75,7 +75,7 @@ async def list_change_requests(
 @router.post("", response_model=ChangeRequestResponse, status_code=status.HTTP_201_CREATED)
 async def create_change_request(
     data: ChangeRequestCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -88,7 +88,7 @@ async def create_change_request(
 @router.post("/preview-outage-conflicts", response_model=PreviewOutageConflictsResponse)
 async def preview_outage_conflicts(
     data: PreviewOutageConflictsRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Advisory: list booking conflicts grouped by each environment in the
@@ -108,7 +108,7 @@ async def preview_outage_conflicts(
 @router.get("/{cr_id}", response_model=ChangeRequestDetailResponse)
 async def get_change_request_detail(
     cr_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -123,7 +123,7 @@ async def get_change_request_detail(
 async def update_change_request(
     cr_id: int,
     data: ChangeRequestUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -137,7 +137,7 @@ async def update_change_request(
 async def transition_change_request(
     cr_id: int,
     data: ChangeRequestTransition,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -150,7 +150,7 @@ async def transition_change_request(
 @router.get("/{cr_id}/allowed-transitions")
 async def get_allowed_transitions(
     cr_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await change_request_service.get_allowed_transitions(
@@ -161,7 +161,7 @@ async def get_allowed_transitions(
 @router.delete("/{cr_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_change_request(
     cr_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await change_request_service.soft_delete_change_request(

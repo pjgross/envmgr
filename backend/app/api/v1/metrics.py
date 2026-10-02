@@ -48,7 +48,7 @@ async def get_dora(
     environment_id: int | None = None,
     release_id: int | None = None,
     granularity: Literal["day", "week", "month"] = "week",
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await dora_service.dora_summary(
@@ -65,7 +65,7 @@ async def export_dora(
     environment_id: int | None = None,
     release_id: int | None = None,
     granularity: Literal["day", "week", "month"] = "week",
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     summary = await dora_service.dora_summary(
@@ -97,7 +97,7 @@ async def export_dora(
 async def get_release_metrics(
     date_from: date = Query(...),
     date_to: date = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_metrics_service.release_metrics(
@@ -110,7 +110,7 @@ async def get_release_metrics(
 async def get_booking_conflicts(
     date_from: date = Query(...),
     date_to: date = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_metrics_service.booking_conflicts(
@@ -123,7 +123,7 @@ async def get_booking_conflicts(
 async def get_environments_utilization(
     date_from: date = Query(...),
     date_to: date = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_utilization_service.utilization_overview(

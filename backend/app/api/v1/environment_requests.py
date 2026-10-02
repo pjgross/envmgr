@@ -24,7 +24,7 @@ router = APIRouter()
 )
 async def create_environment_request(
     data: EnvironmentRequestCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Any tenant member may raise a request — including a Viewer, who is the
@@ -48,7 +48,7 @@ async def list_environment_requests(
         sorting(environment_request_service.REQUEST_SORTS, default="created_at",
                 default_dir="desc")
     ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Readable by any tenant member. Only transitions are gated."""
@@ -72,7 +72,7 @@ async def list_environment_requests(
 @router.get("/{request_id}", response_model=EnvironmentRequestResponse)
 async def get_environment_request(
     request_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     view = await environment_request_service.get_request_view(
@@ -85,7 +85,7 @@ async def get_environment_request(
 async def update_environment_request(
     request_id: int,
     data: EnvironmentRequestUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     view = await environment_request_service.update_request(
@@ -98,7 +98,7 @@ async def update_environment_request(
 async def transition_environment_request(
     request_id: int,
     data: EnvironmentRequestTransition,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     view = await environment_request_service.transition(
@@ -111,7 +111,7 @@ async def transition_environment_request(
 @router.get("/{request_id}/allowed-transitions")
 async def get_allowed_transitions(
     request_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_request_service.allowed_transitions(
@@ -122,7 +122,7 @@ async def get_allowed_transitions(
 @router.get("/{request_id}/welcome-pack", response_model=WelcomePackResponse)
 async def get_welcome_pack(
     request_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_request_service.build_welcome_pack(

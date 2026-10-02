@@ -74,7 +74,7 @@ async def list_incidents(
     ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(INCIDENT_SORTS, default="detected_at", default_dir="desc")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     filters = {
@@ -104,7 +104,7 @@ async def list_incidents(
 @router.post("", response_model=IncidentDetail, status_code=status.HTTP_201_CREATED)
 async def create_incident(
     data: IncidentCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     inc = await incident_service.create_incident(db, data, current_user.active_tenant_id, current_user.id)
@@ -114,7 +114,7 @@ async def create_incident(
 @router.get("/{incident_id}", response_model=IncidentDetail)
 async def get_incident(
     incident_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     detail = await incident_service.get_incident_detail(
@@ -129,7 +129,7 @@ async def get_incident(
 async def update_incident(
     incident_id: int,
     data: IncidentUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await incident_service.update_incident(db, incident_id, data, current_user.active_tenant_id)
@@ -142,7 +142,7 @@ async def update_incident(
 async def transition_incident(
     incident_id: int,
     data: IncidentTransition,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await incident_service.transition(
@@ -157,7 +157,7 @@ async def transition_incident(
 @router.delete("/{incident_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_incident(
     incident_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await incident_service.delete_incident(db, incident_id, current_user.active_tenant_id)
@@ -168,7 +168,7 @@ async def delete_incident(
 async def cite_incident_on_a_pir(
     incident_id: int,
     data: IncidentPirCitationRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Cite this incident as evidence on a release's PIR, creating what is missing.

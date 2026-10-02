@@ -47,7 +47,7 @@ async def list_systems(
     search: Optional[str] = None,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(SYSTEM_SORTS, default="name")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     rows, total = await system_service.list_systems(
@@ -60,7 +60,7 @@ async def list_systems(
 @router.post("/", response_model=SystemResponse, status_code=status.HTTP_201_CREATED)
 async def create_system(
     data: SystemCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await system_service.create_system(db, data, current_user.active_tenant_id)
@@ -69,7 +69,7 @@ async def create_system(
 @router.get("/{system_id}", response_model=SystemResponse)
 async def get_system(
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await system_service.get_system(db, system_id, current_user.active_tenant_id)
@@ -79,7 +79,7 @@ async def get_system(
 async def update_system(
     system_id: int,
     data: SystemUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await system_service.update_system(db, system_id, data, current_user.active_tenant_id)
@@ -88,7 +88,7 @@ async def update_system(
 @router.delete("/{system_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_system(
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await system_service.delete_system(db, system_id, current_user.active_tenant_id)
@@ -97,7 +97,7 @@ async def delete_system(
 @router.post("/{system_id}/github/scan")
 async def scan_system_repository(
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Scan the system's GitHub repository and import what the detectors find."""
@@ -156,7 +156,7 @@ async def scan_system_repository(
 @router.get("/{system_id}/github/drift")
 async def system_repository_drift(
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Report where the subsystem catalogue and the repository disagree.
@@ -216,7 +216,7 @@ async def system_repository_drift(
 @router.get("/{system_id}/subsystems", response_model=list[SubSystemResponse])
 async def list_subsystems(
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await system_service.list_subsystems(db, system_id, current_user.active_tenant_id)
@@ -230,7 +230,7 @@ async def list_subsystems(
 async def create_subsystem(
     system_id: int,
     data: SubSystemCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await system_service.create_subsystem(
@@ -242,7 +242,7 @@ async def create_subsystem(
 async def get_subsystem(
     system_id: int,
     sub_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await system_service.get_subsystem(
@@ -255,7 +255,7 @@ async def update_subsystem(
     system_id: int,
     sub_id: int,
     data: SubSystemUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await system_service.update_subsystem(
@@ -267,7 +267,7 @@ async def update_subsystem(
 async def delete_subsystem(
     system_id: int,
     sub_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await system_service.delete_subsystem(
@@ -293,7 +293,7 @@ async def delete_subsystem(
 )
 async def list_rollback_rehearsals(
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -309,7 +309,7 @@ async def list_rollback_rehearsals(
 async def record_rollback_rehearsal(
     system_id: int,
     data: RehearsalCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id

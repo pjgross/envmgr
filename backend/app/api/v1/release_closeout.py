@@ -28,31 +28,31 @@ async def _run(db, release_id, current_user, fn, note: Optional[str]) -> Release
 
 
 @router.post("/{release_id}/declare-stable", response_model=ReleaseRead)
-async def declare_stable(release_id: int, data: AuditNote, db: AsyncSession = Depends(get_db),
+async def declare_stable(release_id: int, data: AuditNote, db: AsyncSession = Depends(get_db, scope="function"),
                          current_user=Depends(require_role(Role.RELEASE_MANAGER))):
     return await _run(db, release_id, current_user, release_closeout_service.declare_stable, data.note)
 
 
 @router.delete("/{release_id}/declare-stable", response_model=ReleaseRead)
-async def withdraw_stable(release_id: int, db: AsyncSession = Depends(get_db),
+async def withdraw_stable(release_id: int, db: AsyncSession = Depends(get_db, scope="function"),
                           current_user=Depends(require_role(Role.RELEASE_MANAGER))):
     return await _run(db, release_id, current_user, release_closeout_service.withdraw_stable, None)
 
 
 @router.post("/{release_id}/confirm-handover", response_model=ReleaseRead)
-async def confirm_handover(release_id: int, data: AuditNote, db: AsyncSession = Depends(get_db),
+async def confirm_handover(release_id: int, data: AuditNote, db: AsyncSession = Depends(get_db, scope="function"),
                            current_user=Depends(require_role(Role.RELEASE_MANAGER))):
     return await _run(db, release_id, current_user, release_closeout_service.confirm_handover, data.note)
 
 
 @router.delete("/{release_id}/confirm-handover", response_model=ReleaseRead)
-async def withdraw_handover(release_id: int, db: AsyncSession = Depends(get_db),
+async def withdraw_handover(release_id: int, db: AsyncSession = Depends(get_db, scope="function"),
                             current_user=Depends(require_role(Role.RELEASE_MANAGER))):
     return await _run(db, release_id, current_user, release_closeout_service.withdraw_handover, None)
 
 
 @router.get("/{release_id}/closeout", response_model=CloseoutRead)
-async def read_closeout(release_id: int, db: AsyncSession = Depends(get_db),
+async def read_closeout(release_id: int, db: AsyncSession = Depends(get_db, scope="function"),
                         current_user=Depends(get_current_user)):
     """Open to any tenant member — the same read the transition's 422 is
     computed from, so the tab and the refusal cannot disagree."""

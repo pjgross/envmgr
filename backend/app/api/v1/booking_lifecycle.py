@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("/lifecycle-templates", response_model=list[LifecycleTemplateResponse])
 async def list_lifecycle_templates(
     entity_type: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """List lifecycle templates for the active tenant.
@@ -33,7 +33,7 @@ async def list_lifecycle_templates(
 @router.post("/lifecycle-templates", response_model=LifecycleTemplateResponse, status_code=status.HTTP_201_CREATED)
 async def create_lifecycle_template(
     data: LifecycleTemplateCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await lifecycle_service.create_template(
@@ -44,7 +44,7 @@ async def create_lifecycle_template(
 @router.get("/lifecycle-templates/{template_id}", response_model=LifecycleTemplateResponse)
 async def get_lifecycle_template(
     template_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await lifecycle_service.get_template(db, template_id, current_user.active_tenant_id)
@@ -53,7 +53,7 @@ async def get_lifecycle_template(
 @router.delete("/lifecycle-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lifecycle_template(
     template_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await lifecycle_service.delete_template(db, template_id, current_user.active_tenant_id)
@@ -63,7 +63,7 @@ async def delete_lifecycle_template(
 async def update_lifecycle_template(
     template_id: int,
     data: LifecycleTemplateUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await lifecycle_service.update_template(db, template_id, data, current_user.active_tenant_id)
@@ -73,7 +73,7 @@ async def update_lifecycle_template(
 async def copy_lifecycle_template(
     template_id: int,
     data: LifecycleTemplateCopy,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await lifecycle_service.copy_template(db, template_id, data.name, current_user.active_tenant_id)
@@ -83,7 +83,7 @@ async def copy_lifecycle_template(
 
 @router.get("/booking-types", response_model=list[BookingTypeResponse])
 async def list_booking_types(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await booking_type_service.list_types(db, current_user.active_tenant_id)
@@ -92,7 +92,7 @@ async def list_booking_types(
 @router.post("/booking-types", response_model=BookingTypeResponse, status_code=status.HTTP_201_CREATED)
 async def create_booking_type(
     data: BookingTypeCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await booking_type_service.create_type(db, data, current_user.active_tenant_id)
@@ -101,7 +101,7 @@ async def create_booking_type(
 @router.get("/booking-types/{type_id}", response_model=BookingTypeResponse)
 async def get_booking_type(
     type_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await booking_type_service.get_type(db, type_id, current_user.active_tenant_id)
@@ -110,7 +110,7 @@ async def get_booking_type(
 @router.delete("/booking-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_booking_type(
     type_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await booking_type_service.delete_type(db, type_id, current_user.active_tenant_id)
@@ -120,7 +120,7 @@ async def delete_booking_type(
 async def update_booking_type(
     type_id: int,
     data: BookingTypeUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await booking_type_service.update_type(db, type_id, data, current_user.active_tenant_id)

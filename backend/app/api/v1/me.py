@@ -26,7 +26,7 @@ router = APIRouter(prefix="/me", tags=["me"])
 
 @router.get("/work", response_model=MyWorkResponse)
 async def my_work(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(get_current_user),
 ):
     now = datetime.now(timezone.utc)

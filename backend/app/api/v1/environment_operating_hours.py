@@ -21,7 +21,7 @@ router = APIRouter(prefix="/environments", tags=["environment-operating-hours"])
 @router.get("/{env_id}/operating-hours", response_model=OperatingHoursConfigResponse)
 async def get_operating_hours(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     cfg = await ops_service.get_config(db, current_user.active_tenant_id, env_id)
@@ -34,7 +34,7 @@ async def get_operating_hours(
 async def put_operating_hours(
     env_id: int,
     body: OperatingHoursConfigIn,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     cfg = await ops_service.upsert_config(
@@ -49,7 +49,7 @@ async def get_environment_utilization(
     env_id: int,
     date_from: date = Query(...),
     date_to: date = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await util_service.environment_utilization(

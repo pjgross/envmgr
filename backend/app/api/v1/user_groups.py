@@ -30,7 +30,7 @@ async def list_user_groups(
     response: Response,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(USER_GROUP_SORTS, default="name")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Every group for the tenant. Readable by any member — B3b needs every
@@ -48,7 +48,7 @@ async def list_user_groups(
 )
 async def create_user_group(
     data: UserGroupCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     view = await user_group_service.create_group(
@@ -60,7 +60,7 @@ async def create_user_group(
 @router.get("/groups/{group_id}", response_model=UserGroupResponse)
 async def get_user_group(
     group_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The group and its counts. The member list is a separate, bounded
@@ -75,7 +75,7 @@ async def get_user_group(
 async def update_user_group(
     group_id: int,
     data: UserGroupUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     view = await user_group_service.update_group(
@@ -87,7 +87,7 @@ async def update_user_group(
 @router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user_group(
     group_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await user_group_service.delete_group(
@@ -102,7 +102,7 @@ async def list_user_group_members(
     group_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     rows, total = await user_group_service.list_members(
@@ -129,7 +129,7 @@ async def list_user_group_members(
 async def add_user_group_member(
     group_id: int,
     data: UserGroupMemberCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     member, username = await user_group_service.add_member(
@@ -150,7 +150,7 @@ async def add_user_group_member(
 async def remove_user_group_member(
     group_id: int,
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await user_group_service.remove_member(

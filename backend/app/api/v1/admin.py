@@ -25,7 +25,7 @@ router = APIRouter()
 async def list_tenants(
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     rows, total = await tenant_service.list_tenants(db, page=page)
@@ -36,7 +36,7 @@ async def list_tenants(
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
 async def create_tenant(
     data: TenantCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await tenant_service.create_tenant(db, data)
@@ -45,7 +45,7 @@ async def create_tenant(
 @router.get("/tenants/{tenant_id}", response_model=TenantResponse)
 async def get_tenant(
     tenant_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await tenant_service.get_tenant(db, tenant_id)
@@ -55,7 +55,7 @@ async def get_tenant(
 async def update_tenant(
     tenant_id: int,
     data: TenantUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await tenant_service.update_tenant(db, tenant_id, data)
@@ -64,7 +64,7 @@ async def update_tenant(
 @router.post("/tenants/{tenant_id}/disable", response_model=TenantResponse)
 async def disable_tenant(
     tenant_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     if tenant_id == current_user.tenant_id:
@@ -77,7 +77,7 @@ async def list_tenant_users(
     tenant_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     rows, total = await user_admin_service.list_users(db, tenant_id, page=page)
@@ -89,7 +89,7 @@ async def list_tenant_users(
 async def create_tenant_user(
     tenant_id: int,
     data: UserAdminCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await user_admin_service.create_user_in_tenant(db, tenant_id, data)
@@ -100,7 +100,7 @@ async def update_tenant_user(
     tenant_id: int,
     user_id: int,
     data: UserAdminUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await user_admin_service.update_user(db, user_id, tenant_id, data)
@@ -111,7 +111,7 @@ async def set_tenant_user_role(
     tenant_id: int,
     user_id: int,
     data: UserRoleUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await user_admin_service.set_user_role(db, user_id, tenant_id, data.role)
@@ -121,7 +121,7 @@ async def set_tenant_user_role(
 async def deactivate_tenant_user(
     tenant_id: int,
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await user_admin_service.deactivate_user(db, user_id, tenant_id)
@@ -131,7 +131,7 @@ async def deactivate_tenant_user(
 async def reactivate_tenant_user(
     tenant_id: int,
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     return await user_admin_service.reactivate_user(db, user_id, tenant_id)
@@ -142,7 +142,7 @@ async def reset_user_password(
     tenant_id: int,
     user_id: int,
     data: PasswordReset,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     from app.core.security import get_password_hash
@@ -162,7 +162,7 @@ async def reset_user_password(
 @router.post("/tenants/{tenant_id}/sign-in-as", response_model=ImpersonationToken)
 async def sign_in_as_tenant(
     tenant_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_master_admin()),
 ):
     tenant = await tenant_service.get_tenant(db, tenant_id)

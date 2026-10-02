@@ -26,7 +26,7 @@ async def list_environment_tiers(
     response: Response,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(ENVIRONMENT_TIER_SORTS, default="display_order")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Every tier for the tenant. Readable by any member — every environment
@@ -43,7 +43,7 @@ async def list_environment_tiers(
 )
 async def create_environment_tier(
     data: EnvironmentTierCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_tier_service.create_tier(
@@ -54,7 +54,7 @@ async def create_environment_tier(
 @router.get("/{tier_id}", response_model=EnvironmentTierResponse)
 async def get_environment_tier(
     tier_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_tier_service.get_tier(
@@ -66,7 +66,7 @@ async def get_environment_tier(
 async def update_environment_tier(
     tier_id: int,
     data: EnvironmentTierUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_tier_service.update_tier(
@@ -77,7 +77,7 @@ async def update_environment_tier(
 @router.delete("/{tier_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment_tier(
     tier_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_tier_service.delete_tier(

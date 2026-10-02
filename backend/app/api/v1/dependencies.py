@@ -59,7 +59,7 @@ async def list_system_dependencies(
     system_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     rows, total = await dependency_service.list_system_dependencies(
@@ -91,7 +91,7 @@ async def list_system_dependencies(
 async def create_system_dependency(
     system_id: int,
     data: SystemDependencyCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.create_system_dependency(
@@ -118,7 +118,7 @@ async def create_system_dependency(
 async def delete_system_dependency(
     system_id: int,
     dep_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await dependency_service.delete_system_dependency(
@@ -134,7 +134,7 @@ async def update_system_dependency(
     system_id: int,
     dep_id: int,
     data: SystemDependencyUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.update_system_dependency(
@@ -167,7 +167,7 @@ async def list_component_dependencies(
     subsystem_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     rows, total = await dependency_service.list_component_dependencies(
@@ -185,7 +185,7 @@ async def list_component_dependencies(
 async def create_component_dependency(
     subsystem_id: int,
     data: ComponentDependencyCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.create_component_dependency(
@@ -201,7 +201,7 @@ async def create_component_dependency(
 async def delete_component_dependency(
     subsystem_id: int,
     dep_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await dependency_service.delete_component_dependency(
@@ -217,7 +217,7 @@ async def update_component_dependency(
     subsystem_id: int,
     dep_id: int,
     data: ComponentDependencyUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.update_component_dependency(
@@ -240,7 +240,7 @@ async def create_component_endpoint(
     subsystem_id: int,
     dep_id: int,
     data: ComponentEndpointCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.create_component_endpoint(
@@ -258,7 +258,7 @@ async def update_component_endpoint(
     dep_id: int,
     endpoint_id: int,
     data: ComponentEndpointUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.update_component_endpoint(
@@ -275,7 +275,7 @@ async def delete_component_endpoint(
     subsystem_id: int,
     dep_id: int,
     endpoint_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     dep = await dependency_service.delete_component_endpoint(

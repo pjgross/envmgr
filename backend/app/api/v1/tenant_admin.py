@@ -27,7 +27,7 @@ router = APIRouter()
 
 @router.get("/settings", response_model=TenantResponse)
 async def get_settings(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await tenant_service.get_tenant(db, current_user.active_tenant_id)
@@ -36,7 +36,7 @@ async def get_settings(
 @router.patch("/settings", response_model=TenantResponse)
 async def update_settings(
     data: TenantAdminSettings,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await tenant_service.update_tenant(
@@ -48,7 +48,7 @@ async def update_settings(
 async def list_users(
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     rows, total = await user_admin_service.list_users(
@@ -70,7 +70,7 @@ async def list_users_lite(
     # that does exceed it needs a type-to-search picker, not a bigger number —
     # recorded as the follow-on in docs/pagination.md.
     page: Page = Depends(pagination(default_limit=1000, max_limit=5000)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Minimal {id, username} list for assignee pickers. Open to any tenant member."""
@@ -96,7 +96,7 @@ async def list_users_lite(
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     data: UserAdminCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.create_user_in_tenant(db, current_user.active_tenant_id, data)
@@ -105,7 +105,7 @@ async def create_user(
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.get_user(db, user_id, current_user.active_tenant_id)
@@ -115,7 +115,7 @@ async def get_user(
 async def update_user(
     user_id: int,
     data: UserAdminUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.update_user(db, user_id, current_user.active_tenant_id, data)
@@ -125,7 +125,7 @@ async def update_user(
 async def set_user_role(
     user_id: int,
     data: UserRoleUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.set_user_role(db, user_id, current_user.active_tenant_id, data.role)
@@ -134,7 +134,7 @@ async def set_user_role(
 @router.post("/users/{user_id}/deactivate", response_model=UserResponse)
 async def deactivate_user(
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.deactivate_user(db, user_id, current_user.active_tenant_id)
@@ -143,14 +143,14 @@ async def deactivate_user(
 @router.post("/users/{user_id}/reactivate", response_model=UserResponse)
 async def reactivate_user(
     user_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await user_admin_service.reactivate_user(db, user_id, current_user.active_tenant_id)
 
 @router.get("/scope-change-rules", response_model=list[ScopeChangeKindRuleRead])
 async def get_scope_change_rules(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Return all scope-change-kind rules for the current tenant."""
@@ -161,7 +161,7 @@ async def get_scope_change_rules(
 
 @router.get("/scope-change-rules/kinds", response_model=list[str])
 async def get_scope_change_kinds(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """List of active change_kind names for the tenant. Open to any tenant
@@ -176,7 +176,7 @@ async def get_scope_change_kinds(
 @router.put("/scope-change-rules", response_model=list[ScopeChangeKindRuleRead])
 async def upsert_scope_change_rules(
     data: ScopeChangeKindRulesUpsertPayload,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Upsert the scope-change-kind rules. Body carries the full set."""

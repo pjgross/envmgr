@@ -26,7 +26,7 @@ router = APIRouter()
 )
 async def systems_rollup(
     enterprise_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     return await enterprise_rollup_service.systems_rollup(
@@ -46,7 +46,7 @@ async def scope_rollup(
     project_release_id: Optional[int] = None,
     system_id: Optional[int] = None,
     search: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
     page: Page = Depends(pagination()),
 ):
@@ -66,7 +66,7 @@ async def scope_rollup(
 )
 async def timeline_rollup(
     enterprise_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     return await enterprise_rollup_service.timeline_rollup(
@@ -80,7 +80,7 @@ async def timeline_rollup(
 )
 async def members_rollup(
     enterprise_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     return await enterprise_rollup_service.members_rollup(
@@ -94,7 +94,7 @@ async def members_rollup(
 )
 async def raid_rollup(
     enterprise_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     tenant_id = user.active_tenant_id
@@ -112,7 +112,7 @@ async def raid_rollup(
 )
 async def enterprise_report(
     enterprise_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     return await enterprise_report_service.generate_report(

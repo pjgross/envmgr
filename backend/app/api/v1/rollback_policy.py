@@ -23,7 +23,7 @@ router = APIRouter()
 
 @router.get("/rollback-policy", response_model=RollbackPolicyRead)
 async def get_rollback_policy(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """This tenant's rollback policy, defaulted if never configured."""
@@ -35,7 +35,7 @@ async def get_rollback_policy(
 @router.put("/rollback-policy", response_model=RollbackPolicyRead)
 async def update_rollback_policy(
     data: RollbackPolicyUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Patch semantics: an omitted key leaves that setting alone."""

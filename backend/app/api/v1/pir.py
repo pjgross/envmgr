@@ -61,7 +61,7 @@ async def _hydrate(db: AsyncSession, tenant_id: int, pir):
 @router.get("/{release_id}/pir", response_model=PIRResponse | None)
 async def get_pir(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -72,7 +72,7 @@ async def get_pir(
 async def create_pir(
     release_id: int,
     data: PIRCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -84,7 +84,7 @@ async def create_pir(
 async def update_pir(
     release_id: int,
     data: PIRUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -95,7 +95,7 @@ async def update_pir(
 @router.delete("/{release_id}/pir", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_pir(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await pir_service.delete(db, current_user.active_tenant_id, release_id)
@@ -107,7 +107,7 @@ async def delete_pir(
 async def create_finding(
     release_id: int,
     data: PirFindingCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -121,7 +121,7 @@ async def update_finding(
     release_id: int,
     finding_id: int,
     data: PirFindingUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -135,7 +135,7 @@ async def update_finding(
 async def delete_finding(
     release_id: int,
     finding_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -151,7 +151,7 @@ async def create_action(
     release_id: int,
     finding_id: int,
     data: PirActionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -168,7 +168,7 @@ async def update_action(
     finding_id: int,
     action_id: int,
     data: PirActionUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -185,7 +185,7 @@ async def delete_action(
     release_id: int,
     finding_id: int,
     action_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -202,7 +202,7 @@ async def cite_incident(
     release_id: int,
     finding_id: int,
     data: PirCitationCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Cite an incident as evidence for a finding.
@@ -225,7 +225,7 @@ async def uncite_incident(
     release_id: int,
     finding_id: int,
     incident_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id

@@ -89,7 +89,7 @@ async def list_environments(
     search: Optional[str] = None,
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(ENVIRONMENT_SORTS, default="name")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     views, total = await environment_service.list_environments(
@@ -115,7 +115,7 @@ async def list_environments(
 @router.post("/", response_model=EnvironmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_environment(
     data: EnvironmentCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     env = await environment_service.create_environment(
@@ -134,7 +134,7 @@ async def create_environment(
 async def compare_environments_endpoint(
     left: int = Query(..., description="Left-hand environment id"),
     right: int = Query(..., description="Right-hand environment id"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Symmetric diff of two environments.
@@ -157,7 +157,7 @@ async def compare_environments_endpoint(
 @router.get("/{env_id}", response_model=EnvironmentResponse)
 async def get_environment(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return EnvironmentResponse.from_view(
@@ -171,7 +171,7 @@ async def get_environment(
 async def update_environment(
     env_id: int,
     data: EnvironmentUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_service.update_environment(
@@ -188,7 +188,7 @@ async def update_environment(
 async def update_environment_handover(
     env_id: int,
     data: EnvironmentHandoverUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The Welcome Pack's content, authored by the team that operates this
@@ -206,7 +206,7 @@ async def update_environment_handover(
 @router.delete("/{env_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_service.delete_environment(db, env_id, current_user.active_tenant_id)
@@ -215,7 +215,7 @@ async def delete_environment(
 @router.get("/{env_id}/verify", response_model=VerifyResponse)
 async def verify_environment(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_service.verify_environment(
@@ -228,7 +228,7 @@ async def get_environment_schedule(
     env_id: int,
     start_date: datetime = Query(..., description="Window start (inclusive)"),
     end_date: datetime = Query(..., description="Window end (exclusive)"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Unified schedule for `env_id`: bookings + change requests overlapping
@@ -251,7 +251,7 @@ async def get_environment_schedule(
 @router.get("/{env_id}/systems", response_model=EnvironmentSystemsResponse)
 async def list_systems_in_environment(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_system_service.list_systems_in_environment(
@@ -267,7 +267,7 @@ async def list_systems_in_environment(
 async def add_system_to_environment(
     env_id: int,
     data: EnvironmentSystemCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_system_service.add_system_to_environment(
@@ -280,7 +280,7 @@ async def update_system_in_environment(
     env_id: int,
     system_id: int,
     data: EnvironmentSystemUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_system_service.update_system_in_environment(
@@ -292,7 +292,7 @@ async def update_system_in_environment(
 async def remove_system_from_environment(
     env_id: int,
     system_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_system_service.remove_system_from_environment(
@@ -308,7 +308,7 @@ async def remove_system_from_environment(
 @router.get("/{env_id}/subsystems", response_model=list[EnvironmentSubsystemResponse])
 async def list_environment_subsystems(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_system_service.get_environment_subsystems(
@@ -321,7 +321,7 @@ async def update_environment_subsystem(
     env_id: int,
     subsystem_id: int,
     data: EnvironmentSubsystemUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_system_service.update_environment_subsystem(
@@ -341,7 +341,7 @@ async def update_environment_subsystem(
 async def list_env_subsystem_hosts(
     env_id: int,
     subsystem_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     hosts = await environment_system_service.list_env_subsystem_hosts(
@@ -358,7 +358,7 @@ async def set_env_subsystem_hosts(
     env_id: int,
     subsystem_id: int,
     attachments: list[HostAttachment],
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     hosts = await environment_system_service.set_env_subsystem_hosts(
@@ -375,7 +375,7 @@ async def set_env_subsystem_hosts(
 @router.get("/{env_id}/topology", response_model=EnvironmentTopologyResponse)
 async def get_environment_topology(
     env_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_service.get_environment_topology(
@@ -394,7 +394,7 @@ async def list_versions(
     response: Response,
     current_only: bool = False,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     versions, total = await version_service.list_versions(
@@ -412,7 +412,7 @@ async def list_versions(
 async def record_version(
     env_id: int,
     data: VersionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     version = await version_service.record_version(
@@ -426,7 +426,7 @@ async def update_version(
     env_id: int,
     version_id: int,
     data: VersionUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     version = await version_service.update_version(db, version_id, env_id, current_user.active_tenant_id, data)
@@ -437,7 +437,7 @@ async def update_version(
 async def delete_version(
     env_id: int,
     version_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await version_service.delete_version(db, version_id, env_id, current_user.active_tenant_id)
@@ -453,7 +453,7 @@ async def list_environment_usage_agreements(
     env_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """"Which projects have agreed to use this environment." A1 records these;
@@ -475,7 +475,7 @@ async def list_environment_groups_for_environment(
     env_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """"Which groups is this environment in." Answers the question a booking

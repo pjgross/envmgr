@@ -30,7 +30,7 @@ router = APIRouter()
 @router.get("/release-ready", response_model=ReleaseReadinessResponse)
 async def release_ready(
     release_id: int = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     api_key=Depends(api_key_auth(required_scope=WEBHOOKS_RELEASE)),
 ):
     return await release_readiness_service.evaluate(db, release_id, api_key.tenant_id)

@@ -35,7 +35,7 @@ async def list_raid(
     rag: Optional[str] = Query(None),
     overdue: Optional[bool] = Query(None),
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -53,7 +53,7 @@ async def list_raid(
 async def create_raid(
     release_id: int,
     data: RaidItemCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     tenant_id = current_user.active_tenant_id
@@ -65,7 +65,7 @@ async def create_raid(
 
 @router.get("/{release_id}/raid/summary", response_model=RaidSummaryRead)
 async def raid_summary(release_id: int,
-                       db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+                       db: AsyncSession = Depends(get_db, scope="function"), current_user=Depends(get_current_user)):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     cfg = await raid_config_service.get_or_seed_config(db, tenant_id)
@@ -75,7 +75,7 @@ async def raid_summary(release_id: int,
 @router.get("/{release_id}/raid/{item_id}", response_model=RaidItemRead)
 async def get_raid(
     release_id: int, item_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -90,7 +90,7 @@ async def get_raid(
 @router.patch("/{release_id}/raid/{item_id}", response_model=RaidItemRead)
 async def update_raid(
     release_id: int, item_id: int, data: RaidItemUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     tenant_id = current_user.active_tenant_id
@@ -107,7 +107,7 @@ async def update_raid(
              status_code=status.HTTP_201_CREATED)
 async def promote_raid(
     release_id: int, item_id: int, data: RaidPromotePayload,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     tenant_id = current_user.active_tenant_id
@@ -121,7 +121,7 @@ async def promote_raid(
 @router.delete("/{release_id}/raid/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_raid(
     release_id: int, item_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     tenant_id = current_user.active_tenant_id
@@ -133,7 +133,7 @@ async def delete_raid(
 
 @router.get("/{release_id}/raid/{item_id}/links", response_model=RaidLinksRead)
 async def get_raid_links(release_id: int, item_id: int,
-                         db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+                         db: AsyncSession = Depends(get_db, scope="function"), current_user=Depends(get_current_user)):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     return await raid_service.get_links(db, item_id, tenant_id)
@@ -142,7 +142,7 @@ async def get_raid_links(release_id: int, item_id: int,
 @router.post("/{release_id}/raid/{item_id}/scope-links", response_model=RaidLinksRead,
              status_code=status.HTTP_201_CREATED)
 async def add_raid_scope_link(release_id: int, item_id: int, data: RaidScopeLinkPayload,
-                              db: AsyncSession = Depends(get_db), current_user=Depends(require_tenant_admin())):
+                              db: AsyncSession = Depends(get_db, scope="function"), current_user=Depends(require_tenant_admin())):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     await raid_service.add_scope_link(db, release_id, item_id, data.release_change_id, tenant_id)
@@ -152,7 +152,7 @@ async def add_raid_scope_link(release_id: int, item_id: int, data: RaidScopeLink
 @router.delete("/{release_id}/raid/{item_id}/scope-links/{release_change_id}",
                status_code=status.HTTP_204_NO_CONTENT)
 async def remove_raid_scope_link(release_id: int, item_id: int, release_change_id: int,
-                                 db: AsyncSession = Depends(get_db), current_user=Depends(require_tenant_admin())):
+                                 db: AsyncSession = Depends(get_db, scope="function"), current_user=Depends(require_tenant_admin())):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     await raid_service.remove_scope_link(db, item_id, release_change_id, tenant_id)
@@ -161,7 +161,7 @@ async def remove_raid_scope_link(release_id: int, item_id: int, release_change_i
 @router.post("/{release_id}/raid/{item_id}/relations", response_model=RaidLinksRead,
              status_code=status.HTTP_201_CREATED)
 async def add_raid_relation(release_id: int, item_id: int, data: RaidRelationPayload,
-                            db: AsyncSession = Depends(get_db), current_user=Depends(require_tenant_admin())):
+                            db: AsyncSession = Depends(get_db, scope="function"), current_user=Depends(require_tenant_admin())):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     await raid_service.add_relation(db, item_id, data.to_item_id, data.relation, tenant_id)
@@ -172,7 +172,7 @@ async def add_raid_relation(release_id: int, item_id: int, data: RaidRelationPay
                status_code=status.HTTP_204_NO_CONTENT)
 async def remove_raid_relation(release_id: int, item_id: int,
                                to_item_id: int = Query(...), relation: str = Query(...),
-                               db: AsyncSession = Depends(get_db), current_user=Depends(require_tenant_admin())):
+                               db: AsyncSession = Depends(get_db, scope="function"), current_user=Depends(require_tenant_admin())):
     tenant_id = current_user.active_tenant_id
     await _require_release(db, release_id, tenant_id)
     await raid_service.remove_relation(db, item_id, to_item_id, relation, tenant_id)

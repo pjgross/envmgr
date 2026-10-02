@@ -26,7 +26,7 @@ async def can_deploy(
     subsystem_slug: str = Query(...),
     release_id: int | None = Query(None),
     booking_id: int | None = Query(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     api_key=Depends(api_key_auth(required_scope=WEBHOOKS_DEPLOYMENT)),
 ):
     return await preflight_service.evaluate(

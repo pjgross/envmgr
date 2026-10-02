@@ -236,7 +236,7 @@ async def list_bookings(
     ),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(BOOKING_SORTS, default="start_date")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     if (start is None) != (end is None):
@@ -299,7 +299,7 @@ async def list_bookings(
 @router.post("/", response_model=BookingCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_booking(
     data: BookingCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     now = datetime.now(timezone.utc)
@@ -326,7 +326,7 @@ async def create_booking(
 @router.get("/contention-horizon")
 async def get_contention_horizon(
     weeks: int = Query(6, ge=1, le=104),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """B6 — the leading-indicator count: "N contentions in the next N weeks".
@@ -346,7 +346,7 @@ async def get_contention_horizon(
 @router.get("/{booking_id}", response_model=BookingResponse)
 async def get_booking(
     booking_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.get_booking(db, booking_id, current_user.active_tenant_id)
@@ -390,7 +390,7 @@ async def get_booking(
 async def update_standard_fields(
     booking_id: int,
     values: dict = Body(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     now = datetime.now(timezone.utc)
@@ -424,7 +424,7 @@ async def update_standard_fields(
 async def transition_booking_state(
     booking_id: int,
     data: BookingTransitionRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     booking = await booking_service.transition_state(db, booking_id, data.to_state, current_user, data.notes)
@@ -448,7 +448,7 @@ async def transition_booking_state(
 @router.get("/{booking_id}/history", response_model=list[BookingStatusHistoryResponse])
 async def get_booking_history(
     booking_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await booking_service.get_status_history(db, booking_id, current_user.active_tenant_id)
@@ -457,7 +457,7 @@ async def get_booking_history(
 @router.get("/{booking_id}/allowed-transitions", response_model=list[AllowedTransitionResponse])
 async def get_allowed_transitions_for_booking(
     booking_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await booking_service.get_booking_allowed_transitions(db, booking_id, current_user)
@@ -467,7 +467,7 @@ async def get_allowed_transitions_for_booking(
 async def ack_agreement_gap(
     booking_id: int,
     data: AgreementGapAckUpsert,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Acknowledge this booking's usage-agreement gap.
@@ -490,7 +490,7 @@ async def ack_agreement_gap(
 @router.delete("/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_series(
     booking_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await booking_service.delete_series(db, booking_id, current_user)
@@ -499,7 +499,7 @@ async def delete_series(
 @router.delete("/{booking_id}/occurrence", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_occurrence(
     booking_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await booking_service.delete_occurrence(db, booking_id, current_user)

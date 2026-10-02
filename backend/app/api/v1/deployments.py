@@ -79,7 +79,7 @@ async def list_deployments(
     release_search: Optional[str] = Query(None),
     page: Page = Depends(pagination(default_limit=100, max_limit=500)),
     sort: Sort = Depends(sorting(DEPLOYMENT_SORTS, default="deployed_at", default_dir="desc")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     q = _select_with_joins().where(
@@ -114,7 +114,7 @@ async def list_deployments(
 @router.get("/{deployment_id}", response_model=DeploymentRead)
 async def get_deployment(
     deployment_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     row = (await db.execute(
@@ -134,7 +134,7 @@ async def get_deployment(
 async def link_change(
     deployment_id: int,
     body: DeploymentLinkChangeRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -187,7 +187,7 @@ async def list_environment_deployments(
     environment_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     q = _select_with_joins().where(

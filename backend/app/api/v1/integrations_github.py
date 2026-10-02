@@ -37,7 +37,7 @@ class DisconnectResult(BaseModel):
 
 @router.get("", response_model=IntegrationStatus)
 async def github_status(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Never returns the token — only whether one is held, and whose it is."""
@@ -46,7 +46,7 @@ async def github_status(
 
 @router.post("/connect", response_model=ConnectStarted)
 async def github_connect(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     try:
@@ -62,7 +62,7 @@ async def github_connect(
 @router.post("/connect/{handle}/poll", response_model=PollResult)
 async def github_connect_poll(
     handle: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     try:
@@ -79,7 +79,7 @@ async def github_connect_poll(
 
 @router.delete("", response_model=DisconnectResult)
 async def github_disconnect(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """Local only. GitHub's own grant is unaffected — the UI must say so."""

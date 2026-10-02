@@ -19,7 +19,7 @@ router = APIRouter(prefix="/environments", tags=["environment-health"])
 async def push_health(
     env_id: int,
     data: HealthSampleCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     key=Depends(api_key_auth("environment:health")),
 ):
     """Push a health sample for an environment (authenticated via API key)."""
@@ -36,7 +36,7 @@ async def health_history(
     # most) rather than adopting the shared 500/1000: a health timeline is read
     # by a human, and 500 samples is already more than one can take in.
     page: Page = Depends(pagination(default_limit=50, max_limit=500)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return health history for a single environment, newest first (JWT auth)."""
@@ -49,7 +49,7 @@ async def health_history(
 async def health_overview(
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return the health overview for all non-decommissioned environments in the tenant (JWT auth)."""

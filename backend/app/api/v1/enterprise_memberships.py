@@ -91,7 +91,7 @@ async def _hydrate_reads(
 async def request_membership(
     enterprise_id: int,
     body: ReleaseMembershipCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     m = await enterprise_membership_service.request_membership(
@@ -113,7 +113,7 @@ async def list_memberships(
     response: Response,
     states: Optional[str] = Query(None, description="CSV of states"),
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     state_list = [s.strip() for s in states.split(",")] if states else None
@@ -135,7 +135,7 @@ async def list_memberships(
 async def accept_membership(
     enterprise_id: int,
     membership_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     m = await enterprise_membership_service.accept(
@@ -154,7 +154,7 @@ async def reject_membership(
     enterprise_id: int,
     membership_id: int,
     body: MembershipRejectRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     m = await enterprise_membership_service.reject(
@@ -173,7 +173,7 @@ async def reject_membership(
 async def withdraw_membership(
     enterprise_id: int,
     membership_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     m = await enterprise_membership_service.withdraw(
@@ -192,7 +192,7 @@ async def remove_membership(
     enterprise_id: int,
     membership_id: int,
     body: MembershipRemoveRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     m = await enterprise_membership_service.remove(
@@ -212,7 +212,7 @@ async def project_membership_view(
     project_release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     user=Depends(get_current_user),
 ):
     current = await enterprise_membership_service.get_current_membership_for_project(

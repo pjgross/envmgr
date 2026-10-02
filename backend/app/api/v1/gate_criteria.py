@@ -72,7 +72,7 @@ async def create_criterion(
     release_id: int,
     gate_id: int,
     data: GateCriterionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -93,7 +93,7 @@ async def create_criterion(
 async def list_criteria(
     release_id: int,
     gate_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -115,7 +115,7 @@ async def list_criteria(
 )
 async def list_overdue(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -135,7 +135,7 @@ async def list_overdue(
 async def update_criterion(
     criterion_id: int,
     data: GateCriterionUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -148,7 +148,7 @@ async def update_criterion(
 @router.post("/{criterion_id}/complete", response_model=GateCriterionRead)
 async def complete_criterion(
     criterion_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -164,7 +164,7 @@ async def complete_criterion(
 @router.post("/{criterion_id}/reopen", response_model=GateCriterionRead)
 async def reopen_criterion(
     criterion_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -178,7 +178,7 @@ async def reopen_criterion(
 @router.delete("/{criterion_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_criterion(
     criterion_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id

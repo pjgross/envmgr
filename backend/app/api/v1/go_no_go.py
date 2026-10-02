@@ -48,7 +48,7 @@ async def _condition_read(
 async def close_condition(
     condition_id: int,
     data: GoNoGoConditionClose,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Close (`met=True`) or reopen (`met=False`) one condition.
@@ -72,7 +72,7 @@ async def close_condition(
 @perspectives_router.get("", response_model=list[GoNoGoPerspectiveRead])
 async def list_perspectives(
     include_inactive: bool = True,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Reads are open to ANY tenant member; only writes are Admin — the same
@@ -87,7 +87,7 @@ async def list_perspectives(
 )
 async def create_perspective(
     data: GoNoGoPerspectiveCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await go_no_go_service.create_perspective(db, current_user.active_tenant_id, data)
@@ -97,7 +97,7 @@ async def create_perspective(
 async def update_perspective(
     perspective_id: int,
     data: GoNoGoPerspectiveUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await go_no_go_service.update_perspective(

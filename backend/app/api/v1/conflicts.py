@@ -28,7 +28,7 @@ router = APIRouter(prefix="/bookings", tags=["conflicts"])
 async def list_conflicts(
     booking_id: int,
     response: Response,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
     page: Page = Depends(pagination()),
 ):
@@ -146,7 +146,7 @@ async def ack_conflict(
     booking_id: int,
     other_id: int,
     data: ConflictAckUpsert,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     ack = await conflict_service.upsert_ack(
@@ -167,7 +167,7 @@ async def list_received_feedback(
     booking_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user = Depends(get_current_user),
 ):
     rows, total = await conflict_service.list_received_feedback(

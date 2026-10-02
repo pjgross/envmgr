@@ -49,7 +49,7 @@ async def _record_and_commit_failure(db: AsyncSession, credentials: UserLogin, c
 async def login(
     credentials: UserLogin,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Exchange credentials for a short-lived access token and a refresh token."""
     client_ip = _client_ip(request)
@@ -126,7 +126,7 @@ async def login(
 async def refresh_session(
     payload: RefreshRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Exchange a refresh token for a new access token and a new refresh token.
 
@@ -173,7 +173,7 @@ async def refresh_session(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     payload: RefreshRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(get_current_user),
 ) -> Response:
     """End this session.

@@ -230,7 +230,7 @@ async def list_releases(
     ),
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(RELEASE_SORTS, default="created_at", default_dir="desc")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -410,7 +410,7 @@ async def list_releases(
 @router.post("", response_model=ReleaseRead, status_code=status.HTTP_201_CREATED)
 async def create_release(
     data: ReleaseCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -435,7 +435,7 @@ async def get_releases_calendar(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     page: Page = Depends(pagination(default_limit=500, max_limit=1000)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return releases formatted for FullCalendar consumption.
@@ -480,7 +480,7 @@ async def get_releases_timeline(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     page: Page = Depends(pagination(default_limit=500, max_limit=1000)),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return releases with their test phases for Gantt / timeline rendering.
@@ -584,7 +584,7 @@ async def get_releases_timeline(
 async def get_scope_churn_analytics(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Correlate scope change with delays/issues across shipped project releases."""
@@ -597,7 +597,7 @@ async def get_scope_churn_analytics(
 @router.get("/{release_id}", response_model=ReleaseRead)
 async def get_release(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return a single release with field_permissions attached for the caller's role."""
@@ -610,7 +610,7 @@ async def get_release(
 async def update_release(
     release_id: int,
     data: ReleaseUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -623,7 +623,7 @@ async def update_release(
 @router.delete("/{release_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_release(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await release_service.delete_release(
@@ -635,7 +635,7 @@ async def delete_release(
 async def transition_release(
     release_id: int,
     data: ReleaseTransition,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -654,7 +654,7 @@ async def transition_release(
 @router.get("/{release_id}/lifecycle")
 async def get_release_lifecycle(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return the lifecycle template (including definition JSON) for a release.
@@ -685,7 +685,7 @@ async def get_release_history(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return lifecycle state-change history for a release."""
@@ -699,7 +699,7 @@ async def get_release_history(
 @router.get("/{release_id}/readiness", response_model=ReleaseReadinessResponse)
 async def get_release_readiness(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The UI half of C2's gate readiness verdict — calls the SAME
@@ -723,7 +723,7 @@ async def get_release_readiness(
 @router.get("/{release_id}/phases", response_model=list[TestPhaseRead])
 async def list_phases(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -744,7 +744,7 @@ async def list_phases(
 async def create_phase(
     release_id: int,
     data: TestPhaseCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -770,7 +770,7 @@ async def create_phase(
 async def update_phase(
     phase_id: int,
     data: TestPhaseUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -789,7 +789,7 @@ async def update_phase(
 @phases_router.delete("/{phase_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_phase(
     phase_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     from datetime import timezone
@@ -804,7 +804,7 @@ async def delete_phase(
 @router.get("/{release_id}/gates", response_model=list[ReleaseGateRead])
 async def list_gates(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -816,7 +816,7 @@ async def list_gates(
 async def create_gate(
     release_id: int,
     data: ReleaseGateCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -833,7 +833,7 @@ async def create_gate(
 async def update_gate(
     gate_id: int,
     data: ReleaseGateUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -850,7 +850,7 @@ async def update_gate(
 @gates_router.delete("/{gate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_gate(
     gate_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await release_gate_service.delete_gate(db, gate_id, current_user.active_tenant_id)
@@ -860,7 +860,7 @@ async def delete_gate(
 async def pass_gate(
     gate_id: int,
     data: ReleaseGateDecision = ReleaseGateDecision(),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -877,7 +877,7 @@ async def pass_gate(
 async def fail_gate(
     gate_id: int,
     data: ReleaseGateDecision = ReleaseGateDecision(),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -892,7 +892,7 @@ async def fail_gate(
 async def override_gate(
     gate_id: int,
     data: ReleaseGateDecision,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -943,7 +943,7 @@ def _evidence_to_read(row, is_stale: bool) -> GateEvidenceRead:
 @gates_router.get("/{gate_id}/evidence", response_model=list[GateEvidenceRead])
 async def list_gate_evidence(
     gate_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     rows = await gate_evidence_service.list_evidence(
@@ -962,7 +962,7 @@ async def list_gate_evidence(
 async def add_gate_evidence(
     gate_id: int,
     data: GateEvidenceCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     row = await gate_evidence_service.add_evidence(
@@ -981,7 +981,7 @@ async def add_gate_evidence(
 @gates_router.delete("/evidence/{evidence_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_gate_evidence(
     evidence_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await gate_evidence_service.delete_evidence(
@@ -996,7 +996,7 @@ async def list_release_systems(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1016,7 +1016,7 @@ async def list_release_systems(
 @router.get("/{release_id}/environment-coverage", response_model=ReleaseEnvironmentCoverageRead)
 async def get_environment_coverage(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Which environments host the systems this release must test (Changing +
@@ -1102,7 +1102,7 @@ async def get_environment_coverage(
 async def add_release_system(
     release_id: int,
     data: ReleaseSystemCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     from app.db.models.release_system import ReleaseSystem
@@ -1149,7 +1149,7 @@ async def add_release_system(
 @release_systems_router.delete("/{rs_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_release_system(
     rs_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     from app.db.models.release_system import ReleaseSystem
@@ -1175,7 +1175,7 @@ async def list_dependencies(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1191,7 +1191,7 @@ async def list_dependencies(
 async def create_dependency(
     release_id: int,
     data: ReleaseDependencyCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1202,7 +1202,7 @@ async def create_dependency(
 @release_deps_router.delete("/{dep_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dependency(
     dep_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await release_dependency_service.delete_dependency(
@@ -1213,7 +1213,7 @@ async def delete_dependency(
 @router.get("/{release_id}/dependency-alerts", response_model=list[ReleaseDependencyAlert])
 async def get_dependency_alerts(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1227,7 +1227,7 @@ async def get_dependency_alerts(
 async def acknowledge_dependency_alert(
     release_id: int,
     dep_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1242,7 +1242,7 @@ async def list_events(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1258,7 +1258,7 @@ async def list_events(
 async def create_event(
     release_id: int,
     data: ReleaseEventCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1273,7 +1273,7 @@ async def list_changes(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1298,7 +1298,7 @@ async def list_changes(
 async def create_change(
     release_id: int,
     data: ReleaseChangeCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1310,7 +1310,7 @@ async def create_change(
 async def import_scope(
     release_id: int,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     from app.services import scope_import_service
@@ -1322,7 +1322,7 @@ async def import_scope(
 
 @router.get("/scope/import-template")
 async def scope_import_template(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     import openpyxl
@@ -1353,7 +1353,7 @@ async def scope_import_template(
 async def update_change(
     change_id: int,
     data: ReleaseChangeUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_scope_service.update_change(
@@ -1364,7 +1364,7 @@ async def update_change(
 @release_changes_router.delete("/{change_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_change(
     change_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     await release_scope_service.delete_change(
@@ -1377,7 +1377,7 @@ async def list_changes_flat(
     response: Response,
     backlog: bool = Query(False, description="If true, return unassigned scope items (release_id IS NULL)"),
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Flat list — primarily the backlog view. Per-release listing is under
@@ -1394,7 +1394,7 @@ async def list_changes_flat(
 async def move_change(
     change_id: int,
     data: ReleaseChangeMovePayload,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Move a scope item to another release, or to the backlog (release_id=null).
@@ -1415,7 +1415,7 @@ async def move_change(
 )
 async def get_release_history(
     change_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_scope_service.list_release_history(
@@ -1429,7 +1429,7 @@ async def get_release_history(
 )
 async def get_status_history(
     change_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await release_scope_service.list_status_history(
@@ -1458,7 +1458,7 @@ async def list_release_bookings(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return bookings linked to this release."""
@@ -1507,7 +1507,7 @@ async def list_release_bookings(
 async def create_release_booking(
     release_id: int,
     data: ReleaseBookingRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Create a booking linked to this release (and optionally a test phase)."""
@@ -1543,7 +1543,7 @@ async def create_release_booking(
 async def bulk_book_release_environments(
     release_id: int,
     data: ReleaseBulkBookingRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Book several environments for a release in one flow; environments with an
@@ -1574,7 +1574,7 @@ async def list_linked_crs(
     release_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Return change requests whose release_id points to this release."""
@@ -1607,7 +1607,7 @@ async def list_linked_crs(
 async def link_cr_to_release(
     release_id: int,
     cr_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Set ChangeRequest.release_id = release_id for the given CR."""
@@ -1633,7 +1633,7 @@ async def link_cr_to_release(
 async def unlink_cr_from_release(
     release_id: int,
     cr_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Clear ChangeRequest.release_id for the given CR."""
@@ -1672,7 +1672,7 @@ async def unlink_cr_from_release(
 @router.get("/{release_id}/rollback-plans", response_model=list[RollbackPlanRead])
 async def list_rollback_plans(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1684,7 +1684,7 @@ async def list_rollback_plans(
 async def upsert_rollback_plan(
     release_id: int,
     data: RollbackPlanCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1701,7 +1701,7 @@ async def upsert_rollback_plan(
 async def agree_rollback_plan(
     release_id: int,
     plan_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1719,7 +1719,7 @@ async def agree_rollback_plan(
 async def delete_rollback_plan(
     release_id: int,
     plan_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1749,7 +1749,7 @@ async def delete_rollback_plan(
 )
 async def list_rollback_authorisations(
     release_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1769,7 +1769,7 @@ async def list_rollback_authorisations(
 async def create_rollback_authorisation(
     release_id: int,
     data: RollbackAuthorisationCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     tenant_id = current_user.active_tenant_id
@@ -1811,7 +1811,7 @@ GO_NO_GO_SORTS = {
 async def record_go_no_go_decision(
     release_id: int,
     data: GoNoGoDecisionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_role(Role.RELEASE_MANAGER)),
 ):
     """Admin or Release Manager — `require_role` already grants both (an
@@ -1837,7 +1837,7 @@ async def list_go_no_go_decisions(
     # docstring.
     page: Page = Depends(pagination(default_limit=50, max_limit=200)),
     sort: Sort = Depends(sorting(GO_NO_GO_SORTS, default="decided_at", default_dir="desc")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Any tenant member may read. `default_dir="desc"` is deliberate:

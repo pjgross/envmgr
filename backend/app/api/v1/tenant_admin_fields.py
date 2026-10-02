@@ -36,7 +36,7 @@ router = APIRouter()
 
 @router.get("/raid-config", response_model=RaidConfigRead)
 async def get_raid_config(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await raid_config_service.get_or_seed_config(db, current_user.active_tenant_id)
@@ -45,7 +45,7 @@ async def get_raid_config(
 @router.put("/raid-config", response_model=RaidConfigRead)
 async def update_raid_config(
     data: RaidConfigUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await raid_config_service.update_config(
@@ -59,7 +59,7 @@ async def update_raid_config(
 
 @router.get("/environment-naming-policy", response_model=EnvironmentNamingPolicyRead)
 async def get_environment_naming_policy(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     # Reads are open to any tenant member; only writes are Admin. The reason an
     # environment is flagged has to be legible to whoever must fix it — B3a's
     # rule, deliberately unlike /tenant/users, which really is admin-gated.
@@ -87,7 +87,7 @@ async def get_environment_naming_policy(
 @router.put("/environment-naming-policy", response_model=EnvironmentNamingPolicyRead)
 async def put_environment_naming_policy(
     data: EnvironmentNamingPolicyUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_compliance_service.upsert_policy(
@@ -107,7 +107,7 @@ async def put_environment_naming_policy(
 )
 async def preview_environment_naming_policy(
     data: EnvironmentNamingPolicyPreviewRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     """What a policy would do, before it does it.
@@ -141,7 +141,7 @@ async def preview_environment_naming_policy(
     "/environment-lifecycle-policy", response_model=EnvironmentLifecyclePolicyRead
 )
 async def get_environment_lifecycle_policy(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     # Reads open to any tenant member; only writes are Admin — same split as
     # the naming policy above and B3a's user groups.
     current_user=Depends(get_current_user),
@@ -156,7 +156,7 @@ async def get_environment_lifecycle_policy(
 )
 async def put_environment_lifecycle_policy(
     data: EnvironmentLifecyclePolicyUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_lifecycle_policy_service.upsert_policy(
@@ -171,7 +171,7 @@ async def put_environment_lifecycle_policy(
 @router.get("/decommission-steps", response_model=list[DecommissionStepRead])
 async def list_decommission_steps(
     active_only: bool = Query(False),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     return await environment_lifecycle_policy_service.list_steps(
@@ -186,7 +186,7 @@ async def list_decommission_steps(
 )
 async def create_decommission_step(
     data: DecommissionStepWrite,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_lifecycle_policy_service.create_step(
@@ -205,7 +205,7 @@ async def create_decommission_step(
 async def update_decommission_step(
     step_id: int,
     data: DecommissionStepWrite,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await environment_lifecycle_policy_service.update_step(
@@ -224,7 +224,7 @@ async def update_decommission_step(
 @router.delete("/decommission-steps/{step_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_decommission_step(
     step_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_lifecycle_policy_service.delete_step(
@@ -235,7 +235,7 @@ async def delete_decommission_step(
 @router.get("/fields", response_model=list[CustomFieldDefinitionResponse])
 async def list_fields(
     entity_type: str = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await custom_field_service.list_definitions(db, current_user.active_tenant_id, entity_type)
@@ -244,7 +244,7 @@ async def list_fields(
 @router.post("/fields", response_model=CustomFieldDefinitionResponse, status_code=status.HTTP_201_CREATED)
 async def create_field(
     data: CustomFieldDefinitionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await custom_field_service.create_definition(db, current_user.active_tenant_id, data)
@@ -254,7 +254,7 @@ async def create_field(
 async def update_field(
     field_id: int,
     data: CustomFieldDefinitionUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     return await custom_field_service.update_definition(db, current_user.active_tenant_id, field_id, data)
@@ -263,7 +263,7 @@ async def update_field(
 @router.delete("/fields/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_field(
     field_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await custom_field_service.delete_definition(db, current_user.active_tenant_id, field_id)

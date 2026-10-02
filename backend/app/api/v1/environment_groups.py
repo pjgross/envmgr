@@ -24,7 +24,7 @@ async def list_environment_groups(
     sort: Sort = Depends(
         sorting(environment_group_service.ENVIRONMENT_GROUP_SORTS, default="name")
     ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Readable by any tenant member — every booking form needs this picker."""
@@ -41,7 +41,7 @@ async def list_environment_groups(
 )
 async def create_environment_group(
     data: EnvironmentGroupCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     view = await environment_group_service.create_group(
@@ -53,7 +53,7 @@ async def create_environment_group(
 @router.get("/{group_id}", response_model=EnvironmentGroupResponse)
 async def get_environment_group(
     group_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     view = await environment_group_service.get_group_view(
@@ -66,7 +66,7 @@ async def get_environment_group(
 async def update_environment_group(
     group_id: int,
     data: EnvironmentGroupUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     view = await environment_group_service.update_group(
@@ -78,7 +78,7 @@ async def update_environment_group(
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment_group(
     group_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_group_service.delete_group(
@@ -96,7 +96,7 @@ async def list_group_members(
     group_id: int,
     response: Response,
     page: Page = Depends(pagination()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Readable by any tenant member — same split as the group CRUD."""
@@ -115,7 +115,7 @@ async def list_group_members(
 async def add_group_member(
     group_id: int,
     data: MemberCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     row = await environment_group_service.add_member(
@@ -130,7 +130,7 @@ async def add_group_member(
 async def remove_group_member(
     group_id: int,
     member_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(require_tenant_admin()),
 ):
     await environment_group_service.remove_member(

@@ -626,22 +626,20 @@ C6 made to `test_pir_records_never_refuses.py`. Spec:
   read and `_neighbours` now do the same, with a regression test that feeds a
   dependency edge referencing a task id outside the loaded set. Verified live
   afterwards: the same probe ran 150 iterations with no failure.
-- **B2 (PLATFORM, PRE-EXISTING, NOT FIXED APP-WIDE) — `get_db` COMMITS AFTER
-  THE RESPONSE IS ALREADY ON THE WIRE.** FastAPI 0.141's request-scoped
-  yield-dependency exit runs its post-yield code (`get_db`'s commit) *after*
-  `await response(scope, receive, send)` inside `request_response()`
-  (`fastapi/routing.py`), so a client can receive a 2xx and have its own very
-  next request race that commit and read pre-commit data — this is what bit
-  the live dev server as a transition's 200 coming back before its own write
-  had committed. **This is very likely the real explanation for CLAUDE.md's
-  PIR-sub-project note "A 'STALE RENDER' THAT WAS NOT REAL," which diagnosed
-  two occurrences as a dev-server HMR artifact** — that diagnosis has been
-  corrected in place rather than removed. Mitigated **for the runbook router
-  only**: every route in `app/api/v1/runbooks.py` uses `Depends(get_db,
-  scope="function")`, which closes the session before the response goes out,
-  for that router alone. The other **378** `Depends(get_db)` sites across the
-  rest of the application are unchanged; fixing them app-wide is surfaced to
-  the owner as separate work, deliberately not attempted inside C5a.
+- **B2 (PLATFORM, PRE-EXISTING; FIXED APP-WIDE 2026-10-02) — `get_db`
+  COMMITTED AFTER THE RESPONSE WAS ALREADY ON THE WIRE.** FastAPI 0.141's
+  request-scoped yield-dependency exit runs its post-yield code (`get_db`'s
+  commit) *after* `await response(scope, receive, send)` inside
+  `request_response()` (`fastapi/routing.py`), so a client could receive a 2xx
+  and have its own very next request read pre-commit data. **This is very
+  likely the real explanation for CLAUDE.md's PIR-sub-project note "A 'STALE
+  RENDER' THAT WAS NOT REAL"** — that diagnosis has been corrected in place.
+  C5a mitigated it for the runbook router only; on 2026-10-02 every
+  `Depends(get_db)` in the application became `Depends(get_db,
+  scope="function")`, guarded app-wide by
+  `tests/test_db_session_commits_before_response.py`. Measured on the dev
+  server: `POST /releases` → `GET /releases/{id}` missed the new release 113
+  of 200 times before, 0 of 200 after.
 - **THE BROWSER PASS PASSED EVERYTHING PLANNED EXCEPT ONE CHECK THAT COULD NOT
   RUN.** Built in the dev tenant with three teams, twelve tasks and two
   coordination points across a two-evening plan: the computed schedule; the

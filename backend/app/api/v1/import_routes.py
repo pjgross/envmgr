@@ -21,7 +21,7 @@ class DockerComposeImportResponse(BaseModel):
 @router.post("/environments", response_model=ImportResult)
 async def import_environments_endpoint(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(require_tenant_admin()),
 ):
     """Import environments from an Excel (.xlsx) file."""
@@ -40,7 +40,7 @@ async def import_environments_endpoint(
 @router.post("/systems", response_model=ImportResult)
 async def import_systems_endpoint(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(require_tenant_admin()),
 ):
     """Import systems from an Excel (.xlsx) file."""
@@ -56,7 +56,7 @@ async def import_docker_compose_endpoint(
     system_id: int = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(require_tenant_admin()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Import a docker-compose.yml file, creating/updating subsystems and dependencies."""
     from app.services.system_service import get_system
@@ -88,7 +88,7 @@ async def import_terraform_endpoint(
     system_id: int = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(require_tenant_admin()),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Import a .tfstate file, creating/updating SubSystems from Terraform resources.
     Note: Dependencies are not imported (tfstate has no explicit dependency graph)."""

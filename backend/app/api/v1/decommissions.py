@@ -128,7 +128,7 @@ async def list_decommission_worklist(
             default="scheduled_teardown_at",
         )
     ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The worklist: every decommission this tenant can see — live and
@@ -167,7 +167,7 @@ async def list_decommission_worklist(
 async def initiate_decommission(
     environment_id: int,
     data: DecommissionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     # One clock for the whole request: the stored row and its rendered state
@@ -196,7 +196,7 @@ async def initiate_decommission(
 )
 async def get_decommission(
     environment_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     now = datetime.now(timezone.utc)
@@ -222,7 +222,7 @@ async def get_decommission(
 async def request_decommission_extension(
     decommission_id: int,
     data: ExtensionRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The owner asking for more time. `get_decommission_by_id` is
@@ -247,7 +247,7 @@ async def request_decommission_extension(
 async def decide_decommission_extension(
     decommission_id: int,
     data: ExtensionDecision,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The operating team's answer — `assert_may_run`, deliberately not the
@@ -271,7 +271,7 @@ async def decide_decommission_extension(
 async def sign_decommission_attestation(
     decommission_id: int,
     data: AttestationCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The operating team confirming one checklist step happened —
@@ -295,7 +295,7 @@ async def sign_decommission_attestation(
 )
 async def tear_down_decommission(
     decommission_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """THE ONE ACTING ROUTE. Sets `environment.status = DECOMMISSIONED` and
@@ -331,7 +331,7 @@ async def tear_down_decommission(
 async def cancel_decommission(
     decommission_id: int,
     data: CancelRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """THE ESCAPE HATCH — always available to Admin. Sets only the three

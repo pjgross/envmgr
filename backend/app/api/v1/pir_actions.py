@@ -49,7 +49,7 @@ async def list_pir_actions(
     incident_id: Optional[int] = Query(None),
     page: Page = Depends(pagination()),
     sort: Sort = Depends(sorting(PIR_ACTION_SORTS, default="due_date")),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     # An unknown status is a 422, never a silently ignored filter: a page that

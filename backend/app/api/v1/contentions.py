@@ -56,7 +56,7 @@ async def escalate_contention(
     other_id: int,
     data: EscalationCreate,
     response: Response,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Ask a named person to decide this contention by a named date.
@@ -125,7 +125,7 @@ async def list_contention_escalations(
     sort: Sort = Depends(
         sorting(contention_service.ESCALATION_SORTS, default="respond_by")
     ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """The worklist: contentions somebody has been asked to decide.
@@ -169,7 +169,7 @@ async def list_contention_escalations(
 async def decide_contention(
     escalation_id: int,
     data: EscalationDecision,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     """Record which booking a human said should give way. AND NOTHING ELSE.

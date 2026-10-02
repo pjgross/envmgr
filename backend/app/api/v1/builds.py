@@ -64,7 +64,7 @@ async def list_builds(
     sort: Sort = Depends(
         sorting(BUILD_SORTS, default="commit_timestamp", default_dir="desc")
     ),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     q = (
@@ -97,7 +97,7 @@ async def list_builds(
 @router.get("/{build_id}", response_model=BuildRead)
 async def get_build(
     build_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user=Depends(get_current_user),
 ):
     row = (await db.execute(
